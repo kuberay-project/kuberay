@@ -45,6 +45,11 @@
 
 .ipynb_checkpoints
 
+# Python virtual environments
+.venv/
+venv/
+__pycache__/
+
 # Any file with a .backup extension
 **/*.backup
 
