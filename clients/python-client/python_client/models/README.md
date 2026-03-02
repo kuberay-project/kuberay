@@ -36,7 +36,7 @@ cluster = ClusterBuilder() \
 
 ## Regenerating Models
 
-When CRDs are updated, regenerate the Python models:
+When CRDs are updated, regenerate the Python models using the generation script.
 
 ### Prerequisites
 
@@ -47,27 +47,14 @@ pip install pyyaml datamodel-code-generator
 ### Generate from CRD
 
 ```bash
-# Run from repo root
-python3 -c "
-import yaml, json, sys
-with open('ray-operator/config/crd/bases/ray.io_rayjobs.yaml') as f:
-    schema = yaml.safe_load(f)['spec']['versions'][0]['schema']['openAPIV3Schema']
-json.dump(schema, sys.stdout)
-" | datamodel-codegen \
-    --input-file-type jsonschema \
-    --output clients/python-client/python_client/models/generated_rayjob_models.py \
-    --output-model-type pydantic_v2.BaseModel \
-    --use-standard-collections \
-    --use-union-operator \
-    --field-constraints \
-    --reuse-model \
-    --collapse-reuse-models \
-    --class-name RayJob
+# From repo root
+python clients/python-client/scripts/generate_models.py
 ```
 
-Key flags:
-- `--reuse-model`: Reuse identical model definitions instead of creating duplicates
-- `--collapse-reuse-models`: Collapse structurally identical models into a single class
+The script will:
+- Extract the OpenAPI schema from the CRD YAML
+- Generate Pydantic v2 models with proper deduplication
+- Add a header with source CRD path and timestamp
 
 ### Update Builders (if needed)
 
