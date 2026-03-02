@@ -51,8 +51,14 @@ json.dump(schema, sys.stdout)
     --use-standard-collections \
     --use-union-operator \
     --field-constraints \
+    --reuse-model \
+    --collapse-reuse-models \
     --class-name RayJob
 ```
+
+Key flags:
+- `--reuse-model`: Reuse identical model definitions instead of creating duplicates
+- `--collapse-reuse-models`: Collapse structurally identical models into a single class
 
 ### Update Builder (if needed)
 
