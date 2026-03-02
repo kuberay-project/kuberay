@@ -166,7 +166,7 @@ class ClusterUtils:
 
         # Convert to dict and set on cluster
         cluster["spec"]["headGroupSpec"] = head_group_spec.model_dump(
-            by_alias=True, exclude_none=True
+            by_alias=True, exclude_none=True, exclude_unset=True
         )
 
         return cluster, True
@@ -259,7 +259,7 @@ class ClusterUtils:
 
         # Convert to dict
         worker_group_dict = worker_group_spec.model_dump(
-            by_alias=True, exclude_none=True
+            by_alias=True, exclude_none=True, exclude_unset=True
         )
 
         return worker_group_dict, True
