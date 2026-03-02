@@ -40,7 +40,7 @@ def extract_schema(crd_path: Path) -> dict:
 
 def generate_models(schema: dict, output_path: Path, crd_path: Path) -> None:
     """Generate Pydantic models from schema using datamodel-codegen."""
-    
+
     # Check datamodel-codegen is installed
     try:
         subprocess.run(
@@ -88,7 +88,7 @@ def generate_models(schema: dict, output_path: Path, crd_path: Path) -> None:
 
     # Create proper header (no timestamp to avoid CI churn)
     crd_relative = crd_path.relative_to(REPO_ROOT)
-    
+
     header = f'''"""
 Auto-generated Pydantic models from KubeRay CRD OpenAPI schema.
 

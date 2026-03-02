@@ -94,7 +94,7 @@ class ClusterUtils:
         ray_start_params: dict,
     ) -> Tuple[dict, bool]:
         """Populate the ray head specs of the cluster using typed Pydantic models.
-        
+
         Parameters:
         - cluster (dict): The dictionary representation of the cluster.
         - ray_image (str): The name of the ray image to use for the head node.
