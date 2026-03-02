@@ -52,6 +52,7 @@ python clients/python-client/scripts/generate_models.py
 ```
 
 The script will:
+
 - Extract the OpenAPI schema from the CRD YAML
 - Generate Pydantic v2 models with proper deduplication
 - Add a header with source CRD path and timestamp
@@ -59,5 +60,6 @@ The script will:
 ### Update Builders (if needed)
 
 If the CRD schema changes significantly, update the builder files in `utils/`:
+
 - `kuberay_job_builder.py` - RayJob builder
 - `kuberay_cluster_builder.py` - RayCluster builder
