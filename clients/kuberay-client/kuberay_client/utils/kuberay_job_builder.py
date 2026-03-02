@@ -1,5 +1,5 @@
 """
-KubeRay Models - Clean API wrapper over CRD-generated Pydantic models.
+KubeRay Job Builder - Clean API wrapper over CRD-generated Pydantic models.
 
 This provides:
 - Single source of truth (generated from CRD OpenAPI schema)
@@ -8,22 +8,22 @@ This provides:
 - IDE autocomplete support
 
 Usage:
-    from kuberay_models import RayJobBuilder, RayClusterBuilder
+    from kuberay_client.utils.kuberay_job_builder import RayJobBuilder, create_ray_job
     
     # Create a RayJob targeting existing cluster
-    job = RayJobBuilder("my-job") \\
-        .with_entrypoint("python train.py") \\
-        .with_cluster_selector("my-cluster") \\
+    job = RayJobBuilder("my-job") \
+        .with_entrypoint("python train.py") \
+        .with_cluster_selector("my-cluster") \
         .build()
     
     # Create a RayJob with embedded cluster
-    job = RayJobBuilder("standalone-job") \\
-        .with_entrypoint("python train.py") \\
+    job = RayJobBuilder("standalone-job") \
+        .with_entrypoint("python train.py") \
         .with_cluster_spec(
             head_image="rayproject/ray:2.48.0",
             worker_replicas=2,
-        ) \\
-        .with_shutdown_after_finish(True) \\
+        ) \
+        .with_shutdown_after_finish(True) \
         .build()
 """
 
@@ -31,7 +31,7 @@ from typing import Optional
 import json
 
 # Import CRD-generated models (the source of truth)
-from .generated_rayjob_models import (
+from kuberay_client.models.generated_rayjob_models import (
     RayJob, Spec, RayClusterSpec, HeadGroupSpec, WorkerGroupSpec,
     Template, Template1, Spec2, Spec4, Container, Container1,
 )

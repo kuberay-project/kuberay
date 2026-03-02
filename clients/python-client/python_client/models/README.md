@@ -7,22 +7,31 @@ Auto-generated Pydantic models from KubeRay CRD OpenAPI schemas.
 | File | Description |
 |------|-------------|
 | `generated_rayjob_models.py` | Auto-generated Pydantic models from CRD schema |
-| `kuberay_models.py` | Clean builder API for creating manifests |
 
 ## Usage
 
-```python
-from python_client.models import RayJobBuilder, create_ray_job
+For builder APIs, use the utils module:
 
-# Builder pattern
+```python
+from python_client.utils.kuberay_job_builder import RayJobBuilder, create_ray_job
+from python_client.utils.kuberay_cluster_builder import ClusterBuilder, Director
+
+# RayJob builder pattern
 job = RayJobBuilder("my-job") \
     .with_entrypoint("python train.py") \
     .with_cluster_spec(worker_replicas=2) \
     .with_shutdown_after_finish(True) \
     .to_dict()
 
-# Or convenience function
+# RayJob convenience function
 job = create_ray_job("my-job", "python train.py", worker_replicas=2)
+
+# RayCluster builder pattern
+cluster = ClusterBuilder() \
+    .build_meta(name="my-cluster") \
+    .build_head() \
+    .build_worker(group_name="workers", replicas=2) \
+    .get_cluster()
 ```
 
 ## Regenerating Models
@@ -60,6 +69,8 @@ Key flags:
 - `--reuse-model`: Reuse identical model definitions instead of creating duplicates
 - `--collapse-reuse-models`: Collapse structurally identical models into a single class
 
-### Update Builder (if needed)
+### Update Builders (if needed)
 
-If the CRD schema changes significantly, update `kuberay_models.py` to expose new fields through the builder API.
+If the CRD schema changes significantly, update the builder files in `utils/`:
+- `kuberay_job_builder.py` - RayJob builder
+- `kuberay_cluster_builder.py` - RayCluster builder
