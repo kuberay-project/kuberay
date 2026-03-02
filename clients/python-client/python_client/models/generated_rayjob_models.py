@@ -62,6 +62,7 @@ class Mode(Enum):
 
 
 class AuthOptions(BaseModel):
+    enableK8sTokenAuth: bool | None = None
     mode: Mode | None = None
 
 
