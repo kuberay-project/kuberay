@@ -6,8 +6,7 @@ Auto-generated Pydantic models from KubeRay CRD OpenAPI schemas.
 
 | File | Description |
 |------|-------------|
-| `generated_rayjob_schema.json` | OpenAPI schema extracted from RayJob CRD |
-| `generated_rayjob_models.py` | Auto-generated Pydantic models (source of truth) |
+| `generated_rayjob_models.py` | Auto-generated Pydantic models from CRD schema |
 | `kuberay_models.py` | Clean builder API for creating manifests |
 
 ## Usage
@@ -36,37 +35,18 @@ When CRDs are updated, regenerate the Python models:
 pip install pyyaml datamodel-code-generator
 ```
 
-### Step 1: Extract Schema from CRD
+### Generate from CRD
 
 ```bash
 # Run from repo root
-python3 << 'EOF'
-import yaml
-import json
-
-# Load the CRD
-with open("ray-operator/config/crd/bases/ray.io_rayjobs.yaml") as f:
-    crd = yaml.safe_load(f)
-
-# Extract OpenAPI schema
-schema = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
-
-# Save as JSON
-with open("clients/python-client/python_client/models/generated_rayjob_schema.json", "w") as f:
-    json.dump(schema, f, indent=2)
-
-print(f"Extracted schema: {len(str(schema))} chars")
-EOF
-```
-
-### Step 2: Generate Pydantic Models
-
-```bash
-# Run from repo root
-datamodel-codegen \
-    --input clients/python-client/python_client/models/generated_rayjob_schema.json \
-    --output clients/python-client/python_client/models/generated_rayjob_models.py \
+python3 -c "
+import yaml, json, sys
+with open('ray-operator/config/crd/bases/ray.io_rayjobs.yaml') as f:
+    schema = yaml.safe_load(f)['spec']['versions'][0]['schema']['openAPIV3Schema']
+json.dump(schema, sys.stdout)
+" | datamodel-codegen \
     --input-file-type jsonschema \
+    --output clients/python-client/python_client/models/generated_rayjob_models.py \
     --output-model-type pydantic_v2.BaseModel \
     --use-standard-collections \
     --use-union-operator \
@@ -74,6 +54,6 @@ datamodel-codegen \
     --class-name RayJob
 ```
 
-### Step 3: Update Builder (if needed)
+### Update Builder (if needed)
 
 If the CRD schema changes significantly, update `kuberay_models.py` to expose new fields through the builder API.
