@@ -3249,7 +3249,7 @@ func TestShouldCompleteIncrementalRollback(t *testing.T) {
 		want           bool
 	}{
 		{
-			name:           "healthy pending at zero capacity and traffic — complete",
+			name:           "healthy pending at zero capacity and traffic, complete",
 			activeTC:       100,
 			activeTRP:      100,
 			pendingTC:      0,
@@ -3258,7 +3258,7 @@ func TestShouldCompleteIncrementalRollback(t *testing.T) {
 			want:           true,
 		},
 		{
-			name:           "unhealthy pending with leftover capacity — bypass complete",
+			name:           "unhealthy pending with leftover capacity, bypass complete",
 			activeTC:       100,
 			activeTRP:      100,
 			pendingTC:      30,
@@ -3267,7 +3267,7 @@ func TestShouldCompleteIncrementalRollback(t *testing.T) {
 			want:           true,
 		},
 		{
-			name:           "no pending RayCluster — complete when active is full",
+			name:           "no pending RayCluster, complete when active is full",
 			activeTC:       100,
 			activeTRP:      100,
 			pendingTC:      0,
@@ -3276,7 +3276,7 @@ func TestShouldCompleteIncrementalRollback(t *testing.T) {
 			want:           true,
 		},
 		{
-			name:           "healthy pending still holding target capacity — not complete",
+			name:           "healthy pending still holding target capacity, not complete",
 			activeTC:       100,
 			activeTRP:      100,
 			pendingTC:      50,

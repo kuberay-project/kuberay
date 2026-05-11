@@ -1728,7 +1728,7 @@ func (r *RayServiceReconciler) checkIfNeedTargetCapacityUpdate(ctx context.Conte
 // fit in int32. See #4777 for why both int64 and float64 must be accepted.
 //
 // Out-of-range int64 / int / float64 values are rejected rather than
-// silently truncated — gosec G115 flagged the previous unconditional
+// silently truncated, gosec G115 flagged the previous unconditional
 // `int32(n)` conversions, and silent truncation here would put garbage in
 // the dashboard's target_capacity field instead of producing a clear
 // "unsupported value" log line upstream.
@@ -1780,7 +1780,7 @@ func (r *RayServiceReconciler) applyServeTargetCapacity(ctx context.Context, ray
 	// JSON-compatible input through encoding/json with UseNumber off, and
 	// gopkg.in/yaml.v2 also returns int64 for plain integer scalars). The
 	// previous \`.(float64)\` assertion therefore *always* failed for
-	// ServeConfigV2 strings whose target_capacity is an integer — every
+	// ServeConfigV2 strings whose target_capacity is an integer, every
 	// reconcile took the slow path and called UpdateDeployments
 	// unconditionally even when the value was already current (#4777).
 	//
