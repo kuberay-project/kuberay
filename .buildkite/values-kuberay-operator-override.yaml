@@ -26,5 +26,7 @@ featureGates:
     enabled: true
   - name: RayNodeEventForwarder
     enabled: true
-nodeEventForwarder:
-  enabled: true
+    nodeEventForwarder:
+      enabled: true
+  - name: RayClusterNetworkPolicy
+    enabled: true
