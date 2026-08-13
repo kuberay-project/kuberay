@@ -25,6 +25,7 @@ import (
 
 	configapi "github.com/ray-project/kuberay/ray-operator/apis/config/v1alpha1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayv1alpha1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
@@ -71,6 +72,9 @@ var _ = BeforeSuite(func() {
 
 	scheme := runtime.NewScheme()
 	err = rayv1.AddToScheme(scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = rayv1alpha1.AddToScheme(scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = admissionv1.AddToScheme(scheme)
