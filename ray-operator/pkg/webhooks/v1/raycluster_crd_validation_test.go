@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	rayv1alpha1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
+	rayv1alpha1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1" //nolint:staticcheck // ray.io/v1alpha1 is still a served RayCluster version; this suite intentionally exercises it to prove the worker group removal guard also applies there.
 )
 
 var _ = Describe("RayCluster CRD validation", func() {
@@ -62,9 +62,9 @@ var _ = Describe("RayCluster CRD validation", func() {
 		created.SetNamespace("default")
 		created.SetName(name)
 		Expect(unstructured.SetNestedField(created.Object,
-			map[string]interface{}{"containers": []interface{}{map[string]interface{}{"name": "ray-head", "image": "rayproject/ray"}}},
+			map[string]any{"containers": []any{map[string]any{"name": "ray-head", "image": "rayproject/ray"}}},
 			"spec", "headGroupSpec", "template", "spec")).To(Succeed())
-		Expect(unstructured.SetNestedSlice(created.Object, []interface{}{}, "spec", "workerGroupSpecs")).To(Succeed())
+		Expect(unstructured.SetNestedSlice(created.Object, []any{}, "spec", "workerGroupSpecs")).To(Succeed())
 		Expect(k8sClient.Create(context.Background(), created)).To(Succeed())
 
 		// A typed update drops the empty slice via omitempty, mirroring controller finalizer writes.
@@ -155,7 +155,7 @@ func uniqueNameForCRDValidation(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, rand.IntnRange(1000, 9000))
 }
 
-func newV1alpha1RayClusterForCRDValidation(name string, groupNames ...string) *rayv1alpha1.RayCluster {
+func newV1alpha1RayClusterForCRDValidation(name string, groupNames ...string) *rayv1alpha1.RayCluster { //nolint:staticcheck // builds a v1alpha1 RayCluster on purpose to test the removal guard on the deprecated-but-served version.
 	minReplicas := int32(0)
 	maxReplicas := int32(1)
 	workerGroups := make([]rayv1alpha1.WorkerGroupSpec, 0, len(groupNames))
@@ -170,7 +170,7 @@ func newV1alpha1RayClusterForCRDValidation(name string, groupNames ...string) *r
 			},
 		})
 	}
-	return &rayv1alpha1.RayCluster{
+	return &rayv1alpha1.RayCluster{ //nolint:staticcheck // builds a v1alpha1 RayCluster on purpose to test the removal guard on the deprecated-but-served version.
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      uniqueNameForCRDValidation(name),
 			Namespace: "default",

@@ -25,7 +25,7 @@ import (
 
 	configapi "github.com/ray-project/kuberay/ray-operator/apis/config/v1alpha1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	rayv1alpha1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
+	rayv1alpha1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1" //nolint:staticcheck // ray.io/v1alpha1 is still a served RayCluster version; this suite must register it to exercise the worker group removal guard there.
 	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
