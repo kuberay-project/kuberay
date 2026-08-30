@@ -64,7 +64,14 @@ func testAzureBlobUploadOnGracefulShutdown(test Test, g *WithT, namespace *corev
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
-	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID))
+	clusterInfo := &utils.ClusterInfo{
+		Namespace: rayCluster.Namespace,
+		Name:      rayCluster.Name,
+		SessionName: sessionID,
+		OwnerName: "",
+		OwnerKind: "",
+	}
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
 	err := test.Client().Ray().RayV1().
 		RayClusters(rayCluster.Namespace).
@@ -89,7 +96,14 @@ func testAzureBlobSeparatesFilesBySession(test Test, g *WithT, namespace *corev1
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
-	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID))
+	clusterInfo := &utils.ClusterInfo{
+		Namespace: rayCluster.Namespace,
+		Name:      rayCluster.Name,
+		SessionName: sessionID,
+		OwnerName: "",
+		OwnerKind: "",
+	}
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
 	killContainerAndWaitForRestart(test, g, HeadPod(test, rayCluster), "ray-head")
 	killContainerAndWaitForRestart(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
@@ -109,7 +123,14 @@ func testAzureBlobResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 
 	dummySessionID := fmt.Sprintf("test-recovery-session-%s", namespace.Name)
 	dummyNodeID := fmt.Sprintf("head-node-%s", namespace.Name)
-	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, dummySessionID))
+	clusterInfo := &utils.ClusterInfo{
+		Namespace: rayCluster.Namespace,
+		Name:      rayCluster.Name,
+		SessionName: dummySessionID,
+		OwnerName: "",
+		OwnerKind: "",
+	}
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
 	headPod, err := GetHeadPod(test, rayCluster)
 	g.Expect(err).NotTo(HaveOccurred())

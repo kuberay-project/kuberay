@@ -56,7 +56,7 @@ func NewLogEventReader(reader storage.StorageReader) *LogEventReader {
 // Return an error if any listed file fails to read (total or partial).
 func (r *LogEventReader) ReadLogEvents(clusterInfo utils.ClusterInfo, clusterSessionKey string, eventStore *types.ClusterLogEventMap) error {
 	// Build storage prefix used by StorageReader
-	clusterLogPathPrefix := clusterlogs.Prefix("", clusterInfo.OwnerKind, clusterInfo.OwnerName, clusterInfo.Namespace, clusterInfo.Name)
+	clusterLogPathPrefix := clusterlogs.Prefix("", &clusterInfo)
 
 	// Get or create the JobEventMap for this cluster session
 	jobEventMap := eventStore.GetOrCreateJobEventMap(clusterSessionKey)

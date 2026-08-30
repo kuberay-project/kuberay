@@ -2215,7 +2215,13 @@ func testDeadClusterMetadata(test Test, g *WithT, namespace *corev1.Namespace, s
 	// Wait for cluster metadata to be stored in S3 by the collector before deleting the cluster.
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	storageKey := utils.EndpointPathToStorageKey("/api/v0/cluster_metadata")
-	sessionDir := clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID)
+	sessionDir := clusterlogs.SessionDir("", &utils.ClusterInfo{
+		Namespace: rayCluster.Namespace,
+		Name:      rayCluster.Name,
+		SessionName: sessionID,
+		OwnerKind: "",
+		OwnerName: "",
+	})
 	metaKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
 	LogWithTimestamp(test.T(), "Waiting for cluster metadata to appear at S3 key: %s", metaKey)
 
@@ -2295,7 +2301,13 @@ func testDeadClusterPlacementGroups(test Test, g *WithT, namespace *corev1.Names
 	// The collector stores the endpoint with query params, so the storage key includes them.
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	storageKey := utils.EndpointPathToStorageKey("/api/v0/placement_groups?detail=1&limit=10000")
-	sessionDir := clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID)
+	sessionDir := clusterlogs.SessionDir("", &utils.ClusterInfo{
+		Namespace: rayCluster.Namespace,
+		Name:      rayCluster.Name,
+		SessionName: sessionID,
+		OwnerKind: "",
+		OwnerName: "",
+	})
 	pgKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
 	LogWithTimestamp(test.T(), "Waiting for placement groups data to appear at S3 key: %s", pgKey)
 

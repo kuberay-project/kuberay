@@ -840,10 +840,17 @@ func (ec *EventCollector) buildEventStorageKey(task rotationTask) string {
 	fileName := fmt.Sprintf("%s-%s-%d%s", nodeID, hour, task.createdAt.UnixNano(), ext)
 
 	var dir string
+	var clusterInfo  = &utils.ClusterInfo{
+		OwnerKind: ec.ownerKind,
+		OwnerName: ec.ownerName,
+		Namespace: ec.clusterNamespace,
+		Name:      ec.clusterName,
+		SessionName: sessionName,
+	}
 	if jobID, ok := strings.CutPrefix(task.category, categoryJobPrefix+"/"); ok {
-		dir = clusterlogs.JobEventsDir(ec.root, ec.ownerKind, ec.ownerName, ec.clusterNamespace, ec.clusterName, sessionName, nodeID, jobID)
+		dir = clusterlogs.JobEventsDir(ec.root, clusterInfo, nodeID, jobID)
 	} else {
-		dir = clusterlogs.NodeEventsDir(ec.root, ec.ownerKind, ec.ownerName, ec.clusterNamespace, ec.clusterName, sessionName, nodeID)
+		dir = clusterlogs.NodeEventsDir(ec.root, clusterInfo, nodeID)
 	}
 	return path.Join(dir, fileName)
 }

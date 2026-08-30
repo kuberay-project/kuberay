@@ -522,7 +522,7 @@ func (h *EventHandler) storeEvent(clusterSessionKey string, eventMap map[string]
 // getClusterLogPathPrefix returns the cluster storage prefix:
 // e.g., cluster-history/{ownerKind}/{namespace}/{ownerName}/{clusterName}
 func (h *EventHandler) getClusterLogPathPrefix(clusterInfo utils.ClusterInfo) string {
-	return clusterlogs.Prefix("", clusterInfo.OwnerKind, clusterInfo.OwnerName, clusterInfo.Namespace, clusterInfo.Name)
+	return clusterlogs.Prefix("", &clusterInfo)
 }
 
 // getAllJobEventFiles get all the job event files for the given cluster.
