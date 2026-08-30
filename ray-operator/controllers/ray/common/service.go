@@ -215,10 +215,27 @@ func BuildServeService(ctx context.Context, rayService rayv1.RayService, rayClus
 	// Include ports named "serve" or with the prefix "serve-" (e.g., "serve-grpc") to support
 	// multiple serving protocols such as HTTP and gRPC.
 	portsInt := getServicePorts(rayCluster)
+
+	// Carry AppProtocol (e.g. "kubernetes.io/h2c" for gRPC) from a user-provided ServeService
+	// onto the auto-detected serving ports by name. The custom ServeService branch below is
+	// skipped during an incremental upgrade because each per-cluster Service needs a unique
+	// name, so without this the per-cluster serve Service would lose AppProtocol.
+	userAppProtocol := make(map[string]*string)
+	if isRayService && rayService.Spec.ServeService != nil {
+		for _, p := range rayService.Spec.ServeService.Spec.Ports {
+			if p.AppProtocol != nil {
+				userAppProtocol[p.Name] = p.AppProtocol
+			}
+		}
+	}
+
 	ports := make([]corev1.ServicePort, 0)
 	for name, port := range portsInt {
 		if isServingPort(name) {
 			svcPort := corev1.ServicePort{Name: name, Port: port}
+			if appProtocol, ok := userAppProtocol[name]; ok {
+				svcPort.AppProtocol = appProtocol
+			}
 			ports = append(ports, svcPort)
 		}
 	}
