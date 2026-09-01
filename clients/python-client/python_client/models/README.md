@@ -6,7 +6,7 @@ Auto-generated Pydantic models from KubeRay CRD OpenAPI schemas.
 
 | File | Description |
 |------|-------------|
-| `generated_rayjob_models.py` | Auto-generated Pydantic models from CRD schema |
+| `generated_models.py` | Auto-generated Pydantic models from the RayJob CRD schema (includes the embedded `RayClusterSpec`) |
 
 ## Usage
 
@@ -41,8 +41,13 @@ When CRDs are updated, regenerate the Python models using the generation script.
 ### Prerequisites
 
 ```bash
-pip install pyyaml datamodel-code-generator
+pip install -r clients/python-client/scripts/requirements.txt
 ```
+
+`datamodel-code-generator` is pinned to an exact version in that file. The generator
+names inlined schemas positionally (`Container1`, `Spec2`, `Resources6`, ...), so a
+different version produces different class names and breaks the imports in `utils/`.
+The script refuses to run if the installed version does not match the pin.
 
 ### Generate from CRD
 
@@ -55,7 +60,15 @@ The script will:
 
 - Extract the OpenAPI schema from the CRD YAML
 - Generate Pydantic v2 models with proper deduplication
-- Add a header with source CRD path and timestamp
+- Add a header with the source CRD path and the generator version (no timestamp, to avoid CI churn)
+
+### Bumping the generator version
+
+1. Update the pin in `clients/python-client/scripts/requirements.txt`
+2. Reinstall and regenerate as above
+3. Fix up any renamed classes imported by `utils/kuberay_job_builder.py` and
+   `utils/kuberay_cluster_utils.py`, and run `pytest python_client_test/`
+4. Commit the pin, the regenerated models, and the import updates together
 
 ### Update Builders (if needed)
 
