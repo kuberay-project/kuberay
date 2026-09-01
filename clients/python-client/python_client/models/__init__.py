@@ -6,6 +6,6 @@ For builder APIs, use:
     from python_client.utils.kuberay_cluster_builder import ClusterBuilder, Director
 """
 
-from .generated_rayjob_models import RayJob, RayClusterSpec, HeadGroupSpec, WorkerGroupSpec
+from .generated_models import RayJob, RayClusterSpec, HeadGroupSpec, WorkerGroupSpec
 
 __all__ = ["RayJob", "RayClusterSpec", "HeadGroupSpec", "WorkerGroupSpec"]

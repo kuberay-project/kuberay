@@ -172,7 +172,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pyyaml datamodel-code-generator
+          pip install -r clients/python-client/scripts/requirements.txt
 
       - name: Regenerate Python models from CRD
         run: |
@@ -183,7 +183,7 @@ jobs:
         uses: tj-actions/verify-changed-files@v17
         with:
           files: |
-            ./clients/python-client/python_client/models/generated_rayjob_models.py
+            ./clients/python-client/python_client/models/generated_models.py
 
       - name: Check changed files
         if: steps.verify-changed-files.outputs.files_changed == 'true'
