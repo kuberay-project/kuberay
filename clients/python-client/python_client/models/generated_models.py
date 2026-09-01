@@ -66,6 +66,7 @@ class Mode(Enum):
 class AuthOptions(BaseModel):
     enableK8sTokenAuth: bool | None = None
     mode: Mode | None = None
+    secretName: str | None = None
 
 
 class ConfigMapKeyRef(BaseModel):
@@ -203,6 +204,8 @@ class VolumeMount(BaseModel):
 
 
 class AutoscalerOptions(BaseModel):
+    args: list[str] | None = None
+    command: list[str] | None = None
     env: list[EnvItem] | None = None
     envFrom: list[EnvFromItem] | None = None
     idleTimeoutSeconds: int | None = None
@@ -213,6 +216,11 @@ class AutoscalerOptions(BaseModel):
     upscalingMode: UpscalingMode | None = None
     version: Version | None = None
     volumeMounts: list[VolumeMount] | None = None
+
+
+class Backend(Enum):
+    redis = 'redis'
+    rocksdb = 'rocksdb'
 
 
 class ResourceFieldRef1(BaseModel):
@@ -253,11 +261,27 @@ class RedisUsername(BaseModel):
     valueFrom: ValueFrom2 | None = None
 
 
+class DeletionPolicy(Enum):
+    DeleteWithCluster = 'DeleteWithCluster'
+    Retain = 'Retain'
+
+
+class Storage(BaseModel):
+    accessModes: list[str] | None = None
+    claimName: str | None = None
+    deletionPolicy: DeletionPolicy | None = None
+    size: Divisor | Divisor1 | None = None
+    storageClassName: str | None = None
+    subPath: str | None = None
+
+
 class GcsFaultToleranceOptions(BaseModel):
+    backend: Backend | None = None
     externalStorageNamespace: str | None = None
-    redisAddress: str
+    redisAddress: str | None = None
     redisPassword: RedisPassword | None = None
     redisUsername: RedisUsername | None = None
+    storage: Storage | None = None
 
 
 class Metadata(BaseModel):
@@ -364,6 +388,24 @@ class HeadService(BaseModel):
     metadata: Metadata | None = None
     spec: Spec1 | None = None
     status: Status | None = None
+
+
+class PathType(Enum):
+    Exact = 'Exact'
+    Prefix = 'Prefix'
+    ImplementationSpecific = 'ImplementationSpecific'
+
+
+class Tl(BaseModel):
+    hosts: list[str] | None = None
+    secretName: str | None = None
+
+
+class IngressOptions(BaseModel):
+    host: str | None = None
+    path: str | None = None
+    pathType: PathType | None = None
+    tls: list[Tl] | None = None
 
 
 class MatchExpression(BaseModel):
@@ -713,6 +755,10 @@ class Resources4(BaseModel):
     claims: list[Claim] | None = None
     limits: dict[str, Divisor | Divisor1] | None = None
     requests: dict[str, Divisor | Divisor1] | None = None
+
+
+class SchedulingGroup(BaseModel):
+    podGroupName: str | None = None
 
 
 class SecurityContext4(BaseModel):
@@ -1107,12 +1153,6 @@ class Volume(BaseModel):
     vsphereVolume: VsphereVolume | None = None
 
 
-class WorkloadRef(BaseModel):
-    name: str
-    podGroup: str
-    podGroupReplicaKey: str | None = None
-
-
 class Spec2(BaseModel):
     activeDeadlineSeconds: int | None = None
     affinity: Affinity | None = None
@@ -1145,6 +1185,7 @@ class Spec2(BaseModel):
     runtimeClassName: str | None = None
     schedulerName: str | None = None
     schedulingGates: list[Os] | None = None
+    schedulingGroup: SchedulingGroup | None = None
     securityContext: SecurityContext4 | None = None
     serviceAccount: str | None = None
     serviceAccountName: str | None = None
@@ -1155,7 +1196,6 @@ class Spec2(BaseModel):
     tolerations: list[Toleration] | None = None
     topologySpreadConstraints: list[TopologySpreadConstraint] | None = None
     volumes: list[Volume] | None = None
-    workloadRef: WorkloadRef | None = None
 
 
 class Template(BaseModel):
@@ -1166,24 +1206,12 @@ class Template(BaseModel):
 class HeadGroupSpec(BaseModel):
     enableIngress: bool | None = None
     headService: HeadService | None = None
+    ingressOptions: IngressOptions | None = None
     labels: dict[str, str] | None = None
     rayStartParams: dict[str, str] | None = None
     resources: dict[str, str] | None = None
     serviceType: str | None = None
     template: Template
-
-
-class Type(Enum):
-    Recreate = 'Recreate'
-    None_ = 'None'
-
-
-class UpgradeStrategy(BaseModel):
-    type: Type | None = None
-
-
-class ScaleStrategy(BaseModel):
-    workersToDelete: list[str] | None = None
 
 
 class ResourceFieldRef8(BaseModel):
@@ -1212,32 +1240,83 @@ class Resources6(BaseModel):
     requests: dict[str, Divisor | Divisor1] | None = None
 
 
-class Container1(BaseModel):
-    args: list[str] | None = None
-    command: list[str] | None = None
+class CollectorOptions(BaseModel):
     env: list[EnvItem4] | None = None
-    envFrom: list[EnvFromItem] | None = None
     image: str | None = None
     imagePullPolicy: str | None = None
-    lifecycle: Lifecycle | None = None
-    livenessProbe: LivenessProbe | None = None
-    name: str
-    ports: list[Port2] | None = None
-    readinessProbe: LivenessProbe | None = None
-    resizePolicy: list[ResizePolicyItem] | None = None
     resources: Resources6 | None = None
-    restartPolicy: str | None = None
-    restartPolicyRules: list[RestartPolicyRule] | None = None
-    securityContext: SecurityContext | None = None
-    startupProbe: LivenessProbe | None = None
-    stdin: bool | None = None
-    stdinOnce: bool | None = None
-    terminationMessagePath: str | None = None
-    terminationMessagePolicy: str | None = None
-    tty: bool | None = None
-    volumeDevices: list[VolumeDevice] | None = None
-    volumeMounts: list[VolumeMount] | None = None
-    workingDir: str | None = None
+
+
+class HistoryServerOptions(BaseModel):
+    collectorOptions: CollectorOptions | None = None
+
+
+class Port5(BaseModel):
+    endPort: int | None = None
+    port: int | str | None = None
+    protocol: str | None = None
+
+
+class IpBlock(BaseModel):
+    cidr: str
+    except_: list[str] | None = Field(None, alias='except')
+
+
+class ToItem(BaseModel):
+    ipBlock: IpBlock | None = None
+    namespaceSelector: LabelSelector | None = None
+    podSelector: LabelSelector | None = None
+
+
+class EgressRule(BaseModel):
+    ports: list[Port5] | None = None
+    to: list[ToItem] | None = None
+
+
+class IngressRule(BaseModel):
+    from_: list[ToItem] | None = Field(None, alias='from')
+    ports: list[Port5] | None = None
+
+
+class Head(BaseModel):
+    egressRules: list[EgressRule] | None = None
+    ingressRules: list[IngressRule] | None = None
+
+
+class Mode1(Enum):
+    DenyAll = 'DenyAll'
+    DenyAllIngress = 'DenyAllIngress'
+    DenyAllEgress = 'DenyAllEgress'
+
+
+class WorkerGroup(BaseModel):
+    egressRules: list[EgressRule] | None = None
+    groupName: str
+    ingressRules: list[IngressRule] | None = None
+
+
+class NetworkPolicy(BaseModel):
+    head: Head | None = None
+    mode: Mode1 | None = 'DenyAll'
+    worker: Head | None = None
+    workerGroups: list[WorkerGroup] | None = None
+
+
+class TlsOptions(BaseModel):
+    enabled: bool | None = None
+
+
+class Type(Enum):
+    Recreate = 'Recreate'
+    None_ = 'None'
+
+
+class UpgradeStrategy(BaseModel):
+    type: Type | None = None
+
+
+class ScaleStrategy(BaseModel):
+    workersToDelete: list[str] | None = None
 
 
 class ResourceFieldRef9(BaseModel):
@@ -1266,7 +1345,7 @@ class Resources7(BaseModel):
     requests: dict[str, Divisor | Divisor1] | None = None
 
 
-class EphemeralContainer1(BaseModel):
+class Container1(BaseModel):
     args: list[str] | None = None
     command: list[str] | None = None
     env: list[EnvItem5] | None = None
@@ -1286,7 +1365,6 @@ class EphemeralContainer1(BaseModel):
     startupProbe: LivenessProbe | None = None
     stdin: bool | None = None
     stdinOnce: bool | None = None
-    targetContainerName: str | None = None
     terminationMessagePath: str | None = None
     terminationMessagePolicy: str | None = None
     tty: bool | None = None
@@ -1321,7 +1399,7 @@ class Resources8(BaseModel):
     requests: dict[str, Divisor | Divisor1] | None = None
 
 
-class InitContainer1(BaseModel):
+class EphemeralContainer1(BaseModel):
     args: list[str] | None = None
     command: list[str] | None = None
     env: list[EnvItem6] | None = None
@@ -1341,6 +1419,7 @@ class InitContainer1(BaseModel):
     startupProbe: LivenessProbe | None = None
     stdin: bool | None = None
     stdinOnce: bool | None = None
+    targetContainerName: str | None = None
     terminationMessagePath: str | None = None
     terminationMessagePolicy: str | None = None
     tty: bool | None = None
@@ -1349,13 +1428,67 @@ class InitContainer1(BaseModel):
     workingDir: str | None = None
 
 
+class ResourceFieldRef11(BaseModel):
+    containerName: str | None = None
+    divisor: Divisor | Divisor1 | None = None
+    resource: str
+
+
+class ValueFrom9(BaseModel):
+    configMapKeyRef: ConfigMapKeyRef | None = None
+    fieldRef: FieldRef | None = None
+    fileKeyRef: FileKeyRef | None = None
+    resourceFieldRef: ResourceFieldRef11 | None = None
+    secretKeyRef: ConfigMapKeyRef | None = None
+
+
+class EnvItem7(BaseModel):
+    name: str
+    value: str | None = None
+    valueFrom: ValueFrom9 | None = None
+
+
 class Resources9(BaseModel):
     claims: list[Claim] | None = None
     limits: dict[str, Divisor | Divisor1] | None = None
     requests: dict[str, Divisor | Divisor1] | None = None
 
 
-class ResourceFieldRef11(BaseModel):
+class InitContainer1(BaseModel):
+    args: list[str] | None = None
+    command: list[str] | None = None
+    env: list[EnvItem7] | None = None
+    envFrom: list[EnvFromItem] | None = None
+    image: str | None = None
+    imagePullPolicy: str | None = None
+    lifecycle: Lifecycle | None = None
+    livenessProbe: LivenessProbe | None = None
+    name: str
+    ports: list[Port2] | None = None
+    readinessProbe: LivenessProbe | None = None
+    resizePolicy: list[ResizePolicyItem] | None = None
+    resources: Resources9 | None = None
+    restartPolicy: str | None = None
+    restartPolicyRules: list[RestartPolicyRule] | None = None
+    securityContext: SecurityContext | None = None
+    startupProbe: LivenessProbe | None = None
+    stdin: bool | None = None
+    stdinOnce: bool | None = None
+    terminationMessagePath: str | None = None
+    terminationMessagePolicy: str | None = None
+    tty: bool | None = None
+    volumeDevices: list[VolumeDevice] | None = None
+    volumeMounts: list[VolumeMount] | None = None
+    workingDir: str | None = None
+
+
+class Resources10(BaseModel):
+    claims: list[Claim] | None = None
+    limits: dict[str, Divisor | Divisor1] | None = None
+    requests: dict[str, Divisor | Divisor1] | None = None
+
+
+class ResourceFieldRef12(BaseModel):
     containerName: str | None = None
     divisor: Divisor | Divisor1 | None = None
     resource: str
@@ -1365,7 +1498,7 @@ class Item7(BaseModel):
     fieldRef: FieldRef | None = None
     mode: int | None = None
     path: str
-    resourceFieldRef: ResourceFieldRef11 | None = None
+    resourceFieldRef: ResourceFieldRef12 | None = None
 
 
 class DownwardAPI2(BaseModel):
@@ -1378,7 +1511,7 @@ class EmptyDir1(BaseModel):
     sizeLimit: Divisor | Divisor1 | None = None
 
 
-class Resources10(BaseModel):
+class Resources11(BaseModel):
     limits: dict[str, Divisor | Divisor1] | None = None
     requests: dict[str, Divisor | Divisor1] | None = None
 
@@ -1387,7 +1520,7 @@ class Spec5(BaseModel):
     accessModes: list[str] | None = None
     dataSource: DataSource | None = None
     dataSourceRef: DataSourceRef | None = None
-    resources: Resources10 | None = None
+    resources: Resources11 | None = None
     selector: LabelSelector | None = None
     storageClassName: str | None = None
     volumeAttributesClassName: str | None = None
@@ -1404,7 +1537,7 @@ class Ephemeral1(BaseModel):
     volumeClaimTemplate: VolumeClaimTemplate1 | None = None
 
 
-class ResourceFieldRef12(BaseModel):
+class ResourceFieldRef13(BaseModel):
     containerName: str | None = None
     divisor: Divisor | Divisor1 | None = None
     resource: str
@@ -1414,7 +1547,7 @@ class Item9(BaseModel):
     fieldRef: FieldRef | None = None
     mode: int | None = None
     path: str
-    resourceFieldRef: ResourceFieldRef12 | None = None
+    resourceFieldRef: ResourceFieldRef13 | None = None
 
 
 class DownwardAPI3(BaseModel):
@@ -1496,11 +1629,12 @@ class Spec4(BaseModel):
     priorityClassName: str | None = None
     readinessGates: list[ReadinessGate] | None = None
     resourceClaims: list[ResourceClaim] | None = None
-    resources: Resources9 | None = None
+    resources: Resources10 | None = None
     restartPolicy: str | None = None
     runtimeClassName: str | None = None
     schedulerName: str | None = None
     schedulingGates: list[Os] | None = None
+    schedulingGroup: SchedulingGroup | None = None
     securityContext: SecurityContext4 | None = None
     serviceAccount: str | None = None
     serviceAccountName: str | None = None
@@ -1511,7 +1645,6 @@ class Spec4(BaseModel):
     tolerations: list[Toleration] | None = None
     topologySpreadConstraints: list[TopologySpreadConstraint] | None = None
     volumes: list[Volume1] | None = None
-    workloadRef: WorkloadRef | None = None
 
 
 class Template1(BaseModel):
@@ -1526,6 +1659,7 @@ class WorkerGroupSpec(BaseModel):
     maxReplicas: int
     minReplicas: int
     numOfHosts: int | None = 1
+    priority: int | None = 0
     rayStartParams: dict[str, str] | None = None
     replicas: int | None = 0
     resources: dict[str, str] | None = None
@@ -1541,69 +1675,18 @@ class RayClusterSpec(BaseModel):
     gcsFaultToleranceOptions: GcsFaultToleranceOptions | None = None
     headGroupSpec: HeadGroupSpec
     headServiceAnnotations: dict[str, str] | None = None
+    historyServerOptions: HistoryServerOptions | None = None
     managedBy: str | None = None
+    networkPolicy: NetworkPolicy | None = None
     rayVersion: str | None = None
     suspend: bool | None = None
+    tlsOptions: TlsOptions | None = None
     upgradeStrategy: UpgradeStrategy | None = None
     workerGroupSpecs: list[WorkerGroupSpec] | None = None
 
 
 class SubmitterConfig(BaseModel):
     backoffLimit: int | None = None
-
-
-class ResourceFieldRef13(BaseModel):
-    containerName: str | None = None
-    divisor: Divisor | Divisor1 | None = None
-    resource: str
-
-
-class ValueFrom9(BaseModel):
-    configMapKeyRef: ConfigMapKeyRef | None = None
-    fieldRef: FieldRef | None = None
-    fileKeyRef: FileKeyRef | None = None
-    resourceFieldRef: ResourceFieldRef13 | None = None
-    secretKeyRef: ConfigMapKeyRef | None = None
-
-
-class EnvItem7(BaseModel):
-    name: str
-    value: str | None = None
-    valueFrom: ValueFrom9 | None = None
-
-
-class Resources11(BaseModel):
-    claims: list[Claim] | None = None
-    limits: dict[str, Divisor | Divisor1] | None = None
-    requests: dict[str, Divisor | Divisor1] | None = None
-
-
-class Container2(BaseModel):
-    args: list[str] | None = None
-    command: list[str] | None = None
-    env: list[EnvItem7] | None = None
-    envFrom: list[EnvFromItem] | None = None
-    image: str | None = None
-    imagePullPolicy: str | None = None
-    lifecycle: Lifecycle | None = None
-    livenessProbe: LivenessProbe | None = None
-    name: str
-    ports: list[Port2] | None = None
-    readinessProbe: LivenessProbe | None = None
-    resizePolicy: list[ResizePolicyItem] | None = None
-    resources: Resources11 | None = None
-    restartPolicy: str | None = None
-    restartPolicyRules: list[RestartPolicyRule] | None = None
-    securityContext: SecurityContext | None = None
-    startupProbe: LivenessProbe | None = None
-    stdin: bool | None = None
-    stdinOnce: bool | None = None
-    terminationMessagePath: str | None = None
-    terminationMessagePolicy: str | None = None
-    tty: bool | None = None
-    volumeDevices: list[VolumeDevice] | None = None
-    volumeMounts: list[VolumeMount] | None = None
-    workingDir: str | None = None
 
 
 class ResourceFieldRef14(BaseModel):
@@ -1632,7 +1715,7 @@ class Resources12(BaseModel):
     requests: dict[str, Divisor | Divisor1] | None = None
 
 
-class EphemeralContainer2(BaseModel):
+class Container2(BaseModel):
     args: list[str] | None = None
     command: list[str] | None = None
     env: list[EnvItem8] | None = None
@@ -1652,7 +1735,6 @@ class EphemeralContainer2(BaseModel):
     startupProbe: LivenessProbe | None = None
     stdin: bool | None = None
     stdinOnce: bool | None = None
-    targetContainerName: str | None = None
     terminationMessagePath: str | None = None
     terminationMessagePolicy: str | None = None
     tty: bool | None = None
@@ -1687,7 +1769,7 @@ class Resources13(BaseModel):
     requests: dict[str, Divisor | Divisor1] | None = None
 
 
-class InitContainer2(BaseModel):
+class EphemeralContainer2(BaseModel):
     args: list[str] | None = None
     command: list[str] | None = None
     env: list[EnvItem9] | None = None
@@ -1707,6 +1789,7 @@ class InitContainer2(BaseModel):
     startupProbe: LivenessProbe | None = None
     stdin: bool | None = None
     stdinOnce: bool | None = None
+    targetContainerName: str | None = None
     terminationMessagePath: str | None = None
     terminationMessagePolicy: str | None = None
     tty: bool | None = None
@@ -1715,13 +1798,67 @@ class InitContainer2(BaseModel):
     workingDir: str | None = None
 
 
+class ResourceFieldRef16(BaseModel):
+    containerName: str | None = None
+    divisor: Divisor | Divisor1 | None = None
+    resource: str
+
+
+class ValueFrom12(BaseModel):
+    configMapKeyRef: ConfigMapKeyRef | None = None
+    fieldRef: FieldRef | None = None
+    fileKeyRef: FileKeyRef | None = None
+    resourceFieldRef: ResourceFieldRef16 | None = None
+    secretKeyRef: ConfigMapKeyRef | None = None
+
+
+class EnvItem10(BaseModel):
+    name: str
+    value: str | None = None
+    valueFrom: ValueFrom12 | None = None
+
+
 class Resources14(BaseModel):
     claims: list[Claim] | None = None
     limits: dict[str, Divisor | Divisor1] | None = None
     requests: dict[str, Divisor | Divisor1] | None = None
 
 
-class ResourceFieldRef16(BaseModel):
+class InitContainer2(BaseModel):
+    args: list[str] | None = None
+    command: list[str] | None = None
+    env: list[EnvItem10] | None = None
+    envFrom: list[EnvFromItem] | None = None
+    image: str | None = None
+    imagePullPolicy: str | None = None
+    lifecycle: Lifecycle | None = None
+    livenessProbe: LivenessProbe | None = None
+    name: str
+    ports: list[Port2] | None = None
+    readinessProbe: LivenessProbe | None = None
+    resizePolicy: list[ResizePolicyItem] | None = None
+    resources: Resources14 | None = None
+    restartPolicy: str | None = None
+    restartPolicyRules: list[RestartPolicyRule] | None = None
+    securityContext: SecurityContext | None = None
+    startupProbe: LivenessProbe | None = None
+    stdin: bool | None = None
+    stdinOnce: bool | None = None
+    terminationMessagePath: str | None = None
+    terminationMessagePolicy: str | None = None
+    tty: bool | None = None
+    volumeDevices: list[VolumeDevice] | None = None
+    volumeMounts: list[VolumeMount] | None = None
+    workingDir: str | None = None
+
+
+class Resources15(BaseModel):
+    claims: list[Claim] | None = None
+    limits: dict[str, Divisor | Divisor1] | None = None
+    requests: dict[str, Divisor | Divisor1] | None = None
+
+
+class ResourceFieldRef17(BaseModel):
     containerName: str | None = None
     divisor: Divisor | Divisor1 | None = None
     resource: str
@@ -1731,7 +1868,7 @@ class Item13(BaseModel):
     fieldRef: FieldRef | None = None
     mode: int | None = None
     path: str
-    resourceFieldRef: ResourceFieldRef16 | None = None
+    resourceFieldRef: ResourceFieldRef17 | None = None
 
 
 class DownwardAPI4(BaseModel):
@@ -1744,7 +1881,7 @@ class EmptyDir2(BaseModel):
     sizeLimit: Divisor | Divisor1 | None = None
 
 
-class Resources15(BaseModel):
+class Resources16(BaseModel):
     limits: dict[str, Divisor | Divisor1] | None = None
     requests: dict[str, Divisor | Divisor1] | None = None
 
@@ -1753,7 +1890,7 @@ class Spec7(BaseModel):
     accessModes: list[str] | None = None
     dataSource: DataSource | None = None
     dataSourceRef: DataSourceRef | None = None
-    resources: Resources15 | None = None
+    resources: Resources16 | None = None
     selector: LabelSelector | None = None
     storageClassName: str | None = None
     volumeAttributesClassName: str | None = None
@@ -1770,7 +1907,7 @@ class Ephemeral2(BaseModel):
     volumeClaimTemplate: VolumeClaimTemplate2 | None = None
 
 
-class ResourceFieldRef17(BaseModel):
+class ResourceFieldRef18(BaseModel):
     containerName: str | None = None
     divisor: Divisor | Divisor1 | None = None
     resource: str
@@ -1780,7 +1917,7 @@ class Item15(BaseModel):
     fieldRef: FieldRef | None = None
     mode: int | None = None
     path: str
-    resourceFieldRef: ResourceFieldRef17 | None = None
+    resourceFieldRef: ResourceFieldRef18 | None = None
 
 
 class DownwardAPI5(BaseModel):
@@ -1862,11 +1999,12 @@ class Spec6(BaseModel):
     priorityClassName: str | None = None
     readinessGates: list[ReadinessGate] | None = None
     resourceClaims: list[ResourceClaim] | None = None
-    resources: Resources14 | None = None
+    resources: Resources15 | None = None
     restartPolicy: str | None = None
     runtimeClassName: str | None = None
     schedulerName: str | None = None
     schedulingGates: list[Os] | None = None
+    schedulingGroup: SchedulingGroup | None = None
     securityContext: SecurityContext4 | None = None
     serviceAccount: str | None = None
     serviceAccountName: str | None = None
@@ -1877,7 +2015,6 @@ class Spec6(BaseModel):
     tolerations: list[Toleration] | None = None
     topologySpreadConstraints: list[TopologySpreadConstraint] | None = None
     volumes: list[Volume2] | None = None
-    workloadRef: WorkloadRef | None = None
 
 
 class SubmitterPodTemplate(BaseModel):
@@ -1897,6 +2034,7 @@ class Spec(BaseModel):
     jobId: str | None = None
     managedBy: str | None = None
     metadata: dict[str, str] | None = None
+    preRunningDeadlineSeconds: int | None = Field(None, ge=1)
     rayClusterSpec: RayClusterSpec | None = None
     runtimeEnvYAML: str | None = None
     shutdownAfterJobFinishes: bool | None = None
@@ -1907,7 +2045,7 @@ class Spec(BaseModel):
     ttlSecondsAfterFinished: int | None = 0
 
 
-class Head(BaseModel):
+class Head1(BaseModel):
     podIP: str | None = None
     podName: str | None = None
     serviceIP: str | None = None
@@ -1923,7 +2061,7 @@ class RayClusterStatus(BaseModel):
     desiredTPU: Divisor | Divisor1 | None = None
     desiredWorkerReplicas: int | None = None
     endpoints: dict[str, str] | None = None
-    head: Head | None = None
+    head: Head1 | None = None
     lastUpdateTime: AwareDatetime | None = None
     maxWorkerReplicas: int | None = None
     minWorkerReplicas: int | None = None
@@ -1946,6 +2084,7 @@ class Status2(BaseModel):
     jobDeploymentStatus: str | None = None
     jobId: str | None = None
     jobStatus: str | None = None
+    jobStatusCheckFailureStartTime: AwareDatetime | None = None
     message: str | None = None
     observedGeneration: int | None = None
     rayClusterName: str | None = None

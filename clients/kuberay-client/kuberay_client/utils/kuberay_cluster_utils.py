@@ -18,7 +18,7 @@ from kuberay_client.models.generated_models import (
     Container,
     Container1,
     Resources1,
-    Resources6,
+    Resources7,
     Divisor1,
     Port2,
     VolumeMount,
@@ -232,7 +232,7 @@ class ClusterUtils:
                     exec=Exec(command=["/bin/sh", "-c", "ray stop"])
                 )
             ),
-            resources=Resources6(
+            resources=Resources7(
                 requests={"cpu": Divisor1(cpu_requests), "memory": Divisor1(memory_requests)},
                 limits={"cpu": Divisor1(cpu_limits), "memory": Divisor1(memory_limits)},
             ),
