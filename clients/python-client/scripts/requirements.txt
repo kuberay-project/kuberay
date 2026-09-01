@@ -1,7 +1,7 @@
 # Requirements for scripts/generate_models.py.
 #
 # datamodel-code-generator is pinned to an exact version on purpose: the names it
-# assigns to inlined schemas (Container1, Spec2, Resources6, ...) and how
+# assigns to inlined schemas (Container1, Spec2, Resources7, ...) and how
 # aggressively it de-duplicates models change between releases, so a different
 # version produces a different generated_models.py and breaks the imports in
 # python_client/utils/. Bumping this pin means regenerating the models and

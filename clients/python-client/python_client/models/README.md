@@ -45,7 +45,7 @@ pip install -r clients/python-client/scripts/requirements.txt
 ```
 
 `datamodel-code-generator` is pinned to an exact version in that file. The generator
-names inlined schemas positionally (`Container1`, `Spec2`, `Resources6`, ...), so a
+names inlined schemas positionally (`Container1`, `Spec2`, `Resources7`, ...), so a
 different version produces different class names and breaks the imports in `utils/`.
 The script refuses to run if the installed version does not match the pin.
 
