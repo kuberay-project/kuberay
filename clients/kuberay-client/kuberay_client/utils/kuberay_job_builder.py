@@ -34,7 +34,7 @@ import json
 # Import CRD-generated models (the source of truth)
 from kuberay_client.models.generated_models import (
     RayJob, Spec, RayClusterSpec, HeadGroupSpec, WorkerGroupSpec,
-    Template, Template1, Spec2, Spec4, Container, Container1,
+    Template, Spec2, Container,
 )
 
 
@@ -99,9 +99,9 @@ class RayJobBuilder:
         )
 
         # Build worker template
-        worker_template = Template1(
-            spec=Spec4(
-                containers=[Container1(name="ray-worker", image=worker_image)]
+        worker_template = Template(
+            spec=Spec2(
+                containers=[Container(name="ray-worker", image=worker_image)]
             )
         )
 

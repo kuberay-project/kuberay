@@ -12,20 +12,13 @@ from kuberay_client.models.generated_models import (
     HeadGroupSpec,
     WorkerGroupSpec,
     Template,
-    Template1,
     Spec2,
-    Spec4,
     Container,
-    Container1,
-    Resources1,
-    Resources7,
-    Divisor1,
+    Resources,
     Port2,
     VolumeMount,
     Volume,
-    Volume1,
     EmptyDir,
-    EmptyDir1,
     Lifecycle,
     PostStart,
     Exec,
@@ -142,9 +135,9 @@ class ClusterUtils:
                 Port2(containerPort=8265, name="dashboard", protocol="TCP"),
                 Port2(containerPort=10001, name="client", protocol="TCP"),
             ],
-            resources=Resources1(
-                requests={"cpu": Divisor1(cpu_requests), "memory": Divisor1(memory_requests)},
-                limits={"cpu": Divisor1(cpu_limits), "memory": Divisor1(memory_limits)},
+            resources=Resources(
+                requests={"cpu": cpu_requests, "memory": memory_requests},
+                limits={"cpu": cpu_limits, "memory": memory_limits},
             ),
             volumeMounts=[
                 VolumeMount(mountPath="/tmp/ray", name="ray-logs"),
@@ -223,7 +216,7 @@ class ClusterUtils:
         assert max_replicas >= min_replicas
 
         # Build using Pydantic models
-        worker_container = Container1(
+        worker_container = Container(
             name="ray-worker",
             image=ray_image,
             command=ray_command,
@@ -232,19 +225,19 @@ class ClusterUtils:
                     exec=Exec(command=["/bin/sh", "-c", "ray stop"])
                 )
             ),
-            resources=Resources7(
-                requests={"cpu": Divisor1(cpu_requests), "memory": Divisor1(memory_requests)},
-                limits={"cpu": Divisor1(cpu_limits), "memory": Divisor1(memory_limits)},
+            resources=Resources(
+                requests={"cpu": cpu_requests, "memory": memory_requests},
+                limits={"cpu": cpu_limits, "memory": memory_limits},
             ),
             volumeMounts=[
                 VolumeMount(mountPath="/tmp/ray", name="ray-logs"),
             ],
         )
 
-        pod_spec = Spec4(
+        pod_spec = Spec2(
             containers=[worker_container],
             volumes=[
-                Volume1(name="ray-logs", emptyDir=EmptyDir1()),
+                Volume(name="ray-logs", emptyDir=EmptyDir()),
             ],
         )
 
@@ -254,7 +247,7 @@ class ClusterUtils:
             minReplicas=min_replicas,
             replicas=replicas,
             rayStartParams=ray_start_params,
-            template=Template1(spec=pod_spec),
+            template=Template(spec=pod_spec),
         )
 
         # Convert to dict

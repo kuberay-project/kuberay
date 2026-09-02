@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 # Paths relative to this script
 SCRIPT_DIR = Path(__file__).parent
@@ -38,7 +39,34 @@ def extract_schema(crd_path: Path) -> dict:
     with open(crd_path) as f:
         crd = yaml.safe_load(f)
 
-    return crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
+    schema = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
+    scope_int_or_string_patterns(schema)
+    return schema
+
+
+def scope_int_or_string_patterns(node: Any) -> None:
+    """Move a Kubernetes int-or-string 'pattern' onto the string branch only.
+
+    Quantity fields (resource requests/limits, divisors, ...) are serialized as
+    {"anyOf": [{"type": "integer"}, {"type": "string"}], "pattern": ...}. The
+    pattern is a sibling of anyOf, so the generator applies it to both branches
+    and emits RootModel[int] with a pattern constraint - which pydantic rejects
+    at validation time with "Unable to apply constraint 'pattern' ... for schema
+    of type 'int'". A pattern only ever constrains the string form, so attach it
+    there.
+    """
+    if isinstance(node, dict):
+        if node.get("x-kubernetes-int-or-string") and "pattern" in node:
+            pattern = node.pop("pattern")
+            for branch in node.get("anyOf", []):
+                if branch.get("type") == "string":
+                    branch["pattern"] = pattern
+
+        for value in node.values():
+            scope_int_or_string_patterns(value)
+    elif isinstance(node, list):
+        for value in node:
+            scope_int_or_string_patterns(value)
 
 
 def pinned_codegen_version() -> str:
