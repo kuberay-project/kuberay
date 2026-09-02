@@ -191,3 +191,14 @@ jobs:
         with:
           script: |
             core.setFailed('Python models out of sync with CRD! Run "python clients/python-client/scripts/generate_models.py" and commit the changes.')
+
+      # The builders import classes out of the generated models by name, and the
+      # generator names anonymous inlined schemas positionally (Spec2, Port2, ...).
+      # Exercising them here means a CRD change that renumbers those classes fails
+      # the build instead of reaching users. test_cluster_api.py and test_job_api.py
+      # are excluded: they need a live cluster.
+      - name: Verify builders work with the generated models
+        working-directory: ./clients/python-client
+        run: |
+          pip install -e . pytest
+          pytest -q python_client_test/test_utils.py python_client_test/test_director.py
