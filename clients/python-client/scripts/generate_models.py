@@ -2,8 +2,16 @@
 """
 Generate Pydantic models from KubeRay CRD OpenAPI schemas.
 
-This script extracts the OpenAPI schema from CRD YAML files and generates
-typed Pydantic models using datamodel-code-generator.
+This script extracts the v1 OpenAPI schema from each CRD YAML file and generates
+typed Pydantic models using datamodel-code-generator, one module per custom
+resource.
+
+Each CRD is generated into its own module on purpose. CRD YAML inlines every
+schema (no $refs), so the generator mints a class per occurrence and names the
+anonymous ones positionally (Spec2, Port2, ...). Generating all CRDs into one
+module numbers those classes across all of them, which means a RayService schema
+change can rename the classes the RayJob builders import. Separate modules keep
+each CR's numbering scoped to its own schema.
 
 Usage:
     python scripts/generate_models.py
@@ -17,19 +25,36 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 # Paths relative to this script
 SCRIPT_DIR = Path(__file__).parent
 REPO_ROOT = SCRIPT_DIR.parent.parent.parent
-CRD_PATH = REPO_ROOT / "ray-operator" / "config" / "crd" / "bases" / "ray.io_rayjobs.yaml"
-OUTPUT_PATH = SCRIPT_DIR.parent / "python_client" / "models" / "generated_models.py"
+CRD_DIR = REPO_ROOT / "ray-operator" / "config" / "crd" / "bases"
+OUTPUT_DIR = SCRIPT_DIR.parent / "python_client" / "models" / "generated"
 REQUIREMENTS_PATH = SCRIPT_DIR / "requirements.txt"
 CODEGEN_PACKAGE = "datamodel-code-generator"
+CRD_VERSION = "v1"
+
+
+class CustomResource(NamedTuple):
+    """A custom resource to generate models for."""
+
+    crd_file: str
+    kind: str
+    module: str
+
+
+CUSTOM_RESOURCES = [
+    CustomResource("ray.io_rayclusters.yaml", "RayCluster", "raycluster.py"),
+    CustomResource("ray.io_rayjobs.yaml", "RayJob", "rayjob.py"),
+    CustomResource("ray.io_rayservices.yaml", "RayService", "rayservice.py"),
+    CustomResource("ray.io_raycronjobs.yaml", "RayCronJob", "raycronjob.py"),
+]
 
 
 def extract_schema(crd_path: Path) -> dict:
-    """Extract OpenAPI schema from CRD YAML."""
+    """Extract the CRD_VERSION OpenAPI schema from a CRD YAML."""
     try:
         import yaml
     except ImportError:
@@ -39,7 +64,14 @@ def extract_schema(crd_path: Path) -> dict:
     with open(crd_path) as f:
         crd = yaml.safe_load(f)
 
-    schema = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
+    versions = crd["spec"]["versions"]
+    version = next((v for v in versions if v["name"] == CRD_VERSION), None)
+    if version is None:
+        available = [v["name"] for v in versions]
+        print(f"ERROR: {crd_path.name} has no {CRD_VERSION} version (found {available})")
+        sys.exit(1)
+
+    schema = version["schema"]["openAPIV3Schema"]
     scope_int_or_string_patterns(schema)
     return schema
 
@@ -84,7 +116,7 @@ def check_codegen_version(expected: str) -> None:
     """Ensure the installed datamodel-codegen matches the pinned version.
 
     Different versions generate different class names, so an unpinned generator
-    silently produces a file that no longer matches the committed one.
+    silently produces files that no longer match the committed ones.
     """
     try:
         result = subprocess.run(
@@ -98,7 +130,7 @@ def check_codegen_version(expected: str) -> None:
         print(f"Install with: pip install -r {REQUIREMENTS_PATH}")
         sys.exit(1)
 
-    # Output looks like "datamodel-codegen 0.53.0"
+    # Output looks like "datamodel-codegen 0.76.0"
     installed = result.stdout.strip().split()[-1]
     if installed != expected:
         print(f"ERROR: datamodel-codegen {installed} is installed, but {expected} is pinned.")
@@ -106,10 +138,15 @@ def check_codegen_version(expected: str) -> None:
         sys.exit(1)
 
 
-def generate_models(schema: dict, output_path: Path, crd_path: Path, codegen_version: str) -> None:
+def generate_models(
+    schema: dict,
+    output_path: Path,
+    crd_path: Path,
+    kind: str,
+    codegen_version: str,
+) -> None:
     """Generate Pydantic models from schema using datamodel-codegen."""
 
-    # Generate to temp file first
     result = subprocess.run(
         [
             "datamodel-codegen",
@@ -121,7 +158,7 @@ def generate_models(schema: dict, output_path: Path, crd_path: Path, codegen_ver
             "--field-constraints",
             "--reuse-model",
             "--collapse-reuse-models",
-            "--class-name", "RayJob",
+            "--class-name", kind,
         ],
         input=json.dumps(schema),
         capture_output=True,
@@ -129,7 +166,7 @@ def generate_models(schema: dict, output_path: Path, crd_path: Path, codegen_ver
     )
 
     if result.returncode != 0:
-        print(f"ERROR: datamodel-codegen failed:\n{result.stderr}")
+        print(f"ERROR: datamodel-codegen failed for {kind}:\n{result.stderr}")
         sys.exit(1)
 
     # Read generated content and add proper header
@@ -146,12 +183,12 @@ def generate_models(schema: dict, output_path: Path, crd_path: Path, codegen_ver
     crd_relative = crd_path.relative_to(REPO_ROOT)
 
     header = f'''"""
-Auto-generated Pydantic models from KubeRay CRD OpenAPI schema.
+Auto-generated Pydantic models for the {kind} CRD OpenAPI schema.
 
 DO NOT EDIT THIS FILE MANUALLY!
 
 Generated by: clients/python-client/scripts/generate_models.py
-Source CRD:   {crd_relative}
+Source CRD:   {crd_relative} ({CRD_VERSION})
 Generator:    {CODEGEN_PACKAGE} {codegen_version}
 
 To regenerate (from repo root):
@@ -165,24 +202,26 @@ To regenerate (from repo root):
     with open(output_path, "w") as f:
         f.write(header + content)
 
-    print(f"Generated {output_path}")
-    print(f"  Source: {crd_path}")
-
 
 def main():
-    if not CRD_PATH.exists():
-        print(f"ERROR: CRD file not found: {CRD_PATH}")
-        print("Make sure you're running from the correct directory.")
-        sys.exit(1)
-
     codegen_version = pinned_codegen_version()
     check_codegen_version(codegen_version)
 
-    print(f"Extracting schema from {CRD_PATH}...")
-    schema = extract_schema(CRD_PATH)
+    missing = [cr.crd_file for cr in CUSTOM_RESOURCES if not (CRD_DIR / cr.crd_file).exists()]
+    if missing:
+        print(f"ERROR: CRD files not found in {CRD_DIR}: {missing}")
+        print("Make sure you're running from the correct directory.")
+        sys.exit(1)
 
     print(f"Generating Pydantic models with {CODEGEN_PACKAGE} {codegen_version}...")
-    generate_models(schema, OUTPUT_PATH, CRD_PATH, codegen_version)
+    for cr in CUSTOM_RESOURCES:
+        crd_path = CRD_DIR / cr.crd_file
+        output_path = OUTPUT_DIR / cr.module
+
+        schema = extract_schema(crd_path)
+        generate_models(schema, output_path, crd_path, cr.kind, codegen_version)
+
+        print(f"  {cr.kind:11} {cr.crd_file:24} -> models/generated/{cr.module}")
 
     print("Done!")
 
