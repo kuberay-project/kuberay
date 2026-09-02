@@ -44,10 +44,12 @@ When CRDs are updated, regenerate the Python models using the generation script.
 pip install -r clients/python-client/scripts/requirements.txt
 ```
 
-`datamodel-code-generator` is pinned to an exact version in that file. The generator
-names inlined schemas positionally (`Container1`, `Spec2`, `Resources7`, ...), so a
-different version produces different class names and breaks the imports in `utils/`.
-The script refuses to run if the installed version does not match the pin.
+`datamodel-code-generator` is pinned to an exact version in that file. CRD YAML inlines
+every schema (no `$ref`s), so the generator mints a class per occurrence and names the
+anonymous ones positionally (`Spec2`, `Port2`, ...). How aggressively it collapses
+identical occurrences changes between releases, so a different version produces
+different class names and breaks the imports in `utils/`. The script refuses to run if
+the installed version does not match the pin.
 
 ### Generate from CRD
 
