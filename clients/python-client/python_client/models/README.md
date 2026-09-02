@@ -4,9 +4,34 @@ Auto-generated Pydantic models from KubeRay CRD OpenAPI schemas.
 
 ## Files
 
-| File | Description |
-|------|-------------|
-| `generated_models.py` | Auto-generated Pydantic models from the RayJob CRD schema (includes the embedded `RayClusterSpec`) |
+One module per custom resource, generated from the `v1` schema of the matching CRD:
+
+| File | Kind | Source CRD |
+|------|------|------------|
+| `generated/raycluster.py` | `RayCluster` | `ray.io_rayclusters.yaml` |
+| `generated/rayjob.py` | `RayJob` | `ray.io_rayjobs.yaml` |
+| `generated/rayservice.py` | `RayService` | `ray.io_rayservices.yaml` |
+| `generated/raycronjob.py` | `RayCronJob` | `ray.io_raycronjobs.yaml` |
+
+`v1alpha1` is not generated - it is deprecated.
+
+### Models are per-resource, not shared
+
+CRD YAML inlines every schema instead of referencing a common definition, so each
+module carries its own copy of the shared Kubernetes types (`Container`, `Template`,
+`Resources`, ...). They are only interchangeable within one module - passing a
+`raycluster.Template` into a `rayjob` model raises a pydantic validation error. Build
+each custom resource from its own module:
+
+```python
+from python_client.models import RayCluster, RayJob, RayService, RayCronJob   # top-level models
+from python_client.models.generated.raycluster import HeadGroupSpec, WorkerGroupSpec
+from python_client.models.generated.rayjob import RayClusterSpec              # RayJob's embedded copy
+```
+
+Generating all four CRDs into a single module was measured and rejected: it numbers the
+anonymous classes across all of them (`Resources57`, `Spec28`), so a RayService schema
+change renames the classes the RayJob builders import.
 
 ## Usage
 
@@ -58,11 +83,16 @@ the installed version does not match the pin.
 python clients/python-client/scripts/generate_models.py
 ```
 
-The script will:
+The script will, for each custom resource in `CUSTOM_RESOURCES`:
 
-- Extract the OpenAPI schema from the CRD YAML
-- Generate Pydantic v2 models with proper deduplication
+- Extract the `v1` OpenAPI schema from the CRD YAML
+- Move Kubernetes int-or-string `pattern` constraints onto the string branch, so quantity
+  fields accept both `"500m"` and `2` (the generator otherwise emits a regex constraint on
+  an integer schema, which pydantic rejects at validation time)
+- Generate Pydantic v2 models with deduplication
 - Add a header with the source CRD path and the generator version (no timestamp, to avoid CI churn)
+
+To cover another CRD, add an entry to `CUSTOM_RESOURCES` in the script.
 
 ### Bumping the generator version
 

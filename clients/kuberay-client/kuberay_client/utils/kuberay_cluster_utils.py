@@ -8,7 +8,7 @@ import copy
 import re
 from typing import Any, Tuple
 from kuberay_client import constants
-from kuberay_client.models.generated_models import (
+from kuberay_client.models.generated.raycluster import (
     HeadGroupSpec,
     WorkerGroupSpec,
     Template,

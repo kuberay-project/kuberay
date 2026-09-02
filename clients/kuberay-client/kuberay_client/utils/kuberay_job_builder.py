@@ -31,8 +31,10 @@ Usage:
 from typing import Optional
 import json
 
-# Import CRD-generated models (the source of truth)
-from kuberay_client.models.generated_models import (
+# Import CRD-generated models (the source of truth). These come from the RayJob
+# module: the cluster spec a RayJob embeds is its own set of classes, so
+# raycluster models are not accepted here.
+from kuberay_client.models.generated.rayjob import (
     RayJob, Spec, RayClusterSpec, HeadGroupSpec, WorkerGroupSpec,
     Template, Spec2, Container,
 )

@@ -183,7 +183,7 @@ jobs:
         uses: tj-actions/verify-changed-files@v20
         with:
           files: |
-            ./clients/python-client/python_client/models/generated_models.py
+            ./clients/python-client/python_client/models/generated/*.py
 
       - name: Check changed files
         if: steps.verify-changed-files.outputs.files_changed == 'true'
