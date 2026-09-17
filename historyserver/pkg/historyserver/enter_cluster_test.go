@@ -258,6 +258,34 @@ func TestEnterCluster(t *testing.T) {
 			t.Errorf("Expected cookie %s to default to 'live' (actual latest session name), got %v", COOKIE_SESSION_NAME_KEY, c)
 		}
 	})
+
+	t.Run("Successful entry serves the dashboard bootstrap page", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/enter_cluster/default/raycluster/cluster-a", nil)
+		resp := httptest.NewRecorder()
+		container.ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d: %s", resp.Code, resp.Body.String())
+		}
+		if ct := resp.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+			t.Errorf("Expected Content-Type to start with text/html, got %q", ct)
+		}
+		if body := resp.Body.String(); !strings.Contains(body, `location.replace("/" + location.hash)`) {
+			t.Errorf("Expected the bootstrap page to forward the URL fragment, got %q", body)
+		}
+	})
+
+	t.Run("Browser-style navigation headers are not rejected", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/enter_cluster/default/raycluster/cluster-a", nil)
+		req.Header.Set("Accept", "text/html")
+		req.Header.Set("Content-Type", "application/octet-stream")
+		resp := httptest.NewRecorder()
+		container.ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusOK {
+			t.Fatalf("Expected status 200 for a browser-style navigation, got %d: %s", resp.Code, resp.Body.String())
+		}
+	})
 }
 
 func TestEnterClusterLatestFromStorage(t *testing.T) {

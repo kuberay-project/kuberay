@@ -40,6 +40,20 @@ const (
 	ATTRIBUTE_AUTH_TOKEN   = "cluster_auth_token"
 )
 
+// enterClusterBootstrapPage is served by /enter_cluster once the cluster context cookies
+// are set. The URL fragment (e.g. #/overview) never reaches the server, so the landing
+// page travels client-side: the browser carries it over to the dashboard root itself.
+// Serving a page instead of a redirect matters because a proxy between the browser and
+// this server would follow the redirect itself, swallowing both it and the cookies.
+const enterClusterBootstrapPage = `<!DOCTYPE html>
+<html>
+  <head><meta charset="utf-8"><title>Ray History Server</title></head>
+  <body>
+    <script>location.replace("/" + location.hash);</script>
+  </body>
+</html>
+`
+
 // handleMissingSnapshot responds 503 when the session snapshot is not in the cache.
 func (s *ServerHandler) handleMissingSnapshot(resp *restful.Response) {
 	resp.WriteErrorString(http.StatusServiceUnavailable,
@@ -322,7 +336,10 @@ func routerRayClusterSet(s *ServerHandler) {
 	ws := new(restful.WebService)
 	defer restful.Add(ws)
 
-	ws.Path("/enter_cluster").Consumes(restful.MIME_JSON).Produces(restful.MIME_JSON).Filter(RequestLogFilter)
+	// No Consumes: /enter_cluster is a browser-facing page, and a JSON-only declaration
+	// makes go-restful reject navigations whose Content-Type is not JSON (415) once any
+	// proxy in front adds one. Produces is HTML because the response is the bootstrap page.
+	ws.Path("/enter_cluster").Produces("text/html").Filter(RequestLogFilter)
 	enterHandler := func(r1 *restful.Request, r2 *restful.Response, namespace, resourceType, resourceName, session string) {
 		kindLower := strings.ToLower(resourceType)
 		if kindLower != utils.RayClusterKind && kindLower != utils.RayJobKind && kindLower != utils.RayServiceKind {
@@ -382,12 +399,11 @@ func routerRayClusterSet(s *ServerHandler) {
 		http.SetCookie(r2, &http.Cookie{MaxAge: 600, Path: "/", Name: COOKIE_OWNER_KIND_KEY, Value: resolvedClusterInfo.OwnerKind})
 		http.SetCookie(r2, &http.Cookie{MaxAge: 600, Path: "/", Name: COOKIE_OWNER_NAME_KEY, Value: resolvedClusterInfo.OwnerName})
 
-		r2.WriteJson(map[string]any{
-			"result":    "success",
-			"name":      resolvedName,
-			"namespace": namespace,
-			"session":   resolvedSession,
-		}, "application/json")
+		r2.Header().Set("Content-Type", "text/html; charset=utf-8")
+		r2.WriteHeader(http.StatusOK)
+		if _, err := r2.Write([]byte(enterClusterBootstrapPage)); err != nil {
+			logrus.Errorf("Failed to write the enter_cluster bootstrap page: %v", err)
+		}
 	}
 
 	ws.Route(ws.GET("/{namespace}/{kind}/{name}").To(func(r1 *restful.Request, r2 *restful.Response) {
@@ -396,7 +412,7 @@ func routerRayClusterSet(s *ServerHandler) {
 		name := r1.PathParameter("name")
 		enterHandler(r1, r2, namespace, kind, name, "latest")
 	}).
-		Doc("set cookie for cluster (defaults session to latest)").
+		Doc("set the cluster context cookies and serve the dashboard bootstrap page (defaults session to latest)").
 		Param(ws.PathParameter("namespace", "namespace")).
 		Param(ws.PathParameter("kind", "kind (raycluster, rayjob, or rayservice)")).
 		Param(ws.PathParameter("name", "name")).
@@ -410,7 +426,7 @@ func routerRayClusterSet(s *ServerHandler) {
 		session := r1.PathParameter("session")
 		enterHandler(r1, r2, namespace, kind, name, session)
 	}).
-		Doc("set cookie for cluster").
+		Doc("set the cluster context cookies and serve the dashboard bootstrap page").
 		Param(ws.PathParameter("namespace", "namespace")).
 		Param(ws.PathParameter("kind", "kind (raycluster, rayjob, or rayservice)")).
 		Param(ws.PathParameter("name", "name")).
