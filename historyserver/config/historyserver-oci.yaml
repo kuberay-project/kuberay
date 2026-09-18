@@ -1,0 +1,78 @@
+# History Server deployment reading from OCI Object Storage via OKE Workload Identity.
+# See historyserver/pkg/storage/oci/README.md for the IAM policy and prerequisites.
+#
+# Apply with envsubst to substitute environment variables:
+#   envsubst < historyserver/config/historyserver-oci.yaml | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: historyserver
+  labels:
+    app: historyserver
+spec:
+  selector:
+    app: historyserver
+  ports:
+  - protocol: TCP
+    name: http
+    port: 30080
+    targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: historyserver-demo
+  labels:
+    app: historyserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: historyserver
+  template:
+    metadata:
+      labels:
+        app: historyserver
+    spec:
+      serviceAccountName: historyserver
+      containers:
+      - name: historyserver
+        env:
+          - name: OCI_BUCKET
+            value: "${OCI_BUCKET}"
+          - name: OCI_NAMESPACE
+            value: "${OCI_NAMESPACE}"
+          - name: OCI_REGION
+            value: "${OCI_REGION}"
+          - name: OCI_AUTH_TYPE
+            value: "oke_workload_identity"
+          # Required by the OCI SDK resource principal provider used for Workload Identity.
+          - name: OCI_RESOURCE_PRINCIPAL_VERSION
+            value: "2.2"
+          - name: OCI_RESOURCE_PRINCIPAL_REGION
+            value: "${OCI_REGION}"
+          - name: STORAGE_BACKEND
+            value: "oci"
+        image: ${HISTORY_SERVER_IMAGE}
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        # Cache is soft-bounded at 8 GiB; 12 GiB leaves decode headroom.
+        # The 2 GiB request keeps examples schedulable; size production requests to residency.
+        args:
+        - --session-cache-max-memory=8Gi
+        # Enable access to live RayClusters through the History Server.
+        # - --enable-live-clusters=true
+        #
+        # Enable proxying to live RayClusters with token authentication enabled.
+        # The history server reads the auth Secret and forwards requests with the
+        # appropriate authorization header. Requires the RBAC in
+        # service_account_auth_token_mode.yaml.
+        # - --use-auth-token-mode=true
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "2Gi"
+          limits:
+            memory: "12Gi"

@@ -1,0 +1,305 @@
+# Sample RayJob with the collector sidecar writing to OCI Object Storage via
+# OKE Workload Identity.
+#
+# Prerequisites (on OKE):
+#   1. Use an enhanced OKE cluster (Workload Identity is not available on basic clusters).
+#   2. Apply historyserver/config/service_account.yaml so the `historyserver` ServiceAccount exists.
+#   3. Create an IAM policy that lets the ServiceAccount read the namespace and bucket and
+#      manage objects in it. See historyserver/pkg/storage/oci/README.md for the statements.
+#   4. Create the bucket, or also grant `manage buckets` and set OCI_COMPARTMENT_ID so the
+#      collector creates it.
+#
+# Apply with envsubst to substitute environment variables:
+#   envsubst < historyserver/config/rayjob-oci.yaml | kubectl apply -f -
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob-historyserver-oci
+spec:
+  entrypoint: python /home/ray/samples/sample_code.py
+  shutdownAfterJobFinishes: true
+  # Keep the RayCluster alive long enough for the collector to gather data from the Ray node.
+  ttlSecondsAfterFinished: 90
+  rayClusterSpec:
+    rayVersion: "2.56.0"
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: 0.0.0.0
+        num-cpus: "0"
+      serviceType: ClusterIP
+      template:
+        metadata:
+          labels:
+            test: rayjob-historyserver-oci
+        spec:
+          serviceAccountName: historyserver
+          containers:
+          - env:
+            - name: RAY_TMP_ROOT
+              value: &rayTmpRoot /tmp/ray
+            - name: RAY_enable_ray_event
+              value: "true"
+            - name: RAY_enable_core_worker_ray_event_to_aggregator
+              value: "true"
+            - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EVENTS_EXPORT_ADDR
+              value: "http://localhost:8084/v1/events"
+            - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES
+              value: "ALL"
+            image: rayproject/ray:2.56.0
+            imagePullPolicy: IfNotPresent
+            name: ray-head
+            resources:
+              limits:
+                cpu: "6"
+                memory: 10G
+              requests:
+                cpu: "50m"
+                memory: 1G
+            volumeMounts:
+            - name: historyserver
+              mountPath: *rayTmpRoot
+            - name: code-sample
+              mountPath: /home/ray/samples
+          - name: collector
+            image: ${COLLECTOR_IMAGE}
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: RAY_CLUSTER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['ray.io/cluster']
+            - name: RAY_CLUSTER_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: FQ_RAY_IP
+              value: $(RAY_CLUSTER_NAME)-head-svc.$(RAY_CLUSTER_NAMESPACE).svc.cluster.local
+            - name: RAY_TMP_ROOT
+              value: *rayTmpRoot
+            - name: OCI_BUCKET
+              value: "${OCI_BUCKET}"
+            - name: OCI_NAMESPACE
+              value: "${OCI_NAMESPACE}"
+            - name: OCI_REGION
+              value: "${OCI_REGION}"
+            - name: OCI_AUTH_TYPE
+              value: "oke_workload_identity"
+            # Required by the OCI SDK resource principal provider used for Workload Identity.
+            - name: OCI_RESOURCE_PRINCIPAL_VERSION
+              value: "2.2"
+            - name: OCI_RESOURCE_PRINCIPAL_REGION
+              value: "${OCI_REGION}"
+            # Optional; defaults to http://localhost:8265 (head only).
+            # - name: RAY_DASHBOARD_ADDRESS
+            #   value: "http://localhost:9265"
+            # Optional; defaults to 30s.
+            # - name: RAY_COLLECTOR_POLL_INTERVAL
+            #   value: "1m"
+            # Optional; defaults to 30s. Interval at which completed Ray log rotation
+            # backups are uploaded before Ray's rotation ring overwrites them. Keep it
+            # shorter than the time Ray takes to cycle through its rotation backups, which
+            # depends on RAY_ROTATION_MAX_BYTES, RAY_ROTATION_BACKUP_COUNT and how fast the
+            # node logs.
+            # - name: RAY_COLLECTOR_ROTATED_LOG_SCAN_INTERVAL
+            #   value: "10s"
+            # Optional extras on top of the built-in endpoints (Serve, placement groups, Ray Data).
+            # Paths must match the History Server replay request URI, query string included.
+            # For example, preserve Ray Train V2 run details for a future History Server view.
+            # Requires the Ray Train workload/driver (not the collector) to set
+            # RAY_TRAIN_V2_ENABLED=1 and RAY_TRAIN_ENABLE_STATE_TRACKING=1;
+            # verify this DeveloperAPI URI when changing Ray versions.
+            # - name: RAY_COLLECTOR_ADDITIONAL_ENDPOINTS
+            #   value: "/api/train/v2/runs/v1"
+            - name: RAY_ROLE
+              value: "Head"
+            - name: OWNER_KIND
+              value: "rayjob"
+            - name: OWNER_NAME
+              value: "rayjob-historyserver-oci"
+            - name: STORAGE_BACKEND
+              value: "oci"
+            - name: EVENTS_PORT
+              value: "8084"
+            volumeMounts:
+            - name: historyserver
+              mountPath: *rayTmpRoot
+          volumes:
+          - name: historyserver
+            emptyDir: {}
+          - name: code-sample
+            configMap:
+              name: ray-job-code-sample
+              items:
+              - key: sample_code.py
+                path: sample_code.py
+    workerGroupSpecs:
+    - groupName: cpu
+      maxReplicas: 1000
+      minReplicas: 1
+      numOfHosts: 1
+      rayStartParams: {}
+      replicas: 1
+      template:
+        metadata:
+          labels:
+            test: rayjob-historyserver-oci
+        spec:
+          serviceAccountName: historyserver
+          containers:
+          - env:
+            - name: RAY_TMP_ROOT
+              value: *rayTmpRoot
+            - name: RAY_enable_ray_event
+              value: "true"
+            - name: RAY_enable_core_worker_ray_event_to_aggregator
+              value: "true"
+            - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EVENTS_EXPORT_ADDR
+              value: "http://localhost:8084/v1/events"
+            - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES
+              value: "ALL"
+            image: rayproject/ray:2.56.0
+            imagePullPolicy: IfNotPresent
+            name: ray-worker
+            resources:
+              limits:
+                cpu: "2"
+                memory: 2G
+              requests:
+                cpu: "50m"
+                memory: 1G
+            volumeMounts:
+            - name: historyserver
+              mountPath: *rayTmpRoot
+          - name: collector
+            image: ${COLLECTOR_IMAGE}
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: RAY_CLUSTER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['ray.io/cluster']
+            - name: RAY_CLUSTER_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: FQ_RAY_IP
+              value: $(RAY_CLUSTER_NAME)-head-svc.$(RAY_CLUSTER_NAMESPACE).svc.cluster.local
+            - name: RAY_TMP_ROOT
+              value: *rayTmpRoot
+            - name: OCI_BUCKET
+              value: "${OCI_BUCKET}"
+            - name: OCI_NAMESPACE
+              value: "${OCI_NAMESPACE}"
+            - name: OCI_REGION
+              value: "${OCI_REGION}"
+            - name: OCI_AUTH_TYPE
+              value: "oke_workload_identity"
+            # Required by the OCI SDK resource principal provider used for Workload Identity.
+            - name: OCI_RESOURCE_PRINCIPAL_VERSION
+              value: "2.2"
+            - name: OCI_RESOURCE_PRINCIPAL_REGION
+              value: "${OCI_REGION}"
+            - name: RAY_ROLE
+              value: "Worker"
+            - name: OWNER_KIND
+              value: "rayjob"
+            - name: OWNER_NAME
+              value: "rayjob-historyserver-oci"
+            - name: STORAGE_BACKEND
+              value: "oci"
+            - name: EVENTS_PORT
+              value: "8084"
+            volumeMounts:
+            - name: historyserver
+              mountPath: *rayTmpRoot
+          volumes:
+          - name: historyserver
+            emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-job-code-sample
+data:
+  sample_code.py: |
+    import ray
+    import time
+    from ray.util.placement_group import placement_group
+
+    ray.init()
+
+    # --- Scenario 1: Root-level NORMAL_TASK (single call) ---
+    @ray.remote(num_cpus=0.1)
+    def my_task(x):
+        # NOTE: Add this to ensure will produce log.out
+        print(f"Processing {x}", flush=True)
+        return x * 2
+
+    # --- Scenario 2: Nested tasks (parent spawns child) ---
+    # Tests lineage tree depth > 1: child_task is nested under parent_task.
+    @ray.remote(num_cpus=0.1)
+    def parent_task():
+        result = ray.get(child_task.remote())
+        return result
+
+    @ray.remote(num_cpus=0.1)
+    def child_task():
+        print("Child task", flush=True)
+        return 42
+
+    # --- Scenario 3: Multiple same-name tasks ---
+    # Tests GROUP merging in lineage: 3 calls to the same function
+    # are merged into a single GROUP node.
+    @ray.remote(num_cpus=0.1)
+    def repeated_task(x):
+        return x
+
+    # --- Scenario 4: Actor (creation + method calls) ---
+    @ray.remote(num_cpus=0.1)
+    class Counter:
+        def __init__(self):
+            self.count = 0
+
+        def increment(self):
+            self.count += 1
+            return self.count
+
+        def get_count(self):
+            return self.count
+
+    # Execute all scenarios:
+    task_result = ray.get(my_task.remote(1))
+    print(f"Task result: {task_result}")
+
+    nested_result = ray.get(parent_task.remote())
+    print(f"Nested result: {nested_result}")
+
+    refs = [repeated_task.remote(i) for i in range(3)]
+    results = ray.get(refs)
+    print(f"Repeated results: {results}")
+
+    counter = Counter.remote()
+    for i in range(2):
+        count = ray.get(counter.increment.remote())
+        print(f"Counter: {count}")
+    final_count = ray.get(counter.get_count.remote())
+    print(f"Final count: {final_count}")
+
+    print(f"Cluster resources: {ray.cluster_resources()}")
+
+    # Create a detached placement group so it persists after the job exits.
+    # This ensures the collector captures non-empty data when polling /api/v0/placement_groups.
+    pg = placement_group([{"CPU": 0.5}], strategy="SPREAD", lifetime="detached", name="test_pg")
+    ray.get(pg.ready())
+    print(f"Placement group created: {pg.bundle_specs}")
+
+    # Wait for events to flush to the collector
+    time.sleep(5)

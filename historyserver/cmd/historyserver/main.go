@@ -32,7 +32,7 @@ func main() {
 	sessionCacheSize := historyserver.DefaultSessionCacheSize
 	sessionCacheMaxMemory := historyserver.DefaultSessionCacheMaxMemory
 	sessionCacheTTL := historyserver.DefaultSessionCacheTTL
-	flag.StringVar(&storageBackend, "storage-backend", "", "Storage backend: s3 / gcs / azureblob / aliyunoss / localtest")
+	flag.StringVar(&storageBackend, "storage-backend", "", "Storage backend: s3 / gcs / azureblob / aliyunoss / oci / localtest")
 	flag.StringVar(&storageRootDir, "storage-root-dir", "", "The root dir inside the bucket")
 	flag.StringVar(&kubeconfigs, "kubeconfigs", "", "Kubeconfig path; empty = in-cluster")
 	flag.StringVar(&dashboardDir, "dashboard-dir", "/dashboard", "Path to Ray Dashboard static assets")
