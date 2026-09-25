@@ -2330,6 +2330,7 @@ func TestTargetCapacityAsInt32(t *testing.T) {
 		{"float64 NaN is rejected", math.NaN(), 0, false},
 		{"float64 +Inf is rejected", math.Inf(1), 0, false},
 		{"float64 -Inf is rejected", math.Inf(-1), 0, false},
+		{"float64 fractional is rejected", 60.5, 0, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

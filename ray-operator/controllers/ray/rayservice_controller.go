@@ -1742,8 +1742,8 @@ func targetCapacityAsInt32(v any) (int32, bool) {
 		}
 		return int32(n), true
 	case float64:
-		// Reject NaN/Inf and values outside the int32 range.
-		if math.IsNaN(n) || math.IsInf(n, 0) || n < float64(minInt32) || n > float64(maxInt32) {
+		// Reject NaN/Inf, non-integral values and values outside the int32 range.
+		if math.IsNaN(n) || math.IsInf(n, 0) || math.Trunc(n) != n || n < float64(minInt32) || n > float64(maxInt32) {
 			return 0, false
 		}
 		return int32(n), true
