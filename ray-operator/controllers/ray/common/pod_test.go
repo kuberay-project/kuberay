@@ -3154,7 +3154,7 @@ func TestBuildCollectorContainerSecurityContextAndEnvFrom(t *testing.T) {
 	fqdnRayIP := "test-cluster-head-svc.default.svc.cluster.local"
 	baseOptions := func() *rayv1.CollectorOptions {
 		return &rayv1.CollectorOptions{
-			Image: ptr.To("quay.io/kuberay/collector:latest"),
+			Image: new("quay.io/kuberay/collector:latest"),
 			Env: []corev1.EnvVar{
 				{Name: "STORAGE_BACKEND", Value: "GCS"},
 				{Name: "GCS_BUCKET", Value: "my-bucket"},
@@ -3172,13 +3172,13 @@ func TestBuildCollectorContainerSecurityContextAndEnvFrom(t *testing.T) {
 	t.Run("SecurityContext is propagated to container", func(t *testing.T) {
 		opts := baseOptions()
 		opts.SecurityContext = &corev1.SecurityContext{
-			RunAsUser:    ptr.To(int64(0)),
-			RunAsNonRoot: ptr.To(false),
+			RunAsUser:    new(int64(0)),
+			RunAsNonRoot: new(false),
 		}
 		container := BuildCollectorContainer(opts, rayv1.HeadNode, "cluster", "default", fqdnRayIP, nil)
 		require.NotNil(t, container.SecurityContext)
 		assert.Equal(t, int64(0), *container.SecurityContext.RunAsUser)
-		assert.Equal(t, false, *container.SecurityContext.RunAsNonRoot)
+		assert.False(t, *container.SecurityContext.RunAsNonRoot)
 	})
 
 	t.Run("EnvFrom ConfigMapRef is propagated to container", func(t *testing.T) {
@@ -3225,7 +3225,7 @@ func TestBuildCollectorContainerSecurityContextAndEnvFrom(t *testing.T) {
 
 	t.Run("SecurityContext and EnvFrom are both applied together", func(t *testing.T) {
 		opts := baseOptions()
-		opts.SecurityContext = &corev1.SecurityContext{RunAsUser: ptr.To(int64(1001))}
+		opts.SecurityContext = &corev1.SecurityContext{RunAsUser: new(int64(1001))}
 		opts.EnvFrom = []corev1.EnvFromSource{
 			{ConfigMapRef: &corev1.ConfigMapEnvSource{
 				LocalObjectReference: corev1.LocalObjectReference{Name: "collector-config"},
