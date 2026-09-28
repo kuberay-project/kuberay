@@ -332,6 +332,15 @@ type CollectorOptions struct {
 	// Env allows injecting custom environment variables into the collector container.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
+	// EnvFrom allows injecting environment variables from a ConfigMap or Secret
+	// into the collector container.
+	// +optional
+	EnvFrom []corev1.EnvFromSource `json:"envFrom,omitempty"`
+	// SecurityContext specifies the security context for the collector container.
+	// If set, the fields of SecurityContext override the equivalent fields of PodSecurityContext.
+	// More info: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 }
 
 // NetworkPolicyMode is the type for network isolation mode constants.
