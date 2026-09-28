@@ -86,12 +86,20 @@ func NewServerHandler(
 func (s *ServerHandler) Run(stop <-chan struct{}) error {
 	s.RegisterRouter()
 	port := ":8080"
+	// The write timeout must cover the full lifetime of a response. enter_cluster
+	// blocks while the session loader cold-loads a session (bounded by
+	// sessionLoader.ProcessTimeout()), so the write timeout is derived from it
+	// with a buffer for session resolution (reader.List() over object storage),
+	// event decode, and response write. The floor of 35s keeps it >= httpClient
+	// .Timeout (30s) used to proxy live-cluster requests.
+	writeTimeout := max(35*time.Second, s.sessionLoader.ProcessTimeout()+30*time.Second)
 	server := &http.Server{
 		Addr:         port,             // Listen address
 		ReadTimeout:  5 * time.Second,  // Read timeout
-		WriteTimeout: 35 * time.Second, // Write response timeout (must be >= httpClient.Timeout for proxy requests)
+		WriteTimeout: writeTimeout,     // Write response timeout (must be >= httpClient.Timeout for proxy requests)
 		IdleTimeout:  60 * time.Second, // Idle timeout
 	}
+	logrus.Infof("HTTP server timeouts: read=5s write=%s idle=60s", writeTimeout)
 	go func() {
 		logrus.Infof("Starting server on %s", port)
 		err := server.ListenAndServe()
