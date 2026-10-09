@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/emicklei/go-restful/v3"
+	"github.com/ray-project/kuberay/historyserver/html"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -728,4 +729,38 @@ func TestEnterClusterWithLiveClustersDisabled(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestClusterSelectorNavigatesAfterEnterCluster guards the contract between
+// /enter_cluster and the embedded cluster selector page. The endpoint answers with the
+// HTML bootstrap page, and a fetch() never executes the document it receives, so the
+// selector must navigate on its own once the response is ok. Parsing the body as JSON
+// (the pre-bootstrap behavior) throws on the HTML and strands the user on the selector
+// with an error even though the context cookies were already set.
+//
+// This is asserted here because the History Server e2e suite that would exercise the
+// flow in a real browser is not wired into CI at the moment.
+func TestClusterSelectorNavigatesAfterEnterCluster(t *testing.T) {
+	page := string(html.ClusterSelectorHTML)
+
+	start := strings.Index(page, "function enterCluster(")
+	if start < 0 {
+		t.Fatal("the cluster selector page no longer defines enterCluster()")
+	}
+	end := strings.Index(page[start:], "\n            function ")
+	if end < 0 {
+		t.Fatal("cannot locate the end of enterCluster() in the cluster selector page")
+	}
+	enterCluster := page[start : start+end]
+
+	if strings.Contains(enterCluster, "res.json()") {
+		t.Error("enterCluster() parses the /enter_cluster body as JSON, " +
+			"but that endpoint serves the HTML bootstrap page")
+	}
+	if strings.Contains(enterCluster, "data.result") {
+		t.Error("enterCluster() still checks data.result, which the bootstrap page never returns")
+	}
+	if !strings.Contains(enterCluster, "window.location.href") {
+		t.Error("enterCluster() must navigate to the dashboard itself once the context cookies are set")
+	}
 }
