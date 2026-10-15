@@ -166,9 +166,11 @@ def test_name_collision_different_schemas():
     }
     result = normalize_schema(schema)
     defs = result["definitions"]
-    # Both should exist with distinct names
-    config_names = [k for k in defs if k.startswith("Config")]
+    # Path-based naming gives HeadConfig and WorkerConfig
+    config_names = [k for k in defs if "Config" in k]
     assert len(config_names) == 2
+    assert "HeadConfig" in defs
+    assert "WorkerConfig" in defs
 
 
 def test_load_crd_schema():
