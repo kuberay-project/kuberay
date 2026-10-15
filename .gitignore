@@ -85,3 +85,8 @@ schema/
 # Source: https://go.dev/ref/mod#workspaces
 # go.work
 # go.work.sum
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo

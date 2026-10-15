@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kuberay-api"
-version = "0.0.0-dev"
+version = "0.0.0.dev0"
 description = "Generated Pydantic v2 models for KubeRay CRDs"
 readme = "README.md"
 license = "Apache-2.0"
