@@ -2,7 +2,10 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
-from generate_python_models import property_name_to_class_name, normalize_schema
+import tempfile
+import yaml
+import subprocess
+from generate_python_models import property_name_to_class_name, normalize_schema, load_crd_schema, generate_model_for_crd
 
 
 def test_camel_to_pascal():
@@ -166,3 +169,92 @@ def test_name_collision_different_schemas():
     # Both should exist with distinct names
     config_names = [k for k in defs if k.startswith("Config")]
     assert len(config_names) == 2
+
+
+def test_load_crd_schema():
+    crd = {
+        "apiVersion": "apiextensions.k8s.io/v1",
+        "kind": "CustomResourceDefinition",
+        "spec": {
+            "group": "ray.io",
+            "names": {"kind": "RayCluster"},
+            "versions": [{
+                "name": "v1",
+                "schema": {
+                    "openAPIV3Schema": {
+                        "type": "object",
+                        "properties": {
+                            "apiVersion": {"type": "string"},
+                            "kind": {"type": "string"},
+                            "spec": {
+                                "type": "object",
+                                "properties": {
+                                    "rayVersion": {"type": "string"}
+                                }
+                            }
+                        }
+                    }
+                }
+            }]
+        }
+    }
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        yaml.dump(crd, f)
+        f.flush()
+        kind, schema = load_crd_schema(f.name)
+    assert kind == "RayCluster"
+    assert schema["type"] == "object"
+    assert "spec" in schema["properties"]
+
+
+def test_generate_model_produces_stable_names(tmp_path):
+    """Generate from a small CRD schema and verify class names are stable."""
+    crd = {
+        "apiVersion": "apiextensions.k8s.io/v1",
+        "kind": "CustomResourceDefinition",
+        "spec": {
+            "group": "ray.io",
+            "names": {"kind": "RayCluster"},
+            "versions": [{
+                "name": "v1",
+                "schema": {
+                    "openAPIV3Schema": {
+                        "type": "object",
+                        "properties": {
+                            "apiVersion": {"type": "string"},
+                            "kind": {"type": "string"},
+                            "spec": {
+                                "type": "object",
+                                "properties": {
+                                    "rayVersion": {"type": "string"},
+                                    "headGroupSpec": {
+                                        "type": "object",
+                                        "properties": {
+                                            "rayStartParams": {
+                                                "type": "object",
+                                                "additionalProperties": {"type": "string"}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }]
+        }
+    }
+    crd_file = tmp_path / "ray.io_rayclusters.yaml"
+    with open(crd_file, 'w') as f:
+        yaml.dump(crd, f)
+
+    output_file = tmp_path / "raycluster.py"
+    generate_model_for_crd(str(crd_file), str(output_file))
+
+    content = output_file.read_text()
+    assert "class HeadGroupSpec" in content
+    assert "class Spec" in content or "class RayClusterSpec" in content
+    # No numbered classes
+    import re
+    numbered = re.findall(r'class \w+\d+', content)
+    assert numbered == [], f"Found numbered classes: {numbered}"
