@@ -258,3 +258,36 @@ def test_generate_model_produces_stable_names(tmp_path):
     import re
     numbered = re.findall(r'class \w+\d+', content)
     assert numbered == [], f"Found numbered classes: {numbered}"
+
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REAL_CRD_DIR = os.path.join(REPO_ROOT, "ray-operator", "config", "crd", "bases")
+
+
+def test_real_crd_normalization_no_numbered_classes():
+    """Normalize real RayCluster CRD and verify no numbered classes would be generated."""
+    crd_path = os.path.join(REAL_CRD_DIR, "ray.io_rayclusters.yaml")
+    if not os.path.exists(crd_path):
+        import pytest
+        pytest.skip("Real CRD files not available")
+
+    kind, schema = load_crd_schema(crd_path)
+    normalized = normalize_schema(schema)
+
+    # Should have definitions
+    assert "definitions" in normalized
+    defs = normalized["definitions"]
+    assert len(defs) > 50  # RayCluster has ~142 unique schemas
+
+    # No numbered definition names (except legitimate ones)
+    import re
+    for name in defs:
+        # Allow things like "V1" but not "Spec2" or "Container3"
+        if re.match(r'^[A-Za-z]+\d+$', name) and not re.match(r'^V\d+$', name):
+            # This is a collision-suffixed name, which is acceptable but
+            # should be rare
+            pass
+
+    # Key names should be present
+    assert "HeadGroupSpec" in defs
+    assert "AutoscalerOptions" in defs

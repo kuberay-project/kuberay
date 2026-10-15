@@ -53,6 +53,78 @@ def property_name_to_class_name(name: str) -> str:
     return name
 
 
+def _path_to_class_name(path: list[str]) -> str:
+    """Generate a class name from a property path.
+
+    Uses minimal context from the path to avoid numbered collisions.
+    Examples:
+        ['spec', 'autoscalerOptions'] -> AutoscalerOptions
+        ['spec', 'template', 'spec', 'containers'] -> Container
+        ['spec', 'headGroupSpec', 'template', 'spec', 'containers', 'ports'] -> ContainerPort
+        ['spec', 'template', 'spec', 'initContainers', 'ports'] -> InitContainerPort
+        ['status', 'head', 'ports'] -> HeadPort
+    """
+    if not path:
+        return "Model"
+
+    final_segment = path[-1]
+    final_lower = final_segment.lower()
+
+    # Well-known property names that should get simple, standalone class names
+    standalone_names = {
+        'autoscaleroptions': 'AutoscalerOptions',
+        'containers': 'Container',
+    }
+
+    # Check if the final segment is a standalone name
+    if final_lower in standalone_names:
+        return standalone_names[final_lower]
+
+    # Segments to skip (too generic)
+    skip_segments = {'spec', 'status', 'metadata', 'template'}
+
+    # Strong context keywords that provide sufficient differentiation
+    strong_context = {'container', 'init', 'ephemeral'}
+
+    # Weaker context keywords (only include if no strong context present)
+    weak_context = {'head', 'worker', 'autoscaler', 'service', 'ingress',
+                   'volume', 'env', 'resource', 'security', 'affinity',
+                   'toleration', 'config', 'secret', 'downward', 'projected'}
+
+    # Build class name from relevant parts of the path
+    parts = []
+    has_strong_context = False
+
+    # First pass: identify if we have strong context
+    for segment in path[:-1]:  # Exclude final segment
+        segment_lower = segment.lower()
+        if segment_lower in strong_context or any(sc in segment_lower for sc in strong_context):
+            has_strong_context = True
+            break
+
+    # Second pass: build parts list
+    for i, segment in enumerate(path):
+        segment_lower = segment.lower()
+        is_last = (i == len(path) - 1)
+
+        # Always include the last segment
+        if is_last:
+            parts.append(segment)
+        # Include strong context keywords
+        elif segment_lower in strong_context or any(sc in segment_lower for sc in strong_context):
+            parts.append(segment)
+        # Include weak context only if we don't have strong context
+        elif not has_strong_context and (segment_lower in weak_context or any(wc in segment_lower for wc in weak_context)):
+            parts.append(segment)
+        # Skip generic segments
+        elif segment_lower in skip_segments:
+            continue
+
+    # Convert each part to PascalCase and combine
+    class_parts = [property_name_to_class_name(p) for p in parts]
+    return ''.join(class_parts)
+
+
 def schema_hash(schema: dict) -> str:
     canonical = json.dumps(schema, sort_keys=True)
     return hashlib.sha256(canonical.encode()).hexdigest()
@@ -72,7 +144,7 @@ def normalize_schema(schema: dict) -> dict:
     definitions: dict[str, dict] = {}
     hash_to_name: dict[str, str] = {}
 
-    schema = _extract_definitions(schema, "", definitions, hash_to_name, is_root=True)
+    schema = _extract_definitions(schema, [], definitions, hash_to_name, is_root=True)
     if definitions:
         schema["definitions"] = definitions
     return schema
@@ -101,7 +173,7 @@ def _strip_k8s_extensions(obj: Any) -> Any:
 
 def _extract_definitions(
     schema: Any,
-    prop_name: str,
+    path: list[str],
     definitions: dict[str, dict],
     hash_to_name: dict[str, str],
     is_root: bool = False,
@@ -109,10 +181,19 @@ def _extract_definitions(
     if not isinstance(schema, dict):
         return schema
 
+    # Process oneOf/anyOf schemas
+    for key in ["oneOf", "anyOf"]:
+        if key in schema and isinstance(schema[key], list):
+            schema[key] = [
+                _extract_definitions(item, path, definitions, hash_to_name)
+                if isinstance(item, dict) else item
+                for item in schema[key]
+            ]
+
     # Process array items first
     if "items" in schema and isinstance(schema["items"], dict):
         schema["items"] = _extract_definitions(
-            schema["items"], prop_name, definitions, hash_to_name
+            schema["items"], path, definitions, hash_to_name
         )
 
     # Process properties recursively
@@ -120,24 +201,31 @@ def _extract_definitions(
         new_props = {}
         for key, val in schema["properties"].items():
             new_props[key] = _extract_definitions(
-                val, key, definitions, hash_to_name
+                val, path + [key], definitions, hash_to_name
             )
         schema["properties"] = new_props
 
     # Process additionalProperties
     if "additionalProperties" in schema and isinstance(schema["additionalProperties"], dict):
+        # additionalProperties are dict-like, don't add to path
         schema["additionalProperties"] = _extract_definitions(
-            schema["additionalProperties"], prop_name, definitions, hash_to_name
+            schema["additionalProperties"], path, definitions, hash_to_name
         )
 
     # Extract this schema into definitions if it's an inline object (not root)
-    if (
-        not is_root
-        and schema.get("type") == "object"
-        and "properties" in schema
-        and prop_name
-    ):
-        class_name = property_name_to_class_name(prop_name)
+    # or if it has oneOf/anyOf with complex schemas
+    should_extract = False
+    if not is_root and path:
+        if schema.get("type") == "object" and "properties" in schema:
+            should_extract = True
+        # Also extract oneOf/anyOf if they contain objects
+        elif "oneOf" in schema or "anyOf" in schema:
+            key = "oneOf" if "oneOf" in schema else "anyOf"
+            if any(isinstance(item, dict) and item.get("type") == "object" for item in schema[key]):
+                should_extract = True
+
+    if should_extract:
+        class_name = _path_to_class_name(path)
         h = schema_hash(schema)
 
         if h in hash_to_name:
@@ -194,6 +282,7 @@ def generate_model_for_crd(crd_path: str, output_path: str) -> None:
                 "--field-constraints",
                 "--use-default-kwarg",
                 "--formatters", "builtin",
+                "--class-name", kind,  # Use CRD kind as root class name
             ],
             check=True,
             capture_output=True,
