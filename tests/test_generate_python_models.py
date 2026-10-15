@@ -293,3 +293,49 @@ def test_real_crd_normalization_no_numbered_classes():
     # Key names should be present
     assert "HeadGroupSpec" in defs
     assert "AutoscalerOptions" in defs
+
+
+def test_raycluster_roundtrip():
+    """Construct a RayCluster, serialize to dict, deserialize back."""
+    crd_path = os.path.join(REAL_CRD_DIR, "ray.io_rayclusters.yaml")
+    if not os.path.exists(crd_path):
+        import pytest
+        pytest.skip("Real CRD files not available")
+
+    sys.path.insert(0, os.path.join(REPO_ROOT, "clients", "python-api"))
+
+    from kuberay_api.models.raycluster import RayCluster
+
+    cluster = RayCluster(
+        apiVersion="ray.io/v1",
+        kind="RayCluster",
+    )
+    data = cluster.model_dump(exclude_none=True)
+    assert data["apiVersion"] == "ray.io/v1"
+    assert data["kind"] == "RayCluster"
+
+    restored = RayCluster.model_validate(data)
+    assert restored.apiVersion == "ray.io/v1"
+
+
+def test_rayjob_roundtrip():
+    """Construct a RayJob, serialize to dict, deserialize back."""
+    crd_path = os.path.join(REAL_CRD_DIR, "ray.io_rayjobs.yaml")
+    if not os.path.exists(crd_path):
+        import pytest
+        pytest.skip("Real CRD files not available")
+
+    sys.path.insert(0, os.path.join(REPO_ROOT, "clients", "python-api"))
+
+    from kuberay_api.models.rayjob import RayJob
+
+    job = RayJob(
+        apiVersion="ray.io/v1",
+        kind="RayJob",
+    )
+    data = job.model_dump(exclude_none=True)
+    assert data["apiVersion"] == "ray.io/v1"
+    assert data["kind"] == "RayJob"
+
+    restored = RayJob.model_validate(data)
+    assert restored.apiVersion == "ray.io/v1"
