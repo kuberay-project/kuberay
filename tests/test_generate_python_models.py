@@ -283,12 +283,9 @@ def test_real_crd_normalization_no_numbered_classes():
 
     # No numbered definition names (except legitimate ones)
     import re
-    for name in defs:
-        # Allow things like "V1" but not "Spec2" or "Container3"
-        if re.match(r'^[A-Za-z]+\d+$', name) and not re.match(r'^V\d+$', name):
-            # This is a collision-suffixed name, which is acceptable but
-            # should be rare
-            pass
+    numbered = [name for name in defs
+                if re.match(r'^[A-Za-z]+\d+$', name) and not re.match(r'^V\d+$', name)]
+    assert len(numbered) <= 5, f"Too many collision-suffixed names: {numbered}"
 
     # Key names should be present
     assert "HeadGroupSpec" in defs
