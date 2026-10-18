@@ -547,6 +547,7 @@ func TestSyncPodGroupDeleteUsesUIDPreconditionAndDefersRecreation(t *testing.T) 
 	ctx := context.Background()
 	scheme := newTestScheme(t)
 	rayCluster := newTestRayCluster(newWorkerGroup())
+	rayCluster.Spec.HeadGroupSpec.Template.Spec.PriorityClassName = "missing-pc"
 	desiredPolicy := buildClusterSchedulingPolicy(rayCluster)
 	existingWorkload := &schedulingv1alpha3.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: rayCluster.Name, Namespace: rayCluster.Namespace},
@@ -708,10 +709,9 @@ func TestSyncSchedulingResourcesRetriesWhenWorkloadBeingDeleted(t *testing.T) {
 }
 
 func TestIsWorkloadStale(t *testing.T) {
-	ctx := context.Background()
 	baseCluster := newTestRayCluster(newWorkerGroupWithReplicas("workers", 3))
 	scheduler := &KubernetesWASV1Alpha3Scheduler{cli: clientFake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()}
-	baseWorkload, _, err := scheduler.buildSchedulingResources(ctx, baseCluster)
+	baseWorkload, _, err := scheduler.buildSchedulingResources(baseCluster)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -730,7 +730,7 @@ func TestIsWorkloadStale(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			desired, _, err := scheduler.buildSchedulingResources(ctx, tt.cluster)
+			desired, _, err := scheduler.buildSchedulingResources(tt.cluster)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStale, isWorkloadStale(tt.workload, desired))
 		})
@@ -738,44 +738,152 @@ func TestIsWorkloadStale(t *testing.T) {
 }
 
 func TestBuildSchedulingResourcesCopiesPriorityFields(t *testing.T) {
-	ctx := context.Background()
-	priorityClass := &schedulingv1.PriorityClass{
-		ObjectMeta:       metav1.ObjectMeta{Name: "never-pc"},
-		PreemptionPolicy: ptr.To(corev1.PreemptNever),
-	}
-	fakeClient := clientFake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(priorityClass).Build()
+	fakeClient := clientFake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()
 	scheduler := &KubernetesWASV1Alpha3Scheduler{cli: fakeClient}
 	rayCluster := newTestRayCluster(newWorkerGroup())
 	rayCluster.Spec.HeadGroupSpec.Template.Spec.PriorityClassName = "never-pc"
 
-	// No explicit preemptionPolicy on the pod template: derive it from the referenced PriorityClass.
-	workload, podGroup, err := scheduler.buildSchedulingResources(ctx, rayCluster)
+	// Class lookup is deferred until creation.
+	workload, podGroup, err := scheduler.buildSchedulingResources(rayCluster)
 	require.NoError(t, err)
 	require.Len(t, workload.Spec.PodGroupTemplates, 1)
 	assert.Equal(t, "never-pc", workload.Spec.PodGroupTemplates[0].PriorityClassName)
-	assert.Equal(t, ptr.To(schedulingv1alpha3.PreemptNever), workload.Spec.PodGroupTemplates[0].PreemptionPolicy)
+	assert.Nil(t, workload.Spec.PodGroupTemplates[0].PreemptionPolicy)
 	assert.Equal(t, "never-pc", podGroup.Spec.PriorityClassName)
-	assert.Equal(t, ptr.To(schedulingv1alpha3.PreemptNever), podGroup.Spec.PreemptionPolicy)
+	assert.Nil(t, podGroup.Spec.PreemptionPolicy)
 
-	// An explicit preemptionPolicy on the pod template overrides the derived value.
+	// An explicit preemptionPolicy is copied without a lookup.
 	rayCluster.Spec.HeadGroupSpec.Template.Spec.PreemptionPolicy = ptr.To(corev1.PreemptLowerPriority)
-	workload, podGroup, err = scheduler.buildSchedulingResources(ctx, rayCluster)
+	workload, podGroup, err = scheduler.buildSchedulingResources(rayCluster)
 	require.NoError(t, err)
 	assert.Equal(t, ptr.To(schedulingv1alpha3.PreemptLowerPriority), workload.Spec.PodGroupTemplates[0].PreemptionPolicy)
 	assert.Equal(t, ptr.To(schedulingv1alpha3.PreemptLowerPriority), podGroup.Spec.PreemptionPolicy)
 }
 
-func TestBuildSchedulingResourcesErrorsWhenPriorityClassMissing(t *testing.T) {
-	ctx := context.Background()
-	scheduler := &KubernetesWASV1Alpha3Scheduler{cli: clientFake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()}
-	rayCluster := newTestRayCluster(newWorkerGroup())
-	rayCluster.Spec.HeadGroupSpec.Template.Spec.PriorityClassName = "missing-pc"
+func TestResolvePreemptionPolicy(t *testing.T) {
+	for _, tt := range []struct {
+		name           string
+		className      string
+		explicitPolicy *schedulingv1alpha3.PreemptionPolicy
+		classPolicy    *corev1.PreemptionPolicy
+		wantPolicy     *schedulingv1alpha3.PreemptionPolicy
+		wantLookups    int
+	}{
+		{name: "no class"},
+		{name: "explicit policy skips lookup", className: "test-pc", explicitPolicy: ptr.To(schedulingv1alpha3.PreemptNever), wantPolicy: ptr.To(schedulingv1alpha3.PreemptNever)},
+		{name: "Never class", className: "test-pc", classPolicy: ptr.To(corev1.PreemptNever), wantPolicy: ptr.To(schedulingv1alpha3.PreemptNever), wantLookups: 1},
+		{name: "PreemptLowerPriority class", className: "test-pc", classPolicy: ptr.To(corev1.PreemptLowerPriority), wantPolicy: ptr.To(schedulingv1alpha3.PreemptLowerPriority), wantLookups: 1},
+		{name: "class policy defaults", className: "test-pc", wantPolicy: ptr.To(schedulingv1alpha3.PreemptLowerPriority), wantLookups: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			lookups := 0
+			priorityClass := &schedulingv1.PriorityClass{
+				ObjectMeta:       metav1.ObjectMeta{Name: "test-pc"},
+				PreemptionPolicy: tt.classPolicy,
+			}
+			fakeClient := clientFake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(priorityClass).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, cli client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						lookups++
+						return cli.Get(ctx, key, obj, opts...)
+					},
+				}).Build()
+			scheduler := &KubernetesWASV1Alpha3Scheduler{cli: fakeClient}
 
-	// The referenced PriorityClass does not exist; this must surface as an error rather
-	// than silently dropping the preemption policy.
-	_, _, err := scheduler.buildSchedulingResources(ctx, rayCluster)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "missing-pc")
+			policy, err := scheduler.resolvePreemptionPolicy(context.Background(), tt.className, tt.explicitPolicy)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantPolicy, policy)
+			assert.Equal(t, tt.wantLookups, lookups)
+		})
+	}
+}
+
+func TestSyncSchedulingResourcesLooksUpPriorityClassOnlyForCreation(t *testing.T) {
+	ctx := context.Background()
+	for _, lookupError := range []string{"", "missing", "forbidden"} {
+		for _, resources := range []struct {
+			name     string
+			workload bool
+			podGroup bool
+		}{
+			{name: "create both"},
+			{name: "create workload", podGroup: true},
+			{name: "create podgroup", workload: true},
+			{name: "both exist", workload: true, podGroup: true},
+		} {
+			t.Run(resources.name+"/"+lookupError, func(t *testing.T) {
+				rayCluster := newTestRayCluster(newWorkerGroup())
+				rayCluster.Spec.HeadGroupSpec.Template.Spec.PriorityClassName = "never-pc"
+				priorityClass := &schedulingv1.PriorityClass{
+					ObjectMeta:       metav1.ObjectMeta{Name: "never-pc"},
+					PreemptionPolicy: ptr.To(corev1.PreemptNever),
+				}
+				scheduler := &KubernetesWASV1Alpha3Scheduler{
+					cli: clientFake.NewClientBuilder().WithScheme(newTestScheme(t)).Build(),
+				}
+				workload, podGroup, err := scheduler.buildSchedulingResources(rayCluster)
+				require.NoError(t, err)
+				workload.Spec.PodGroupTemplates[0].PreemptionPolicy = ptr.To(schedulingv1alpha3.PreemptNever)
+				podGroup.Spec.PreemptionPolicy = ptr.To(schedulingv1alpha3.PreemptNever)
+				objects := []client.Object{priorityClass}
+				if resources.workload {
+					objects = append(objects, workload)
+				}
+				if resources.podGroup {
+					objects = append(objects, podGroup)
+				}
+				lookups := 0
+				fakeClient := clientFake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(objects...).
+					WithInterceptorFuncs(interceptor.Funcs{
+						Get: func(ctx context.Context, cli client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+							if _, ok := obj.(*schedulingv1.PriorityClass); ok {
+								lookups++
+								switch lookupError {
+								case "missing":
+									return apierrors.NewNotFound(schedulingv1.Resource("priorityclasses"), key.Name)
+								case "forbidden":
+									return apierrors.NewForbidden(schedulingv1.Resource("priorityclasses"), key.Name, fmt.Errorf("access denied"))
+								}
+							}
+							return cli.Get(ctx, key, obj, opts...)
+						},
+					}).Build()
+				scheduler.cli = fakeClient
+
+				err = scheduler.DoBatchSchedulingOnSubmission(ctx, rayCluster)
+				wantLookups := 0
+				if !resources.workload {
+					wantLookups++
+				}
+				if !resources.podGroup {
+					wantLookups++
+				}
+				if lookupError != "" && wantLookups > 0 {
+					require.Error(t, err)
+					assert.Contains(t, err.Error(), "failed to get PriorityClass never-pc")
+					assert.Equal(t, 1, lookups)
+					if lookupError == "missing" {
+						assert.True(t, apierrors.IsNotFound(err))
+					} else {
+						assert.True(t, apierrors.IsForbidden(err))
+					}
+					getErr := fakeClient.Get(ctx, client.ObjectKeyFromObject(workload), &schedulingv1alpha3.Workload{})
+					assert.Equal(t, !resources.workload, apierrors.IsNotFound(getErr))
+					getErr = fakeClient.Get(ctx, client.ObjectKeyFromObject(podGroup), &schedulingv1alpha3.PodGroup{})
+					assert.Equal(t, !resources.podGroup, apierrors.IsNotFound(getErr))
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, wantLookups, lookups)
+				gotWorkload := &schedulingv1alpha3.Workload{}
+				require.NoError(t, fakeClient.Get(ctx, client.ObjectKeyFromObject(workload), gotWorkload))
+				assert.Equal(t, workload.Spec, gotWorkload.Spec)
+				gotPodGroup := &schedulingv1alpha3.PodGroup{}
+				require.NoError(t, fakeClient.Get(ctx, client.ObjectKeyFromObject(podGroup), gotPodGroup))
+				assert.Equal(t, podGroup.Spec, gotPodGroup.Spec)
+			})
+		}
+	}
 }
 
 func TestSchedulingV1alpha3Available(t *testing.T) {
