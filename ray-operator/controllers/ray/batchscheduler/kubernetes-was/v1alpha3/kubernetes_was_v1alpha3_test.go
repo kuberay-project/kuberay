@@ -13,12 +13,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientFake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -706,9 +708,10 @@ func TestSyncSchedulingResourcesRetriesWhenWorkloadBeingDeleted(t *testing.T) {
 }
 
 func TestIsWorkloadStale(t *testing.T) {
+	ctx := context.Background()
 	baseCluster := newTestRayCluster(newWorkerGroupWithReplicas("workers", 3))
 	scheduler := &KubernetesWASV1Alpha3Scheduler{cli: clientFake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()}
-	baseWorkload, _, err := scheduler.buildSchedulingResources(baseCluster)
+	baseWorkload, _, err := scheduler.buildSchedulingResources(ctx, baseCluster)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -727,11 +730,52 @@ func TestIsWorkloadStale(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			desired, _, err := scheduler.buildSchedulingResources(tt.cluster)
+			desired, _, err := scheduler.buildSchedulingResources(ctx, tt.cluster)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStale, isWorkloadStale(tt.workload, desired))
 		})
 	}
+}
+
+func TestBuildSchedulingResourcesCopiesPriorityFields(t *testing.T) {
+	ctx := context.Background()
+	priorityClass := &schedulingv1.PriorityClass{
+		ObjectMeta:       metav1.ObjectMeta{Name: "never-pc"},
+		PreemptionPolicy: ptr.To(corev1.PreemptNever),
+	}
+	fakeClient := clientFake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(priorityClass).Build()
+	scheduler := &KubernetesWASV1Alpha3Scheduler{cli: fakeClient}
+	rayCluster := newTestRayCluster(newWorkerGroup())
+	rayCluster.Spec.HeadGroupSpec.Template.Spec.PriorityClassName = "never-pc"
+
+	// No explicit preemptionPolicy on the pod template: derive it from the referenced PriorityClass.
+	workload, podGroup, err := scheduler.buildSchedulingResources(ctx, rayCluster)
+	require.NoError(t, err)
+	require.Len(t, workload.Spec.PodGroupTemplates, 1)
+	assert.Equal(t, "never-pc", workload.Spec.PodGroupTemplates[0].PriorityClassName)
+	assert.Equal(t, ptr.To(schedulingv1alpha3.PreemptNever), workload.Spec.PodGroupTemplates[0].PreemptionPolicy)
+	assert.Equal(t, "never-pc", podGroup.Spec.PriorityClassName)
+	assert.Equal(t, ptr.To(schedulingv1alpha3.PreemptNever), podGroup.Spec.PreemptionPolicy)
+
+	// An explicit preemptionPolicy on the pod template overrides the derived value.
+	rayCluster.Spec.HeadGroupSpec.Template.Spec.PreemptionPolicy = ptr.To(corev1.PreemptLowerPriority)
+	workload, podGroup, err = scheduler.buildSchedulingResources(ctx, rayCluster)
+	require.NoError(t, err)
+	assert.Equal(t, ptr.To(schedulingv1alpha3.PreemptLowerPriority), workload.Spec.PodGroupTemplates[0].PreemptionPolicy)
+	assert.Equal(t, ptr.To(schedulingv1alpha3.PreemptLowerPriority), podGroup.Spec.PreemptionPolicy)
+}
+
+func TestBuildSchedulingResourcesErrorsWhenPriorityClassMissing(t *testing.T) {
+	ctx := context.Background()
+	scheduler := &KubernetesWASV1Alpha3Scheduler{cli: clientFake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()}
+	rayCluster := newTestRayCluster(newWorkerGroup())
+	rayCluster.Spec.HeadGroupSpec.Template.Spec.PriorityClassName = "missing-pc"
+
+	// The referenced PriorityClass does not exist; this must surface as an error rather
+	// than silently dropping the preemption policy.
+	_, _, err := scheduler.buildSchedulingResources(ctx, rayCluster)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing-pc")
 }
 
 func TestSchedulingV1alpha3Available(t *testing.T) {
@@ -832,6 +876,7 @@ func newTestScheme(t *testing.T) *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, rayv1.AddToScheme(scheme))
+	require.NoError(t, schedulingv1.AddToScheme(scheme))
 	require.NoError(t, schedulingv1alpha3.AddToScheme(scheme))
 	return scheme
 }

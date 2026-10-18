@@ -7,6 +7,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -1016,4 +1017,69 @@ func TestKubernetesWAS_MultiHostWorkerGroup(t *testing.T) {
 				"pod %s has wrong podGroupName", pod.Name)
 		}
 	}, TestTimeoutShort).Should(Succeed())
+}
+
+// TestKubernetesWAS_PreemptionPolicyFromPriorityClass verifies that KubeRay copies the Ray pods'
+// PriorityClass onto the Workload template and PodGroup, and that the priority admission controller
+// then sets the PodGroup's preemptionPolicy. Requires the Kubernetes PodGroupPreemptionPolicy gate.
+func TestKubernetesWAS_PreemptionPolicyFromPriorityClass(t *testing.T) {
+	test := With(t)
+	g := NewWithT(t)
+
+	namespace := test.NewTestNamespace()
+
+	// A cluster-scoped PriorityClass carrying preemptionPolicy=Never, used by all Ray pods.
+	preemptNever := corev1.PreemptNever
+	priorityClassName := "was-never-" + namespace.Name
+	_, err := test.Client().Core().SchedulingV1().PriorityClasses().Create(test.Ctx(), &schedulingv1.PriorityClass{
+		ObjectMeta:       metav1.ObjectMeta{Name: priorityClassName},
+		Value:            1000,
+		PreemptionPolicy: &preemptNever,
+		Description:      "WAS e2e: preemptionPolicy=Never",
+	}, metav1.CreateOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	t.Cleanup(func() {
+		_ = test.Client().Core().SchedulingV1().PriorityClasses().Delete(test.Ctx(), priorityClassName, metav1.DeleteOptions{})
+	})
+
+	// All pods in the gang must share the PriorityClass (the scheduler requires a uniform priority).
+	// A Never class also needs an explicit preemptionPolicy, which KubeRay copies to the PodGroup.
+	headTemplate := HeadPodTemplateApplyConfiguration()
+	headTemplate.Spec.WithPriorityClassName(priorityClassName).WithPreemptionPolicy(preemptNever)
+	workerTemplate := WorkerPodTemplateApplyConfiguration()
+	workerTemplate.Spec.WithPriorityClassName(priorityClassName).WithPreemptionPolicy(preemptNever)
+
+	rayClusterAC := newWASRayClusterAC("preempt-never", namespace.Name).
+		WithSpec(rayv1ac.RayClusterSpec().
+			WithRayVersion(GetRayVersion()).
+			WithHeadGroupSpec(rayv1ac.HeadGroupSpec().
+				WithRayStartParams(map[string]string{"dashboard-host": "0.0.0.0"}).
+				WithTemplate(headTemplate)).
+			WithWorkerGroupSpecs(rayv1ac.WorkerGroupSpec().
+				WithReplicas(1).
+				WithMinReplicas(1).
+				WithMaxReplicas(1).
+				WithGroupName("small-group").
+				WithRayStartParams(map[string]string{"num-cpus": "1"}).
+				WithTemplate(workerTemplate)))
+
+	rayCluster, err := test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), rayClusterAC, TestApplyOptions)
+	g.Expect(err).NotTo(HaveOccurred())
+	LogWithTimestamp(test.T(), "Created RayCluster %s/%s with a Never PriorityClass", rayCluster.Namespace, rayCluster.Name)
+
+	LogWithTimestamp(test.T(), "Waiting for RayCluster %s/%s to become ready", rayCluster.Namespace, rayCluster.Name)
+	g.Eventually(RayCluster(test, namespace.Name, rayCluster.Name), TestTimeoutMedium).
+		Should(WithTransform(RayClusterState, Equal(rayv1.Ready)))
+
+	workload, err := GetWorkload(test, namespace.Name, rayCluster.Name)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(workload.Spec.PodGroupTemplates).To(HaveLen(1))
+	g.Expect(workload.Spec.PodGroupTemplates[0].PriorityClassName).To(Equal(priorityClassName))
+
+	clusterPodGroup, err := GetPodGroup(test, namespace.Name, rayCluster.Name+"-cluster")
+	g.Expect(err).NotTo(HaveOccurred())
+	// The priority admission controller populated the PodGroup's preemptionPolicy from the class.
+	g.Expect(clusterPodGroup.Spec.PriorityClassName).To(Equal(priorityClassName))
+	g.Expect(clusterPodGroup.Spec.PreemptionPolicy).NotTo(BeNil(), "PodGroup preemptionPolicy should be set")
+	g.Expect(*clusterPodGroup.Spec.PreemptionPolicy).To(Equal(schedulingv1alpha3.PreemptNever))
 }
