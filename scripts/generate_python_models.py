@@ -295,6 +295,12 @@ def generate_model_for_crd(crd_path: str, output_path: str) -> None:
     finally:
         Path(tmp_schema).unlink(missing_ok=True)
 
+    # Strip the timestamp line so regeneration doesn't cause spurious diffs
+    output = Path(output_path)
+    lines = output.read_text().splitlines(keepends=True)
+    lines = [l for l in lines if not l.startswith("#   timestamp:")]
+    output.write_text("".join(lines))
+
 
 CRD_DIR = "ray-operator/config/crd/bases"
 OUTPUT_DIR = "clients/python-api/kuberay_api/models"
