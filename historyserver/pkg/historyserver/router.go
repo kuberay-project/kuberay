@@ -1277,10 +1277,10 @@ func (s *ServerHandler) getClusterLogPathPrefix(req *restful.Request) string {
 	ownerKind, _ := req.Attribute(COOKIE_OWNER_KIND_KEY).(string)
 	ownerName, _ := req.Attribute(COOKIE_OWNER_NAME_KEY).(string)
 	clusterInfo := &utils.ClusterInfo{
-		OwnerKind:      ownerKind,
-		OwnerName:      ownerName,
-		Name:    clusterName,
-		Namespace:      clusterNamespace,
+		OwnerKind: ownerKind,
+		OwnerName: ownerName,
+		Name:      clusterName,
+		Namespace: clusterNamespace,
 	}
 	return clusterlogs.Prefix("", clusterInfo)
 }

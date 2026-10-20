@@ -135,10 +135,10 @@ func (r *RayLogHandler) rotatedObjectPrefix(sessionID, nodeID string) string {
 		return ""
 	}
 	clusterInfo := &utils.ClusterInfo{
-		OwnerKind:          r.OwnerKind,
-		OwnerName:          r.OwnerName,
-		Namespace: r.RayClusterNamespace,
-		Name:     r.RayClusterName,
+		OwnerKind:   r.OwnerKind,
+		OwnerName:   r.OwnerName,
+		Namespace:   r.RayClusterNamespace,
+		Name:        r.RayClusterName,
 		SessionName: sessionID,
 	}
 	return clusterlogs.LogsDir(r.RootDir, clusterInfo, nodeID)

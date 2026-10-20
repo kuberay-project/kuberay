@@ -136,11 +136,11 @@ func testCollectorUploadOnGracefulShutdown(test Test, g *WithT, namespace *corev
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
 	clusterInfo := &utils.ClusterInfo{
-		Namespace: rayCluster.Namespace,
-		Name:      rayCluster.Name,
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
 		SessionName: sessionID,
-		OwnerKind: "",
-		OwnerName: "",
+		OwnerKind:   "",
+		OwnerName:   "",
 	}
 	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
@@ -189,11 +189,11 @@ func testCollectorSeparatesFilesBySession(test Test, g *WithT, namespace *corev1
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
 	clusterInfo := &utils.ClusterInfo{
-		Namespace: rayCluster.Namespace,
-		Name:      rayCluster.Name,
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
 		SessionName: sessionID,
-		OwnerName: "",
-		OwnerKind: "",
+		OwnerName:   "",
+		OwnerKind:   "",
 	}
 	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
@@ -239,11 +239,11 @@ func testCollectorResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 	dummySessionID := fmt.Sprintf("test-recovery-session-%s", namespace.Name)
 	dummyNodeID := fmt.Sprintf("head-node-%s", namespace.Name)
 	clusterInfo := &utils.ClusterInfo{
-		Namespace: rayCluster.Namespace,
-		Name:      rayCluster.Name,
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
 		SessionName: dummySessionID,
-		OwnerName: "",
-		OwnerKind: "",
+		OwnerName:   "",
+		OwnerKind:   "",
 	}
 	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
@@ -366,11 +366,11 @@ func testCollectorStoresClusterMetadata(test Test, g *WithT, namespace *corev1.N
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	storageKey := utils.EndpointPathToStorageKey("/api/v0/cluster_metadata")
 	clusterInfo := &utils.ClusterInfo{
-		Namespace: rayCluster.Namespace,
-		Name:      rayCluster.Name,
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
 		SessionName: sessionID,
-		OwnerName: "",
-		OwnerKind: "",
+		OwnerName:   "",
+		OwnerKind:   "",
 	}
 	sessionDir := clusterlogs.SessionDir("", clusterInfo)
 	metaKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
@@ -425,11 +425,11 @@ func assertTimezoneStored(test Test, g *WithT, rayCluster *rayv1.RayCluster, s3C
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	storageKey := utils.EndpointPathToStorageKey(EndpointTimezone)
 	clusterInfo := &utils.ClusterInfo{
-		Namespace: rayCluster.Namespace,
-		Name:      rayCluster.Name,
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
 		SessionName: sessionID,
-		OwnerName: "",
-		OwnerKind: "",
+		OwnerName:   "",
+		OwnerKind:   "",
 	}
 	sessionDir := clusterlogs.SessionDir("", clusterInfo)
 	timezoneKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
@@ -471,11 +471,11 @@ func testCollectorStoresPlacementGroups(test Test, g *WithT, namespace *corev1.N
 	// Matches placementGroupsEndpoint in the collector's poll.go, query params included.
 	storageKey := utils.EndpointPathToStorageKey("/api/v0/placement_groups?detail=1&limit=10000")
 	clusterInfo := &utils.ClusterInfo{
-		Namespace: rayCluster.Namespace,
-		Name:      rayCluster.Name,
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
 		SessionName: sessionID,
-		OwnerName: "",
-		OwnerKind: "",
+		OwnerName:   "",
+		OwnerKind:   "",
 	}
 	sessionDir := clusterlogs.SessionDir("", clusterInfo)
 	pgKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)

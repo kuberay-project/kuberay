@@ -65,11 +65,11 @@ func testAzureBlobUploadOnGracefulShutdown(test Test, g *WithT, namespace *corev
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
 	clusterInfo := &utils.ClusterInfo{
-		Namespace: rayCluster.Namespace,
-		Name:      rayCluster.Name,
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
 		SessionName: sessionID,
-		OwnerName: "",
-		OwnerKind: "",
+		OwnerName:   "",
+		OwnerKind:   "",
 	}
 	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
@@ -97,11 +97,11 @@ func testAzureBlobSeparatesFilesBySession(test Test, g *WithT, namespace *corev1
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
 	clusterInfo := &utils.ClusterInfo{
-		Namespace: rayCluster.Namespace,
-		Name:      rayCluster.Name,
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
 		SessionName: sessionID,
-		OwnerName: "",
-		OwnerKind: "",
+		OwnerName:   "",
+		OwnerKind:   "",
 	}
 	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
@@ -124,11 +124,11 @@ func testAzureBlobResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 	dummySessionID := fmt.Sprintf("test-recovery-session-%s", namespace.Name)
 	dummyNodeID := fmt.Sprintf("head-node-%s", namespace.Name)
 	clusterInfo := &utils.ClusterInfo{
-		Namespace: rayCluster.Namespace,
-		Name:      rayCluster.Name,
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
 		SessionName: dummySessionID,
-		OwnerName: "",
-		OwnerKind: "",
+		OwnerName:   "",
+		OwnerKind:   "",
 	}
 	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
