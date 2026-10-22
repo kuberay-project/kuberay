@@ -1,0 +1,57 @@
+name: Track Buildkite flaky tests
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: kuberay-flaky-tracker
+  cancel-in-progress: false
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      issues: write
+    steps:
+      - name: Open issues for new flaky tests
+        shell: bash
+        env:
+          BUILDKITE_API_TOKEN: ${{ secrets.BUILDKITE_API_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          : "${BUILDKITE_API_TOKEN:?BUILDKITE_API_TOKEN is required}"
+          suite="https://api.buildkite.com/v2/analytics/organizations/ray-project/suites/kuberay-e2e"
+          tests='[]'
+          page=1
+          while true; do
+            batch=$(curl -fsS \
+              -H "Authorization: Bearer $BUILDKITE_API_TOKEN" \
+              -H 'Buildkite-Version: 2026-08-01' \
+              "$suite/tests?labels=flaky&branch=master&sort_by=reliability&order=asc&per_page=100&page=$page")
+            jq -e 'type == "array" and all(.[];
+              (.id | type == "string" and test("^[A-Za-z0-9_-]+$")) and
+              (.name | type == "string" and length > 0) and
+              (.web_url | type == "string" and length > 0))' <<< "$batch" > /dev/null
+            tests=$(jq -cn --argjson tests "$tests" --argjson batch "$batch" '$tests + $batch')
+            if [ "$(jq 'length' <<< "$batch")" -lt 100 ]; then
+              break
+            fi
+            page=$((page + 1))
+          done
+
+          issues=$(gh api --paginate "repos/$GH_REPO/issues?state=open&labels=flaky-tracker&per_page=100" \
+            --jq '.[] | select(has("pull_request") | not) | .body // ""' | jq -Rs .)
+          while IFS= read -r t; do
+            url=$(jq -r '.web_url' <<< "$t")
+            if jq -e --arg url "$url" \
+              'split("\n") | any(. == $url)' <<< "$issues" > /dev/null; then
+              continue
+            fi
+            title=$(jq -r '"[Flaky test] " + (.name | gsub("[\\r\\n]"; " "))' <<< "$t")
+            gh issue create --title "$title" --label flaky-tracker,ci,flaky,P0,triage --body "$url"
+          done < <(jq -c 'unique_by(.id)[]' <<< "$tests")
