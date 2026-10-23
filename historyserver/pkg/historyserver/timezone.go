@@ -27,17 +27,17 @@ func (s *ServerHandler) getTimezone(req *restful.Request, resp *restful.Response
 	reader := s.reader.GetContent(clusterLogPathPrefix, endpointPath)
 	if reader == nil {
 		resp.Header().Set("Content-Type", "application/json")
-		resp.Write([]byte(`{"offset":"","value":""}`))
+		utils.WriteResponse(resp, []byte(`{"offset":"","value":""}`))
 		return
 	}
 
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		logrus.Errorf("Failed to read timezone metadata: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, "Failed to read timezone metadata")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, "Failed to read timezone metadata"))
 		return
 	}
 
 	resp.Header().Set("Content-Type", "application/json")
-	resp.Write(data)
+	utils.WriteResponse(resp, data)
 }
