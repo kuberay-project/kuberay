@@ -526,30 +526,77 @@ func calculatePodResources(podResource *corev1.ResourceList, numPods int64) {
 	}
 }
 
-// CalculatePodResource returns the total resources of a pod.
-// Request values take precedence over limit values.
+// CalculatePodResource returns the total resources of a pod, matching the
+// effective request the scheduler reserves for it. Regular containers and native
+// sidecars (init containers with RestartPolicy Always) are summed, plain init
+// containers contribute through a per-resource max against that running sum, and
+// pod Overhead is added on top. Request values take precedence over limit values.
 func CalculatePodResource(podSpec corev1.PodSpec) corev1.ResourceList {
 	podResource := corev1.ResourceList{}
 	for _, container := range podSpec.Containers {
-		containerResource := container.Resources.Requests.DeepCopy()
-		if containerResource == nil {
-			containerResource = corev1.ResourceList{}
-		}
-		for name, quantity := range container.Resources.Limits {
-			if _, ok := containerResource[name]; !ok {
-				containerResource[name] = quantity
-			}
-		}
-		for name, quantity := range containerResource {
-			if totalQuantity, ok := podResource[name]; ok {
-				totalQuantity.Add(quantity)
-				podResource[name] = totalQuantity
-			} else {
-				podResource[name] = quantity
-			}
+		addResourceList(podResource, effectiveContainerResource(container))
+	}
+
+	// Init containers define the minimum reservation of any resource: a native
+	// sidecar (RestartPolicy Always) runs for the whole pod lifetime and adds to
+	// the sum, while a plain init container only needs to fit alongside the
+	// sidecars that started before it, so it contributes via a max rather than a
+	// sum. See the sidecar KEP resource-calculation rules.
+	restartableInitResource := corev1.ResourceList{}
+	initResource := corev1.ResourceList{}
+	for _, container := range podSpec.InitContainers {
+		containerResource := effectiveContainerResource(container)
+		if container.RestartPolicy != nil && *container.RestartPolicy == corev1.ContainerRestartPolicyAlways {
+			addResourceList(podResource, containerResource)
+			addResourceList(restartableInitResource, containerResource)
+			maxResourceList(initResource, restartableInitResource)
+		} else {
+			addResourceList(containerResource, restartableInitResource)
+			maxResourceList(initResource, containerResource)
 		}
 	}
+	maxResourceList(podResource, initResource)
+
+	if podSpec.Overhead != nil {
+		addResourceList(podResource, podSpec.Overhead)
+	}
 	return podResource
+}
+
+// effectiveContainerResource returns a container's resource requests with each
+// limit filling in a request that is absent, so request values take precedence
+// over limit values. The result is a fresh list that never aliases the container.
+func effectiveContainerResource(container corev1.Container) corev1.ResourceList {
+	containerResource := container.Resources.Requests.DeepCopy()
+	if containerResource == nil {
+		containerResource = corev1.ResourceList{}
+	}
+	for name, quantity := range container.Resources.Limits {
+		if _, ok := containerResource[name]; !ok {
+			containerResource[name] = quantity.DeepCopy()
+		}
+	}
+	return containerResource
+}
+
+func addResourceList(dst, src corev1.ResourceList) {
+	for name, quantity := range src {
+		if total, ok := dst[name]; ok {
+			total.Add(quantity)
+			dst[name] = total
+		} else {
+			dst[name] = quantity.DeepCopy()
+		}
+	}
+}
+
+// maxResourceList raises dst to the greater of dst and src for every resource in src.
+func maxResourceList(dst, src corev1.ResourceList) {
+	for name, quantity := range src {
+		if current, ok := dst[name]; !ok || quantity.Cmp(current) > 0 {
+			dst[name] = quantity.DeepCopy()
+		}
+	}
 }
 
 func ConvertResourceListToMapString(resourceList corev1.ResourceList) map[string]resource.Quantity {
