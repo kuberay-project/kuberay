@@ -155,3 +155,50 @@ jobs:
       - name: Check rbac configuration
         run: |
           pytest -s scripts/rbac_test.py
+
+  # Check consistency between CRD YAML and generated Python Pydantic models
+  python-client-verify-models:
+    needs: ray-operator-verify-crd-rbac
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r clients/python-client/scripts/requirements.txt
+
+      - name: Regenerate Python models from CRD
+        run: |
+          python clients/python-client/scripts/generate_models.py
+
+      - name: Verify Changed files
+        id: verify-changed-files
+        uses: tj-actions/verify-changed-files@v20
+        with:
+          files: |
+            ./clients/python-client/python_client/models/generated/*.py
+
+      - name: Check changed files
+        if: steps.verify-changed-files.outputs.files_changed == 'true'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            core.setFailed('Python models out of sync with CRD! Run "python clients/python-client/scripts/generate_models.py" and commit the changes.')
+
+      # The builders import classes out of the generated models by name, and the
+      # generator names anonymous inlined schemas positionally (Spec2, Port2, ...).
+      # Exercising them here means a CRD change that renumbers those classes fails
+      # the build instead of reaching users. test_cluster_api.py and test_job_api.py
+      # are excluded: they need a live cluster.
+      - name: Verify builders work with the generated models
+        working-directory: ./clients/python-client
+        run: |
+          pip install -e . pytest
+          pytest -q python_client_test/test_utils.py python_client_test/test_director.py
