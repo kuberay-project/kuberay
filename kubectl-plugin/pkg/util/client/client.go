@@ -2,11 +2,13 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	dockerparser "github.com/novln/docker-parser"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -18,6 +20,9 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayclient "github.com/ray-project/kuberay/ray-operator/pkg/client/clientset/versioned"
 )
+
+// ErrHostedOperator means Ray APIs are served but no in-cluster operator Deployment exists.
+var ErrHostedOperator = errors.New("hosted outside the cluster (e.g. GKE Ray Operator add-on); version not available in-cluster")
 
 type Client interface {
 	KubernetesClient() kubernetes.Interface
@@ -78,6 +83,15 @@ func (c *k8sClient) GetKubeRayOperatorVersion(ctx context.Context) (string, erro
 	}
 
 	if len(deployment.Items) == 0 {
+		installed, crdErr := c.hasRayClusterAPI()
+		if crdErr != nil {
+			return "", fmt.Errorf("no KubeRay operator deployments found in any namespace: %w", crdErr)
+		}
+		if installed {
+			// Hosted operators (e.g. GKE Ray Operator add-on) install
+			// Ray CRDs without running a Deployment in the user cluster.
+			return "", ErrHostedOperator
+		}
 		return "", fmt.Errorf("no KubeRay operator deployments found in any namespace")
 	}
 
@@ -99,6 +113,18 @@ func (c *k8sClient) GetKubeRayOperatorVersion(ctx context.Context) (string, erro
 	}
 
 	return ref.Tag(), nil
+}
+
+// hasRayClusterAPI checks whether the ray.io/v1 API group/version is served.
+func (c *k8sClient) hasRayClusterAPI() (bool, error) {
+	_, err := c.kubeClient.Discovery().ServerResourcesForGroupVersion(rayv1.GroupVersion.String())
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to discover Ray APIs: %w", err)
+	}
+	return true, nil
 }
 
 func (c *k8sClient) GetRayHeadSvcName(ctx context.Context, namespace string, resourceType util.ResourceType, name string) (string, error) {

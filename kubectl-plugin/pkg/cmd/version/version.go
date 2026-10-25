@@ -2,6 +2,7 @@ package version
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -59,10 +60,13 @@ func (options *VersionOptions) Run(ctx context.Context, k8sClient client.Client,
 	fmt.Fprintln(writer, "kubectl ray plugin version:", Version)
 
 	operatorVersion, err := k8sClient.GetKubeRayOperatorVersion(ctx)
-	if err != nil {
+	switch {
+	case errors.Is(err, client.ErrHostedOperator):
+		fmt.Fprintln(writer, "KubeRay operator version:", err.Error())
+	case err != nil:
 		wrappedError := fmt.Errorf(`warning: KubeRay operator installation cannot be found: %w. Did you install it with the name "kuberay-operator"?`, err)
 		fmt.Fprintln(writer, wrappedError)
-	} else {
+	default:
 		fmt.Fprintln(writer, "KubeRay operator version:", operatorVersion)
 	}
 	return nil
