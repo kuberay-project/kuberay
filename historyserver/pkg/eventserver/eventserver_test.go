@@ -662,10 +662,12 @@ func TestStoreRay256TaskLogInfoJSONL(t *testing.T) {
 func TestActorLifecycleEventDeduplication(t *testing.T) {
 	// IDs follow Ray's ID spec; see TestStoreEvent for rationale.
 	const (
-		testJobID       = "aaaabbbb"                             // 4B
-		testActorID     = "aaaabbbb1234aaaabbbb1234" + testJobID // 12B unique + JobID
-		testClusterName = "cluster1"
+		testJobID   = "aaaabbbb"                             // 4B
+		testActorID = "aaaabbbb1234aaaabbbb1234" + testJobID // 12B unique + JobID
 	)
+
+	clusterInfo := utils.ClusterInfo{Name: "cluster", Namespace: "ns", SessionName: "session1"}
+	clusterSessionKey := utils.BuildClusterSessionKey(clusterInfo.Name, clusterInfo.Namespace, clusterInfo.SessionName)
 
 	// Helper to create an ActorStateEvent
 	makeActorStateEvent := func(state types.StateType, timestampNano int64) types.ActorStateEvent {
@@ -775,7 +777,7 @@ func TestActorLifecycleEventDeduplication(t *testing.T) {
 
 			// Pre-populate existing events
 			if len(tt.existingEvents) > 0 {
-				actorMap := h.ClusterActorMap.GetOrCreateActorMap(testClusterName)
+				actorMap := h.ClusterActorMap.GetOrCreateActorMap(clusterSessionKey)
 				actorMap.CreateOrMergeActor(testActorID, func(a *types.Actor) {
 					a.ActorID = testActorID
 					a.Events = tt.existingEvents
@@ -787,13 +789,14 @@ func TestActorLifecycleEventDeduplication(t *testing.T) {
 
 			// Process the lifecycle event
 			eventMap := makeActorLifecycleEvent(tt.newTransitions)
-			err := h.storeEvent(testClusterName, eventMap)
+			err := h.storeEvent(clusterSessionKey, eventMap)
 			if err != nil {
 				t.Fatalf("storeEvent() unexpected error: %v", err)
 			}
 
 			// Get the actor and verify
-			actor, found := h.getActorsMap(testClusterName)[testActorID]
+			snap := h.BuildSnapshot(clusterInfo)
+			actor, found := snap.Actors[testActorID]
 			if !found {
 				t.Fatal("Actor not found after processing")
 			}
@@ -815,10 +818,10 @@ func TestActorLifecycleEventDeduplication(t *testing.T) {
 // TODO(chiayi): Update once more fields are added to driver job event
 func TestDriverJobLifecycleEventDuplication(t *testing.T) {
 	// IDs follow Ray's ID spec; see TestStoreEvent for rationale.
-	const (
-		testJobID       = "aaaabbbb" // 4B
-		testClusterName = "cluster1"
-	)
+	const testJobID = "aaaabbbb" // 4B
+
+	clusterInfo := utils.ClusterInfo{Name: "cluster", Namespace: "ns", SessionName: "session1"}
+	clusterSessionKey := utils.BuildClusterSessionKey(clusterInfo.Name, clusterInfo.Namespace, clusterInfo.SessionName)
 
 	makeDriverJobStateTransitionEvent := func(state types.JobState, timestampNano int64) types.JobStateTransition {
 		return types.JobStateTransition{
@@ -944,7 +947,7 @@ func TestDriverJobLifecycleEventDuplication(t *testing.T) {
 			h := NewEventHandler(nil)
 
 			if len(tt.existingTransitions) > 0 {
-				jobMap := h.ClusterJobMap.GetOrCreateJobMap(testClusterName)
+				jobMap := h.ClusterJobMap.GetOrCreateJobMap(clusterSessionKey)
 				jobMap.CreateOrMergeJob(testJobID, func(job *types.Job) {
 					job.JobID = testJobID
 					job.StateTransitions = tt.existingTransitions
@@ -955,12 +958,13 @@ func TestDriverJobLifecycleEventDuplication(t *testing.T) {
 			}
 
 			eventMap := makeDriverJobLifecycleEvent(tt.newTransitions)
-			err := h.storeEvent(testClusterName, eventMap)
+			err := h.storeEvent(clusterSessionKey, eventMap)
 			if err != nil {
 				t.Fatalf("storeEvent() unexpected error: %v", err)
 			}
 
-			job, exists := h.getJobsMap(testClusterName)[testJobID]
+			snap := h.BuildSnapshot(clusterInfo)
+			job, exists := snap.Jobs[testJobID]
 			if !exists {
 				t.Fatal("Job not found after processing")
 			}
@@ -1232,15 +1236,15 @@ func TestProcessSingleSession(t *testing.T) {
 		err = h.ProcessSingleSession(context.Background(), clusterInfo)
 		require.NoError(t, err)
 
-		nodeMap := h.getNodeMap("cluster_ns_session1")
-		assert.Len(t, nodeMap, 2)
+		snap := h.BuildSnapshot(clusterInfo)
+		assert.Len(t, snap.Nodes, 2)
 
 		// "YWJjZA==" -> hex "61626364" (abcd)
-		_, ok := nodeMap["61626364"]
+		_, ok := snap.Nodes["61626364"]
 		assert.True(t, ok, "node1 (compressed) should be successfully loaded")
 
 		// "ZWZnaA==" -> hex "65666768" (efgh)
-		_, ok = nodeMap["65666768"]
+		_, ok = snap.Nodes["65666768"]
 		assert.True(t, ok, "node2 (uncompressed) should be successfully loaded")
 	})
 }
