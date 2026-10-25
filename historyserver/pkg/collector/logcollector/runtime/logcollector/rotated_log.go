@@ -161,7 +161,12 @@ func (r *RayLogHandler) collectRotatedLogsUnder(logsDir, sessionID, nodeID strin
 			logrus.Debug("Shutdown signaled, ending rotated log scan early")
 			return
 		}
-		if objectName, ok := r.collectRotatedLog(absPath, logsDir, objectPrefix); ok {
+		objectName, err := r.collectRotatedLog(absPath, logsDir, objectPrefix)
+		if err != nil {
+			// Not recorded as uploaded, so the next scan retries it.
+			logrus.Errorf("Failed to collect rotated log %s: %v", absPath, err)
+		}
+		if objectName != "" {
 			seen[objectName] = struct{}{}
 		}
 	}
@@ -174,40 +179,39 @@ func (r *RayLogHandler) collectRotatedLogsUnder(logsDir, sessionID, nodeID strin
 
 // collectIfRotatedLog uploads absPath when it is a Ray rotation backup and
 // reports whether it was one, so walkers can skip their ordinary log handling.
-func (r *RayLogHandler) collectIfRotatedLog(absPath, logsDir, objectPrefix string) bool {
+// The error is set only when a rotation backup was found but not collected.
+func (r *RayLogHandler) collectIfRotatedLog(absPath, logsDir, objectPrefix string) (bool, error) {
 	if _, ok := rotationBaseName(filepath.Base(absPath)); !ok {
-		return false
+		return false, nil
 	}
 	if objectPrefix == "" {
 		logrus.Warnf("Skipping rotated log %s: session or node ID is unknown", absPath)
-		return true
+		return true, nil
 	}
-	r.collectRotatedLog(absPath, logsDir, objectPrefix)
-	return true
+	_, err := r.collectRotatedLog(absPath, logsDir, objectPrefix)
+	return true, err
 }
 
 // collectRotatedLog uploads one rotation backup unless this run already did, and
-// returns the object name of the generation it found. The descriptor stays open
-// across the upload so Ray cannot evict the generation mid-write.
-func (r *RayLogHandler) collectRotatedLog(absPath, logsDir, objectPrefix string) (string, bool) {
+// returns the object name of the generation it found, or "" when the backup is
+// gone. The descriptor stays open across the upload so Ray cannot evict the
+// generation mid-write.
+func (r *RayLogHandler) collectRotatedLog(absPath, logsDir, objectPrefix string) (string, error) {
 	file, err := os.Open(absPath)
 	if err != nil {
 		// A missing path is Ray advancing the ring between the walk and the open.
-		if !errors.Is(err, fs.ErrNotExist) {
-			logrus.Errorf("Failed to open rotated log %s: %v", absPath, err)
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil
 		}
-		return "", false
+		return "", err
 	}
 	defer file.Close()
 
-	candidate, ok := buildRotatedCandidate(file, absPath, logsDir, objectPrefix)
-	if !ok {
-		return "", false
+	candidate, err := buildRotatedCandidate(file, absPath, logsDir, objectPrefix)
+	if err != nil {
+		return "", err
 	}
-	if err := r.uploadRotatedCandidate(candidate, file); err != nil {
-		logrus.Errorf("Failed to collect rotated log %s: %v", candidate.path, err)
-	}
-	return candidate.objectName, true
+	return candidate.objectName, r.uploadRotatedCandidate(candidate, file)
 }
 
 // rotatedObjectPrefix is the object directory a node's rotation backups are
@@ -221,38 +225,35 @@ func (r *RayLogHandler) rotatedObjectPrefix(sessionID, nodeID string) string {
 
 // buildRotatedCandidate derives the object key of an already opened rotation
 // backup. It borrows file to stat it and never closes it.
-func buildRotatedCandidate(file *os.File, absPath, logsDir, objectPrefix string) (rotatedCandidate, bool) {
+func buildRotatedCandidate(file *os.File, absPath, logsDir, objectPrefix string) (rotatedCandidate, error) {
 	relPath, err := filepath.Rel(logsDir, absPath)
 	if err != nil {
-		logrus.Errorf("Failed to get relative path for rotated log %s: %v", absPath, err)
-		return rotatedCandidate{}, false
+		return rotatedCandidate{}, err
 	}
 
 	// Stat the descriptor rather than the path so the identity and the uploaded
 	// bytes describe the same inode even if Ray renames the file mid-upload.
 	info, err := file.Stat()
 	if err != nil {
-		logrus.Errorf("Failed to stat rotated log %s: %v", absPath, err)
-		return rotatedCandidate{}, false
+		return rotatedCandidate{}, err
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
-		logrus.Errorf("Inode of rotated log %s is unavailable on this platform", absPath)
-		return rotatedCandidate{}, false
+		return rotatedCandidate{}, fmt.Errorf("inode of %s is unavailable on this platform", absPath)
 	}
 	objectBaseName, ok := rotatedLogName(filepath.Base(relPath), rotatedIdentity{
 		modTimeNs: info.ModTime().UnixNano(),
 		inode:     stat.Ino,
 	})
 	if !ok {
-		return rotatedCandidate{}, false
+		return rotatedCandidate{}, fmt.Errorf("%s is not a rotation backup", absPath)
 	}
 
 	return rotatedCandidate{
 		path:       absPath,
 		objectName: path.Join(objectPrefix, filepath.ToSlash(filepath.Dir(relPath)), objectBaseName),
 		size:       info.Size(),
-	}, true
+	}, nil
 }
 
 // uploadRotatedCandidate uploads a generation this run has not written yet. A
@@ -284,6 +285,9 @@ func (r *RayLogHandler) uploadRotatedCandidate(candidate rotatedCandidate, conte
 // names a complete scan of objectPrefix saw on disk. The scope matters: a scan of
 // one session must not discard the entries prev-logs still dedups against.
 func (r *RayLogHandler) pruneRotatedUploaded(objectPrefix string, seen map[string]struct{}) {
+	if objectPrefix == "" {
+		return
+	}
 	// Match on a whole path segment so ".../node1/logs" never covers
 	// ".../node10/logs".
 	scope := strings.TrimSuffix(objectPrefix, "/") + "/"

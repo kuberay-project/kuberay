@@ -352,7 +352,9 @@ func TestCollectRotatedLogsStopsBeforeNextCandidate(t *testing.T) {
 	// Shutdown collection ignores stop and still reaches the skipped candidates.
 	objectPrefix := handler.rotatedObjectPrefix(testSessionID, testNodeID)
 	for _, index := range []int{1, 2, 3} {
-		handler.collectIfRotatedLog(filepath.Join(logsDir, fmt.Sprintf("foo.out.%d", index)), logsDir, objectPrefix)
+		if _, err := handler.collectIfRotatedLog(filepath.Join(logsDir, fmt.Sprintf("foo.out.%d", index)), logsDir, objectPrefix); err != nil {
+			t.Fatalf("collectIfRotatedLog() = %v", err)
+		}
 	}
 	if got := writer.order(); len(got) != 3 {
 		t.Fatalf("uploaded %v after shutdown collection, want all three", got)
@@ -365,24 +367,35 @@ func TestCollectRotatedLogsClosesEveryDescriptor(t *testing.T) {
 	writer := NewMockStorageWriter()
 	handler := newRotatedTestHandler(writer)
 
+	objectPrefix := handler.rotatedObjectPrefix(testSessionID, testNodeID)
 	writeLogFile(t, filepath.Join(logsDir, "a-stream.out.1"), "uploaded")
-	writeLogFile(t, filepath.Join(logsDir, "b-stream.out.1"), "upload fails")
 
 	before := openDescriptorCount(t)
 
-	// Success and failure in one pass, then a pass where both are already known.
+	// Success, then a pass where the generation is already uploaded.
 	handler.collectRotatedLogsUnder(logsDir, testSessionID, testNodeID, nil)
-	writer.setWriteErr(errors.New("object store unavailable"))
-	handler.collectRotatedLogsUnder(logsDir, testSessionID, testNodeID, nil)
-	writer.setWriteErr(nil)
 	handler.collectRotatedLogsUnder(logsDir, testSessionID, testNodeID, nil)
 
-	// The shutdown and prev-logs walkers open through the same helper.
-	objectPrefix := handler.rotatedObjectPrefix(testSessionID, testNodeID)
-	writer.setWriteErr(errors.New("object store unavailable"))
-	handler.collectIfRotatedLog(filepath.Join(logsDir, "b-stream.out.1"), logsDir, objectPrefix)
+	// A generation not uploaded yet, so both walkers reach the failing WriteFile.
+	failing := filepath.Join(logsDir, "b-stream.out.1")
+	writeLogFile(t, failing, "upload fails")
+	errUnavailable := errors.New("object store unavailable")
+	writer.setWriteErr(errUnavailable)
+	var failedWrites int
+	writer.beforeWrite = func() { failedWrites++ }
+	handler.collectRotatedLogsUnder(logsDir, testSessionID, testNodeID, nil)
+	if _, err := handler.collectIfRotatedLog(failing, logsDir, objectPrefix); !errors.Is(err, errUnavailable) {
+		t.Fatalf("collectIfRotatedLog() = %v, want %v", err, errUnavailable)
+	}
+	if failedWrites != 2 {
+		t.Fatalf("WriteFile failed %d times, want 2", failedWrites)
+	}
+
+	writer.beforeWrite = nil
 	writer.setWriteErr(nil)
-	handler.collectIfRotatedLog(filepath.Join(logsDir, "b-stream.out.1"), logsDir, objectPrefix)
+	if _, err := handler.collectIfRotatedLog(failing, logsDir, objectPrefix); err != nil {
+		t.Fatalf("collectIfRotatedLog() = %v", err)
+	}
 
 	if after := openDescriptorCount(t); after > before {
 		t.Fatalf("open descriptors grew from %d to %d", before, after)
@@ -435,8 +448,9 @@ func TestCollectRotatedLogToleratesVanishedPath(t *testing.T) {
 	handler := newRotatedTestHandler(writer)
 
 	objectPrefix := handler.rotatedObjectPrefix(testSessionID, testNodeID)
-	if handled := handler.collectIfRotatedLog(filepath.Join(logsDir, "raylet.out.1"), logsDir, objectPrefix); !handled {
-		t.Fatal("collectIfRotatedLog() = false, want true for a rotation backup name")
+	handled, err := handler.collectIfRotatedLog(filepath.Join(logsDir, "raylet.out.1"), logsDir, objectPrefix)
+	if !handled || err != nil {
+		t.Fatalf("collectIfRotatedLog() = (%v, %v), want (true, nil) for a vanished rotation backup", handled, err)
 	}
 	assertWritten(t, writer, map[string]string{})
 }
@@ -633,6 +647,50 @@ func TestProcessPrevLogsDirUsesRotatedName(t *testing.T) {
 	})
 }
 
+// prev-logs holds the only copy of a previous session's rotated log, so a failed
+// upload must leave the directory for a later pass to retry.
+func TestProcessPrevLogsDirKeepsDirectoryAfterRotatedUploadFailure(t *testing.T) {
+	rayRoot := t.TempDir()
+	t.Setenv("RAY_TMP_ROOT", rayRoot)
+
+	nodeDir := filepath.Join(rayRoot, "prev-logs", testSessionID, testNodeID)
+	backup := filepath.Join(nodeDir, utils.RAY_SESSIONDIR_LOGDIR_NAME, "raylet.out.1")
+	id := writeLogFile(t, backup, "rotated raylet")
+	object := testLogPrefix + mustRotatedName(t, "raylet.out.1", id)
+
+	writer := NewMockStorageWriter()
+	handler := newRotatedTestHandler(writer)
+	handler.prevLogsDir = utils.GetRayPrevLogsPath()
+	handler.persistCompleteLogsDir = utils.GetRayPersistCompletePath()
+
+	var failedWrites int
+	writer.beforeWrite = func() { failedWrites++ }
+	writer.setWriteErr(errors.New("object store unavailable"))
+	handler.processPrevLogsDir(nodeDir)
+
+	if failedWrites != 1 {
+		t.Fatalf("WriteFile failed %d times, want 1", failedWrites)
+	}
+	assertWritten(t, writer, map[string]string{})
+	for _, kept := range []string{nodeDir, backup} {
+		if _, err := os.Stat(kept); err != nil {
+			t.Fatalf("Stat(%s) after failed upload = %v, want it kept", kept, err)
+		}
+	}
+
+	writer.beforeWrite = nil
+	writer.setWriteErr(nil)
+	handler.processPrevLogsDir(nodeDir)
+
+	assertWritten(t, writer, map[string]string{object: "rotated raylet"})
+	if got := writeCount(writer, object); got != 1 {
+		t.Fatalf("wrote %q %d times, want 1", object, got)
+	}
+	if _, err := os.Stat(nodeDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Stat(%s) after retry = %v, want it removed", nodeDir, err)
+	}
+}
+
 // The uploaded set must not grow for the lifetime of the collector: an entry is
 // kept while its generation is on disk and dropped once Ray evicts it.
 func TestCollectRotatedLogsPrunesEvictedGenerations(t *testing.T) {
@@ -749,6 +807,21 @@ func TestPruneRotatedUploadedIsScopedToNode(t *testing.T) {
 
 	nodeOnePrefix := "root/cluster-history/raycluster/default/rc/" + testSessionID + "/node1/logs/"
 	assertRotatedUploaded(t, handler, []string{nodeOnePrefix + mustRotatedName(t, "raylet.out.1", idOne)})
+}
+
+// An empty prefix would scope to "/", which covers every key under an absolute root.
+func TestPruneRotatedUploadedIgnoresEmptyPrefix(t *testing.T) {
+	logsDir := t.TempDir()
+	handler := newRotatedTestHandler(NewMockStorageWriter())
+	handler.RootDir = "/root"
+
+	id := writeLogFile(t, filepath.Join(logsDir, "raylet.out.1"), "rotated raylet")
+	handler.collectRotatedLogsUnder(logsDir, testSessionID, testNodeID, nil)
+	want := []string{"/" + testLogPrefix + mustRotatedName(t, "raylet.out.1", id)}
+	assertRotatedUploaded(t, handler, want)
+
+	handler.pruneRotatedUploaded("", nil)
+	assertRotatedUploaded(t, handler, want)
 }
 
 func logsPrefixOf(sessionID string) string {
