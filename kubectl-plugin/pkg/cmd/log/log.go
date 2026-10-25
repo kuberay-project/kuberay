@@ -392,6 +392,36 @@ func (dre *DefaultRemoteExecutor) CreateExecutor(restConfig *rest.Config, url *u
 	return remotecommand.NewSPDYExecutor(restConfig, "POST", url)
 }
 
+// writeTarFile writes the current tar entry to localFilePath. The file is closed
+// before returning, so descriptors are not retained for the whole extraction as
+// they would be with a deferred close inside the extraction loop.
+func writeTarFile(localFilePath string, mode os.FileMode, tarReader *tar.Reader) (err error) {
+	outFile, openErr := os.OpenFile(localFilePath, os.O_CREATE|os.O_RDWR, mode)
+	if openErr != nil {
+		return fmt.Errorf("Error creating file: %w", openErr)
+	}
+	defer func() {
+		if closeErr := outFile.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("failed while closing file: %w", closeErr)
+		}
+	}()
+
+	// This is to limit the copy size for a decompression bomb, currently set arbitrarily
+	for {
+		n, copyErr := io.CopyN(outFile, tarReader, 1000000)
+		if copyErr != nil {
+			if errors.Is(copyErr, io.EOF) {
+				break
+			}
+			return fmt.Errorf("failed while writing to file: %w", copyErr)
+		}
+		if n == 0 {
+			break
+		}
+	}
+	return nil
+}
+
 // downloadRayLogFiles will use to the executor and retrieve the logs file from the inputted Ray head
 func (options *ClusterLogOptions) downloadRayLogFiles(ctx context.Context, exec remotecommand.Executor, rayNode corev1.Pod) error {
 	outreader, outStream := io.Pipe()
@@ -433,25 +463,8 @@ func (options *ClusterLogOptions) downloadRayLogFiles(ctx context.Context, exec 
 			// Check for overflow: G115
 			if header.Mode < 0 || header.Mode > math.MaxUint32 {
 				fmt.Fprintf(options.ioStreams.Out, "file mode out side of acceptable value %d skipping file\n", header.Mode)
-			}
-			// Create file and write contents
-			outFile, err := os.OpenFile(localFilePath, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode)) //nolint:gosec // overflow is guarded by bounds check above
-			if err != nil {
-				return fmt.Errorf("Error creating file: %w", err)
-			}
-			defer outFile.Close()
-			// This is to limit the copy size for a decompression bomb, currently set arbitrarily
-			for {
-				n, err := io.CopyN(outFile, tarReader, 1000000)
-				if err != nil {
-					if errors.Is(err, io.EOF) {
-						break
-					}
-					return fmt.Errorf("failed while writing to file: %w", err)
-				}
-				if n == 0 {
-					break
-				}
+			} else if err := writeTarFile(localFilePath, os.FileMode(header.Mode), tarReader); err != nil { //nolint:gosec // overflow is guarded by bounds check above
+				return err
 			}
 		default:
 			fmt.Printf("Ignoring unsupported file type: %b", header.Typeflag)
