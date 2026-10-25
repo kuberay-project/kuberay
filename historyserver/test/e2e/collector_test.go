@@ -92,6 +92,10 @@ func TestCollector(t *testing.T) {
 			name:     "Token auth: collector should authenticate against the Ray Dashboard instead of crash-looping",
 			testFunc: testCollectorWithTokenAuth,
 		},
+		{
+			name:     "Kubernetes token auth: collector should authenticate with a projected ServiceAccount token",
+			testFunc: testCollectorWithKubernetesTokenAuth,
+		},
 	}
 
 	for _, tt := range tests {
@@ -766,6 +770,58 @@ func testCollectorWithTokenAuth(test Test, g *WithT, namespace *corev1.Namespace
 	headPod, err := GetHeadPod(test, rayCluster)
 	g.Expect(err).NotTo(HaveOccurred())
 
+	assertDashboardRejectsUnauthenticatedRequest(test, g, headPod)
+
+	// Data in storage is the real proof: the collector only writes the timezone object after an
+	// authenticated Dashboard call succeeds.
+	assertTimezoneStored(test, g, rayCluster, s3Client)
+
+	DeleteS3Bucket(test, g, s3Client)
+}
+
+func testCollectorWithKubernetesTokenAuth(test Test, g *WithT, namespace *corev1.Namespace, s3Client *s3.S3) {
+	rayCluster := ApplyRayClusterWithCollectorKubernetesTokenAuth(test, g, namespace)
+
+	headPod, err := GetHeadPod(test, rayCluster)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	var collector *corev1.Container
+	for i := range headPod.Spec.Containers {
+		if headPod.Spec.Containers[i].Name == "collector" {
+			collector = &headPod.Spec.Containers[i]
+			break
+		}
+	}
+	g.Expect(collector).NotTo(BeNil(), "Head pod should contain the collector sidecar")
+
+	k8sTokenAuthEnabled := false
+	hasStaticAuthToken := false
+	for _, env := range collector.Env {
+		switch env.Name {
+		case utils.RAY_ENABLE_K8S_TOKEN_AUTH_ENV_VAR:
+			k8sTokenAuthEnabled = env.Value == "true"
+		case utils.RAY_AUTH_TOKEN_ENV_VAR:
+			hasStaticAuthToken = true
+		}
+	}
+	g.Expect(k8sTokenAuthEnabled).To(BeTrue(), "Collector should enable Kubernetes token auth")
+	g.Expect(hasStaticAuthToken).To(BeFalse(), "Collector should not receive RAY_AUTH_TOKEN")
+
+	// Check only that the projected token is nonempty; never read or log the credential.
+	_, stderr := ExecPodCmd(test, headPod, collector.Name, []string{
+		"sh", "-c", "test -s " + utils.RayK8sTokenPath,
+	})
+	g.Expect(stderr.String()).To(BeEmpty())
+
+	assertDashboardRejectsUnauthenticatedRequest(test, g, headPod)
+	assertTimezoneStored(test, g, rayCluster, s3Client)
+
+	DeleteS3Bucket(test, g, s3Client)
+}
+
+func assertDashboardRejectsUnauthenticatedRequest(test Test, g *WithT, headPod *corev1.Pod) {
+	test.T().Helper()
+
 	// Guard against a vacuous pass: if the Dashboard served this cluster without credentials the
 	// rest of the assertions would hold even with the fix reverted. Probed with Python because
 	// the Ray images ship no curl.
@@ -780,10 +836,4 @@ PY`
 	stdout, stderr := ExecPodCmd(test, headPod, "ray-head", []string{"sh", "-c", probe})
 	g.Expect(stderr.String()).To(BeEmpty())
 	g.Expect(strings.TrimSpace(stdout.String())).To(Equal("401"))
-
-	// Data in storage is the real proof: the collector only writes the timezone object after an
-	// authenticated Dashboard call succeeds.
-	assertTimezoneStored(test, g, rayCluster, s3Client)
-
-	DeleteS3Bucket(test, g, s3Client)
 }
