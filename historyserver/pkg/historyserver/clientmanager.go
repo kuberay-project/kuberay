@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/singleflight"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,12 +34,20 @@ const (
 	// svcInfoCacheMaxSize bounds the number of cached ServiceInfo entries so a cluster with many
 	// RayClusters cannot grow the cache without limit. Least-recently-used entries are evicted first.
 	svcInfoCacheMaxSize = 1024
+	// authTokenFetchTimeout bounds the shared auth-token read. The singleflight key stays
+	// occupied until the shared call returns, so an unbounded read would let one hung API
+	// request poison every later lookup for the same RayCluster.
+	authTokenFetchTimeout = 30 * time.Second
 )
 
 type ClientManager struct {
 	configs      []*rest.Config
 	clients      []client.Client
 	svcInfoCache *cache.LRUExpireCache
+	// authTokenSF coalesces concurrent auth-token lookups for the same RayCluster.
+	// Nothing is retained once a call completes, so enabling auth or rotating the
+	// Secret still takes effect on the very next request.
+	authTokenSF singleflight.Group
 }
 
 // Client returns the primary controller-runtime client.
@@ -77,14 +86,41 @@ type ClientManagerConfig struct {
 	Burst              int
 }
 
-// GetAuthTokenForRayCluster retrieves the auth token for the named RayCluster from its Secret.
+// GetAuthTokenForRayCluster returns the auth token for the named RayCluster.
+// Concurrent lookups for the same cluster are coalesced so that they share a
+// single pair of API reads; see fetchAuthTokenForRayCluster for the semantics.
+func (c *ClientManager) GetAuthTokenForRayCluster(ctx context.Context, namespace, name string) (string, error) {
+	// The shared read must not be tied to the lifetime of whichever caller won the
+	// race. WithoutCancel keeps request-scoped values while detaching cancellation,
+	// so one caller giving up cannot fail the remaining waiters.
+	ch := c.authTokenSF.DoChan(namespace+"/"+name, func() (interface{}, error) {
+		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authTokenFetchTimeout)
+		defer cancel()
+		return c.fetchAuthTokenForRayCluster(fetchCtx, namespace, name)
+	})
+
+	select {
+	case <-ctx.Done():
+		// Release this caller. Do not Forget(key) here: a racing new call would
+		// start a second lookup alongside the still-running one.
+		return "", ctx.Err()
+	case res := <-ch:
+		if res.Err != nil {
+			return "", res.Err
+		}
+		token, _ := res.Val.(string)
+		return token, nil
+	}
+}
+
+// fetchAuthTokenForRayCluster retrieves the auth token for the named RayCluster from its Secret.
 // Returns empty string if auth is not enabled; otherwise returns an error when token retrieval fails.
 //
 // Both the RayCluster spec and the backing Secret are always read fresh from the K8s API (never
 // cached) so that enabling/updating auth and rotating the token take effect immediately: a stale
 // cached spec could skip the token fetch after auth is enabled, and a stale cached token would keep
 // being sent after the operator rotates the Secret — both silently breaking proxying.
-func (c *ClientManager) GetAuthTokenForRayCluster(ctx context.Context, namespace, name string) (string, error) {
+func (c *ClientManager) fetchAuthTokenForRayCluster(ctx context.Context, namespace, name string) (string, error) {
 	if len(c.clients) == 0 {
 		return "", fmt.Errorf("no Kubernetes client available")
 	}
