@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/jarcoal/httpmock"
 	. "github.com/onsi/ginkgo/v2"
@@ -145,6 +146,47 @@ var _ = Describe("RayFrameworkGenerator", func() {
 
 		err := rayDashboardClient.StopJob(context.TODO(), "stop-job-1")
 		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("returns success when deleting a job succeeds", func() {
+		httpmock.Activate()
+		defer httpmock.DeactivateAndReset()
+		httpmock.RegisterResponder(http.MethodDelete, rayDashboardClient.dashboardURL+JobPath+expectJobId,
+			httpmock.NewStringResponder(http.StatusNoContent, ""))
+
+		err := rayDashboardClient.DeleteJob(context.TODO(), expectJobId)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("returns success when deleting an already absent job", func() {
+		httpmock.Activate()
+		defer httpmock.DeactivateAndReset()
+		httpmock.RegisterResponder(http.MethodDelete, rayDashboardClient.dashboardURL+JobPath+expectJobId,
+			httpmock.NewStringResponder(http.StatusNotFound, "job does not exist"))
+
+		err := rayDashboardClient.DeleteJob(context.TODO(), expectJobId)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("returns bounded response details when deleting a job fails", func() {
+		httpmock.Activate()
+		defer httpmock.DeactivateAndReset()
+
+		forbiddenBody := "access denied"
+		httpmock.RegisterResponder(http.MethodDelete, rayDashboardClient.dashboardURL+JobPath+"forbidden-job",
+			httpmock.NewStringResponder(http.StatusForbidden, forbiddenBody))
+		largeBody := strings.Repeat("x", 5000)
+		httpmock.RegisterResponder(http.MethodDelete, rayDashboardClient.dashboardURL+JobPath+"failed-job",
+			httpmock.NewStringResponder(http.StatusInternalServerError, largeBody))
+
+		err := rayDashboardClient.DeleteJob(context.TODO(), "forbidden-job")
+		Expect(err).To(MatchError(ContainSubstring("DeleteJob fail: 403 Forbidden")))
+		Expect(err).To(MatchError(ContainSubstring(forbiddenBody)))
+
+		err = rayDashboardClient.DeleteJob(context.TODO(), "failed-job")
+		Expect(err).To(MatchError(ContainSubstring("DeleteJob fail: 500 Internal Server Error")))
+		Expect(err.Error()).To(HaveLen(len("DeleteJob fail: 500 Internal Server Error ") + 4096))
+		Expect(err.Error()).ToNot(ContainSubstring(strings.Repeat("x", 4097)))
 	})
 
 	It("Test stop succeeded job", func() {

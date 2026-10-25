@@ -353,6 +353,19 @@ func (r *RayDashboardClient) DeleteJob(ctx context.Context, jobName string) erro
 	}
 	defer resp.Body.Close()
 
+	// Deleting an already absent job is successful, which keeps deletion idempotent.
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		const maxErrorResponseBodyBytes = 4096
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseBodyBytes))
+		if err != nil {
+			return fmt.Errorf("DeleteJob fail: %s: failed to read response body: %w", resp.Status, err)
+		}
+		return fmt.Errorf("DeleteJob fail: %s %s", resp.Status, string(body))
+	}
+
 	return nil
 }
 
