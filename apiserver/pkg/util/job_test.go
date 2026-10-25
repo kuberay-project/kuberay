@@ -53,6 +53,12 @@ var apiJobExistingClusterSubmitter = &api.RayJob{
 		Image:  "image",
 		Cpu:    "400m",
 		Memory: "150Mi",
+		Labels: map[string]string{
+			"sidecar.istio.io/inject": "false",
+		},
+		Annotations: map[string]string{
+			"example.com/team": "ml-platform",
+		},
 	},
 	EntrypointNumCpus: 2,
 }
@@ -121,6 +127,8 @@ func TestBuildRayJob(t *testing.T) {
 	assert.Equal(t, "150Mi", job.Spec.SubmitterPodTemplate.Spec.Containers[0].Resources.Limits.Memory().String())
 	assert.Equal(t, "400m", job.Spec.SubmitterPodTemplate.Spec.Containers[0].Resources.Requests.Cpu().String())
 	assert.Equal(t, "150Mi", job.Spec.SubmitterPodTemplate.Spec.Containers[0].Resources.Requests.Memory().String())
+	assert.Equal(t, "false", job.Spec.SubmitterPodTemplate.ObjectMeta.Labels["sidecar.istio.io/inject"])
+	assert.Equal(t, "ml-platform", job.Spec.SubmitterPodTemplate.ObjectMeta.Annotations["example.com/team"])
 
 	// Test request without cluster creation with submitter bad parameters
 	_, err = NewRayJob(apiJobExistingClusterSubmitterBadParams, map[string]*api.ComputeTemplate{"foo": &template})

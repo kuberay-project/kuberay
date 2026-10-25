@@ -63,6 +63,10 @@ func NewRayJob(apiJob *api.RayJob, computeTemplateMap map[string]*api.ComputeTem
 			memorys = apiJob.JobSubmitter.Memory
 		}
 		rayJob.Spec.SubmitterPodTemplate = &corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels:      apiJob.JobSubmitter.Labels,
+				Annotations: apiJob.JobSubmitter.Annotations,
+			},
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
 					{
