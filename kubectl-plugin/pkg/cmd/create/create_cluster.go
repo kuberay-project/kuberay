@@ -11,6 +11,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	"k8s.io/kubectl/pkg/util/templates"
+	"k8s.io/utils/ptr"
 
 	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util"
 	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util/client"
@@ -293,7 +294,7 @@ func (options *CreateClusterOptions) Run(ctx context.Context, k8sClient client.C
 			WorkerGroups: []generation.WorkerGroup{
 				{
 					Name:             new("default-group"),
-					Replicas:         options.workerReplicas,
+					Replicas:         &options.workerReplicas,
 					NumOfHosts:       &options.numOfHosts,
 					CPU:              &options.workerCPU,
 					Memory:           &options.workerMemory,
@@ -309,6 +310,8 @@ func (options *CreateClusterOptions) Run(ctx context.Context, k8sClient client.C
 			},
 		}
 	}
+
+	options.warnOnEmptyWorkerGroups()
 
 	rayClusterac = options.rayClusterConfig.GenerateRayClusterApplyConfig()
 
@@ -341,6 +344,22 @@ func (options *CreateClusterOptions) Run(ctx context.Context, k8sClient client.C
 	}
 
 	return nil
+}
+
+// warnOnEmptyWorkerGroups warns about each worker group that will start with no worker pods. 0
+// replicas is valid when the autoscaler can scale the group up, so this never fails the command.
+func (options *CreateClusterOptions) warnOnEmptyWorkerGroups() {
+	if options.rayClusterConfig.Autoscaler != nil && options.rayClusterConfig.Autoscaler.Version != "" {
+		return
+	}
+
+	for i, workerGroup := range options.rayClusterConfig.WorkerGroups {
+		if ptr.Deref(workerGroup.Replicas, util.DefaultWorkerReplicas) != 0 {
+			continue
+		}
+		name := ptr.Deref(workerGroup.Name, fmt.Sprintf("#%d", i))
+		fmt.Fprintf(options.ioStreams.ErrOut, "Warning: worker group %q has 0 replicas and will start with no worker pods.\n", name)
+	}
 }
 
 // clusterExists checks if a RayCluster with the given name exists in the given namespace
