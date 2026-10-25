@@ -43,6 +43,9 @@ func TestRayCluster(t *testing.T) {
 			name: "ray-cluster.external-redis.yaml",
 		},
 		{
+			name: "ray-cluster.external-valkey.yaml",
+		},
+		{
 			name: "ray-cluster.head-command.yaml",
 		},
 		{
