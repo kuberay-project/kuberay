@@ -1861,6 +1861,16 @@ func (r *RayClusterReconciler) buildRedisCleanupJob(ctx context.Context, instanc
 	pod.Spec.Containers[utils.RayContainerIndex].LivenessProbe = nil
 	pod.Spec.Containers[utils.RayContainerIndex].ReadinessProbe = nil
 
+	// Drop pod anti-affinity: it is meant to spread Ray head Pods, not to constrain a short-lived Job, and
+	// GKE Autopilot rejects Pods with pod anti-affinity that request less than 500m CPU. Keep node affinity
+	// so the Job still runs on nodes that can reach Redis. The head Pod spec shares its Affinity with the
+	// RayCluster's head template, so modify a copy instead of the shared struct.
+	if pod.Spec.Affinity != nil && pod.Spec.Affinity.PodAntiAffinity != nil {
+		affinity := pod.Spec.Affinity.DeepCopy()
+		affinity.PodAntiAffinity = nil
+		pod.Spec.Affinity = affinity
+	}
+
 	// Set the environment variables to ensure that the cleanup Job has at least 60s.
 	pod.Spec.Containers[utils.RayContainerIndex].Env = append(pod.Spec.Containers[utils.RayContainerIndex].Env, corev1.EnvVar{
 		Name:  "RAY_redis_db_connect_retries",
