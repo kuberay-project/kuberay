@@ -28,15 +28,15 @@ spec:
     # 3. After 90 seconds, the RayJob custom resource itself is deleted, removing it from the Kubernetes API server.
     deletionRules:
     - condition:
-        jobStatus: FAILED
+        jobDeploymentStatus: Failed
         ttlSeconds: 30
       policy: DeleteWorkers
     - condition:
-        jobStatus: FAILED
+        jobDeploymentStatus: Failed
         ttlSeconds: 60
       policy: DeleteCluster
     - condition:
-        jobStatus: FAILED
+        jobDeploymentStatus: Failed
         ttlSeconds: 90
       policy: DeleteSelf
     - condition:
