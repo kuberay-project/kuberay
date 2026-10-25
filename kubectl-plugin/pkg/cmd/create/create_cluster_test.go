@@ -160,6 +160,46 @@ func TestRayCreateClusterValidate(t *testing.T) {
 			},
 			configFileContents: `image: foo`,
 		},
+		"should error when TPU node selectors are missing": {
+			opts: &CreateClusterOptions{
+				cmdFactory: cmdFactory,
+				workerTPU:  "4",
+				numOfHosts: 1,
+			},
+			expectError: "is not set",
+		},
+		"should not error when TPU validation is skipped": {
+			opts: &CreateClusterOptions{
+				cmdFactory:        cmdFactory,
+				workerTPU:         "4",
+				numOfHosts:        1,
+				skipTPUValidation: true,
+			},
+		},
+		"should error when a config file has invalid TPU config": {
+			opts: &CreateClusterOptions{
+				cmdFactory: cmdFactory,
+			},
+			configFileContents: `head:
+  cpu: "2"
+  memory: "4Gi"
+worker-groups:
+  - tpu: "1"
+`,
+			expectError: "is not set",
+		},
+		"should not error when a config file has invalid TPU config and validation is skipped": {
+			opts: &CreateClusterOptions{
+				cmdFactory:        cmdFactory,
+				skipTPUValidation: true,
+			},
+			configFileContents: `head:
+  cpu: "2"
+  memory: "4Gi"
+worker-groups:
+  - tpu: "1"
+`,
+		},
 	}
 
 	for name, tc := range tests {
@@ -199,6 +239,7 @@ func TestSwitchesIncompatibleWithConfigFilePresent(t *testing.T) {
 				"--dry-run",
 				"--wait",
 				"--timeout", "10s",
+				"--skip-tpu-validation",
 			},
 		},
 		"should error when incompatible flags are used": {
@@ -310,9 +351,10 @@ func TestNewCreateClusterCommand(t *testing.T) {
 				"--worker-cpu", "1",
 				"--worker-memory", "5Gi",
 				"--worker-gpu", "1",
+				"--worker-tpu", "4",
 				"--worker-ephemeral-storage", "10Gi",
 				"--worker-ray-start-params", "metrics-export-port=8081,num-cpus=2",
-				"--worker-node-selectors", fmt.Sprintf("app=ray,env=dev,%s=tpu-v5,%s=2x4", util.NodeSelectorGKETPUAccelerator, util.NodeSelectorGKETPUTopology),
+				"--worker-node-selectors", fmt.Sprintf("app=ray,env=dev,%s=tpu-v5-lite-podslice,%s=2x4", util.NodeSelectorGKETPUAccelerator, util.NodeSelectorGKETPUTopology),
 				"--labels", "app=ray,env=dev",
 				"--annotations", "ttl-hours=24,owner=chthulu",
 				"--autoscaler", "v2",
@@ -325,6 +367,24 @@ func TestNewCreateClusterCommand(t *testing.T) {
 			args: []string{
 				"sample-cluster",
 				"--file", filePath,
+				"--dry-run",
+			},
+		},
+		"should error when TPU validation fails": {
+			args: []string{
+				"sample-cluster",
+				"--worker-tpu", "4",
+				"--worker-node-selectors", fmt.Sprintf("%s=tpu-v6e-slice,%s=4x4", util.NodeSelectorGKETPUAccelerator, util.NodeSelectorGKETPUTopology),
+				"--dry-run",
+			},
+			expectError: "--num-of-hosts must be 4",
+		},
+		"should succeed when TPU validation is skipped": {
+			args: []string{
+				"sample-cluster",
+				"--worker-tpu", "4",
+				"--worker-node-selectors", fmt.Sprintf("%s=tpu-v6e-slice,%s=4x4", util.NodeSelectorGKETPUAccelerator, util.NodeSelectorGKETPUTopology),
+				"--skip-tpu-validation",
 				"--dry-run",
 			},
 		},
@@ -346,7 +406,7 @@ func TestNewCreateClusterCommand(t *testing.T) {
 			cmd.SetArgs(tc.args)
 
 			if tc.expectError != "" {
-				require.EqualError(t, cmd.Execute(), tc.expectError)
+				require.ErrorContains(t, cmd.Execute(), tc.expectError)
 			} else {
 				require.NoError(t, cmd.Execute())
 			}
