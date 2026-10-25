@@ -4,7 +4,7 @@ import useSWR from "swr";
 import { RayJobListResponse, RayJobItem } from "@/types/v2/api/rayjob";
 import { JobRow } from "@/types/table";
 import { ALL_NAMESPACES } from "@/utils/config-defaults";
-import { config } from "@/utils/constants";
+import { buildRayHeadDashboardLink } from "@/utils/links";
 
 export const useListJobs = (
   refreshInterval: number = 5000,
@@ -45,15 +45,15 @@ export const useListJobs = (
 const convertRayJobItemToJobRow = (item: RayJobItem): JobRow => {
   const namespace = item.metadata.namespace!;
   const generateLinks = () => {
-    const serviceName = item.status?.rayClusterStatus?.head?.serviceName;
-    const dashboardPort =
-      item.spec?.rayClusterSpec?.headGroupSpec?.template?.spec?.containers?.[0]?.ports?.find(
-        (port) => port.name === "dashboard",
-      )?.containerPort;
-    if (!serviceName || !dashboardPort || !config.coreApiUrl) {
+    const dashboardLink = buildRayHeadDashboardLink(
+      namespace,
+      item.status?.rayClusterStatus?.head?.serviceName,
+      item.status?.rayClusterStatus?.endpoints,
+    );
+    if (!dashboardLink) {
       return {};
     }
-    const rayHeadDashboardLink = `${config.coreApiUrl}/namespaces/${namespace}/services/${serviceName}:${dashboardPort}/proxy/#/jobs`;
+    const rayHeadDashboardLink = `${dashboardLink}#/jobs`;
     const rayJobId = item.status?.jobId;
     return {
       rayHeadDashboardLink,

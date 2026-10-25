@@ -7,7 +7,7 @@ import { ClusterRow } from "@/types/table";
 import { ClusterStatus } from "@/types/v2/raycluster";
 import { V1Condition } from "@kubernetes/client-node";
 import { ALL_NAMESPACES } from "@/utils/config-defaults";
-import { config } from "@/utils/constants";
+import { buildRayHeadDashboardLink } from "@/utils/links";
 
 export const useListClusters = (
   refreshInterval: number = 5000,
@@ -78,19 +78,14 @@ const transformRayClusterResponse = (
     const namespace = item.metadata.namespace!;
 
     const generateLinks = () => {
-      const serviceName = item.status.head?.serviceName ?? "";
-      const dashboardPort =
-        item.spec.headGroupSpec?.template?.spec?.containers?.[0].ports?.find(
-          (port) => port.name === "dashboard",
-        )?.containerPort;
+      const dashboardLink = buildRayHeadDashboardLink(
+        namespace,
+        item.status.head?.serviceName,
+        item.status.endpoints,
+      );
 
-      if (!serviceName || !dashboardPort) {
-        return {
-          rayHeadDashboardLink: "",
-        };
-      }
       return {
-        rayHeadDashboardLink: `${config.coreApiUrl}/namespaces/${namespace}/services/${serviceName}:${dashboardPort}/proxy/#/cluster`,
+        rayHeadDashboardLink: dashboardLink ? `${dashboardLink}#/cluster` : "",
       };
     };
 
