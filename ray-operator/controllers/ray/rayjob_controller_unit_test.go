@@ -1272,3 +1272,77 @@ func TestBatchSchedulerCleanupCalledWhenRayJobSuspendingOrRetrying(t *testing.T)
 		})
 	}
 }
+
+// TestReconcileRayJobDeletionFinalizer guards the fix for #1626. While a RayJob
+// is deleting, the controller must only Update the object to remove its own
+// finalizer while that finalizer is still present. When another controller's
+// finalizer keeps the RayJob alive after deletion, KubeRay's finalizer is gone
+// after the first reconcile; an unconditional Update on every subsequent
+// reconcile bumps resourceVersion and produces "object has been modified"
+// conflicts for the other controller.
+func TestReconcileRayJobDeletionFinalizer(t *testing.T) {
+	const externalFinalizer = "example.com/external-cleanup"
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(scheme))
+
+	// A RayJob that is already being deleted (DeletionTimestamp set), has a
+	// terminal JobStatus (so the deletion path skips StopJob / dashboard client),
+	// and still carries an external finalizer (so the object lingers).
+	newDeletingRayJob := func(finalizers []string) *rayv1.RayJob {
+		deletionTimestamp := metav1.NewTime(time.Now())
+		return &rayv1.RayJob{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "rayjob-deletion",
+				Namespace:         "default",
+				DeletionTimestamp: &deletionTimestamp,
+				Finalizers:        finalizers,
+			},
+			Status: rayv1.RayJobStatus{JobStatus: rayv1.JobStatusSucceeded},
+		}
+	}
+
+	t.Run("own finalizer present is removed once; external finalizer preserved", func(t *testing.T) {
+		rayJob := newDeletingRayJob([]string{utils.RayJobStopJobFinalizer, externalFinalizer})
+		fakeClient := clientFake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(rayJob).Build()
+		reconciler := &RayJobReconciler{Client: fakeClient, Scheme: scheme, Recorder: &events.FakeRecorder{}}
+
+		_, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: rayJob.Name, Namespace: rayJob.Namespace},
+		})
+		require.NoError(t, err)
+
+		updated := &rayv1.RayJob{}
+		require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{Name: rayJob.Name, Namespace: rayJob.Namespace}, updated))
+		assert.NotContains(t, updated.Finalizers, utils.RayJobStopJobFinalizer, "KubeRay finalizer must be removed on the first reconcile after deletion")
+		assert.Contains(t, updated.Finalizers, externalFinalizer, "an external controller's finalizer must be preserved")
+	})
+
+	t.Run("own finalizer already absent issues no Update", func(t *testing.T) {
+		// A later reconcile after the finalizer above was already removed: the
+		// object still exists only because of the external finalizer.
+		rayJob := newDeletingRayJob([]string{externalFinalizer})
+		updateCount := 0
+		fakeClient := clientFake.NewClientBuilder().
+			WithScheme(scheme).
+			WithRuntimeObjects(rayJob).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Update: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.UpdateOption) error {
+					updateCount++
+					return nil
+				},
+			}).
+			Build()
+		reconciler := &RayJobReconciler{Client: fakeClient, Scheme: scheme, Recorder: &events.FakeRecorder{}}
+
+		_, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: rayJob.Name, Namespace: rayJob.Namespace},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 0, updateCount, "reconcile must not Update the RayJob once its own finalizer is already absent (regression #1626)")
+
+		updated := &rayv1.RayJob{}
+		require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{Name: rayJob.Name, Namespace: rayJob.Namespace}, updated))
+		assert.Equal(t, []string{externalFinalizer}, updated.Finalizers)
+	})
+}
