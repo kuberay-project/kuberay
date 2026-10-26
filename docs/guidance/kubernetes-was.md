@@ -103,8 +103,10 @@ kubectl get pods -n <namespace> -l ray.io/cluster=<raycluster-name> \
 - **Alpha upgrade limitation.** Existing autoscaling RayClusters whose pods were created while WAS was skipped are
   not automatically migrated. Recreate these clusters after upgrading the operator to avoid mixed PodGroup membership
   that can leave new pods `Pending`.
-- Custom PriorityClass and preemption-policy support is deferred. KubeRay does not copy these settings from pod
-  templates to the Workload or PodGroup; this integration currently relies on Kubernetes' default priority settings.
+- **Do not set `priorityClassName` or `preemptionPolicy` on the pod templates of a gang-scheduled RayCluster.**
+  KubeRay does not yet propagate them to the Workload or PodGroup (tracked in
+  [#5422](https://github.com/kuberay-project/kuberay/pull/5422)), and kube-scheduler requires every pod in a gang to
+  have the same priority as its PodGroup, so mismatched priorities leave pods `Pending`.
 
 ## Troubleshooting
 
