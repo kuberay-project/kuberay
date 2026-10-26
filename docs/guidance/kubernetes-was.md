@@ -74,8 +74,7 @@ Once enabled and opted in, a RayCluster is scheduled as a single gang:
   cannot fit in full, none of its pods start — they stay `Pending` until there is room for the entire cluster. This avoids
   partial startups that hold expensive nodes idle.
 - **What counts toward the gang.** One head pod plus the desired replicas of every worker group. A multi-host group
-  contributes `replicas × numOfHosts` pods. With autoscaling, `minReplicas` is used instead of `replicas`.
-  Suspended worker groups contribute nothing.
+  contributes `replicas × numOfHosts` pods. Suspended worker groups contribute nothing.
 - **Default scheduler.** Pods are placed by the standard Kubernetes scheduler; there is no separate scheduler to
   install or run.
 - **Editing and scaling.** Changing worker groups or replica counts is picked up automatically — the gang size is
