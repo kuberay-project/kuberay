@@ -778,7 +778,7 @@ func TestResolvePreemptionPolicy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			lookups := 0
 			priorityClass := &schedulingv1.PriorityClass{
-				ObjectMeta:       metav1.ObjectMeta{Name: "test-pc"},
+				ObjectMeta:       metav1.ObjectMeta{Name: tt.className},
 				PreemptionPolicy: tt.classPolicy,
 			}
 			fakeClient := clientFake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(priorityClass).
