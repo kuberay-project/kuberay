@@ -133,7 +133,8 @@ _Appears in:_
 | `maxSurgePercent` _integer_ | The capacity of serve requests the upgraded cluster should scale to handle each interval.<br />Defaults to 100%. | 100 |  |
 | `stepSizePercent` _integer_ | The percentage of traffic to switch to the upgraded RayCluster at a set interval after scaling by MaxSurgePercent.<br />StepSizePercent must be less than or equal to MaxSurgePercent. |  |  |
 | `intervalSeconds` _integer_ | The interval in seconds between transferring StepSize traffic from the old to new RayCluster. |  |  |
-| `gatewayClassName` _string_ | The name of the Gateway Class installed by the Kubernetes Cluster admin. |  |  |
+| `gatewayClassName` _string_ | The name of the Gateway Class installed by the Kubernetes Cluster admin.<br />Exactly one of GatewayClassName or GatewayRef must be set. |  |  |
+| `gatewayRef` _[GatewayReference](#gatewayreference)_ | GatewayRef attaches the HTTPRoute to an existing Gateway instead of creating one per RayService.<br />The referenced Gateway must allow HTTPRoutes from the RayService's namespace.<br />Exactly one of GatewayClassName or GatewayRef must be set. |  |  |
 
 
 #### CollectorOptions
@@ -149,7 +150,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `image` _string_ | Image is the collector container image to be used (e.g. quay.io/kuberay/collector:latest). |  |  |
+| `image` _string_ | Image is the collector container image to be used (e.g. quay.io/kuberay/collector:v1.7.0). |  |  |
 | `imagePullPolicy` _[PullPolicy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#pullpolicy-v1-core)_ | ImagePullPolicy is the pull policy for the collector image. |  |  |
 | `resources` _[ResourceRequirements](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcerequirements-v1-core)_ | Resources specifies computing resource requirements. |  |  |
 | `env` _[EnvVar](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#envvar-v1-core) array_ | Env allows injecting custom environment variables into the collector container. |  |  |
@@ -237,7 +238,7 @@ DeletionStrategy configures automated cleanup after the RayJob reaches a termina
 Two mutually exclusive styles are supported:
 
   - Legacy: provide both onSuccess and onFailure (deprecated; removal planned for 1.6.0). May be combined with shutdownAfterJobFinishes and (optionally) global TTLSecondsAfterFinished.
-  - Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per‑rule condition.ttlSeconds instead).
+  - Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds instead).
 
 Semantics:
   - A non-empty deletionRules selects rules mode; empty lists are treated as unset.
@@ -281,6 +282,28 @@ _Appears in:_
 | --- | --- |
 | `DeleteWithCluster` | DeleteWithClusterGCSStorageDeletionPolicy (the default) makes the<br />operator-managed PVC a child of the RayCluster via an ownerReference, so it<br />(and its RocksDB data) is garbage-collected together with the cluster.<br /> |
 | `Retain` | RetainGCSStorageDeletionPolicy keeps the operator-managed PVC (and its data)<br />after the owning RayCluster is deleted: the operator omits the ownerReference<br />so the PVC outlives the cluster. Recover the GCS state by pointing a new<br />cluster's ClaimName at the retained PVC.<br /> |
+
+
+#### GatewayReference
+
+
+
+GatewayReference identifies the existing Gateway and listener the RayService's
+HTTPRoute attaches to. It becomes the HTTPRoute's parentRef. KubeRay never creates,
+updates, or deletes the referenced Gateway; it must already exist and must allow
+HTTPRoutes from the RayService's namespace.
+
+
+
+_Appears in:_
+- [ClusterUpgradeOptions](#clusterupgradeoptions)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name of the existing Gateway. Must be a valid Gateway resource name<br />(an RFC 1123 subdomain). |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
+| `namespace` _string_ | Namespace of the existing Gateway. Defaults to the RayService's namespace when omitted.<br />Must be a valid namespace name (an RFC 1123 label). |  | MaxLength: 63 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$` <br /> |
+| `sectionName` _string_ | SectionName is the name of a listener on the referenced Gateway to attach the<br />HTTPRoute to. When omitted, the HTTPRoute attaches to every listener on the<br />Gateway that accepts it. Useful for a shared Gateway with multiple listeners.<br />Must be a valid Gateway API SectionName (an RFC 1123 subdomain). |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
+| `port` _integer_ | Port is the network port of the referenced Gateway's listener to attach the<br />HTTPRoute to. When both SectionName and Port are set, the selected listener<br />must match both. When omitted, listener selection is not constrained by port. |  | Maximum: 65535 <br />Minimum: 1 <br /> |
 
 
 #### GcsEmbeddedStorage
@@ -388,6 +411,41 @@ _Appears in:_
 | `collectorOptions` _[CollectorOptions](#collectoroptions)_ | CollectorOptions used for collector sidecar configuration |  |  |
 
 
+#### IdleTerminationOptions
+
+
+
+
+
+
+
+_Appears in:_
+- [RayClusterSpec](#rayclusterspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `timeoutSeconds` _integer_ | TimeoutSeconds denotes the number of seconds to wait before the v2 autoscaler terminates an idle RayCluster. |  |  |
+| `policy` _[IdleTerminationPolicy](#idleterminationpolicy)_ | Policy is the action taken once the RayCluster has been idle for TimeoutSeconds. | Suspend | Enum: [Delete Suspend] <br /> |
+
+
+#### IdleTerminationPolicy
+
+_Underlying type:_ _string_
+
+
+
+_Validation:_
+- Enum: [Delete Suspend]
+
+_Appears in:_
+- [IdleTerminationOptions](#idleterminationoptions)
+
+| Field | Description |
+| --- | --- |
+| `Suspend` |  |
+| `Delete` |  |
+
+
 #### IngressOptions
 
 
@@ -445,6 +503,39 @@ _Appears in:_
 | `HTTPMode` |  |
 | `InteractiveMode` |  |
 | `SidecarMode` |  |
+
+
+#### LabelRef
+
+
+
+LabelRef maps a node label to a Ray node label.
+
+
+
+_Appears in:_
+- [WorkerGroupSpec](#workergroupspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the Ray label key the value is delivered under. If empty, defaults to the node label key in fieldPath.<br />Must not be a key in the same group's workerGroupSpecs[].labels. |  | MaxLength: 317 <br /> |
+| `valueFrom` _[LabelRefSource](#labelrefsource)_ | ValueFrom selects the node value to deliver. |  |  |
+
+
+#### LabelRefSource
+
+
+
+LabelRefSource selects where a LabelRef value comes from.
+
+
+
+_Appears in:_
+- [LabelRef](#labelref)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[NodeFieldRef](#nodefieldref)_ | NodeRef selects a field of the node the pod is bound to. |  |  |
 
 
 #### NetworkPolicyConfig
@@ -506,6 +597,22 @@ _Appears in:_
 | `egressRules` _[NetworkPolicyEgressRule](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#networkpolicyegressrule-v1-networking) array_ | EgressRules specifies custom egress rules appended to the base policy.<br />Only meaningful when the mode includes egress denial (DenyAll or DenyAllEgress).<br />DNS egress is NOT added automatically: under DenyAll/DenyAllEgress you MUST<br />add a DNS rule here (e.g. to kube-system pods labeled k8s-app=kube-dns on<br />port 53), because Ray workers reach the head via its service FQDN and cannot<br />resolve it without DNS. See the network-policy-deny-all sample. |  |  |
 
 
+#### NodeFieldRef
+
+
+
+NodeFieldRef selects a field of the node in downward API syntax.
+
+
+
+_Appears in:_
+- [LabelRefSource](#labelrefsource)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `fieldPath` _string_ | FieldPath is the node field to read; only metadata.labels['<key>'] is supported in this version.<br />The key must be in the operator's allowedNodeLabels. |  | MinLength: 1 <br /> |
+
+
 #### RayCluster
 
 
@@ -544,6 +651,8 @@ _Appears in:_
 | `upgradeStrategy` _[RayClusterUpgradeStrategy](#rayclusterupgradestrategy)_ | UpgradeStrategy defines the scaling policy used when upgrading the RayCluster |  |  |
 | `authOptions` _[AuthOptions](#authoptions)_ | AuthOptions specifies the authentication options for the RayCluster. |  |  |
 | `suspend` _boolean_ | Suspend indicates whether a RayCluster should be suspended.<br />A suspended RayCluster will have head pods and worker pods deleted. |  |  |
+| `idleSuspend` _boolean_ | IdleSuspend indicates whether a RayCluster should be suspended due to idleness.<br />An idle-suspended RayCluster will have head pods and worker pods deleted. |  |  |
+| `idleTerminationOptions` _[IdleTerminationOptions](#idleterminationoptions)_ | IdleTerminationOptions specifies optional configuration for terminating an idle RayCluster.<br />A RayCluster is considered idle when no Ray driver is connected. |  |  |
 | `managedBy` _string_ | ManagedBy is an optional configuration for the controller or entity that manages a RayCluster.<br />The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.<br />The kuberay-operator reconciles a RayCluster which doesn't have this field at all or<br />the field value is the reserved string 'ray.io/kuberay-operator',<br />but delegates reconciling the RayCluster with 'kueue.x-k8s.io/multikueue' to the Kueue.<br />The field is immutable. |  |  |
 | `autoscalerOptions` _[AutoscalerOptions](#autoscaleroptions)_ | AutoscalerOptions specifies optional configuration for the Ray autoscaler. |  |  |
 | `headServiceAnnotations` _object (keys:string, values:string)_ |  |  |  |
@@ -624,7 +733,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `jobTemplate` _[RayJobSpec](#rayjobspec)_ | JobTemplate defines the job spec that will be created by cron scheduling |  |  |
 | `schedule` _string_ | Schedule is the cron schedule string |  |  |
-| `timeZone` _string_ | TimeZone is the time zone name for the given schedule. If not specified, default to the local time zone of the<br />Kuberay Operator. Empty string is not allowed.<br />The bundled version of the time zone database is used. |  | MinLength: 1 <br /> |
+| `timeZone` _string_ | TimeZone is the time zone name for the given schedule. If not specified, default to the local time zone of the<br />KubeRay operator. Empty string is not allowed.<br />The bundled version of the time zone database is used. |  | MinLength: 1 <br /> |
 | `suspend` _boolean_ | Suspend tells the controller to suspend the scheduling, it does not apply to<br />scheduled RayJob. |  |  |
 
 
@@ -859,39 +968,6 @@ _Appears in:_
 | `enabled` _boolean_ | Enabled controls whether mTLS is active for this RayCluster.<br />Defaults to false when omitted. Set to true to enable mTLS. |  |  |
 
 
-#### TopologyLabelMapping
-
-
-
-TopologyLabelMapping maps one Kubernetes node label to a Ray node label.
-
-
-
-_Appears in:_
-- [TopologySpec](#topologyspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `nodeLabel` _string_ | NodeLabel is the node label key to read. Must be in the operator's allowedNodeLabels. |  |  |
-| `mapTo` _string_ | MapTo is the Ray label key to deliver the value under. If empty, defaults to the value of nodeLabel.<br />The keys set here should not conflict with the workerGroupSpec.Labels, since --labels overwrites --labels-file. |  | MaxLength: 317 <br /> |
-
-
-#### TopologySpec
-
-
-
-TopologySpec selects the node labels delivered to a worker group's Ray nodes.
-
-
-
-_Appears in:_
-- [WorkerGroupSpec](#workergroupspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `labelMappings` _[TopologyLabelMapping](#topologylabelmapping) array_ | LabelMappings lists the node labels to deliver. An empty list delivers nothing. Every listed label is<br />required: a pod bound to a node missing one exits before ray start. |  |  |
-
-
 #### UpscalingMode
 
 _Underlying type:_ _string_
@@ -950,7 +1026,7 @@ _Appears in:_
 | `template` _[PodTemplateSpec](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#podtemplatespec-v1-core)_ | Template is a pod template for the worker |  |  |
 | `scaleStrategy` _[ScaleStrategy](#scalestrategy)_ | ScaleStrategy controls scaling of this worker group: which pods to remove,<br />and whether the group can currently be scaled up. |  |  |
 | `numOfHosts` _integer_ | NumOfHosts denotes the number of hosts to create per replica. The default value is 1. | 1 |  |
-| `topology` _[TopologySpec](#topologyspec)_ | Topology delivers labels of the node each worker pod is bound to as Ray node labels.<br />While its primary use would be for topology-aware scheduling, any allowed node label can be mapped.<br />Requires the operator to run with `ENABLE_WEBHOOKS` enabled and Ray 2.45.0 or later (`--labels-file`). |  |  |
+| `labelRefs` _[LabelRef](#labelref) array_ | LabelRefs delivers labels of the node each worker pod is bound to as Ray node labels.<br />This enables Ray scheduling based on node attributes, such as topology placement (e.g., rack, zone, or topology domain).<br />Only allowlisted node labels can be delivered. Every referenced label must exist on the node or pod startup fails.<br />Empty means no labels are delivered.<br />Requires the `NodeLabelDelivery` feature gate and `ENABLE_WEBHOOKS` enabled on the operator, and Ray 2.45.0 or later (`--labels-file`). |  |  |
 
 
 

@@ -3266,3 +3266,104 @@ func TestGetCustomAcceleratorRayResourceName(t *testing.T) {
 		})
 	}
 }
+
+func TestSetDefaultCollectorImage(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterHistoryServer, true)
+
+	defaultCollectorImage := "quay.io/kuberay/collector:nightly"
+
+	cluster := &rayv1.RayCluster{
+		Spec: rayv1.RayClusterSpec{
+			HistoryServerOptions: &rayv1.HistoryServerOptions{
+				CollectorOptions: &rayv1.CollectorOptions{},
+			},
+		},
+	}
+
+	tests := []struct {
+		name           string
+		collectorImage string
+		expectedImage  string
+	}{
+		{
+			name:           "collector image is inherited from the operator when not set",
+			collectorImage: "",
+			expectedImage:  defaultCollectorImage,
+		},
+		{
+			name:           "collector image set in the RayCluster is not overridden",
+			collectorImage: "my-registry.io/kuberay/collector:v1.7.0",
+			expectedImage:  "my-registry.io/kuberay/collector:v1.7.0",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			podTemplate := corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "ray-head", Image: "rayproject/ray:latest"},
+						{Name: utils.CollectorContainerName, Image: tc.collectorImage},
+					},
+				},
+			}
+
+			SetDefaultCollectorImage(cluster, &podTemplate, defaultCollectorImage)
+
+			assert.Equal(t, "rayproject/ray:latest", podTemplate.Spec.Containers[0].Image)
+			assert.Equal(t, tc.expectedImage, podTemplate.Spec.Containers[1].Image)
+		})
+	}
+
+	t.Run("no-op when the collector container is not injected", func(t *testing.T) {
+		podTemplate := corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: "ray-head", Image: "rayproject/ray:latest"},
+				},
+			},
+		}
+
+		SetDefaultCollectorImage(cluster, &podTemplate, defaultCollectorImage)
+
+		assert.Len(t, podTemplate.Spec.Containers, 1)
+		assert.Equal(t, "rayproject/ray:latest", podTemplate.Spec.Containers[0].Image)
+	})
+
+	t.Run("no-op when the RayCluster does not set historyServerOptions.collectorOptions", func(t *testing.T) {
+		// A collector container the user added manually is not managed by the operator,
+		// so its empty image is left as is.
+		podTemplate := corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: utils.CollectorContainerName, Image: ""},
+				},
+			},
+		}
+
+		SetDefaultCollectorImage(&rayv1.RayCluster{}, &podTemplate, defaultCollectorImage)
+
+		assert.Empty(t, podTemplate.Spec.Containers[0].Image)
+	})
+}
+
+// TestBuildPod_GeneratedRayStartCmdIsArgsSubstring pins the contract the pods CREATE webhook relies on: the
+// KUBERAY_GEN_RAY_START_CMD value appears exactly once, verbatim, in the Ray container's single args element
+func TestBuildPod_GeneratedRayStartCmdIsArgsSubstring(t *testing.T) {
+	ctx := context.Background()
+	for _, userCommand := range [][]string{nil, {"echo hello"}} {
+		cluster := instance.DeepCopy()
+		worker := cluster.Spec.WorkerGroupSpecs[0]
+		worker.Template.Spec.Containers[utils.RayContainerIndex].Command = userCommand
+		podName := cluster.Name + utils.DashSymbol + string(rayv1.WorkerNode) + utils.DashSymbol + worker.GroupName + utils.DashSymbol + utils.FormatInt32(0)
+		fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
+		podTemplateSpec := DefaultWorkerPodTemplate(ctx, *cluster, worker, podName, fqdnRayIP, "6379", "", 0, 0)
+		pod := BuildPod(ctx, podTemplateSpec, rayv1.WorkerNode, worker.RayStartParams, "6379", false, utils.GetCRDType(""), fqdnRayIP, nil, "")
+
+		container := pod.Spec.Containers[utils.RayContainerIndex]
+		generated := getEnvVar(container, utils.KUBERAY_GEN_RAY_START_CMD)
+		require.NotNil(t, generated)
+		require.Len(t, container.Args, 1)
+		assert.Equal(t, 1, strings.Count(container.Args[0], generated.Value), "args: %q", container.Args[0])
+	}
+}

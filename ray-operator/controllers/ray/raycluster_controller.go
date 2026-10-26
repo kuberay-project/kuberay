@@ -80,6 +80,7 @@ type RayClusterReconcilerOptions struct {
 	DefaultContainerEnvs     []corev1.EnvVar
 	DefaultPodAnnotations    map[string]string
 	DefaultPodLabels         map[string]string
+	CollectorImage           string
 	IsOpenShift              bool
 	UseIngressOnOpenShift    bool
 	CertManagerAvailable     bool
@@ -218,6 +219,24 @@ func (r *RayClusterReconciler) rayClusterReconcile(ctx context.Context, instance
 
 	// Please do NOT modify `originalRayClusterInstance` in the following code.
 	originalRayClusterInstance := instance.DeepCopy()
+
+	// With idleTerminationOptions.policy=Delete, the Ray autoscaler adds the idle termination cleanup finalizer
+	// before deleting an idle RayCluster, so that the operator can record why the RayCluster was deleted.
+	if instance.DeletionTimestamp != nil && !instance.DeletionTimestamp.IsZero() &&
+		r.hasIdleTerminationCleanupFinalizer(instance) {
+		logger.Info("RayCluster is being deleted due to idle termination",
+			"namespace", instance.Namespace, "name", instance.Name)
+		r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal,
+			string(utils.DeletedIdleRayCluster), string(utils.DeleteAction),
+			"RayCluster %s/%s is being deleted due to idle termination",
+			instance.Namespace, instance.Name)
+
+		// Remove finalizer to allow deletion to proceed
+		controllerutil.RemoveFinalizer(instance, utils.IdleTerminationCleanupFinalizer)
+		if err := r.Update(ctx, instance); err != nil {
+			return ctrl.Result{RequeueAfter: DefaultRequeueDuration}, err
+		}
+	}
 
 	// The `enableGCSFTRedisCleanup` is a feature flag introduced in KubeRay v1.0.0. It determines whether
 	// the Redis cleanup job should be activated. Users can disable the feature by setting the environment
@@ -941,7 +960,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 	suspendStatus := utils.FindRayClusterSuspendStatus(instance)
 	statusConditionGateEnabled := features.Enabled(features.RayClusterStatusConditions)
 	if suspendStatus == rayv1.RayClusterSuspending ||
-		(!statusConditionGateEnabled && instance.Spec.Suspend != nil && *instance.Spec.Suspend) {
+		(!statusConditionGateEnabled && utils.IsRayClusterSuspendOrIdleSuspend(instance)) {
 		if _, err := r.deleteAllPods(ctx, common.RayClusterAllPodsAssociationOptions(instance)); err != nil {
 			r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeletePodCollection), string(utils.DeleteAction),
 				"Failed deleting Pods due to suspension for RayCluster %s/%s, %v",
@@ -960,7 +979,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			return nil // stop reconcilePods because the cluster is suspended.
 		}
 		// (suspendStatus != rayv1.RayClusterSuspending) is always true here because it has been checked above.
-		if instance.Spec.Suspend != nil && *instance.Spec.Suspend {
+		if utils.IsRayClusterSuspendOrIdleSuspend(instance) {
 			return nil // stop reconcilePods because the cluster is going to suspend.
 		}
 	}
@@ -1719,6 +1738,7 @@ func (r *RayClusterReconciler) buildHeadPod(ctx context.Context, instance rayv1.
 	headPort := common.GetHeadPort(instance.Spec.HeadGroupSpec.RayStartParams)
 	autoscalingEnabled := utils.IsAutoscalingEnabled(&instance.Spec)
 	podConf := common.DefaultHeadPodTemplate(ctx, instance, instance.Spec.HeadGroupSpec, podName, headPort)
+	common.SetDefaultCollectorImage(&instance, &podConf, r.options.CollectorImage)
 	if len(r.options.HeadSidecarContainers) > 0 {
 		podConf.Spec.Containers = append(podConf.Spec.Containers, r.options.HeadSidecarContainers...)
 	}
@@ -1767,6 +1787,7 @@ func (r *RayClusterReconciler) buildWorkerPod(ctx context.Context, instance rayv
 	headPort := common.GetHeadPort(instance.Spec.HeadGroupSpec.RayStartParams)
 	autoscalingEnabled := utils.IsAutoscalingEnabled(&instance.Spec)
 	podTemplateSpec := common.DefaultWorkerPodTemplate(ctx, instance, worker, podName, fqdnRayIP, headPort, replicaGrpName, replicaIndex, hostIndex)
+	common.SetDefaultCollectorImage(&instance, &podTemplateSpec, r.options.CollectorImage)
 	if len(r.options.WorkerSidecarContainers) > 0 {
 		podTemplateSpec.Spec.Containers = append(podTemplateSpec.Spec.Containers, r.options.WorkerSidecarContainers...)
 	}
@@ -2071,14 +2092,18 @@ func (r *RayClusterReconciler) calculateStatus(ctx context.Context, instance *ra
 					Reason: string(rayv1.RayClusterSuspending),
 					Status: metav1.ConditionFalse,
 				})
+				suspendReason := rayv1.RayClusterSuspended
+				if instance.Spec.IdleSuspend != nil && *instance.Spec.IdleSuspend {
+					suspendReason = rayv1.RayClusterIdleSuspended
+				}
 				meta.SetStatusCondition(&newInstance.Status.Conditions, metav1.Condition{
 					Type:   string(rayv1.RayClusterSuspended),
-					Reason: string(rayv1.RayClusterSuspended),
+					Reason: string(suspendReason),
 					Status: metav1.ConditionTrue,
 				})
 			}
 		case rayv1.RayClusterSuspended:
-			if instance.Spec.Suspend != nil && !*instance.Spec.Suspend {
+			if !utils.IsRayClusterSuspendOrIdleSuspend(instance) {
 				meta.SetStatusCondition(&newInstance.Status.Conditions, metav1.Condition{
 					Type:   string(rayv1.RayClusterSuspended),
 					Reason: string(rayv1.RayClusterSuspended),
@@ -2091,7 +2116,7 @@ func (r *RayClusterReconciler) calculateStatus(ctx context.Context, instance *ra
 				Reason: string(rayv1.RayClusterSuspended),
 				Status: metav1.ConditionFalse,
 			})
-			if instance.Spec.Suspend != nil && *instance.Spec.Suspend {
+			if utils.IsRayClusterSuspendOrIdleSuspend(instance) {
 				meta.SetStatusCondition(&newInstance.Status.Conditions, metav1.Condition{
 					Type:   string(rayv1.RayClusterSuspending),
 					Reason: string(rayv1.RayClusterSuspending),
@@ -2107,7 +2132,7 @@ func (r *RayClusterReconciler) calculateStatus(ctx context.Context, instance *ra
 		}
 	}
 
-	if newInstance.Spec.Suspend != nil && *newInstance.Spec.Suspend && len(runtimePods.Items) == 0 {
+	if utils.IsRayClusterSuspendOrIdleSuspend(newInstance) && len(runtimePods.Items) == 0 {
 		newInstance.Status.State = rayv1.Suspended
 	}
 
@@ -2469,4 +2494,9 @@ func (r *RayClusterReconciler) forceRemoveGCSFTFinalizer(ctx context.Context, in
 		deletionAge, storageNamespace)
 
 	return ctrl.Result{}, nil // No requeue - deletion proceeds naturally
+}
+
+// hasIdleTerminationCleanupFinalizer reports whether the idle termination cleanup finalizer is present in the RayCluster
+func (r *RayClusterReconciler) hasIdleTerminationCleanupFinalizer(cluster *rayv1.RayCluster) bool {
+	return controllerutil.ContainsFinalizer(cluster, utils.IdleTerminationCleanupFinalizer)
 }

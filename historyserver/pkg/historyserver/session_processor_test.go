@@ -10,9 +10,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 )
 
 func newFakeK8sClient(t *testing.T, rc *rayv1.RayCluster) client.Client {

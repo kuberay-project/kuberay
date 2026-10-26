@@ -261,7 +261,7 @@ func routerAPI(s *ServerHandler) {
 // 	}).Writes(""))
 // }
 
-func routerHealthz(s *ServerHandler) {
+func routerHealthz(_ *ServerHandler) {
 	http.HandleFunc("/readz", func(w http.ResponseWriter, r *http.Request) {
 		logrus.Infof("Received request: %s %s", r.Method, r.URL.String())
 		w.Header().Set("Content-Type", "text/plain")
@@ -274,10 +274,9 @@ func routerHealthz(s *ServerHandler) {
 		w.Write([]byte("ok"))
 		logrus.Debugf("request /livez")
 	})
-
 }
 
-func routerSelectCluster(s *ServerHandler) {
+func routerSelectCluster(_ *ServerHandler) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		logrus.Infof("Serving cluster selector page: %s %s", r.Method, r.URL.String())
 		w.Header().Set("Content-Type", "text/html")
@@ -307,7 +306,6 @@ func routerLogical(s *ServerHandler) {
 		Doc("get logical single actor").
 		Param(ws.PathParameter("single_actor", "single_actor")).
 		Writes("")) // Placeholder for specific return type
-
 }
 
 func routerRayClusterSet(s *ServerHandler) {
@@ -368,7 +366,7 @@ func routerRayClusterSet(s *ServerHandler) {
 		http.SetCookie(r2, &http.Cookie{MaxAge: 600, Path: "/", Name: COOKIE_OWNER_KIND_KEY, Value: resolvedClusterInfo.OwnerKind})
 		http.SetCookie(r2, &http.Cookie{MaxAge: 600, Path: "/", Name: COOKIE_OWNER_NAME_KEY, Value: resolvedClusterInfo.OwnerName})
 
-		r2.WriteJson(map[string]interface{}{
+		r2.WriteJson(map[string]any{
 			"result":    "success",
 			"name":      resolvedName,
 			"namespace": namespace,
@@ -401,7 +399,6 @@ func routerRayClusterSet(s *ServerHandler) {
 		Param(ws.PathParameter("name", "name")).
 		Param(ws.PathParameter("session", "session")).
 		Writes(""))
-
 }
 
 func (s *ServerHandler) RegisterRouter() {
@@ -449,7 +446,7 @@ func (s *ServerHandler) redirectRequest(req *restful.Request, resp *restful.Resp
 	}
 
 	// Create a new request to the target URL.
-	proxyReq, err := http.NewRequest(req.Request.Method, targetURL, req.Request.Body)
+	proxyReq, err := http.NewRequestWithContext(req.Request.Context(), req.Request.Method, targetURL, req.Request.Body)
 	if err != nil {
 		logrus.Errorf("Failed to create proxy request: %v", err)
 		resp.WriteError(http.StatusInternalServerError, err)
@@ -519,7 +516,7 @@ func (s *ServerHandler) redirectRequest(req *restful.Request, resp *restful.Resp
 	}
 }
 
-func (s *ServerHandler) getClusters(req *restful.Request, resp *restful.Response) {
+func (s *ServerHandler) getClusters(_ *restful.Request, resp *restful.Response) {
 	clusters := s.listClusters(s.maxClusters)
 	resp.WriteAsJson(clusters)
 }
@@ -574,7 +571,7 @@ func (s *ServerHandler) getNodes(req *restful.Request, resp *restful.Response) {
 //   - Logs page node.raylet.state filter: https://github.com/ray-project/ray/blob/60d1469959/python/ray/dashboard/client/src/pages/log/Logs.tsx#L92-L97
 func (s *ServerHandler) getNodesSummary(nodeMap map[string]eventtypes.Node, sessionName string, resp *restful.Response) {
 	// Build node summary. Use the latest snapshot for each node to match Ray Dashboard API format.
-	summary := make([]map[string]interface{}, 0, len(nodeMap))
+	summary := make([]map[string]any, 0, len(nodeMap))
 	// Build node logical resources. Frontend expects { nodeId: "0.0/8.0 CPU\n..." } (string per node).
 	nodeLogicalResources := make(map[string]string)
 
@@ -597,10 +594,10 @@ func (s *ServerHandler) getNodesSummary(nodeMap map[string]eventtypes.Node, sess
 	}
 
 	// Build dashboard API-compatible response.
-	response := map[string]interface{}{
+	response := map[string]any{
 		"result": true,
 		"msg":    "Node summary fetched.",
-		"data": map[string]interface{}{
+		"data": map[string]any{
 			"summary":              summary,
 			"nodeLogicalResources": nodeLogicalResources,
 		},
@@ -643,10 +640,10 @@ func (s *ServerHandler) getNodesHostNameList(nodeMap map[string]eventtypes.Node,
 	}
 
 	// Build dashboard API-compatible response.
-	response := map[string]interface{}{
+	response := map[string]any{
 		"result": true,
 		"msg":    "Node hostname list fetched.",
-		"data": map[string]interface{}{
+		"data": map[string]any{
 			"hostNameList": hostNameList,
 		},
 	}
@@ -707,7 +704,7 @@ func (s *ServerHandler) getNode(req *restful.Request, resp *restful.Response) {
 	// Fill actors for this node.
 	// Frontend expects actors as {[actorId]: ActorDetail}, not an empty array.
 	// Ref: https://github.com/ray-project/ray/blob/8a7b47bc5c/python/ray/dashboard/client/src/pages/node/NodeDetail.tsx#L233
-	nodeActors := make(map[string]interface{})
+	nodeActors := make(map[string]any)
 	for _, actor := range snap.Actors {
 		if actor.Address.NodeID == targetNodeId {
 			nodeActors[actor.ActorID] = formatActorForResponse(actor)
@@ -718,10 +715,10 @@ func (s *ServerHandler) getNode(req *restful.Request, resp *restful.Response) {
 	}
 
 	// Build dashboard API-compatible response.
-	response := map[string]interface{}{
+	response := map[string]any{
 		"result": true,
 		"msg":    "Node details fetched.",
-		"data": map[string]interface{}{
+		"data": map[string]any{
 			"detail": detail,
 		},
 	}
@@ -847,7 +844,7 @@ func (s *ServerHandler) getJobs(req *restful.Request, resp *restful.Response) {
 	}
 
 	// Formate response to match Ray Dashboard API format
-	formattedJobs := make([]interface{}, 0)
+	formattedJobs := make([]any, 0)
 	for _, job := range jobs {
 		formattedJobs = append(formattedJobs, formatJobForResponse(job))
 	}
@@ -864,7 +861,7 @@ func (s *ServerHandler) getJobs(req *restful.Request, resp *restful.Response) {
 }
 
 // formatJobForResponse will convert eventtypes.Job to the format expected by Ray Dashboard
-func formatJobForResponse(job eventtypes.Job) map[string]interface{} {
+func formatJobForResponse(job eventtypes.Job) map[string]any {
 	// If SubmissionID is empty, try to get it from metadata
 	submissionID := job.SubmissionID
 	if submissionID == "" && job.Config.Metadata != nil {
@@ -902,7 +899,7 @@ func formatJobForResponse(job eventtypes.Job) map[string]interface{} {
 		}
 	}
 
-	result := map[string]interface{}{
+	result := map[string]any{
 		"driver_exit_code":          job.DriverExitCode,
 		"driver_node_id":            job.DriverNodeID,
 		"driver_agent_http_address": job.DriverAgentHttpAddress,
@@ -912,7 +909,7 @@ func formatJobForResponse(job eventtypes.Job) map[string]interface{} {
 		"message":                   job.Message,
 		"entrypoint":                job.EntryPoint,
 		"status":                    status,
-		"driver_info": map[string]interface{}{
+		"driver_info": map[string]any{
 			"id":              job.JobID,
 			"node_ip_address": job.DriverNodeIPAddress,
 			"pid":             job.DriverPID,
@@ -964,7 +961,6 @@ func (s *ServerHandler) getJob(req *restful.Request, resp *restful.Response) {
 		return
 	}
 	resp.Write(respData)
-
 }
 
 func (s *ServerHandler) getClusterStatus(req *restful.Request, resp *restful.Response) {
@@ -1177,8 +1173,8 @@ func missingSnapshotFallback(urlPath string) []byte {
 	// Ref: https://github.com/ray-project/ray/blob/27d3d81d47/python/ray/dashboard/client/src/pages/serve/hook/useServeApplications.ts#L30
 	// Ref: https://github.com/ray-project/ray/blob/b775a604ce/python/ray/dashboard/client/src/pages/serve/ServeDeploymentsListPage.tsx#L68
 	case "/api/serve/applications":
-		data, _ := json.Marshal(map[string]interface{}{
-			"applications": map[string]interface{}{},
+		data, _ := json.Marshal(map[string]any{
+			"applications": map[string]any{},
 		})
 		return data
 	case "/api/v0/placement_groups":
@@ -1187,15 +1183,15 @@ func missingSnapshotFallback(urlPath string) []byte {
 		// Ref: https://github.com/ray-project/ray/blob/637fd062205393b9e1929996bfe1d49bd3f8469d/python/ray/dashboard/modules/state/state_head.py#L128-L135
 		// Ref: https://github.com/ray-project/ray/blob/637fd062205393b9e1929996bfe1d49bd3f8469d/python/ray/dashboard/routes.py#L176-L213
 		// Ref: https://github.com/ray-project/ray/blob/637fd062205393b9e1929996bfe1d49bd3f8469d/python/ray/util/state/common.py#L966-L1003
-		data, _ := json.Marshal(map[string]interface{}{
+		data, _ := json.Marshal(map[string]any{
 			"result": true,
 			"msg":    "",
-			"data": map[string]interface{}{
-				"result": map[string]interface{}{
+			"data": map[string]any{
+				"result": map[string]any{
 					"total":                   0,
 					"num_after_truncation":    0,
 					"num_filtered":            0,
-					"result":                  []interface{}{},
+					"result":                  []any{},
 					"partial_failure_warning": "",
 					"warnings":                nil,
 				},
@@ -1211,8 +1207,8 @@ func missingSnapshotFallback(urlPath string) []byte {
 		// Ref: https://github.com/ray-project/ray/blob/ray-2.56.0/python/ray/dashboard/modules/data/data_head.py#L135-L143
 		if jobID, ok := strings.CutPrefix(trimmed, "/api/data/datasets/"); ok &&
 			jobID != "" && !strings.Contains(jobID, "/") {
-			data, _ := json.Marshal(map[string]interface{}{
-				"datasets": []interface{}{},
+			data, _ := json.Marshal(map[string]any{
+				"datasets": []any{},
 			})
 			return data
 		}
@@ -1227,32 +1223,32 @@ func missingSnapshotFallback(urlPath string) []byte {
 // Ref: https://github.com/ray-project/ray/blob/ray-2.56.0/python/ray/dashboard/client/src/components/PlacementGroupTable.tsx#L24-L54
 // Ref: https://github.com/ray-project/ray/blob/ray-2.56.0/python/ray/dashboard/client/src/components/PlacementGroupTable.tsx#L183-L231
 func ensurePlacementGroupBundles(data []byte) []byte {
-	var response map[string]interface{}
+	var response map[string]any
 	if err := json.Unmarshal(data, &response); err != nil {
 		return data
 	}
 
-	dataField, ok := response["data"].(map[string]interface{})
+	dataField, ok := response["data"].(map[string]any)
 	if !ok {
 		return data
 	}
-	resultField, ok := dataField["result"].(map[string]interface{})
+	resultField, ok := dataField["result"].(map[string]any)
 	if !ok {
 		return data
 	}
-	resultArray, ok := resultField["result"].([]interface{})
+	resultArray, ok := resultField["result"].([]any)
 	if !ok {
 		return data
 	}
 
 	modified := false
 	for _, item := range resultArray {
-		pg, ok := item.(map[string]interface{})
+		pg, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
 		if _, exists := pg["bundles"]; !exists {
-			pg["bundles"] = []interface{}{}
+			pg["bundles"] = []any{}
 			modified = true
 		}
 	}
@@ -1335,15 +1331,15 @@ func (s *ServerHandler) getLogicalActors(req *restful.Request, resp *restful.Res
 	}
 
 	// Format response to match Ray Dashboard API format
-	formattedActors := make(map[string]interface{}, len(snap.Actors))
+	formattedActors := make(map[string]any, len(snap.Actors))
 	for _, actor := range snap.Actors {
 		formattedActors[actor.ActorID] = formatActorForResponse(actor)
 	}
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"result": true,
 		"msg":    "All actors fetched.",
-		"data": map[string]interface{}{
+		"data": map[string]any{
 			"actors": formattedActors,
 		},
 	}
@@ -1360,13 +1356,13 @@ func (s *ServerHandler) getLogicalActors(req *restful.Request, resp *restful.Res
 // formatActorForResponse converts an eventtypes.Actor to the format expected by Ray Dashboard.
 // Uses camelCase keys and hex-encoded IDs to match the Ray Dashboard API format.
 // Ref: ActorDetail type https://github.com/ray-project/ray/blob/a8fdb50e72/python/ray/dashboard/client/src/type/actor.ts#L18-L69
-func formatActorForResponse(actor eventtypes.Actor) map[string]interface{} {
-	result := map[string]interface{}{
+func formatActorForResponse(actor eventtypes.Actor) map[string]any {
+	result := map[string]any{
 		"actorId": actor.ActorID,
 		"jobId":   actor.JobID,
 		"state":   string(actor.State),
 		"pid":     actor.PID,
-		"address": map[string]interface{}{
+		"address": map[string]any{
 			"nodeId":    actor.Address.NodeID,
 			"ipAddress": actor.Address.IPAddress,
 			"port":      actor.Address.Port,
@@ -1398,6 +1394,7 @@ func formatActorForResponse(actor eventtypes.Actor) map[string]interface{} {
 
 	return result
 }
+
 func (s *ServerHandler) getLogicalActor(req *restful.Request, resp *restful.Response) {
 	clusterName := req.Attribute(COOKIE_CLUSTER_NAME_KEY).(string)
 	clusterNamespace := req.Attribute(COOKIE_CLUSTER_NAMESPACE_KEY).(string)
@@ -1688,7 +1685,7 @@ func (s *ServerHandler) getTaskSummarize(req *restful.Request, resp *restful.Res
 	// Error cases (bad request, marshal failure) are handled above via resp.WriteErrorString
 	// and return early, so reaching this point means success.
 	// Ref: https://github.com/ray-project/ray/blob/master/python/ray/dashboard/routes.py
-	var response interface{}
+	var response any
 	if summaryBy == "lineage" {
 		actors := make([]eventtypes.Actor, 0, len(snap.Actors))
 		for _, a := range snap.Actors {
@@ -1696,15 +1693,15 @@ func (s *ServerHandler) getTaskSummarize(req *restful.Request, resp *restful.Res
 		}
 		lineageSummary := utils.ToSummaryByLineage(tasks, actors)
 
-		response = map[string]interface{}{
+		response = map[string]any{
 			"result": true,
 			"msg":    "",
-			"data": map[string]interface{}{
-				"result": map[string]interface{}{
+			"data": map[string]any{
+				"result": map[string]any{
 					"total":                numTotal,
 					"num_after_truncation": numAfterTruncation,
 					"num_filtered":         numFiltered,
-					"result": map[string]interface{}{
+					"result": map[string]any{
 						"node_id_to_summary": map[string]*utils.TaskSummaries{
 							"cluster": lineageSummary,
 						},
@@ -1718,15 +1715,15 @@ func (s *ServerHandler) getTaskSummarize(req *restful.Request, resp *restful.Res
 
 		funcNameSummary := summarizeTasksByFuncName(tasks)
 
-		response = map[string]interface{}{
+		response = map[string]any{
 			"result": true,
 			"msg":    "",
-			"data": map[string]interface{}{
-				"result": map[string]interface{}{
+			"data": map[string]any{
+				"result": map[string]any{
 					"total":                numTotal,
 					"num_after_truncation": numAfterTruncation,
 					"num_filtered":         numFiltered,
-					"result": map[string]interface{}{
+					"result": map[string]any{
 						"node_id_to_summary": map[string]*utils.TaskSummariesByFuncName{
 							"cluster": funcNameSummary,
 						},
@@ -1854,7 +1851,7 @@ func (s *ServerHandler) getTasks(req *restful.Request, resp *restful.Response) {
 	tasks, numFiltered := utils.ApplyTaskFilters(tasks, listAPIOptions)
 
 	// Format tasks for response.
-	formattedTasks := make([]map[string]interface{}, 0, len(tasks))
+	formattedTasks := make([]map[string]any, 0, len(tasks))
 	for _, task := range tasks {
 		formattedTasks = append(formattedTasks, formatTaskForResponse(task, listAPIOptions.Detail))
 	}
@@ -1884,11 +1881,11 @@ func (s *ServerHandler) getTasks(req *restful.Request, resp *restful.Response) {
 	resp.Write(respData)
 }
 
-func formatTaskLogInfoForResponse(taskLogInfo *eventtypes.TaskLogInfo) interface{} {
+func formatTaskLogInfoForResponse(taskLogInfo *eventtypes.TaskLogInfo) any {
 	if taskLogInfo == nil {
 		return nil
 	}
-	return map[string]interface{}{
+	return map[string]any{
 		"stdout_file":  taskLogInfo.StdoutFile,
 		"stderr_file":  taskLogInfo.StderrFile,
 		"stdout_start": taskLogInfo.StdoutStart,
@@ -1901,9 +1898,9 @@ func formatTaskLogInfoForResponse(taskLogInfo *eventtypes.TaskLogInfo) interface
 // formatTaskForResponse formats a task data result of a single task attempt for the response.
 // The schema aligns with the Ray Dashboard API.
 // Ref: https://github.com/ray-project/ray/blob/d0b1d151d8ea964a711e451d0ae736f8bf95b629/python/ray/util/state/common.py#L730-L819.
-func formatTaskForResponse(task eventtypes.Task, detail bool) map[string]interface{} {
+func formatTaskForResponse(task eventtypes.Task, detail bool) map[string]any {
 	// TODO(jiangjiawei1103): Maybe define result schema in types.go.
-	result := map[string]interface{}{
+	result := map[string]any{
 		"task_id":            task.TaskID,
 		"attempt_number":     task.TaskAttempt,
 		"name":               task.GetTaskName(),
@@ -1929,11 +1926,11 @@ func formatTaskForResponse(task eventtypes.Task, detail bool) map[string]interfa
 		// Frontend expects runtime_env_info as a JSON string, not an object.
 		// Serialize to match the Ray State API format.
 		// Ref: https://github.com/ray-project/ray/blob/2f93603ad1/python/ray/dashboard/client/src/type/task.ts#L39
-		runtimeEnvInfoObj := map[string]interface{}{
+		runtimeEnvInfoObj := map[string]any{
 			"serialized_runtime_env": task.SerializedRuntimeEnv,
 			// RuntimeEnvUris and RuntimeEnvConfig are never populated on the Ray side.
 			// Ref: https://github.com/ray-project/ray/blob/50c715e79c5ca93118e1280f3842a1946b2cddac/src/ray/core_worker/task_event_buffer.cc#L189-L237.
-			"runtime_env_config": map[string]interface{}{
+			"runtime_env_config": map[string]any{
 				"setup_timeout_seconds": 600,
 				"eager_install":         true,
 				"log_files":             []string{},
@@ -1948,9 +1945,9 @@ func formatTaskForResponse(task eventtypes.Task, detail bool) map[string]interfa
 			result["placement_group_id"] = task.PlacementGroupID
 		}
 
-		events := make([]map[string]interface{}, 0, len(task.StateTransitions))
+		events := make([]map[string]any, 0, len(task.StateTransitions))
 		for _, event := range task.StateTransitions {
-			events = append(events, map[string]interface{}{
+			events = append(events, map[string]any{
 				"state":      string(event.State),
 				"created_ms": event.Timestamp.UnixMilli(),
 			})
@@ -2145,7 +2142,7 @@ func getDashboardPort(spec *rayv1.RayClusterSpec) int {
 // Ref: NodeDetail.tsx (loadAvg, networkSpeed, cmdline, disk, workers, actors):
 //
 //	https://github.com/ray-project/ray/blob/8a7b47bc5c/python/ray/dashboard/client/src/pages/node/NodeDetail.tsx#L65-L233
-func formatNodeSummaryReplayForResp(node eventtypes.Node, sessionName string) []map[string]interface{} {
+func formatNodeSummaryReplayForResp(node eventtypes.Node, sessionName string) []map[string]any {
 	nodeId := node.NodeID
 	nodeIpAddress := node.NodeIPAddress
 	labels := node.Labels
@@ -2171,7 +2168,7 @@ func formatNodeSummaryReplayForResp(node eventtypes.Node, sessionName string) []
 	instanceID := node.InstanceID
 	instanceTypeName := node.InstanceTypeName
 
-	nodeSummaryReplay := make([]map[string]interface{}, 0)
+	nodeSummaryReplay := make([]map[string]any, 0)
 	for _, tr := range node.StateTransitions {
 		transitionTimestamp := tr.Timestamp.UnixMilli()
 		resourcesTotal := convertResourcesToAPISchema(tr.Resources)
@@ -2190,7 +2187,7 @@ func formatNodeSummaryReplayForResp(node eventtypes.Node, sessionName string) []
 		// from Ray Base Events. These metrics can be obtained from Prometheus/Grafana when
 		// Ray metrics are enabled. For historical replay, we use placeholder values.
 		// Format must match the Ray Dashboard API schema expected by the frontend.
-		nodeSummarySnapshot := map[string]interface{}{
+		nodeSummarySnapshot := map[string]any{
 			"t":            transitionTimestamp,
 			"now":          transitionTimestamp,
 			"hostname":     hostname,
@@ -2204,19 +2201,19 @@ func formatNodeSummaryReplayForResp(node eventtypes.Node, sessionName string) []
 			"loadAvg":      [][]float64{{0, 0, 0}, {0, 0, 0}},
 			"networkSpeed": []float64{0, 0},
 			// Frontend expects disk as {mountPoint: {total, used, free, percent}}, not an array.
-			"disk": map[string]map[string]interface{}{
+			"disk": map[string]map[string]any{
 				"/":    {"total": 0, "used": 0, "free": 0, "percent": 0.0},
 				"/tmp": {"total": 0, "used": 0, "free": 0, "percent": 0.0},
 			},
 			// Frontend expects gpus as GPUStats[] ({uuid, name, utilizationGpu, ...}), not int array.
-			"gpus": []interface{}{},
-			"tpus": []interface{}{},
+			"gpus": []any{},
+			"tpus": []any{},
 			// Frontend expects workers as Worker[] and actors as {[actorId]: ActorDetail}.
 			// actors is set as empty map here; getNode() fills it with actual data.
-			"workers": []interface{}{},
-			"actors":  map[string]interface{}{},
-			"raylet": map[string]interface{}{
-				"storeStats": map[string]interface{}{
+			"workers": []any{},
+			"actors":  map[string]any{},
+			"raylet": map[string]any{
+				"storeStats": map[string]any{
 					"objectStoreBytesAvail": resourcesTotal["objectStoreMemory"],
 				},
 				"nodeId":                nodeId,
@@ -2245,8 +2242,8 @@ func formatNodeSummaryReplayForResp(node eventtypes.Node, sessionName string) []
 }
 
 // formatNodeResourceReplayForResp formats a node resource replay of a single node for the response.
-func formatNodeResourceReplayForResp(node eventtypes.Node) []map[string]interface{} {
-	nodeResourceReplay := make([]map[string]interface{}, 0)
+func formatNodeResourceReplayForResp(node eventtypes.Node) []map[string]any {
+	nodeResourceReplay := make([]map[string]any, 0)
 	for _, tr := range node.StateTransitions {
 		transitionTimestamp := tr.Timestamp.UnixMilli()
 
@@ -2255,7 +2252,7 @@ func formatNodeResourceReplayForResp(node eventtypes.Node) []map[string]interfac
 		if tr.State == eventtypes.NODE_ALIVE {
 			resourceString = constructResourceString(tr.Resources)
 		}
-		nodeResourceSnapshot := map[string]interface{}{
+		nodeResourceSnapshot := map[string]any{
 			"t":              transitionTimestamp,
 			"resourceString": resourceString,
 		}
@@ -2278,9 +2275,10 @@ func convertResourcesToAPISchema(resources map[string]float64) map[string]float6
 	convertedResources := make(map[string]float64, len(resources))
 	for k, v := range resources {
 		convertedKey := k
-		if k == "object_store_memory" {
+		switch k {
+		case "object_store_memory":
 			convertedKey = "objectStoreMemory"
-		} else if k == "node:__internal_head__" {
+		case "node:__internal_head__":
 			convertedKey = "node:InternalHead"
 		}
 		convertedResources[convertedKey] = v

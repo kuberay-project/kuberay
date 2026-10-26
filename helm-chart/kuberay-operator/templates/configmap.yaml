@@ -52,6 +52,9 @@ data:
     burst: {{ .Values.kubeClient.burst }}
     {{- end }}
     {{- end }}
+    {{- if .Values.collectorImage }}
+    collectorImage: {{ .Values.collectorImage | quote }}
+    {{- end }}
     {{- if .Values.watchNamespace }}
     watchNamespace: {{ join "," .Values.watchNamespace | quote }}
     {{- else if .Values.singleNamespaceInstall }}

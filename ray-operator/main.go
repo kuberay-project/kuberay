@@ -82,6 +82,7 @@ func main() {
 	var nodeEventForwarderReasons string
 	var nodeEventForwarderTypes string
 	var allowedNodeLabels string
+	var collectorImage string
 
 	// TODO: remove flag-based config once Configuration API graduates to v1.
 	flag.StringVar(&metricsAddr, "metrics-addr", configapi.DefaultMetricsAddr, "The address the metric endpoint binds to.")
@@ -125,7 +126,10 @@ func main() {
 	flag.StringVar(&nodeEventForwarderTypes, "node-event-forwarder-types", "",
 		"Comma-separated list of event types to forward (Warning, Normal). Empty means all types.")
 	flag.StringVar(&allowedNodeLabels, "allowed-node-labels", "",
-		"Comma-separated list of node label keys worker groups may deliver as Ray node labels through topology.labelMappings. If left empty, every mapping is rejected.")
+		"Comma-separated list of node label keys worker groups may deliver as Ray node labels through workerGroupSpecs[].labelRefs. If left empty, every labelRef is rejected.")
+	flag.StringVar(&collectorImage, "collector-image", configapi.DefaultCollectorImage,
+		"The image of the History Server collector sidecar injected into Ray Pods. "+
+			"A RayCluster can override it with spec.historyServerOptions.collectorOptions.image.")
 
 	opts := k8szap.Options{
 		TimeEncoder: zapcore.ISO8601TimeEncoder,
@@ -163,6 +167,7 @@ func main() {
 		config.NodeEventForwarder.Reasons = splitCommaSeparated(nodeEventForwarderReasons)
 		config.NodeEventForwarder.Types = splitCommaSeparated(nodeEventForwarderTypes)
 		config.AllowedNodeLabels = splitCommaSeparated(allowedNodeLabels)
+		config.CollectorImage = collectorImage
 	}
 
 	stdoutEncoder, err := newLogEncoder(config.LogStdoutEncoder)
@@ -350,6 +355,7 @@ func main() {
 		DefaultContainerEnvs:     config.DefaultContainerEnvs,
 		DefaultPodAnnotations:    config.DefaultPodAnnotations,
 		DefaultPodLabels:         config.DefaultPodLabels,
+		CollectorImage:           config.CollectorImage,
 		CertManagerAvailable:     certManagerAvailable,
 	}
 	exitOnError(ray.NewReconciler(mgr, rayClusterOptions).SetupWithManager(mgr, config.ReconcileConcurrency),
@@ -376,13 +382,18 @@ func main() {
 	exitOnError(ray.NewRayJobReconciler(ctx, mgr, rayJobOptions, config).SetupWithManager(mgr, config.ReconcileConcurrency),
 		"unable to create controller", "controller", "RayJob")
 
-	if os.Getenv("ENABLE_WEBHOOKS") == "true" {
-		exitOnError(webhooks.SetupRayClusterWebhookWithManager(mgr),
+	if strings.ToLower(os.Getenv("ENABLE_WEBHOOKS")) == "true" {
+		exitOnError(webhooks.SetupRayClusterWebhookWithManager(mgr, config),
 			"unable to create webhook", "webhook", "RayCluster")
-		exitOnError(webhooks.SetupRayJobWebhookWithManager(mgr),
+		exitOnError(webhooks.SetupRayJobWebhookWithManager(mgr, config),
 			"unable to create webhook", "webhook", "RayJob")
-		exitOnError(webhooks.SetupRayServiceWebhookWithManager(mgr),
+		exitOnError(webhooks.SetupRayServiceWebhookWithManager(mgr, config),
 			"unable to create webhook", "webhook", "RayService")
+		// node label delivery for worker groups with labelRefs
+		exitOnError(webhooks.SetupPodWebhookWithManager(mgr),
+			"unable to create webhook", "webhook", "Pod")
+		exitOnError(webhooks.SetupPodBindingWebhookWithManager(mgr, config),
+			"unable to create webhook", "webhook", "PodBinding")
 	}
 
 	if features.Enabled(features.RayCronJob) {

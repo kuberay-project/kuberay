@@ -1,0 +1,27 @@
+{{- if .Values.webhooks.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "kuberay-operator.fullname" . }}-validating-webhook-configuration
+  labels:
+    {{- include "kuberay-operator.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kuberay-operator.webhook.certName" . }}
+webhooks:
+  {{- range $kind := list "raycluster" "rayjob" "rayservice" }}
+  - name: v{{ $kind }}.kb.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: {{ include "kuberay-operator.webhook.serviceName" $ }}
+        namespace: {{ $.Release.Namespace }}
+        path: /validate-ray-io-v1-{{ $kind }}
+    failurePolicy: Fail
+    rules:
+      - apiGroups: ["ray.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["{{ $kind }}s"]
+    sideEffects: None
+  {{- end }}
+{{- end }}

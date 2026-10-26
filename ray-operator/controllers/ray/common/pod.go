@@ -330,7 +330,7 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 
 	configureTLS(&podTemplate, instance, rayv1.HeadNode)
 
-	if features.Enabled(features.RayClusterHistoryServer) && instance.Spec.HistoryServerOptions != nil && instance.Spec.HistoryServerOptions.CollectorOptions != nil {
+	if utils.IsCollectorEnabled(&instance.Spec) {
 		fqdnRayIP := utils.GenerateFQDNServiceName(ctx, instance, instance.Namespace)
 		collectorContainer := BuildCollectorContainer(instance.Spec.HistoryServerOptions.CollectorOptions, rayv1.HeadNode, instance.Name, instance.Namespace, fqdnRayIP, instance.Labels)
 
@@ -735,7 +735,7 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 
 	configureTLS(&podTemplate, instance, rayv1.WorkerNode)
 
-	if features.Enabled(features.RayClusterHistoryServer) && instance.Spec.HistoryServerOptions != nil && instance.Spec.HistoryServerOptions.CollectorOptions != nil {
+	if utils.IsCollectorEnabled(&instance.Spec) {
 		collectorContainer := BuildCollectorContainer(instance.Spec.HistoryServerOptions.CollectorOptions, rayv1.WorkerNode, instance.Name, instance.Namespace, fqdnRayIP, instance.Labels)
 
 		if utils.IsAuthEnabled(&instance.Spec) {
@@ -1091,6 +1091,24 @@ func getCollectorContainerIndex(pod corev1.Pod) int {
 		}
 	}
 	return -1
+}
+
+// SetDefaultCollectorImage sets the image of the injected collector container to defaultImage if the
+// RayCluster doesn't specify `historyServerOptions.collectorOptions.image`. It is a no-op if the
+// collector is not defined through `historyServerOptions.collectorOptions`.
+func SetDefaultCollectorImage(instance *rayv1.RayCluster, podTemplate *corev1.PodTemplateSpec, defaultImage string) {
+	if !utils.IsCollectorEnabled(&instance.Spec) {
+		return
+	}
+	for i := range podTemplate.Spec.Containers {
+		container := &podTemplate.Spec.Containers[i]
+		if container.Name == utils.CollectorContainerName {
+			if container.Image == "" {
+				container.Image = defaultImage
+			}
+			return
+		}
+	}
 }
 
 // BuildCollectorContainer builds a history server collector container which can be appended to the head and worker pods.

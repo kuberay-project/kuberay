@@ -40,6 +40,7 @@ const (
       "serve": "rayServeDashboard",
       "serveDeployment": "rayServeDeploymentDashboard",
       "serveLlm": "rayServeLlmDashboard",
+      "serveLlmSglang": "rayServeLlmSglangDashboard",
       "data": "rayDataDashboard",
       "dataLlm": "rayDataLlmDashboard",
       "train": "rayTrainDashboard"
@@ -67,8 +68,10 @@ var HistoryServerEndpoints = []string{
 
 // HistoryServerEndpointPrometheusHealth and HistoryServerEndpointGrafanaHealth are standalone constants
 // because it requires some additional dependencies.
-const HistoryServerEndpointPrometheusHealth = "/api/prometheus_health"
-const HistoryServerEndpointGrafanaHealth = "/api/grafana_health"
+const (
+	HistoryServerEndpointPrometheusHealth = "/api/prometheus_health"
+	HistoryServerEndpointGrafanaHealth    = "/api/grafana_health"
+)
 
 // ApplyHistoryServer deploys the HistoryServer and RBAC resources.
 // If manifestPath is empty, the default HistoryServerManifestPath is used.
@@ -180,7 +183,7 @@ func GetHistoryServerURL(test Test, g *WithT, namespace *corev1.Namespace) strin
 			return err
 		}
 		defer func() {
-			io.Copy(io.Discard, resp.Body)
+			_, _ = io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}()
 		if resp.StatusCode != http.StatusOK {
@@ -215,7 +218,6 @@ func PrepareTestEnv(test Test, g *WithT, namespace *corev1.Namespace, s3Client *
 // PrepareTestEnvWithPrometheusAndGrafana prepares test environment with Prometheus and Grafana for each test case, including applying a Ray cluster,
 // checking the collector sidecar container exists in the head pod and an empty S3 bucket exists.
 func PrepareTestEnvWithPrometheusAndGrafana(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) *rayv1.RayCluster {
-
 	InstallGrafanaAndPrometheus(test, g)
 
 	additionalEnvs := map[string]string{
@@ -257,7 +259,7 @@ func GetOneOfNodeID(g *WithT, client *http.Client, historyServerURL string, head
 
 	data := result["data"].(map[string]any)
 	summary := data["summary"].([]any)
-	g.Expect(len(summary)).To(BeNumerically(">", 0))
+	g.Expect(summary).ToNot(BeEmpty())
 
 	// Both live and dead clusters return a flat array of node objects.
 	if !headNode {
@@ -309,7 +311,7 @@ func GetOneOfActorID(g *WithT, client *http.Client, historyServerURL string) str
 
 	actors, ok := data["actors"].(map[string]any)
 	g.Expect(ok).To(BeTrue(), "data should have 'actors' field")
-	g.Expect(len(actors)).To(BeNumerically(">", 0), "should have at least one actor")
+	g.Expect(actors).ToNot(BeEmpty(), "should have at least one actor")
 
 	// Get the first actor ID from the map
 	for actorID := range actors {
@@ -333,7 +335,7 @@ func VerifyLogFileEndpointReturnsContent(test Test, g *WithT, client *http.Clien
 
 		body, err := io.ReadAll(resp.Body)
 		gg.Expect(err).NotTo(HaveOccurred())
-		gg.Expect(len(body)).To(BeNumerically(">", 0))
+		gg.Expect(body).ToNot(BeEmpty())
 	}, TestTimeoutShort).Should(Succeed())
 
 	LogWithTimestamp(test.T(), "Log file endpoint returned content successfully")
@@ -349,7 +351,7 @@ func VerifyLogFileEndpointRejectsPathTraversal(test Test, g *WithT, client *http
 			resp, err := client.Get(url)
 			gg.Expect(err).NotTo(HaveOccurred())
 			defer func() {
-				io.Copy(io.Discard, resp.Body)
+				_, _ = io.Copy(io.Discard, resp.Body)
 				resp.Body.Close()
 			}()
 			gg.Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
@@ -383,7 +385,7 @@ func GetOneOfJobID(g *WithT, client *http.Client, historyServerURL string) strin
 	var jobs []map[string]any
 	err = json.Unmarshal(body, &jobs)
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(len(jobs)).To(BeNumerically(">", 0), "expected at least one job from /api/jobs/")
+	g.Expect(jobs).ToNot(BeEmpty(), "expected at least one job from /api/jobs/")
 	for _, j := range jobs {
 		if jid, ok := j["job_id"].(string); ok && jid != "" {
 			return jid

@@ -236,6 +236,25 @@ tests:
           path: data["config.yaml"]
           pattern: 'batchScheduler: "volcano"'
 
+  - it: Should include collectorImage from values
+    set:
+      configuration:
+        enabled: true
+      collectorImage: my-registry.io/kuberay/collector:v1.7.0
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'collectorImage: "my-registry.io/kuberay/collector:v1.7.0"'
+
+  - it: Should not include collectorImage when not set
+    set:
+      configuration:
+        enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "collectorImage:"
+
   - it: Should include logging configuration
     set:
       configuration:

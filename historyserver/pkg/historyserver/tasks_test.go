@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ray-project/kuberay/historyserver/pkg/eventserver"
 	eventtypes "github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
@@ -63,7 +64,7 @@ func TestTaskLogBasename(t *testing.T) {
 func TestGetTaskLogFileUsesStoredBasename(t *testing.T) {
 	const clusterSessionKey = "raycluster_default_session"
 	loader := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheSize: 1})
-	loader.putSnapshot(clusterSessionKey, &eventserver.SessionSnapshot{Tasks: []eventtypes.Task{{
+	require.NoError(t, loader.putSnapshot(clusterSessionKey, &eventserver.SessionSnapshot{Tasks: []eventtypes.Task{{
 		TaskID:      "task-id",
 		TaskAttempt: 0,
 		NodeID:      "node-id",
@@ -71,7 +72,7 @@ func TestGetTaskLogFileUsesStoredBasename(t *testing.T) {
 			StdoutFile: "/tmp/ray/session_latest/logs/worker-abc-123.out",
 			StdoutEnd:  int64(len("Processing 1\n")),
 		},
-	}}})
+	}}}))
 
 	reader := &taskLogStorageReader{content: "Processing 1\n"}
 	handler := &ServerHandler{sessionLoader: loader, reader: reader}
@@ -100,7 +101,7 @@ func TestGetTaskLogFileAppliesRangeBeforeLineLimit(t *testing.T) {
 	end := start + int64(len(taskContent))
 
 	loader := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheSize: 1})
-	loader.putSnapshot(clusterSessionKey, &eventserver.SessionSnapshot{Tasks: []eventtypes.Task{{
+	require.NoError(t, loader.putSnapshot(clusterSessionKey, &eventserver.SessionSnapshot{Tasks: []eventtypes.Task{{
 		TaskID:      "task-id",
 		TaskAttempt: 0,
 		NodeID:      "node-id",
@@ -110,7 +111,7 @@ func TestGetTaskLogFileAppliesRangeBeforeLineLimit(t *testing.T) {
 			StdoutStart: start,
 			StdoutEnd:   end,
 		},
-	}}})
+	}}}))
 
 	reader := &taskLogStorageReader{content: content}
 	handler := &ServerHandler{sessionLoader: loader, reader: reader}
@@ -131,13 +132,13 @@ func TestGetTaskLogFileAppliesRangeBeforeLineLimit(t *testing.T) {
 func TestGetTaskLogFileRejectsIncompleteTaskLogInfo(t *testing.T) {
 	const clusterSessionKey = "raycluster_default_session"
 	loader := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheSize: 1})
-	loader.putSnapshot(clusterSessionKey, &eventserver.SessionSnapshot{Tasks: []eventtypes.Task{{
+	require.NoError(t, loader.putSnapshot(clusterSessionKey, &eventserver.SessionSnapshot{Tasks: []eventtypes.Task{{
 		TaskID:      "task-id",
 		TaskAttempt: 0,
 		NodeID:      "aa",
 		WorkerID:    "bb",
 		TaskLogInfo: &eventtypes.TaskLogInfo{StdoutEnd: 20},
-	}}})
+	}}}))
 
 	reader := &taskLogStorageReader{
 		content: "other task\ntarget task\n",
@@ -154,9 +155,7 @@ func TestGetTaskLogFileRejectsIncompleteTaskLogInfo(t *testing.T) {
 		t.Fatal("_getNodeLogFile() should reject TaskLogInfo without a filename")
 	}
 	var httpErr *utils.HTTPError
-	if !assert.ErrorAs(t, err, &httpErr) {
-		return
-	}
+	require.ErrorAs(t, err, &httpErr)
 	assert.Equal(t, 404, httpErr.StatusCode())
 	assert.Empty(t, reader.filename, "incomplete task metadata must not read a guessed worker log")
 }
@@ -164,12 +163,12 @@ func TestGetTaskLogFileRejectsIncompleteTaskLogInfo(t *testing.T) {
 func TestGetTaskLogFileRejectsAmbiguousZeroEnd(t *testing.T) {
 	const clusterSessionKey = "raycluster_default_session"
 	loader := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheSize: 1})
-	loader.putSnapshot(clusterSessionKey, &eventserver.SessionSnapshot{Tasks: []eventtypes.Task{{
+	require.NoError(t, loader.putSnapshot(clusterSessionKey, &eventserver.SessionSnapshot{Tasks: []eventtypes.Task{{
 		TaskID:      "task-id",
 		TaskAttempt: 0,
 		NodeID:      "node-id",
 		TaskLogInfo: &eventtypes.TaskLogInfo{StdoutFile: "worker.out"},
-	}}})
+	}}}))
 
 	handler := &ServerHandler{sessionLoader: loader, reader: &taskLogStorageReader{content: "other task\n"}}
 	_, err := handler._getNodeLogFile(
@@ -179,9 +178,7 @@ func TestGetTaskLogFileRejectsAmbiguousZeroEnd(t *testing.T) {
 		GetLogFileOptions{TaskID: "task-id", Suffix: "out", Lines: -1},
 	)
 	var httpErr *utils.HTTPError
-	if !assert.ErrorAs(t, err, &httpErr) {
-		return
-	}
+	require.ErrorAs(t, err, &httpErr)
 	assert.Equal(t, 404, httpErr.StatusCode())
 }
 
@@ -212,7 +209,7 @@ func TestApplyLogByteRange(t *testing.T) {
 				assert.Error(t, err)
 				return
 			}
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, test.want, string(got))
 		})
 	}
@@ -229,7 +226,7 @@ func TestFormatTaskForResponseTaskLogInfo(t *testing.T) {
 	}}
 
 	response := formatTaskForResponse(task, true)
-	assert.Equal(t, map[string]interface{}{
+	assert.Equal(t, map[string]any{
 		"stdout_file":  "worker.out",
 		"stderr_file":  "worker.err",
 		"stdout_start": int64(10),

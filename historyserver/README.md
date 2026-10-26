@@ -119,7 +119,7 @@ canonical active log, since one worker stream can span several generations.
 
 History Server supports multiple storage backends:
 
-1. **S3/MinIO**: For AWS S3 or MinIO compatible storage
+1. **S3**: For AWS S3 or S3-compatible storage (e.g. RustFS)
 2. **Aliyun OSS**: For Alibaba Cloud Object Storage Service
 3. **Local Test**: For local testing and development
 
@@ -168,17 +168,17 @@ make test
 To run lint checks:
 
 ```bash
-make alllint
+make lint
 ```
 
 ## Smoke Tests
 
 ### 1. Deploy History Server
 
-Apply MinIO and the History Server manifests:
+Apply RustFS and the History Server manifests:
 
 ```bash
-kubectl apply -f historyserver/config/minio.yaml
+kubectl apply -f historyserver/config/rustfs.yaml
 kubectl apply -f historyserver/config/service_account.yaml
 kubectl apply -f historyserver/config/historyserver.yaml
 ```
@@ -246,5 +246,5 @@ per first-time cold-path call. Warm-path calls produce no parse log lines.
 
 ## Deployment
 
-History Server can be deployed in Kubernetes using the manifests in the `config/samples/` directory.
-Examples are provided for different storage backends including MinIO and Aliyun OSS.
+History Server can be deployed in Kubernetes using the manifests in the `config/` directory.
+Examples are provided for different storage backends including S3 (RustFS) and Aliyun OSS.

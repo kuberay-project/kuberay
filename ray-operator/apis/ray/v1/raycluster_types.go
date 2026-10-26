@@ -22,6 +22,14 @@ type RayClusterSpec struct {
 	// A suspended RayCluster will have head pods and worker pods deleted.
 	// +optional
 	Suspend *bool `json:"suspend,omitempty"`
+	// IdleSuspend indicates whether a RayCluster should be suspended due to idleness.
+	// An idle-suspended RayCluster will have head pods and worker pods deleted.
+	// +optional
+	IdleSuspend *bool `json:"idleSuspend,omitempty"`
+	// IdleTerminationOptions specifies optional configuration for terminating an idle RayCluster.
+	// A RayCluster is considered idle when no Ray driver is connected.
+	// +optional
+	IdleTerminationOptions *IdleTerminationOptions `json:"idleTerminationOptions,omitempty"`
 	// ManagedBy is an optional configuration for the controller or entity that manages a RayCluster.
 	// The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.
 	// The kuberay-operator reconciles a RayCluster which doesn't have this field at all or
@@ -312,7 +320,7 @@ type HistoryServerOptions struct {
 
 // CollectorOptions defines settings for the history server collector sidecar.
 type CollectorOptions struct {
-	// Image is the collector container image to be used (e.g. quay.io/kuberay/collector:latest).
+	// Image is the collector container image to be used (e.g. quay.io/kuberay/collector:v1.7.0).
 	// +optional
 	Image *string `json:"image,omitempty"`
 	// ImagePullPolicy is the pull policy for the collector image.
@@ -517,11 +525,13 @@ type WorkerGroupSpec struct {
 	// +kubebuilder:default:=1
 	// +optional
 	NumOfHosts int32 `json:"numOfHosts,omitempty"`
-	// Topology delivers labels of the node each worker pod is bound to as Ray node labels.
-	// While its primary use would be for topology-aware scheduling, any allowed node label can be mapped.
-	// Requires the operator to run with `ENABLE_WEBHOOKS` enabled and Ray 2.45.0 or later (`--labels-file`).
+	// LabelRefs delivers labels of the node each worker pod is bound to as Ray node labels.
+	// This enables Ray scheduling based on node attributes, such as topology placement (e.g., rack, zone, or topology domain).
+	// Only allowlisted node labels can be delivered. Every referenced label must exist on the node or pod startup fails.
+	// Empty means no labels are delivered.
+	// Requires the `NodeLabelDelivery` feature gate and `ENABLE_WEBHOOKS` enabled on the operator, and Ray 2.45.0 or later (`--labels-file`).
 	// +optional
-	Topology *TopologySpec `json:"topology,omitempty"`
+	LabelRefs []LabelRef `json:"labelRefs,omitempty"`
 }
 
 // ScaleStrategy controls scaling of a worker group.
@@ -553,25 +563,47 @@ type ScaleGate struct {
 	Type string `json:"type"`
 }
 
-// TopologySpec selects the node labels delivered to a worker group's Ray nodes.
-type TopologySpec struct {
-	// LabelMappings lists the node labels to deliver. An empty list delivers nothing. Every listed label is
-	// required: a pod bound to a node missing one exits before ray start.
-	// +listType=map
-	// +listMapKey=nodeLabel
-	// +optional
-	LabelMappings []TopologyLabelMapping `json:"labelMappings,omitempty"`
-}
-
-// TopologyLabelMapping maps one Kubernetes node label to a Ray node label.
-type TopologyLabelMapping struct {
-	// NodeLabel is the node label key to read. Must be in the operator's allowedNodeLabels.
-	NodeLabel string `json:"nodeLabel"`
-	// MapTo is the Ray label key to deliver the value under. If empty, defaults to the value of nodeLabel.
-	// The keys set here should not conflict with the workerGroupSpec.Labels, since --labels overwrites --labels-file.
+// LabelRef maps a node label to a Ray node label.
+type LabelRef struct {
+	// Name is the Ray label key the value is delivered under. If empty, defaults to the node label key in fieldPath.
+	// Must not be a key in the same group's workerGroupSpecs[].labels.
 	// +kubebuilder:validation:MaxLength=317
 	// +optional
-	MapTo string `json:"mapTo,omitempty"`
+	Name string `json:"name,omitempty"`
+	// ValueFrom selects the node value to deliver.
+	ValueFrom LabelRefSource `json:"valueFrom"`
+}
+
+// LabelRefSource selects where a LabelRef value comes from.
+type LabelRefSource struct {
+	// NodeRef selects a field of the node the pod is bound to.
+	NodeRef NodeFieldRef `json:"nodeRef"`
+}
+
+// NodeFieldRef selects a field of the node in downward API syntax.
+type NodeFieldRef struct {
+	// FieldPath is the node field to read; only metadata.labels['<key>'] is supported in this version.
+	// The key must be in the operator's allowedNodeLabels.
+	// +kubebuilder:validation:MinLength=1
+	FieldPath string `json:"fieldPath"`
+}
+
+// +kubebuilder:validation:Enum=Delete;Suspend
+type IdleTerminationPolicy string
+
+const (
+	IdleTerminationPolicySuspend IdleTerminationPolicy = "Suspend"
+	IdleTerminationPolicyDelete  IdleTerminationPolicy = "Delete"
+)
+
+type IdleTerminationOptions struct {
+	// TimeoutSeconds denotes the number of seconds to wait before the v2 autoscaler terminates an idle RayCluster.
+	TimeoutSeconds *int32 `json:"timeoutSeconds"`
+
+	// Policy is the action taken once the RayCluster has been idle for TimeoutSeconds.
+	// +kubebuilder:default=Suspend
+	// +optional
+	Policy *IdleTerminationPolicy `json:"policy,omitempty"`
 }
 
 // AutoscalerOptions specifies optional configuration for the Ray autoscaler.
@@ -729,6 +761,7 @@ const (
 	RayClusterPodsProvisioning     = "RayClusterPodsProvisioning"
 	HeadPodNotFound                = "HeadPodNotFound"
 	HeadPodRunningAndReady         = "HeadPodRunningAndReady"
+	RayClusterIdleSuspended        = "RayClusterIdleSuspended"
 	// UnknownReason says that the reason for the condition is unknown.
 	UnknownReason = "Unknown"
 )

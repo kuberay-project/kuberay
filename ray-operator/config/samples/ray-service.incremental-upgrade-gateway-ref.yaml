@@ -1,0 +1,140 @@
+# NewClusterWithIncrementalUpgrade that attaches to a PRE-EXISTING (shared) Gateway
+# via clusterUpgradeOptions.gatewayRef, instead of having KubeRay create a
+# per-RayService Gateway from gatewayClassName.
+#
+# Use this when the cluster's Gateway controller only reconciles one specific,
+# already-provisioned Gateway -- e.g. Contour in static gateway.gatewayRef mode
+# (Contour v1.30+ removed controllerName), or a cloud-managed Gateway (GKE
+# gke-l7-* classes) -- where KubeRay-created Gateways would never be programmed and
+# the incremental traffic shift would never start.
+#
+# When gatewayRef is set:
+#   - KubeRay does NOT create a Gateway; it only manages the HTTPRoute's backend
+#     weights on the referenced Gateway.
+#   - gatewayClassName must be omitted (the two are mutually exclusive).
+#   - The referenced Gateway must allow HTTPRoutes from this RayService's namespace
+#     (listeners[].allowedRoutes.namespaces).
+#
+# Prerequisite: the Gateway referenced below must already exist. Example:
+#
+#   apiVersion: gateway.networking.k8s.io/v1
+#   kind: Gateway
+#   metadata:
+#     name: shared-gateway
+#     namespace: gateway
+#   spec:
+#     gatewayClassName: istio          # or your cloud/controller GatewayClass
+#     listeners:
+#     - name: http
+#       protocol: HTTP
+#       port: 80
+#       allowedRoutes:
+#         namespaces:
+#           from: All                  # must permit routes from this RayService's namespace
+#
+# See also ray-service.incremental-upgrade.yaml for the default (KubeRay-created
+# Gateway) variant.
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: rayservice-incremental-upgrade-gateway-ref
+spec:
+  upgradeStrategy:
+    type: NewClusterWithIncrementalUpgrade
+    clusterUpgradeOptions:
+      # Attach to an existing shared Gateway instead of creating one.
+      gatewayRef:
+        name: shared-gateway
+        # namespace defaults to this RayService's namespace when omitted.
+        namespace: gateway
+        # Optional: pin the HTTPRoute to a specific listener on the shared Gateway.
+        # Omit to attach to every listener that accepts the route.
+        sectionName: http
+        port: 80
+      stepSizePercent: 10
+      intervalSeconds: 30
+      maxSurgePercent: 10
+  serveConfigV2: |
+    applications:
+      - name: fruit_app
+        import_path: fruit.deployment_graph
+        route_prefix: /fruit
+        runtime_env:
+          working_dir: "https://github.com/ray-project/test_dag/archive/78b4a5da38796123d9f9ffff59bab2792a043e95.zip"
+        deployments:
+          - name: MangoStand
+            user_config:
+              price: 4
+            ray_actor_options:
+              num_cpus: 0.5
+            max_ongoing_requests: 100
+            autoscaling_config:
+              min_replicas: 1
+              max_replicas: 3
+          - name: OrangeStand
+            num_replicas: 1
+            user_config:
+              price: 2
+            ray_actor_options:
+              num_cpus: 0
+          - name: PearStand
+            num_replicas: 1
+            user_config:
+              price: 1
+            ray_actor_options:
+              num_cpus: 0
+          - name: FruitMarket
+            ray_actor_options:
+              num_cpus: 0.5
+            max_ongoing_requests: 100
+            autoscaling_config:
+              min_replicas: 1
+              max_replicas: 3
+  rayClusterConfig:
+    rayVersion: "2.51.0"
+    enableInTreeAutoscaling: true
+    headGroupSpec:
+      rayStartParams:
+        num-cpus: "0"
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.51.0
+            resources:
+              limits:
+                cpu: "1"
+                memory: "5Gi"
+              requests:
+                cpu: "1"
+                memory: "2Gi"
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            - containerPort: 8000
+              name: serve
+    workerGroupSpecs:
+    - groupName: small-group
+      minReplicas: 0
+      maxReplicas: 4
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.51.0
+            lifecycle:
+              preStop:
+                exec:
+                  command: ["/bin/sh", "-c", "ray stop"]
+            resources:
+              requests:
+                cpu: "500m"
+                memory: "1Gi"
+              limits:
+                cpu: "1"
+                memory: "4Gi"

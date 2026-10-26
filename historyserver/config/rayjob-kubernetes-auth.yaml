@@ -10,7 +10,7 @@ spec:
   rayClusterSpec:
     # enableK8sTokenAuth requires Ray 2.55.0+. authOptions.secretName must NOT be
     # set at the same time.
-    rayVersion: '2.56.0'
+    rayVersion: '2.58.0'
     authOptions:
       mode: 'token'
       enableK8sTokenAuth: true
@@ -24,7 +24,7 @@ spec:
           containers:
           - name: ray-head
             imagePullPolicy: IfNotPresent
-            image: rayproject/ray:2.56.0
+            image: rayproject/ray:2.58.0
             env:
             - name: RAY_TMP_ROOT
               value: &rayTmpRoot /tmp/ray
@@ -85,15 +85,15 @@ spec:
             - name: RAY_ENABLE_K8S_TOKEN_AUTH
               value: "true"
             - name: AWS_ACCESS_KEY_ID
-              value: minioadmin
+              value: rustfsadmin
             - name: AWS_SECRET_ACCESS_KEY
-              value: minioadmin
+              value: rustfsadmin
             - name: AWS_SESSION_TOKEN
               value: ""
             - name: S3_BUCKET
               value: "ray-historyserver"
             - name: S3_ENDPOINT
-              value: "minio-service.minio-dev:9000"
+              value: "rustfs-service.rustfs-dev:9000"
             - name: S3_REGION
               value: "test"
             - name: S3FORCE_PATH_STYLE
@@ -142,7 +142,7 @@ spec:
           containers:
           - name: ray-worker
             imagePullPolicy: IfNotPresent
-            image: rayproject/ray:2.56.0
+            image: rayproject/ray:2.58.0
             env:
             - name: RAY_TMP_ROOT
               value: *rayTmpRoot
@@ -189,15 +189,15 @@ spec:
             - name: RAY_ENABLE_K8S_TOKEN_AUTH
               value: "true"
             - name: AWS_ACCESS_KEY_ID
-              value: minioadmin
+              value: rustfsadmin
             - name: AWS_SECRET_ACCESS_KEY
-              value: minioadmin
+              value: rustfsadmin
             - name: AWS_SESSION_TOKEN
               value: ""
             - name: S3_BUCKET
               value: "ray-historyserver"
             - name: S3_ENDPOINT
-              value: "minio-service.minio-dev:9000"
+              value: "rustfs-service.rustfs-dev:9000"
             - name: S3_REGION
               value: "test"
             - name: S3FORCE_PATH_STYLE

@@ -6,7 +6,7 @@ metadata:
   name: raycluster-historyserver-azureblob
 spec:
   # Enable Ray token authentication. Requires Ray 2.52.0+
-  # rayVersion: "2.56.0"
+  # rayVersion: "2.58.0"
   # authOptions:
   #   mode: token
   headGroupSpec:
@@ -31,7 +31,7 @@ spec:
             value: "http://localhost:8084/v1/events"
           - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES
             value: "ALL"
-          image: rayproject/ray:2.56.0
+          image: rayproject/ray:2.58.0
           imagePullPolicy: IfNotPresent
           name: ray-head
           resources:
@@ -131,7 +131,7 @@ spec:
             value: "http://localhost:8084/v1/events"
           - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES
             value: "ALL"
-          image: rayproject/ray:2.56.0
+          image: rayproject/ray:2.58.0
           imagePullPolicy: IfNotPresent
           name: ray-worker
           resources:

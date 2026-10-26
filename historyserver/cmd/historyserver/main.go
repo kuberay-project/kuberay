@@ -92,7 +92,7 @@ func main() {
 		logrus.Fatalf("Failed to create client manager: %v", err)
 	}
 
-	jsonData := make(map[string]interface{})
+	jsonData := make(map[string]any)
 	if storageBackendConfigPath != "" {
 		data, err := os.ReadFile(storageBackendConfigPath)
 		if err != nil {
@@ -125,7 +125,7 @@ func main() {
 	defer serverCancel()
 
 	processor := historyserver.NewSessionProcessor(reader, cliMgr.Client())
-	sessionLoader := historyserver.NewSessionLoader(processor, serverCtx, sessionProcessTimeout, sessionCacheSize, sessionCacheMaxBytes, sessionCacheTTL)
+	sessionLoader := historyserver.NewSessionLoader(serverCtx, processor, sessionProcessTimeout, sessionCacheSize, sessionCacheMaxBytes, sessionCacheTTL)
 
 	// ServerHandler.Run consumes a stop chan; bridge serverCtx into it.
 	var wg sync.WaitGroup
@@ -141,12 +141,12 @@ func main() {
 		logrus.Fatalf("Failed to create server handler: %v", err)
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		handler.Run(stop)
+	wg.Go(func() {
+		if err := handler.Run(stop); err != nil {
+			logrus.Errorf("HTTP server exited with error: %v", err)
+		}
 		logrus.Info("HTTP server shutdown complete")
-	}()
+	})
 
 	wg.Wait()
 	logrus.Info("Graceful shutdown complete")

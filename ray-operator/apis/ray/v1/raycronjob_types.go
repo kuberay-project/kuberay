@@ -13,7 +13,7 @@ type RayCronJobSpec struct {
 	// Schedule is the cron schedule string
 	Schedule string `json:"schedule"`
 	// TimeZone is the time zone name for the given schedule. If not specified, default to the local time zone of the
-	// Kuberay Operator. Empty string is not allowed.
+	// KubeRay operator. Empty string is not allowed.
 	// The bundled version of the time zone database is used.
 	// +optional
 	// +kubebuilder:validation:MinLength=1

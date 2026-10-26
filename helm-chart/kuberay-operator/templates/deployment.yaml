@@ -35,7 +35,7 @@ spec:
         {{- toYaml . | nindent 8 }}
     {{- end }}
       serviceAccountName: {{ include "kuberay-operator.serviceAccount.name" . }}
-      {{- if or (and (.Values.logging.baseDir) (.Values.logging.fileName)) .Values.configuration.enabled }}
+      {{- if or (and (.Values.logging.baseDir) (.Values.logging.fileName)) .Values.configuration.enabled .Values.webhooks.enabled }}
       volumes:
       {{- if and (.Values.logging.baseDir) (.Values.logging.fileName) }}
         - name: kuberay-logs
@@ -50,6 +50,11 @@ spec:
         - name: operator-config
           configMap:
             name: {{ include "kuberay-operator.deployment.name" . }}-config
+      {{- end }}
+      {{- if .Values.webhooks.enabled }}
+        - name: cert
+          secret:
+            secretName: {{ include "kuberay-operator.webhook.certSecretName" . }}
       {{- end }}
       {{- end }}
       {{- with .Values.podSecurityContext }}
@@ -69,7 +74,7 @@ spec:
           {{- with .Values.image.pullPolicy }}
           imagePullPolicy: {{ . }}
           {{- end }}
-          {{- if or (and (.Values.logging.baseDir) (.Values.logging.fileName)) .Values.configuration.enabled }}
+          {{- if or (and (.Values.logging.baseDir) (.Values.logging.fileName)) .Values.configuration.enabled .Values.webhooks.enabled }}
           volumeMounts:
           {{- if and (.Values.logging.baseDir) (.Values.logging.fileName) }}
             - name: kuberay-logs
@@ -78,6 +83,11 @@ spec:
           {{- if .Values.configuration.enabled }}
             - name: operator-config
               mountPath: /etc/kuberay
+              readOnly: true
+          {{- end }}
+          {{- if .Values.webhooks.enabled }}
+            - name: cert
+              mountPath: /tmp/k8s-webhook-server/serving-certs
               readOnly: true
           {{- end }}
           {{- end }}
@@ -154,6 +164,9 @@ spec:
             {{- $argList = append $argList (printf "--burst=%v" .Values.kubeClient.burst) -}}
             {{- end -}}
             {{- end -}}
+            {{- if .Values.collectorImage -}}
+            {{- $argList = append $argList (printf "--collector-image=%s" .Values.collectorImage) -}}
+            {{- end -}}
             {{- end -}}
             {{- $argList = append $argList (include "kuberay.featureGates" . | trim) -}}
             {{- (printf "\n") -}}
@@ -162,9 +175,20 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
-          {{- with .Values.env }}
+          {{- if .Values.webhooks.enabled }}
+            - name: webhook-server
+              containerPort: 9443
+              protocol: TCP
+          {{- end }}
+          {{- if or .Values.env .Values.webhooks.enabled }}
           env:
+          {{- if .Values.webhooks.enabled }}
+            - name: ENABLE_WEBHOOKS
+              value: "true"
+          {{- end }}
+          {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- end }}
           livenessProbe:
             httpGet:

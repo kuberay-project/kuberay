@@ -2084,6 +2084,72 @@ func TestIsHTTPRouteEqual(t *testing.T) {
 			expected: false,
 		},
 		{
+			name: "Different ParentRef SectionName",
+			existing: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", SectionName: ptr.To(gwv1.SectionName("http"))},
+						},
+					},
+				},
+			},
+			desired: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", SectionName: ptr.To(gwv1.SectionName("https"))},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Different ParentRef Port",
+			existing: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", Port: ptr.To(gwv1.PortNumber(80))},
+						},
+					},
+				},
+			},
+			desired: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", Port: ptr.To(gwv1.PortNumber(443))},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Equal ParentRef SectionName and Port",
+			existing: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", SectionName: ptr.To(gwv1.SectionName("http")), Port: ptr.To(gwv1.PortNumber(80))},
+						},
+					},
+				},
+			},
+			desired: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", SectionName: ptr.To(gwv1.SectionName("http")), Port: ptr.To(gwv1.PortNumber(80))},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
 			name: "Different Hostnames",
 			existing: &gwv1.HTTPRoute{
 				Spec: gwv1.HTTPRouteSpec{
@@ -2507,4 +2573,14 @@ func TestGetGCSStoragePVCName(t *testing.T) {
 
 	instance.Spec.GcsFaultToleranceOptions.Storage = &rayv1.GcsEmbeddedStorage{ClaimName: "byo-pvc"}
 	assert.Equal(t, "byo-pvc", GetGCSStoragePVCName(instance))
+}
+
+func TestNodeLabelKey(t *testing.T) {
+	key, err := NodeLabelKey("metadata.labels['topology.kubernetes.io/zone']")
+	require.NoError(t, err)
+	assert.Equal(t, "topology.kubernetes.io/zone", key)
+	for _, bad := range []string{"", "metadata.labels", "metadata.labels[\"zone\"]", "metadata.annotations['zone']", "spec.providerID"} {
+		_, err := NodeLabelKey(bad)
+		require.ErrorContains(t, err, "only metadata.labels['<key>'] is supported", bad)
+	}
 }

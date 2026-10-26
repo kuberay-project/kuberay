@@ -13,7 +13,10 @@ spec:
   rayVersion: "2.52.0"
   historyServerOptions:
     collectorOptions:
-      image: quay.io/kuberay/collector:nightly
+      # Optional collector image. Defaults to the image configured on the operator
+      # (--collector-image flag or Helm value collectorImage), which itself defaults
+      # to the collector image matching the operator version.
+      # image: quay.io/kuberay/collector:nightly
       imagePullPolicy: IfNotPresent
       resources:
         requests:

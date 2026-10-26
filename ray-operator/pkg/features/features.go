@@ -112,6 +112,14 @@ const (
 	//
 	// Enables selective forwarding of Kubernetes Node infrastructure events to RayCluster custom resources.
 	RayNodeEventForwarder featuregate.Feature = "RayNodeEventForwarder"
+
+	// owner: @martinlhw
+	// rep: N/A
+	// alpha: v1.8
+	//
+	// Enables delivery of Kubernetes Node labels to Ray node labels (workerGroupSpecs[].labelRefs).
+	// Requires ENABLE_WEBHOOKS=true and Ray 2.45.0 or later.
+	NodeLabelDelivery featuregate.Feature = "NodeLabelDelivery"
 )
 
 func init() {
@@ -132,6 +140,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	KubernetesWAS:                      {Default: false, PreRelease: featuregate.Alpha},
 	GCSFaultToleranceActivePassiveHead: {Default: false, PreRelease: featuregate.Alpha},
 	RayNodeEventForwarder:              {Default: false, PreRelease: featuregate.Alpha},
+	NodeLabelDelivery:                  {Default: false, PreRelease: featuregate.Alpha},
 }
 
 // SetFeatureGateDuringTest is a helper method to override feature gates in tests.

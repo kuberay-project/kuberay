@@ -198,7 +198,7 @@ func TestPollDataDatasetsDoesNotCountRunningEmpties(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		if r.URL.Path == jobsEndpoint {
-			_, _ = w.Write([]byte(fmt.Sprintf(`[{"job_id": "01000000", "status": %q}]`, status)))
+			_, _ = fmt.Fprintf(w, `[{"job_id": "01000000", "status": %q}]`, status)
 			return
 		}
 		attempts++
@@ -347,7 +347,7 @@ func TestPollDataDatasetsGivesUpOnRepeatedlyEmptyTerminalJob(t *testing.T) {
 	handler, writer := newPollTestHandler(t, srv.URL)
 
 	state := newDatasetPollState()
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		handler.pollDataDatasets(context.Background(), "session_1", state, false)
 	}
 
@@ -573,7 +573,7 @@ func TestPeriodicPollingCancelsInFlightRequestOnShutdown(t *testing.T) {
 	enteredCh := make(chan struct{})
 	release := make(chan struct{})
 	defer close(release)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		entered.Do(func() { close(enteredCh) })
 		<-release
 	}))

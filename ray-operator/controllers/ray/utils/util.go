@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -162,6 +163,11 @@ func FindRayClusterSuspendStatus(instance *rayv1.RayCluster) rayv1.RayClusterCon
 		}
 	}
 	return ""
+}
+
+// IsRayClusterSuspendOrIdleSuspend returns true if either spec.Suspend=true or spec.IdleSuspend=true
+func IsRayClusterSuspendOrIdleSuspend(instance *rayv1.RayCluster) bool {
+	return instance.Spec.Suspend != nil && *instance.Spec.Suspend || instance.Spec.IdleSuspend != nil && *instance.Spec.IdleSuspend
 }
 
 // IsRunningAndReady returns true if pod is in the PodRunning Phase, if it has a condition of PodReady.
@@ -804,6 +810,15 @@ func IsK8sAuthEnabled(authOptions *rayv1.AuthOptions) bool {
 	return authOptions != nil && authOptions.EnableK8sTokenAuth != nil && *authOptions.EnableK8sTokenAuth
 }
 
+// IsCollectorEnabled returns whether the operator manages the collector container of the
+// RayCluster: the RayClusterHistoryServer feature gate is on and the RayCluster opts in with
+// historyServerOptions.collectorOptions.
+func IsCollectorEnabled(spec *rayv1.RayClusterSpec) bool {
+	return features.Enabled(features.RayClusterHistoryServer) &&
+		spec.HistoryServerOptions != nil &&
+		spec.HistoryServerOptions.CollectorOptions != nil
+}
+
 // IsTLSEnabled returns whether TLS is enabled for the RayCluster.
 // TLS is enabled when the RayClusterMTLS feature gate is on, spec.TLSOptions is non-nil,
 // and spec.TLSOptions.Enabled is true.
@@ -1167,7 +1182,9 @@ func IsHTTPRouteEqual(existing, desired *gwv1.HTTPRoute) bool {
 		dRef := desired.Spec.ParentRefs[i]
 
 		if string(eRef.Name) != string(dRef.Name) ||
-			string(ptr.Deref(eRef.Namespace, "")) != string(ptr.Deref(dRef.Namespace, "")) {
+			string(ptr.Deref(eRef.Namespace, "")) != string(ptr.Deref(dRef.Namespace, "")) ||
+			string(ptr.Deref(eRef.SectionName, "")) != string(ptr.Deref(dRef.SectionName, "")) ||
+			ptr.Deref(eRef.Port, 0) != ptr.Deref(dRef.Port, 0) {
 			return false
 		}
 	}
@@ -1261,4 +1278,15 @@ func IsGatewayEqual(existing, desired *gwv1.Gateway) bool {
 		}
 	}
 	return true
+}
+
+var nodeLabelFieldPath = regexp.MustCompile(`^metadata\.labels\['([^']+)'\]$`)
+
+// NodeLabelKey returns the node label key a labelRef fieldPath selects. Only metadata.labels['<key>'] is supported
+func NodeLabelKey(fieldPath string) (string, error) {
+	m := nodeLabelFieldPath.FindStringSubmatch(fieldPath)
+	if m == nil {
+		return "", fmt.Errorf("unsupported fieldPath %q, only metadata.labels['<key>'] is supported", fieldPath)
+	}
+	return m[1], nil
 }

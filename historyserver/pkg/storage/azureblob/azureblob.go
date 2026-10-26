@@ -47,7 +47,7 @@ type RayLogsHandler struct {
 	PushInterval        time.Duration
 }
 
-func (r *RayLogsHandler) CreateDirectory(d string) error {
+func (r *RayLogsHandler) CreateDirectory(_ string) error {
 	// Azure Blob Storage doesn't require explicit directory markers.
 	// Virtual directories are automatically inferred from blob paths.
 	// Creating empty marker blobs causes "<no name>" display issues
@@ -81,7 +81,7 @@ func (r *RayLogsHandler) listBlobs(prefix string, delimiter string, onlyBase boo
 		// Hierarchical listing (directory-like)
 		pager := r.ContainerClient.NewListBlobsHierarchyPager(delimiter, &container.ListBlobsHierarchyOptions{
 			Prefix:     &prefixWithSlash,
-			MaxResults: to32(100),
+			MaxResults: new(int32(100)),
 		})
 
 		for pager.More() {
@@ -114,7 +114,7 @@ func (r *RayLogsHandler) listBlobs(prefix string, delimiter string, onlyBase boo
 		// Flat listing
 		pager := r.ContainerClient.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{
 			Prefix:     &prefixWithSlash,
-			MaxResults: to32(100),
+			MaxResults: new(int32(100)),
 		})
 
 		for pager.More() {
@@ -169,7 +169,7 @@ func (r *RayLogsHandler) List() (res []utils.ClusterInfo) {
 
 	pager := r.ContainerClient.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{
 		Prefix:     &prefix,
-		MaxResults: to32(100),
+		MaxResults: new(int32(100)),
 	})
 
 	for pager.More() {
@@ -232,7 +232,7 @@ func (r *RayLogsHandler) GetContent(prefix string, fileName string) io.Reader {
 					logrus.Errorf("Failed to get blob %s: %v", f, err)
 					return nil
 				}
-				// Read body before cancelling context to avoid incomplete stream
+				// Read body before canceling context to avoid incomplete stream
 				defer retryCancel()
 				defer resp.Body.Close()
 				data, err := io.ReadAll(resp.Body)
@@ -256,13 +256,13 @@ func (r *RayLogsHandler) GetContent(prefix string, fileName string) io.Reader {
 	return bytes.NewReader(data)
 }
 
-func NewReader(c *types.RayHistoryServerConfig, jd map[string]interface{}) (storage.StorageReader, error) {
+func NewReader(c *types.RayHistoryServerConfig, jd map[string]any) (storage.StorageReader, error) {
 	cfg := &config{}
 	cfg.completeHSConfig(c, jd)
 	return New(cfg)
 }
 
-func NewWriter(c *types.RayCollectorConfig, jd map[string]interface{}) (storage.StorageWriter, error) {
+func NewWriter(c *types.RayCollectorConfig, jd map[string]any) (storage.StorageWriter, error) {
 	cfg := &config{}
 	cfg.complete(c, jd)
 	return New(cfg)
@@ -371,10 +371,4 @@ func New(c *config) (*RayLogsHandler, error) {
 		LogBatching:         c.LogBatching,
 		PushInterval:        c.PushInterval,
 	}, nil
-}
-
-// Helper function to convert int to *int32
-func to32(n int) *int32 {
-	v := int32(n)
-	return &v
 }

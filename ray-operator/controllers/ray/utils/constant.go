@@ -32,7 +32,8 @@ const (
 	RayJobSubmissionModeLabelKey             = "ray.io/job-submission-mode"
 	// DisableProvisionedHeadRestartAnnotationKey marks RayClusters created for sidecar-mode RayJobs to skip head Pod recreation after provisioning.
 	DisableProvisionedHeadRestartAnnotationKey = "ray.io/disable-provisioned-head-restart"
-
+	// Finalizer for Idle Termination cleanup
+	IdleTerminationCleanupFinalizer = "ray.io/idle-termination-cleanup-finalizer"
 	// Labels for feature RayMultihostIndexing
 	//
 	// RayWorkerReplicaNameKey label is the unique name for the replica in a specific worker group. It is made up
@@ -67,6 +68,9 @@ const (
 	// However, the generated `ray start` command will still be stored in the container's environment variable
 	// `KUBERAY_GEN_RAY_START_CMD`.
 	RayOverwriteContainerCmdAnnotationKey = "ray.io/overwrite-container-cmd"
+
+	// RayNodeLabelsAnnotationKey holds the node labels delivered to a worker pod, as a JSON object keyed by Ray label key
+	RayNodeLabelsAnnotationKey = "ray.io/node-labels"
 
 	// RayServiceInitializingTimeoutAnnotation specifies the timeout for RayService initialization.
 	// Accepts Go duration format (e.g., "30m", "1h") or integer seconds.
@@ -157,6 +161,11 @@ const (
 	KUBERAY_GEN_RAY_START_CMD               = "KUBERAY_GEN_RAY_START_CMD"
 	KUBERAY_GEN_AUTOSCALER_START_CMD        = "KUBERAY_GEN_AUTOSCALER_START_CMD"
 	RAY_START_ULIMIT_OPEN_FILES             = "RAY_START_ULIMIT_OPEN_FILES"
+
+	// RAY_NODE_LABELS_JSON is a downward API pointer to the RayNodeLabelsAnnotationKey pod annotation
+	RAY_NODE_LABELS_JSON = "RAY_NODE_LABELS_JSON"
+	// RayNodeLabelsFilePath is the file the Ray container writes RAY_NODE_LABELS_JSON to before `ray start`
+	RayNodeLabelsFilePath = "/tmp/ray-labels.yaml"
 
 	// TLS-related environment variables for Ray. See: https://docs.ray.io/en/latest/ray-core/configure.html#tls-authentication
 	RAY_USE_TLS         = "RAY_USE_TLS"
@@ -450,6 +459,7 @@ const (
 	InvalidRayClusterStatus   K8sEventType = "InvalidRayClusterStatus"
 	InvalidRayClusterSpec     K8sEventType = "InvalidRayClusterSpec"
 	InvalidRayClusterMetadata K8sEventType = "InvalidRayClusterMetadata"
+	DeletedIdleRayCluster     K8sEventType = "DeletedIdleRayCluster"
 	// Head Pod event list
 	CreatedHeadPod        K8sEventType = "CreatedHeadPod"
 	FailedToCreateHeadPod K8sEventType = "FailedToCreateHeadPod"
@@ -510,6 +520,7 @@ const (
 	FailedToCreateGateway           K8sEventType = "FailedToCreateGateway"
 	FailedToUpdateGateway           K8sEventType = "FailedToUpdateGateway"
 	FailedToDeleteGateway           K8sEventType = "FailedToDeleteGateway"
+	FailedToGetGateway              K8sEventType = "FailedToGetGateway"
 	FailedToCreateHTTPRoute         K8sEventType = "FailedToCreateHTTPRoute"
 	FailedToUpdateHTTPRoute         K8sEventType = "FailedToUpdateHTTPRoute"
 	FailedToDeleteHTTPRoute         K8sEventType = "FailedToDeleteHTTPRoute"
@@ -578,6 +589,7 @@ const (
 	CreateAction    K8sEventAction = "Create"
 	DeleteAction    K8sEventAction = "Delete"
 	UpdateAction    K8sEventAction = "Update"
+	GetAction       K8sEventAction = "Get"
 	ValidateAction  K8sEventAction = "Validate"
 	ReconcileAction K8sEventAction = "Reconcile"
 	CleanupAction   K8sEventAction = "Cleanup"

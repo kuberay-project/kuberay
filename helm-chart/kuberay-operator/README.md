@@ -173,7 +173,8 @@ spec:
 | configuration.defaultPodLabels | object | `{}` | Default labels to add to all Ray pod templates. User-specified labels take precedence. Example: defaultPodLabels:   app.kubernetes.io/managed-by: kuberay |
 | configuration.headSidecarContainers | list | `[]` | Sidecar containers to inject into every Ray head pod. Example: headSidecarContainers: - name: fluentbit   image: fluent/fluent-bit:1.9 |
 | configuration.workerSidecarContainers | list | `[]` | Sidecar containers to inject into every Ray worker pod. Example: workerSidecarContainers: - name: fluentbit   image: fluent/fluent-bit:1.9 |
-| configuration.allowedNodeLabels | list | `[]` | Node label keys worker groups may deliver as Ray node labels through workerGroupSpecs[].topology. Enforced by the validating webhooks, so it requires ENABLE_WEBHOOKS to be enabled. Empty disables delivery. Example: allowedNodeLabels: - nvidia.com/gpu.clique - topology.kubernetes.io/zone |
+| configuration.allowedNodeLabels | list | `[]` | Node label keys worker groups may deliver as Ray node labels through workerGroupSpecs[].labelRefs. Enforced by the validating webhooks, so it requires ENABLE_WEBHOOKS to be enabled. Empty disables delivery. Example: allowedNodeLabels: - nvidia.com/gpu.clique - topology.kubernetes.io/zone |
+| webhooks.enabled | bool | `false` | Deploy the admission webhooks. Currently requires cert-manager in the cluster for the serving certificate and CA injection. The webhook configurations are cluster-scoped, so the install fails with singleNamespaceInstall. The pod webhooks for node label delivery are registered only when the NodeLabelDelivery feature gate is enabled. |
 | featureGates[0].name | string | `"RayClusterStatusConditions"` |  |
 | featureGates[0].enabled | bool | `true` |  |
 | featureGates[1].name | string | `"RayJobDeletionPolicy"` |  |
@@ -192,10 +193,13 @@ spec:
 | featureGates[7].enabled | bool | `false` |  |
 | featureGates[8].name | string | `"RayNodeEventForwarder"` |  |
 | featureGates[8].enabled | bool | `false` |  |
+| featureGates[9].name | string | `"NodeLabelDelivery"` |  |
+| featureGates[9].enabled | bool | `false` |  |
 | nodeEventForwarder.enabled | bool | `false` | Whether KubeRay operator should forward Kubernetes Node events to RayCluster custom resources. Note: not supported when singleNamespaceInstall is true. |
 | nodeEventForwarder.sources | list | `[]` | Only forward Node events emitted by these components, matched against both source.component and reportingController. Empty means all sources. |
 | nodeEventForwarder.reasons | list | `[]` | Only forward Node events with these reasons, e.g. ["XIDError"]. Empty means all reasons. |
 | nodeEventForwarder.types | list | `["Warning"]` | Only forward Node events with these types. Valid values are "Warning" and "Normal". Empty means all types. Note: Removing the "Warning" filter (or including "Normal") may result in a large number of noisy Normal Node events being forwarded. |
+| collectorImage | string | `""` | Default image for the History Server collector sidecar. A RayCluster can override it with `spec.historyServerOptions.collectorOptions.image`. If empty, defaults to `quay.io/kuberay/collector` with the tag matching the operator version. |
 | metrics.enabled | bool | `true` | Whether KubeRay operator should emit control plane metrics. |
 | metrics.serviceMonitor.enabled | bool | `false` | Enable a prometheus ServiceMonitor |
 | metrics.serviceMonitor.interval | string | `"30s"` | Prometheus ServiceMonitor interval |

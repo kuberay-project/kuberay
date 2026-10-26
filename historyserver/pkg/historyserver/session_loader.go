@@ -12,7 +12,6 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/singleflight"
-
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/ray-project/kuberay/historyserver/pkg/eventserver"
@@ -83,7 +82,7 @@ type SessionLoader struct {
 }
 
 // NewSessionLoader wires a SessionLoader.
-func NewSessionLoader(p processor, serverCtx context.Context, processTimeout time.Duration, cacheSize, cacheMaxBytes int, cacheTTL time.Duration) *SessionLoader {
+func NewSessionLoader(serverCtx context.Context, p processor, processTimeout time.Duration, cacheSize, cacheMaxBytes int, cacheTTL time.Duration) *SessionLoader {
 	return &SessionLoader{
 		processor:      p,
 		cache:          expirable.NewLRU[string, *cacheEntry](cacheSize, nil, cacheTTL),
@@ -147,9 +146,9 @@ func (s *SessionLoader) LoadSession(ctx context.Context, info utils.ClusterInfo)
 	}
 
 	// TODO(jiangjiawei1103): No graceful drain on shutdown. When the pod receives
-	// SIGTERM, serverCtx is cancelled immediately, causing any in-flight cold-load
+	// SIGTERM, serverCtx is canceled immediately, causing any in-flight cold-load
 	// requests to return ctx.Err() and clients to receive HTTP 500.
-	ch := s.sf.DoChan(clusterSessionKey, func() (interface{}, error) {
+	ch := s.sf.DoChan(clusterSessionKey, func() (any, error) {
 		loadCtx, cancel := context.WithTimeout(s.serverCtx, s.processTimeout)
 		defer cancel()
 		return s.doLoadSession(loadCtx, info, clusterSessionKey)

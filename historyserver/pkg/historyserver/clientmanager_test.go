@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ray-project/kuberay/historyserver/pkg/utils"
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -15,6 +13,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/ray-project/kuberay/historyserver/pkg/utils"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 )
 
 func TestGetAuthTokenForCluster(t *testing.T) {
@@ -63,7 +64,7 @@ func TestGetAuthTokenForCluster(t *testing.T) {
 	}
 
 	token, err := clientManager.GetAuthTokenForRayCluster(context.Background(), namespace, clusterName)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, secretKey, token)
 
 	// A rotated Secret must take effect immediately, since tokens are never cached.
@@ -71,7 +72,7 @@ func TestGetAuthTokenForCluster(t *testing.T) {
 	rotated.Data[AuthTokenSecretKey] = []byte("rotated-token")
 	require.NoError(t, fakeClient.Update(context.Background(), rotated))
 	token, err = clientManager.GetAuthTokenForRayCluster(context.Background(), namespace, clusterName)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "rotated-token", token)
 
 	// K8s-delegated token auth has no static token to inject, so it must fail explicitly rather than
@@ -80,7 +81,7 @@ func TestGetAuthTokenForCluster(t *testing.T) {
 	setAuthOptions(&rayv1.AuthOptions{Mode: rayv1.AuthModeToken, EnableK8sTokenAuth: &enableK8sTokenAuth})
 	require.NoError(t, fakeClient.Delete(context.Background(), rotated))
 	_, err = clientManager.GetAuthTokenForRayCluster(context.Background(), namespace, clusterName)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	// Auth enabled but the token value is empty: a misconfiguration that must error.
 	setAuthOptions(&rayv1.AuthOptions{Mode: rayv1.AuthModeToken})
@@ -90,13 +91,13 @@ func TestGetAuthTokenForCluster(t *testing.T) {
 	}
 	require.NoError(t, fakeClient.Create(context.Background(), emptySecret))
 	_, err = clientManager.GetAuthTokenForRayCluster(context.Background(), namespace, clusterName)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	// Auth disabled returns empty token without error
 	setAuthOptions(&rayv1.AuthOptions{Mode: rayv1.AuthModeDisabled})
 	token, err = clientManager.GetAuthTokenForRayCluster(context.Background(), namespace, clusterName)
-	assert.NoError(t, err)
-	assert.Equal(t, "", token)
+	require.NoError(t, err)
+	assert.Empty(t, token)
 
 	// Non-existent cluster should error (spec is read fresh from K8s)
 	_, err = clientManager.GetAuthTokenForRayCluster(context.Background(), namespace, "not-exists")
@@ -160,14 +161,14 @@ func TestGetSvcInfo(t *testing.T) {
 
 	// First call should fetch from K8s and populate cache.
 	svcInfo, err := clientManager.GetSvcInfo(clusterName, namespace)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, serviceName, svcInfo.ServiceName)
 	assert.Equal(t, namespace, svcInfo.Namespace)
 	assert.Equal(t, int(portalPort), svcInfo.Port)
 
 	// Second call should be served from cache.
 	svcInfo2, err := clientManager.GetSvcInfo(clusterName, namespace)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, svcInfo, svcInfo2)
 
 	// Expired cache entry should trigger a re-fetch. A negative TTL makes the entry expire immediately.
@@ -178,13 +179,13 @@ func TestGetSvcInfo(t *testing.T) {
 	}, -1*time.Second)
 
 	svcInfo3, err := clientManager.GetSvcInfo(clusterName, namespace)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, serviceName, svcInfo3.ServiceName)
 	assert.Equal(t, int(portalPort), svcInfo3.Port)
 
 	// Non-existent cluster should error.
 	_, err = clientManager.GetSvcInfo("not-exists", namespace)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	// No clients should error.
 	emptyMgr := &ClientManager{

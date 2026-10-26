@@ -235,6 +235,51 @@ func withSuspend(suspend bool) SupportOption[rayv1ac.RayServiceSpecApplyConfigur
 	}
 }
 
+// withGatewayRef replaces gatewayClassName (KubeRay-created Gateway) with a
+// gatewayRef pointing at a pre-existing shared Gateway, pinned to its listener
+// via sectionName. gatewayClassName and gatewayRef are mutually exclusive, so
+// the class name is cleared.
+func withGatewayRef(name, namespace string) SupportOption[rayv1ac.RayServiceSpecApplyConfiguration] {
+	return func(spec *rayv1ac.RayServiceSpecApplyConfiguration) *rayv1ac.RayServiceSpecApplyConfiguration {
+		opts := spec.UpgradeStrategy.ClusterUpgradeOptions
+		opts.GatewayClassName = nil
+		opts.WithGatewayRef(rayv1ac.GatewayReference().
+			WithName(name).
+			WithNamespace(namespace).
+			WithSectionName(utils.GatewayListenerPortName))
+		return spec
+	}
+}
+
+// createSharedGateway creates a standalone Istio Gateway (not owned by any
+// RayService) that a RayService can later attach to via gatewayRef, and waits
+// until it is Programmed. Mirrors the annotation/readiness handling KubeRay
+// applies to the Gateways it creates itself.
+func createSharedGateway(test Test, g *WithT, namespace, name string) *gwv1.Gateway {
+	LogWithTimestamp(test.T(), "Creating shared Gateway %s/%s", namespace, name)
+	gateway := &gwv1.Gateway{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: gwv1.GatewaySpec{
+			GatewayClassName: gwv1.ObjectName("istio"),
+			Listeners: []gwv1.Listener{
+				{
+					Name:     gwv1.SectionName(utils.GatewayListenerPortName),
+					Protocol: gwv1.HTTPProtocolType,
+					Port:     gwv1.PortNumber(utils.DefaultGatewayListenerPort),
+					AllowedRoutes: &gwv1.AllowedRoutes{
+						Namespaces: &gwv1.RouteNamespaces{From: ptr.To(gwv1.NamespacesFromAll)},
+					},
+				},
+			},
+		},
+	}
+	_, err := test.Client().Gateway().GatewayV1().Gateways(namespace).Create(test.Ctx(), gateway, metav1.CreateOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+
+	setGatewayServiceType(test, g, namespace, name)
+	return waitForGatewayReady(test, g, namespace, name)
+}
+
 // triggerIncrementalUpgrade updates the RayService to trigger an incremental upgrade:
 //   - RayCluster spec: Set worker CPU request to custom value
 //   - Serve config: Update (price 3->4, factor 5->3)
