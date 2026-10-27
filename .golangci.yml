@@ -156,9 +156,6 @@ linters:
         path: '^historyserver/pkg/utils/utils\.go$'
         text: '^G704:'
 
-      - linters: [unused]
-        path: '^historyserver/test/'
-
     generated: strict
     presets:
       - comments

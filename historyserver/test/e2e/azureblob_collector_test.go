@@ -224,32 +224,6 @@ func verifyAzureBlobSessionDirs(test Test, g *WithT, azureClient *azblob.Client,
 	}, TestTimeoutMedium).Should(Succeed())
 }
 
-func listAzureBlobDirectories(containerClient *container.Client, prefix string) ([]string, error) {
-	pager := containerClient.NewListBlobsHierarchyPager("/", &container.ListBlobsHierarchyOptions{
-		Prefix: &prefix,
-	})
-
-	var directories []string
-	for pager.More() {
-		resp, err := pager.NextPage(context.Background())
-		if err != nil {
-			return nil, fmt.Errorf("failed to list Azure Blob directories under %s: %w", prefix, err)
-		}
-
-		for _, blobPrefix := range resp.Segment.BlobPrefixes {
-			if blobPrefix.Name == nil {
-				continue
-			}
-			dirName := strings.TrimSuffix(strings.TrimPrefix(*blobPrefix.Name, prefix), "/")
-			if dirName != "" {
-				directories = append(directories, dirName)
-			}
-		}
-	}
-
-	return directories, nil
-}
-
 func loadRayEventsFromAzureBlob(containerClient *container.Client, prefix string) ([]rayEvent, error) {
 	var events []rayEvent
 

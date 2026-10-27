@@ -106,6 +106,14 @@ func TestHistoryServer(t *testing.T) {
 			testFunc: testDeadClusterNode,
 		},
 		{
+			name:     "Live cluster: /api/cluster_status should proxy the cluster status from the live cluster",
+			testFunc: testLiveClusterStatus,
+		},
+		{
+			name:     "Dead cluster: /api/cluster_status should return the cluster status reconstructed from S3",
+			testFunc: testDeadClusterStatus,
+		},
+		{
 			name:     "Live cluster: cluster_metadata endpoint should return metadata (Ray version, Python version, etc.)",
 			testFunc: testLiveClusterMetadata,
 		},
