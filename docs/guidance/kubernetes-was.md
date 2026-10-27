@@ -80,8 +80,9 @@ Once enabled and opted in, a RayCluster is scheduled as a single gang:
 - **Editing and scaling.** Changing worker groups or replica counts is picked up automatically — the gang size is
   updated in place on the existing Workload and PodGroup.
 - **Autoscaling.** Autoscaling RayClusters (`enableInTreeAutoscaling: true`) are gang scheduled at a floor of
-one head pod plus the sum of `minReplicas × numOfHosts` across non-suspended worker groups. The autoscaler can
-then add pods above that floor; those extra pods schedule
+  one head pod plus the sum of `minReplicas × numOfHosts` across non-suspended worker groups. The autoscaler can
+  then add pods above that floor; those extra pods schedule individually once the gang is initially scheduled
+  and capacity is available.
 - **Suspend and resume.** Suspending a RayCluster deletes its pods but keeps the Workload and PodGroup in place;
   resuming reuses them so the recreated pods rejoin the same gang.
 - **Cleanup.** The scheduling resources are garbage collected automatically when the RayCluster is deleted.
