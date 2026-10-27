@@ -3,6 +3,7 @@ package ray
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"reflect"
 	"strconv"
@@ -2269,6 +2270,79 @@ func TestReconcileServeTargetCapacity(t *testing.T) {
 	}
 }
 
+// Regression coverage for #4777. The previous implementation type-asserted
+// `serveConfig["target_capacity"]` as `float64`, but
+// `k8s.io/apimachinery/util/yaml.Unmarshal` decodes plain integer scalars
+// as `int64`. The assertion therefore always failed, the idempotency
+// branch was always skipped, and `applyServeTargetCapacity` would call
+// `UpdateDeployments` on every reconcile even when the cached and goal
+// values matched. This test pins the int64 path so the bug can't quietly
+// regress.
+func TestApplyServeTargetCapacity_SkipsUpdateWhenCachedMatchesGoal(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayServiceIncrementalUpgrade, true)
+
+	const goalCapacity int32 = 60
+	rayService := &rayv1.RayService{
+		Spec: rayv1.RayServiceSpec{
+			// `60` is a plain integer; util/yaml will decode it as int64.
+			ServeConfigV2: `{"target_capacity": 60}`,
+		},
+		Status: rayv1.RayServiceStatuses{
+			ActiveServiceStatus: rayv1.RayServiceStatus{
+				RayClusterName: "active",
+			},
+		},
+	}
+	rayCluster := &rayv1.RayCluster{ObjectMeta: metav1.ObjectMeta{Name: "active"}}
+
+	fakeDashboard := &utils.FakeRayDashboardClient{}
+	reconciler := &RayServiceReconciler{ServeConfigs: lru.New(10)}
+
+	err := reconciler.applyServeTargetCapacity(context.TODO(), rayService, rayCluster, fakeDashboard, goalCapacity)
+	require.NoError(t, err)
+	// The crucial assertion: when cached == goal, the dashboard client
+	// must NOT be called. Pre-fix this fired UpdateDeployments anyway.
+	assert.Empty(t, fakeDashboard.LastUpdatedConfig,
+		"applyServeTargetCapacity must skip UpdateDeployments when cached target_capacity already matches goal")
+}
+
+func TestTargetCapacityAsInt32(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want int32
+		ok   bool
+	}{
+		{"int64 from util/yaml", int64(60), 60, true},
+		{"float64 from json/yaml.v3", float64(60), 60, true},
+		{"int", 60, 60, true},
+		{"int32", int32(60), 60, true},
+		{"nil", nil, 0, false},
+		{"string is rejected", "60", 0, false},
+		{"map is rejected", map[string]any{}, 0, false},
+		// Out-of-range numeric values must be rejected rather than
+		// silently truncated (gosec G115). Pinning these so a future
+		// `int32(n)` shortcut can't regress the behavior.
+		{"int64 above MaxInt32 is rejected", int64(math.MaxInt32) + 1, 0, false},
+		{"int64 below MinInt32 is rejected", int64(math.MinInt32) - 1, 0, false},
+		{"float64 above MaxInt32 is rejected", float64(math.MaxInt32) + 1, 0, false},
+		{"float64 below MinInt32 is rejected", float64(math.MinInt32) - 1, 0, false},
+		{"float64 NaN is rejected", math.NaN(), 0, false},
+		{"float64 +Inf is rejected", math.Inf(1), 0, false},
+		{"float64 -Inf is rejected", math.Inf(-1), 0, false},
+		{"float64 fractional is rejected", 60.5, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := targetCapacityAsInt32(tc.in)
+			assert.Equal(t, tc.ok, ok)
+			if tc.ok {
+				assert.Equal(t, tc.want, got)
+			}
+		})
+	}
+}
+
 // MakeGateway is a helper function to return an Gateway object
 func makeGateway(name, namespace string, isReady bool) *gwv1.Gateway {
 	status := metav1.ConditionFalse
@@ -3176,7 +3250,7 @@ func TestShouldCompleteIncrementalRollback(t *testing.T) {
 		want           bool
 	}{
 		{
-			name:           "healthy pending at zero capacity and traffic — complete",
+			name:           "healthy pending at zero capacity and traffic, complete",
 			activeTC:       100,
 			activeTRP:      100,
 			pendingTC:      0,
@@ -3185,7 +3259,7 @@ func TestShouldCompleteIncrementalRollback(t *testing.T) {
 			want:           true,
 		},
 		{
-			name:           "unhealthy pending with leftover capacity — bypass complete",
+			name:           "unhealthy pending with leftover capacity, bypass complete",
 			activeTC:       100,
 			activeTRP:      100,
 			pendingTC:      30,
@@ -3194,7 +3268,7 @@ func TestShouldCompleteIncrementalRollback(t *testing.T) {
 			want:           true,
 		},
 		{
-			name:           "no pending RayCluster — complete when active is full",
+			name:           "no pending RayCluster, complete when active is full",
 			activeTC:       100,
 			activeTRP:      100,
 			pendingTC:      0,
@@ -3203,7 +3277,7 @@ func TestShouldCompleteIncrementalRollback(t *testing.T) {
 			want:           true,
 		},
 		{
-			name:           "healthy pending still holding target capacity — not complete",
+			name:           "healthy pending still holding target capacity, not complete",
 			activeTC:       100,
 			activeTRP:      100,
 			pendingTC:      50,
