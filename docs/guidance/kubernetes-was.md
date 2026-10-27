@@ -23,6 +23,8 @@ Unlike Volcano, YuniKorn, or other external schedulers, it keeps pods on the Kub
   v1alpha3, while kube-scheduler's GenericWorkload integration requires v1beta1 to be served as well.
 - `GenericWorkload=true` on the kube-apiserver, kube-controller-manager, and kube-scheduler.
 - Fixed-size RayCluster worker groups. Autoscaling RayClusters are not supported.
+- (Optional, only for the [gang preemption policy](#preemption-policy)) `PodGroupPreemptionPolicy=true` on the
+  kube-apiserver and kube-scheduler.
 
 ## Enable Kubernetes WAS
 
@@ -91,6 +93,40 @@ kubectl get pods -n <namespace> -l ray.io/cluster=<raycluster-name> \
   -o custom-columns=NAME:.metadata.name,GROUP:.spec.schedulingGroup.podGroupName
 ```
 
+## Preemption policy
+
+By default a scheduled gang can preempt lower-priority pods to make room (`PreemptLowerPriority`). You can also mark a
+gang as non-preempting (`Never`) so it waits for capacity rather than evicting other workloads.
+
+This is controlled through a Kubernetes `PriorityClass`: KubeRay copies the head pod's `priorityClassName` onto the
+Workload and PodGroup. When creating either resource, if the head template omits `preemptionPolicy`, KubeRay looks up
+the class and copies its policy as well. This works around an upstream defaulting bug that otherwise rejects `Never`
+classes. Kubernetes admission resolves the PodGroup's numeric priority and validates that its policy matches the class.
+To use it:
+
+1. Enable the Kubernetes `PodGroupPreemptionPolicy` feature gate on the kube-apiserver and kube-scheduler
+   (Kubernetes 1.37+).
+2. Create a `PriorityClass` with the desired policy and assign it to **all** Ray pods (the head and every worker group):
+
+   ```yaml
+   apiVersion: scheduling.k8s.io/v1
+   kind: PriorityClass
+   metadata:
+     name: ray-no-preemption
+   value: 1000
+   preemptionPolicy: Never
+   ```
+
+   ```yaml
+   # In each RayCluster pod template (head and workers):
+   spec:
+     priorityClassName: ray-no-preemption
+   ```
+
+All pods in the gang must use the **same** `PriorityClass` — the Kubernetes scheduler requires every pod in a PodGroup
+to have the PodGroup's priority. If the Kubernetes `PodGroupPreemptionPolicy` gate is off, the PodGroup's
+`preemptionPolicy` is left unset and the gang uses the default `PreemptLowerPriority`.
+
 ## Limitations
 
 - This release is tied to the Kubernetes `scheduling.k8s.io/v1alpha3` alpha API served by Kubernetes 1.37.
@@ -100,6 +136,11 @@ kubectl get pods -n <namespace> -l ray.io/cluster=<raycluster-name> \
   the cluster cannot be scheduled in full, none of its pods are scheduled.
 - `spec.schedulingGroup` on pods is immutable. If you add the opt-in label to an already-running RayCluster, existing
   pods will not get a scheduling group until they are recreated.
+- Priority fields are fixed when a Workload or PodGroup is created. Recreate the RayCluster to change its PriorityClass.
+- The operator needs cluster-scoped `get`, `list`, and `watch` access to PriorityClasses. The WAS Helm configuration and
+  development overlay grant these permissions. The class lookup only runs when creating a missing Workload or PodGroup
+  and the head template names a class but omits `preemptionPolicy`. A failed lookup blocks creation; reconciling existing
+  resources does not re-read the class or change their stored priority fields. Recreating a resource requires a new lookup.
 
 ## Troubleshooting
 
@@ -124,6 +165,13 @@ to an already-running RayCluster, existing pods are not affected — they pick u
 
 Autoscaling is intentionally unsupported. A RayCluster with `enableInTreeAutoscaling: true` is scheduled normally, pod
 by pod, and no scheduling group is set on its pods.
+
+### The gang's preemption policy is not applied
+
+If a gang still preempts (or the PodGroup's `preemptionPolicy` is unset) when you expected `Never`, check that the
+Kubernetes `PodGroupPreemptionPolicy` gate is enabled on the kube-apiserver and kube-scheduler, and that **every** Ray
+pod (head and all worker groups) references the same `PriorityClass`. If the pods carry different priorities the
+scheduler rejects the gang, since a PodGroup requires a uniform priority.
 
 [kep-4671]: https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/4671-gang-scheduling
 [kep-5832]: https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/5832-decouple-podgroup-api
