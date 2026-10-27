@@ -134,7 +134,7 @@ linters:
         path: '^historyserver/test/'
 
       - linters: [nilerr]
-        path: '^historyserver/pkg/(collector/eventcollector/eventcollector|utils/utils)\.go$'
+        path: '^historyserver/pkg/collector/eventcollector/eventcollector\.go$'
 
       - linters: [gosec]
         path: '^historyserver/pkg/(historyserver/router|utils/auth)\.go$'
