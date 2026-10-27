@@ -1,0 +1,3528 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://ray-project.github.io/kuberay/reference/api/">
+      
+      
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.5.3, mkdocs-material-9.5.17">
+    
+    
+      
+        <title>API Reference - KubeRay Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.bcfcd587.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#api-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="KubeRay Docs" class="md-header__button md-logo" aria-label="KubeRay Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2Z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            KubeRay Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              API Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var media,input,key,value,palette=__md_get("__palette");if(palette&&palette.color){"(prefers-color-scheme)"===palette.color.media&&(media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']"),palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent"));for([key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12Z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ray-project/kuberay" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2023 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ray-project/kuberay
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../.." class="md-tabs__link">
+          
+  
+  Home
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="KubeRay Docs" class="md-nav__button md-logo" aria-label="KubeRay Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    KubeRay Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ray-project/kuberay" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2023 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ray-project/kuberay
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            Home
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Welcome
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      Packages
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rayiov1" class="md-nav__link">
+    <span class="md-ellipsis">
+      ray.io/v1
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ray.io/v1">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resource-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resource Types
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Resource Types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#activepassiveheadoptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      ActivePassiveHeadOptions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#authmode" class="md-nav__link">
+    <span class="md-ellipsis">
+      AuthMode
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#authoptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      AuthOptions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#autoscaleroptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      AutoscalerOptions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#autoscalerversion" class="md-nav__link">
+    <span class="md-ellipsis">
+      AutoscalerVersion
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clusterupgradeoptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      ClusterUpgradeOptions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#collectoroptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      CollectorOptions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deletioncondition" class="md-nav__link">
+    <span class="md-ellipsis">
+      DeletionCondition
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deletionpolicy" class="md-nav__link">
+    <span class="md-ellipsis">
+      DeletionPolicy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deletionpolicytype" class="md-nav__link">
+    <span class="md-ellipsis">
+      DeletionPolicyType
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deletionrule" class="md-nav__link">
+    <span class="md-ellipsis">
+      DeletionRule
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deletionstrategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      DeletionStrategy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gcsstoragedeletionpolicy" class="md-nav__link">
+    <span class="md-ellipsis">
+      GCSStorageDeletionPolicy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gatewayreference" class="md-nav__link">
+    <span class="md-ellipsis">
+      GatewayReference
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gcsembeddedstorage" class="md-nav__link">
+    <span class="md-ellipsis">
+      GcsEmbeddedStorage
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gcsfaulttolerancebackend" class="md-nav__link">
+    <span class="md-ellipsis">
+      GcsFaultToleranceBackend
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gcsfaulttoleranceoptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      GcsFaultToleranceOptions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#headgroupspec" class="md-nav__link">
+    <span class="md-ellipsis">
+      HeadGroupSpec
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#historyserveroptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      HistoryServerOptions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#idleterminationoptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      IdleTerminationOptions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#idleterminationpolicy" class="md-nav__link">
+    <span class="md-ellipsis">
+      IdleTerminationPolicy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ingressoptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      IngressOptions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ingresspathtype" class="md-nav__link">
+    <span class="md-ellipsis">
+      IngressPathType
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jobsubmissionmode" class="md-nav__link">
+    <span class="md-ellipsis">
+      JobSubmissionMode
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#labelref" class="md-nav__link">
+    <span class="md-ellipsis">
+      LabelRef
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#labelrefsource" class="md-nav__link">
+    <span class="md-ellipsis">
+      LabelRefSource
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#networkpolicyconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      NetworkPolicyConfig
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#networkpolicymode" class="md-nav__link">
+    <span class="md-ellipsis">
+      NetworkPolicyMode
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#networkpolicyrules" class="md-nav__link">
+    <span class="md-ellipsis">
+      NetworkPolicyRules
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nodefieldref" class="md-nav__link">
+    <span class="md-ellipsis">
+      NodeFieldRef
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#raycluster" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayCluster
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayclusterspec" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayClusterSpec
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayclusterupgradestrategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayClusterUpgradeStrategy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayclusterupgradetype" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayClusterUpgradeType
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#raycronjob" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayCronJob
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#raycronjobspec" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayCronJobSpec
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayjob" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayJob
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayjobspec" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayJobSpec
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayservice" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayService
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayservicespec" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayServiceSpec
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayserviceupgradestrategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayServiceUpgradeStrategy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayserviceupgradetype" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayServiceUpgradeType
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rediscredential" class="md-nav__link">
+    <span class="md-ellipsis">
+      RedisCredential
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scalegate" class="md-nav__link">
+    <span class="md-ellipsis">
+      ScaleGate
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scalestrategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      ScaleStrategy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#submitterconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      SubmitterConfig
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tlsoptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      TLSOptions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#upscalingmode" class="md-nav__link">
+    <span class="md-ellipsis">
+      UpscalingMode
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workergroupnetworkpolicyrules" class="md-nav__link">
+    <span class="md-ellipsis">
+      WorkerGroupNetworkPolicyRules
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workergroupspec" class="md-nav__link">
+    <span class="md-ellipsis">
+      WorkerGroupSpec
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rayiov1alpha1" class="md-nav__link">
+    <span class="md-ellipsis">
+      ray.io/v1alpha1
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ray.io/v1alpha1">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resource-types_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resource Types
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Resource Types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#autoscaleroptions_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      AutoscalerOptions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#headgroupspec_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      HeadGroupSpec
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#raycluster_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayCluster
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayclusterspec_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayClusterSpec
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayjob_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayJob
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayjobspec_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayJobSpec
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayservice_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayService
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rayservicespec_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      RayServiceSpec
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scalestrategy_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      ScaleStrategy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#upscalingmode_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      UpscalingMode
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workergroupspec_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      WorkerGroupSpec
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+<h1 id="api-reference">API Reference<a class="headerlink" href="#api-reference" title="Permanent link">&para;</a></h1>
+<h2 id="packages">Packages<a class="headerlink" href="#packages" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="#rayiov1">ray.io/v1</a></li>
+<li><a href="#rayiov1alpha1">ray.io/v1alpha1</a></li>
+</ul>
+<h2 id="rayiov1">ray.io/v1<a class="headerlink" href="#rayiov1" title="Permanent link">&para;</a></h2>
+<p>Package v1 contains API Schema definitions for the ray v1 API group</p>
+<h3 id="resource-types">Resource Types<a class="headerlink" href="#resource-types" title="Permanent link">&para;</a></h3>
+<ul>
+<li><a href="#raycluster">RayCluster</a></li>
+<li><a href="#raycronjob">RayCronJob</a></li>
+<li><a href="#rayjob">RayJob</a></li>
+<li><a href="#rayservice">RayService</a></li>
+</ul>
+<h4 id="activepassiveheadoptions">ActivePassiveHeadOptions<a class="headerlink" href="#activepassiveheadoptions" title="Permanent link">&para;</a></h4>
+<p>ActivePassiveHeadOptions configures active-passive head high availability for
+the GCS via leader election.</p>
+<p><em>Appears in:</em>
+- <a href="#gcsfaulttoleranceoptions">GcsFaultToleranceOptions</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code> <em>boolean</em></td>
+<td>Enabled turns on active-passive head HA for the RayCluster. When true, KubeRay<br />provisions a standby head Pod. Defaults to false.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>leaseDurationSeconds</code> <em>integer</em></td>
+<td>LeaseDurationSeconds is the duration that non-leader candidates wait before forcing leadership acquisition.</td>
+<td>15</td>
+<td>Minimum: 1 <br /></td>
+</tr>
+<tr>
+<td><code>renewDeadlineSeconds</code> <em>integer</em></td>
+<td>RenewDeadlineSeconds is the acting leader's bounded deadline for executing consecutive renewal sequences.</td>
+<td>10</td>
+<td>Minimum: 1 <br /></td>
+</tr>
+<tr>
+<td><code>retryPeriodSeconds</code> <em>integer</em></td>
+<td>RetryPeriodSeconds is the duration clients wait between sequential resource acquisition attempts.</td>
+<td>2</td>
+<td>Minimum: 1 <br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="authmode">AuthMode<a class="headerlink" href="#authmode" title="Permanent link">&para;</a></h4>
+<p><em>Underlying type:</em> <em>string</em></p>
+<p>AuthMode describes the authentication mode for the Ray cluster.</p>
+<p><em>Appears in:</em>
+- <a href="#authoptions">AuthOptions</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>disabled</code></td>
+<td>AuthModeDisabled disables authentication.<br /></td>
+</tr>
+<tr>
+<td><code>token</code></td>
+<td>AuthModeToken enables token-based authentication.<br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="authoptions">AuthOptions<a class="headerlink" href="#authoptions" title="Permanent link">&para;</a></h4>
+<p>AuthOptions defines the authentication options for a RayCluster.</p>
+<p><em>Appears in:</em>
+- <a href="#rayclusterspec">RayClusterSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enableK8sTokenAuth</code> <em>boolean</em></td>
+<td>EnableK8sTokenAuth enables Kubernetes-delegated token authentication.<br />When true, the RAY_ENABLE_K8S_TOKEN_AUTH environment variable is set to "true"<br />across all Ray Pods, and Ray will delegate authentication to the K8s API server.<br />NOTE: The Kubernetes ServiceAccount token mounted to Raylets must be granted<br />the <code>ray:write</code> custom verb via RBAC for this to function correctly.<br />WARNING: This feature is intended for standalone RayCluster objects and is<br />currently unsupported for RayJob or RayService resources.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>secretName</code> <em>string</em></td>
+<td>SecretName is the name of the Secret that contains the authentication token.<br />If set, KubeRay will skip generating a Secret object per RayCluster containing a token.<br />The Secret must have a data key <code>auth_token</code> that contains the value of the token.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>mode</code> <em><a href="#authmode">AuthMode</a></em></td>
+<td>Mode specifies the authentication mode.<br />Supported values are "disabled" and "token".<br />Defaults to "token".</td>
+<td></td>
+<td>Enum: [disabled token] <br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="autoscaleroptions">AutoscalerOptions<a class="headerlink" href="#autoscaleroptions" title="Permanent link">&para;</a></h4>
+<p>AutoscalerOptions specifies optional configuration for the Ray autoscaler.</p>
+<p><em>Appears in:</em>
+- <a href="#rayclusterspec">RayClusterSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>resources</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcerequirements-v1-core">ResourceRequirements</a></em></td>
+<td>Resources specifies optional resource request and limit overrides for the autoscaler container.<br />Default values: 500m CPU request and limit. 512Mi memory request and limit.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>image</code> <em>string</em></td>
+<td>Image optionally overrides the autoscaler's container image. This override is provided for autoscaler testing and development.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>imagePullPolicy</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#pullpolicy-v1-core">PullPolicy</a></em></td>
+<td>ImagePullPolicy optionally overrides the autoscaler container's image pull policy. This override is provided for autoscaler testing and development.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>securityContext</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#securitycontext-v1-core">SecurityContext</a></em></td>
+<td>SecurityContext defines the security options the container should be run with.<br />If set, the fields of SecurityContext override the equivalent fields of PodSecurityContext.<br />More info: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>idleTimeoutSeconds</code> <em>integer</em></td>
+<td>IdleTimeoutSeconds is the number of seconds to wait before scaling down a worker pod which is not using Ray resources.<br />Defaults to 60 (one minute). It is not read by the KubeRay operator but by the Ray autoscaler.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>upscalingMode</code> <em><a href="#upscalingmode">UpscalingMode</a></em></td>
+<td>UpscalingMode is "Conservative", "Default", or "Aggressive."<br />Conservative: Upscaling is rate-limited; the number of pending worker pods is at most the size of the Ray cluster.<br />Default: Upscaling is not rate-limited.<br />Aggressive: An alias for Default; upscaling is not rate-limited.<br />It is not read by the KubeRay operator but by the Ray autoscaler.</td>
+<td></td>
+<td>Enum: [Default Aggressive Conservative] <br /></td>
+</tr>
+<tr>
+<td><code>version</code> <em><a href="#autoscalerversion">AutoscalerVersion</a></em></td>
+<td>Version is the version of the Ray autoscaler.<br />Setting this to v1 will explicitly use autoscaler v1.<br />Setting this to v2 will explicitly use autoscaler v2.<br />If this isn't set, the Ray version determines the autoscaler version.<br />In Ray 2.47.0 and later, the default autoscaler version is v2. It's v1 before that.</td>
+<td></td>
+<td>Enum: [v1 v2] <br /></td>
+</tr>
+<tr>
+<td><code>env</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#envvar-v1-core">EnvVar</a> array</em></td>
+<td>Optional list of environment variables to set in the autoscaler container.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>envFrom</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#envfromsource-v1-core">EnvFromSource</a> array</em></td>
+<td>Optional list of sources to populate environment variables in the autoscaler container.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>volumeMounts</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#volumemount-v1-core">VolumeMount</a> array</em></td>
+<td>Optional list of volumeMounts.  This is needed for enabling TLS for the autoscaler container.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>command</code> <em>string array</em></td>
+<td>Optional list overwrite the default command of the autoscaler container.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>args</code> <em>string array</em></td>
+<td>Optional to overwrite the default args of the autoscaler container.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="autoscalerversion">AutoscalerVersion<a class="headerlink" href="#autoscalerversion" title="Permanent link">&para;</a></h4>
+<p><em>Underlying type:</em> <em>string</em></p>
+<p><em>Validation:</em>
+- Enum: [v1 v2]</p>
+<p><em>Appears in:</em>
+- <a href="#autoscaleroptions">AutoscalerOptions</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>v1</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>v2</code></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="clusterupgradeoptions">ClusterUpgradeOptions<a class="headerlink" href="#clusterupgradeoptions" title="Permanent link">&para;</a></h4>
+<p>These options are currently only supported for the IncrementalUpgrade type.</p>
+<p><em>Appears in:</em>
+- <a href="#rayserviceupgradestrategy">RayServiceUpgradeStrategy</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>maxSurgePercent</code> <em>integer</em></td>
+<td>The capacity of serve requests the upgraded cluster should scale to handle each interval.<br />Defaults to 100%.</td>
+<td>100</td>
+<td></td>
+</tr>
+<tr>
+<td><code>stepSizePercent</code> <em>integer</em></td>
+<td>The percentage of traffic to switch to the upgraded RayCluster at a set interval after scaling by MaxSurgePercent.<br />StepSizePercent must be less than or equal to MaxSurgePercent.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>intervalSeconds</code> <em>integer</em></td>
+<td>The interval in seconds between transferring StepSize traffic from the old to new RayCluster.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>gatewayClassName</code> <em>string</em></td>
+<td>The name of the Gateway Class installed by the Kubernetes Cluster admin.<br />Exactly one of GatewayClassName or GatewayRef must be set.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>gatewayRef</code> <em><a href="#gatewayreference">GatewayReference</a></em></td>
+<td>GatewayRef attaches the HTTPRoute to an existing Gateway instead of creating one per RayService.<br />The referenced Gateway must allow HTTPRoutes from the RayService's namespace.<br />Exactly one of GatewayClassName or GatewayRef must be set.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="collectoroptions">CollectorOptions<a class="headerlink" href="#collectoroptions" title="Permanent link">&para;</a></h4>
+<p>CollectorOptions defines settings for the history server collector sidecar.</p>
+<p><em>Appears in:</em>
+- <a href="#historyserveroptions">HistoryServerOptions</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>image</code> <em>string</em></td>
+<td>Image is the collector container image to be used (e.g. quay.io/kuberay/collector:v1.7.0).</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>imagePullPolicy</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#pullpolicy-v1-core">PullPolicy</a></em></td>
+<td>ImagePullPolicy is the pull policy for the collector image.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>resources</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcerequirements-v1-core">ResourceRequirements</a></em></td>
+<td>Resources specifies computing resource requirements.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>env</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#envvar-v1-core">EnvVar</a> array</em></td>
+<td>Env allows injecting custom environment variables into the collector container.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="deletioncondition">DeletionCondition<a class="headerlink" href="#deletioncondition" title="Permanent link">&para;</a></h4>
+<p>DeletionCondition specifies the trigger conditions for a deletion action.
+Exactly one of JobStatus or JobDeploymentStatus must be specified:
+  - JobStatus (application-level): Match the Ray job execution status.
+  - JobDeploymentStatus (infrastructure-level): Match the RayJob deployment lifecycle status. This is particularly useful for cleaning up resources when Ray jobs fail to be submitted.</p>
+<p><em>Appears in:</em>
+- <a href="#deletionrule">DeletionRule</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ttlSeconds</code> <em>integer</em></td>
+<td>TTLSeconds is the time in seconds from when the JobStatus or JobDeploymentStatus<br />reaches the specified terminal state to when this deletion action should be triggered.<br />The value must be a non-negative integer.</td>
+<td>0</td>
+<td>Minimum: 0 <br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="deletionpolicy">DeletionPolicy<a class="headerlink" href="#deletionpolicy" title="Permanent link">&para;</a></h4>
+<p>DeletionPolicy is the legacy single-stage deletion policy.
+Deprecated: This struct is part of the legacy API. Use DeletionRule for new configurations.</p>
+<p><em>Appears in:</em>
+- <a href="#deletionstrategy">DeletionStrategy</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>policy</code> <em><a href="#deletionpolicytype">DeletionPolicyType</a></em></td>
+<td>Policy is the action to take when the condition is met.<br />This field is logically required when using the legacy OnSuccess/OnFailure policies.<br />It is marked as '+optional' at the API level to allow the 'deletionRules' field to be used instead.</td>
+<td></td>
+<td>Enum: [DeleteCluster DeleteWorkers DeleteSelf DeleteNone] <br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="deletionpolicytype">DeletionPolicyType<a class="headerlink" href="#deletionpolicytype" title="Permanent link">&para;</a></h4>
+<p><em>Underlying type:</em> <em>string</em></p>
+<p><em>Appears in:</em>
+- <a href="#deletionpolicy">DeletionPolicy</a>
+- <a href="#deletionrule">DeletionRule</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DeleteCluster</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>DeleteWorkers</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>DeleteSelf</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>DeleteNone</code></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="deletionrule">DeletionRule<a class="headerlink" href="#deletionrule" title="Permanent link">&para;</a></h4>
+<p>DeletionRule defines a single deletion action and its trigger condition.
+This is the new, recommended way to define deletion behavior.</p>
+<p><em>Appears in:</em>
+- <a href="#deletionstrategy">DeletionStrategy</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>policy</code> <em><a href="#deletionpolicytype">DeletionPolicyType</a></em></td>
+<td>Policy is the action to take when the condition is met. This field is required.</td>
+<td></td>
+<td>Enum: [DeleteCluster DeleteWorkers DeleteSelf DeleteNone] <br /></td>
+</tr>
+<tr>
+<td><code>condition</code> <em><a href="#deletioncondition">DeletionCondition</a></em></td>
+<td>The condition under which this deletion rule is triggered. This field is required.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="deletionstrategy">DeletionStrategy<a class="headerlink" href="#deletionstrategy" title="Permanent link">&para;</a></h4>
+<p>DeletionStrategy configures automated cleanup after the RayJob reaches a terminal state.
+Two mutually exclusive styles are supported:</p>
+<ul>
+<li>Legacy: provide both onSuccess and onFailure (deprecated; removal planned for 1.6.0). May be combined with shutdownAfterJobFinishes and (optionally) global TTLSecondsAfterFinished.</li>
+<li>Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds instead).</li>
+</ul>
+<p>Semantics:
+  - A non-empty deletionRules selects rules mode; empty lists are treated as unset.
+  - Legacy requires both onSuccess and onFailure; specifying only one is invalid.
+  - Global TTLSecondsAfterFinished &gt; 0 requires shutdownAfterJobFinishes=true; therefore it cannot be used with rules mode or with legacy alone (no shutdown).
+  - Feature gate RayJobDeletionPolicy must be enabled when this block is present.</p>
+<p>Validation:
+  - CRD XValidations prevent mixing legacy fields with deletionRules and enforce legacy completeness.
+  - Controller logic enforces rules vs shutdown exclusivity and TTL constraints.
+  - onSuccess/onFailure are deprecated; migration to deletionRules is encouraged.</p>
+<p><em>Appears in:</em>
+- <a href="#rayjobspec">RayJobSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>onSuccess</code> <em><a href="#deletionpolicy">DeletionPolicy</a></em></td>
+<td>OnSuccess is the deletion policy for a successful RayJob.<br />Deprecated: Use <code>deletionRules</code> instead for more flexible, multi-stage deletion strategies.<br />This field will be removed in release 1.6.0.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>onFailure</code> <em><a href="#deletionpolicy">DeletionPolicy</a></em></td>
+<td>OnFailure is the deletion policy for a failed RayJob.<br />Deprecated: Use <code>deletionRules</code> instead for more flexible, multi-stage deletion strategies.<br />This field will be removed in release 1.6.0.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>deletionRules</code> <em><a href="#deletionrule">DeletionRule</a> array</em></td>
+<td>DeletionRules is a list of deletion rules, processed based on their trigger conditions.<br />While the rules can be used to define a sequence, if multiple rules are overdue (e.g., due to controller downtime),<br />the most impactful rule (e.g., DeleteSelf) will be executed first to prioritize resource cleanup.</td>
+<td></td>
+<td>MinItems: 1 <br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="gcsstoragedeletionpolicy">GCSStorageDeletionPolicy<a class="headerlink" href="#gcsstoragedeletionpolicy" title="Permanent link">&para;</a></h4>
+<p><em>Underlying type:</em> <em>string</em></p>
+<p>GCSStorageDeletionPolicy specifies what happens to the operator-managed GCS
+storage PVC when the owning RayCluster is deleted.</p>
+<p><em>Validation:</em>
+- Enum: [DeleteWithCluster Retain]</p>
+<p><em>Appears in:</em>
+- <a href="#gcsembeddedstorage">GcsEmbeddedStorage</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DeleteWithCluster</code></td>
+<td>DeleteWithClusterGCSStorageDeletionPolicy (the default) makes the<br />operator-managed PVC a child of the RayCluster via an ownerReference, so it<br />(and its RocksDB data) is garbage-collected together with the cluster.<br /></td>
+</tr>
+<tr>
+<td><code>Retain</code></td>
+<td>RetainGCSStorageDeletionPolicy keeps the operator-managed PVC (and its data)<br />after the owning RayCluster is deleted: the operator omits the ownerReference<br />so the PVC outlives the cluster. Recover the GCS state by pointing a new<br />cluster's ClaimName at the retained PVC.<br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="gatewayreference">GatewayReference<a class="headerlink" href="#gatewayreference" title="Permanent link">&para;</a></h4>
+<p>GatewayReference identifies the existing Gateway and listener the RayService's
+HTTPRoute attaches to. It becomes the HTTPRoute's parentRef. KubeRay never creates,
+updates, or deletes the referenced Gateway; it must already exist and must allow
+HTTPRoutes from the RayService's namespace.</p>
+<p><em>Appears in:</em>
+- <a href="#clusterupgradeoptions">ClusterUpgradeOptions</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code> <em>string</em></td>
+<td>Name of the existing Gateway. Must be a valid Gateway resource name<br />(an RFC 1123 subdomain).</td>
+<td></td>
+<td>MaxLength: 253 <br />MinLength: 1 <br />Pattern: <code>^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$</code> <br /></td>
+</tr>
+<tr>
+<td><code>namespace</code> <em>string</em></td>
+<td>Namespace of the existing Gateway. Defaults to the RayService's namespace when omitted.<br />Must be a valid namespace name (an RFC 1123 label).</td>
+<td></td>
+<td>MaxLength: 63 <br />Pattern: <code>^[a-z0-9]([-a-z0-9]*[a-z0-9])?$</code> <br /></td>
+</tr>
+<tr>
+<td><code>sectionName</code> <em>string</em></td>
+<td>SectionName is the name of a listener on the referenced Gateway to attach the<br />HTTPRoute to. When omitted, the HTTPRoute attaches to every listener on the<br />Gateway that accepts it. Useful for a shared Gateway with multiple listeners.<br />Must be a valid Gateway API SectionName (an RFC 1123 subdomain).</td>
+<td></td>
+<td>MaxLength: 253 <br />MinLength: 1 <br />Pattern: <code>^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$</code> <br /></td>
+</tr>
+<tr>
+<td><code>port</code> <em>integer</em></td>
+<td>Port is the network port of the referenced Gateway's listener to attach the<br />HTTPRoute to. When both SectionName and Port are set, the selected listener<br />must match both. When omitted, listener selection is not constrained by port.</td>
+<td></td>
+<td>Maximum: 65535 <br />Minimum: 1 <br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="gcsembeddedstorage">GcsEmbeddedStorage<a class="headerlink" href="#gcsembeddedstorage" title="Permanent link">&para;</a></h4>
+<p>GcsEmbeddedStorage configures the PVC backing the embedded RocksDB store.</p>
+<p>RocksDB tolerates only a single writer at a time. The operator mounts the
+volume on the head Pod but does not itself enforce mutual exclusion, so when a
+volume can be attached to more than one Pod concurrently (see AccessModes) the
+caller is responsible for ensuring only one Ray head writes to it at a time.</p>
+<p><em>Appears in:</em>
+- <a href="#gcsfaulttoleranceoptions">GcsFaultToleranceOptions</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>claimName</code> <em>string</em></td>
+<td>ClaimName is the name of an existing, user-provided PersistentVolumeClaim to<br />use as the RocksDB store ("bring your own" PVC). When set, the operator<br />consumes that PVC as-is: it does not create, delete, resize, or set<br />ownerReferences on it -- the user owns its entire lifecycle. Mutually<br />exclusive with Size/StorageClassName/AccessModes (those configure an<br />operator-managed PVC, which is used instead when ClaimName is empty).<br />This is the supported path for persisting GCS state across a RayService<br />zero-downtime upgrade: point every RayService generation at the same claim.<br />(An operator-managed PVC is keyed by and owned by the RayCluster, so it is<br />not reused across upgrades.) Because the old and new head Pods overlap during<br />a zero-downtime upgrade, the claim must permit concurrent attach<br />(ReadWriteMany) with externally-coordinated single-writer semantics, or an<br />active-passive handoff where only one Pod attaches at once.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>size</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#quantity-resource-api">Quantity</a></em></td>
+<td>Size of the operator-managed PVC (e.g. "1Gi"). Ignored when ClaimName is set.<br />Defaults to 1Gi. The operator-managed PVC is created once and not<br />reconfigured in place; to change size/class/accessModes, delete the PVC (or<br />switch to ClaimName). A warning event is emitted if this diverges from the<br />live PVC.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>storageClassName</code> <em>string</em></td>
+<td>StorageClassName for the operator-managed PVC. Uses the cluster default<br />StorageClass when omitted. Ignored when ClaimName is set.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>accessModes</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#persistentvolumeaccessmode-v1-core">PersistentVolumeAccessMode</a> array</em></td>
+<td>AccessModes for the operator-managed PVC. Defaults to [ReadWriteOnce].<br />Ignored when ClaimName is set.<br />ReadWriteOnce is the sane default for a standalone RayCluster (one head Pod<br />attaches at a time). ReadWriteMany is a valid choice when you need the volume<br />attached to multiple Pods concurrently (e.g. to overlap the old and new head<br />during a RayService upgrade); RocksDB still requires that only one of them<br />writes at a time, which you must coordinate externally.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>subPath</code> <em>string</em></td>
+<td>SubPath mounts a subdirectory of the volume instead of its root.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>deletionPolicy</code> <em><a href="#gcsstoragedeletionpolicy">GCSStorageDeletionPolicy</a></em></td>
+<td>DeletionPolicy controls the lifecycle of the operator-managed PVC relative to<br />the owning RayCluster. Defaults to DeleteWithCluster. Ignored when ClaimName<br />is set (the operator never owns a bring-your-own PVC, so it is never deleted<br />or retained by the operator).<br />Recovery after Retain: a PVC left behind by a Retain delete can be recovered<br />either by pointing a new cluster's ClaimName at it, or by recreating a<br />RayCluster with the same name on the operator-managed path -- the operator<br />adopts the existing {cluster}-gcs-pvc and reuses its RocksDB state. To start<br />from a fresh store instead, delete the leftover PVC first.</td>
+<td></td>
+<td>Enum: [DeleteWithCluster Retain] <br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="gcsfaulttolerancebackend">GcsFaultToleranceBackend<a class="headerlink" href="#gcsfaulttolerancebackend" title="Permanent link">&para;</a></h4>
+<p><em>Underlying type:</em> <em>string</em></p>
+<p>GcsFaultToleranceBackend selects the GCS fault tolerance persistence backend.</p>
+<p><em>Validation:</em>
+- Enum: [redis rocksdb]</p>
+<p><em>Appears in:</em>
+- <a href="#gcsfaulttoleranceoptions">GcsFaultToleranceOptions</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>redis</code></td>
+<td>GcsFTBackendRedis persists GCS metadata in an external Redis service.<br /></td>
+</tr>
+<tr>
+<td><code>rocksdb</code></td>
+<td>GcsFTBackendRocksDB persists GCS metadata in an embedded RocksDB store on a<br />persistent volume mounted on the head Pod.<br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="gcsfaulttoleranceoptions">GcsFaultToleranceOptions<a class="headerlink" href="#gcsfaulttoleranceoptions" title="Permanent link">&para;</a></h4>
+<p>GcsFaultToleranceOptions contains configs for GCS FT</p>
+<p><em>Appears in:</em>
+- <a href="#rayclusterspec">RayClusterSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>backend</code> <em><a href="#gcsfaulttolerancebackend">GcsFaultToleranceBackend</a></em></td>
+<td>Backend selects the GCS FT persistence backend. Defaults to "redis" for<br />backward compatibility. Immutable: the backend cannot be switched on an<br />existing RayCluster (doing so would swap the entire GCS store and head-Pod<br />wiring, losing fault-tolerance state).</td>
+<td></td>
+<td>Enum: [redis rocksdb] <br /></td>
+</tr>
+<tr>
+<td><code>redisUsername</code> <em><a href="#rediscredential">RedisCredential</a></em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>redisPassword</code> <em><a href="#rediscredential">RedisCredential</a></em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>externalStorageNamespace</code> <em>string</em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>redisAddress</code> <em>string</em></td>
+<td>RedisAddress is the address of the external Redis service. Required when<br />Backend is "redis"; must be empty for "rocksdb".</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>storage</code> <em><a href="#gcsembeddedstorage">GcsEmbeddedStorage</a></em></td>
+<td>Storage configures the persistent volume backing the embedded RocksDB<br />store. Only used when Backend is "rocksdb".</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>activePassiveHeadOptions</code> <em><a href="#activepassiveheadoptions">ActivePassiveHeadOptions</a></em></td>
+<td>ActivePassiveHeadOptions configures active-passive high availability for the GCS.<br />It is only supported with the "redis" backend, not with "rocksdb".</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="headgroupspec">HeadGroupSpec<a class="headerlink" href="#headgroupspec" title="Permanent link">&para;</a></h4>
+<p>HeadGroupSpec are the spec for the head pod</p>
+<p><em>Appears in:</em>
+- <a href="#rayclusterspec">RayClusterSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>template</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#podtemplatespec-v1-core">PodTemplateSpec</a></em></td>
+<td>Template is the exact pod template used in K8s deployments, statefulsets, etc.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>headService</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#service-v1-core">Service</a></em></td>
+<td>HeadService is the Kubernetes service of the head pod.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>enableIngress</code> <em>boolean</em></td>
+<td>EnableIngress indicates whether operator should create ingress object for head service or not.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>ingressOptions</code> <em><a href="#ingressoptions">IngressOptions</a></em></td>
+<td>IngressOptions specifies optional ingress configuration for the head service.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>resources</code> <em>object (keys:string, values:string)</em></td>
+<td>Resources specifies the resource quantities for the head group.<br />These values override the resources passed to <code>rayStartParams</code> for the group, but<br />have no effect on the resources set at the K8s Pod container level.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>labels</code> <em>object (keys:string, values:string)</em></td>
+<td>Labels specifies the Ray node labels for the head group.<br />These labels will also be added to the Pods of this head group and override the <code>--labels</code><br />argument passed to <code>rayStartParams</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>rayStartParams</code> <em>object (keys:string, values:string)</em></td>
+<td>RayStartParams are the params of the start command: node-manager-port, object-store-memory, ...</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>serviceType</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#servicetype-v1-core">ServiceType</a></em></td>
+<td>ServiceType is Kubernetes service type of the head service. it will be used by the workers to connect to the head pod</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="historyserveroptions">HistoryServerOptions<a class="headerlink" href="#historyserveroptions" title="Permanent link">&para;</a></h4>
+<p>HistoryServerOptions used for history server related configuration</p>
+<p><em>Appears in:</em>
+- <a href="#rayclusterspec">RayClusterSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>collectorOptions</code> <em><a href="#collectoroptions">CollectorOptions</a></em></td>
+<td>CollectorOptions used for collector sidecar configuration</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="idleterminationoptions">IdleTerminationOptions<a class="headerlink" href="#idleterminationoptions" title="Permanent link">&para;</a></h4>
+<p><em>Appears in:</em>
+- <a href="#rayclusterspec">RayClusterSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>timeoutSeconds</code> <em>integer</em></td>
+<td>TimeoutSeconds denotes the number of seconds to wait before the v2 autoscaler terminates an idle RayCluster.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>policy</code> <em><a href="#idleterminationpolicy">IdleTerminationPolicy</a></em></td>
+<td>Policy is the action taken once the RayCluster has been idle for TimeoutSeconds.</td>
+<td>Suspend</td>
+<td>Enum: [Delete Suspend] <br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="idleterminationpolicy">IdleTerminationPolicy<a class="headerlink" href="#idleterminationpolicy" title="Permanent link">&para;</a></h4>
+<p><em>Underlying type:</em> <em>string</em></p>
+<p><em>Validation:</em>
+- Enum: [Delete Suspend]</p>
+<p><em>Appears in:</em>
+- <a href="#idleterminationoptions">IdleTerminationOptions</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Suspend</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>Delete</code></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="ingressoptions">IngressOptions<a class="headerlink" href="#ingressoptions" title="Permanent link">&para;</a></h4>
+<p>IngressOptions defines the host, path, and TLS configuration for the ingress generated for the head group.</p>
+<p><em>Appears in:</em>
+- <a href="#headgroupspec">HeadGroupSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>host</code> <em>string</em></td>
+<td>Host is the fully-qualified domain name used to route external traffic to the<br />Ray head dashboard. When unset, the generated ingress rule matches any host.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>path</code> <em>string</em></td>
+<td>Path is the HTTP path that routes to the Ray head dashboard.<br />When unset, the operator defaults it to "/", which routes all traffic on the<br />host to the dashboard.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>pathType</code> <em><a href="#ingresspathtype">IngressPathType</a></em></td>
+<td>PathType is the path matching mode applied to Path.<br />When unset, the operator defaults it to "Prefix", which works out of the box<br />without a rewrite-target annotation or controller-specific regex support.</td>
+<td></td>
+<td>Enum: [Exact Prefix ImplementationSpecific] <br /></td>
+</tr>
+<tr>
+<td><code>tls</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#ingresstls-v1-networking">IngressTLS</a> array</em></td>
+<td>TLS configures TLS termination for the generated ingress.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="ingresspathtype">IngressPathType<a class="headerlink" href="#ingresspathtype" title="Permanent link">&para;</a></h4>
+<p><em>Underlying type:</em> <em>string</em></p>
+<p><em>Validation:</em>
+- Enum: [Exact Prefix ImplementationSpecific]</p>
+<p><em>Appears in:</em>
+- <a href="#ingressoptions">IngressOptions</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Exact</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>Prefix</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>ImplementationSpecific</code></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="jobsubmissionmode">JobSubmissionMode<a class="headerlink" href="#jobsubmissionmode" title="Permanent link">&para;</a></h4>
+<p><em>Underlying type:</em> <em>string</em></p>
+<p><em>Appears in:</em>
+- <a href="#rayjobspec">RayJobSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>K8sJobMode</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>HTTPMode</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>InteractiveMode</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>SidecarMode</code></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="labelref">LabelRef<a class="headerlink" href="#labelref" title="Permanent link">&para;</a></h4>
+<p>LabelRef maps a node label to a Ray node label.</p>
+<p><em>Appears in:</em>
+- <a href="#workergroupspec">WorkerGroupSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code> <em>string</em></td>
+<td>Name is the Ray label key the value is delivered under. If empty, defaults to the node label key in fieldPath.<br />Must not be a key in the same group's workerGroupSpecs[].labels.</td>
+<td></td>
+<td>MaxLength: 317 <br /></td>
+</tr>
+<tr>
+<td><code>valueFrom</code> <em><a href="#labelrefsource">LabelRefSource</a></em></td>
+<td>ValueFrom selects the node value to deliver.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="labelrefsource">LabelRefSource<a class="headerlink" href="#labelrefsource" title="Permanent link">&para;</a></h4>
+<p>LabelRefSource selects where a LabelRef value comes from.</p>
+<p><em>Appears in:</em>
+- <a href="#labelref">LabelRef</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>nodeRef</code> <em><a href="#nodefieldref">NodeFieldRef</a></em></td>
+<td>NodeRef selects a field of the node the pod is bound to.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="networkpolicyconfig">NetworkPolicyConfig<a class="headerlink" href="#networkpolicyconfig" title="Permanent link">&para;</a></h4>
+<p>NetworkPolicyConfig defines network isolation settings for Ray cluster.
+All modes permit intra-cluster pod-to-pod traffic.
+DNS egress is not included automatically; see NetworkPolicyRules.EgressRules
+for why it must be added under DenyAll/DenyAllEgress.</p>
+<p><em>Appears in:</em>
+- <a href="#rayclusterspec">RayClusterSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mode</code> <em><a href="#networkpolicymode">NetworkPolicyMode</a></em></td>
+<td>Mode controls the security level. All modes permit intra-cluster pod-to-pod<br />traffic (DNS egress excluded, see EgressRules).<br />- "DenyAll": Denies all Ingress and Egress.<br />- "DenyAllIngress": Denies all Ingress.<br />- "DenyAllEgress": Denies all Egress.</td>
+<td>DenyAll</td>
+<td>Enum: [DenyAll DenyAllIngress DenyAllEgress] <br /></td>
+</tr>
+<tr>
+<td><code>head</code> <em><a href="#networkpolicyrules">NetworkPolicyRules</a></em></td>
+<td>Head specifies custom NetworkPolicy rules applied only to the head pod's policy.<br />The base head policy always allows intra-cluster traffic and (for K8sJobMode<br />RayJob-owned clusters) the submitter pod. Rules here are appended to those<br />base rules. Platforms that need operator dashboard access should add it here<br />(e.g. via a mutating webhook).</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>worker</code> <em><a href="#networkpolicyrules">NetworkPolicyRules</a></em></td>
+<td>Worker specifies custom NetworkPolicy rules applied only to worker pods' policy.<br />The base worker policy always allows intra-cluster traffic.<br />Rules here are appended to that base rule.<br />Acts as the default for all worker groups; see WorkerGroups for per-group overrides.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>workerGroups</code> <em><a href="#workergroupnetworkpolicyrules">WorkerGroupNetworkPolicyRules</a> array</em></td>
+<td>WorkerGroups specifies per-worker-group NetworkPolicy rules, keyed by group name.<br />If an entry exists for a worker group, it replaces (not merges with) Worker for<br />that group. Worker groups without an entry fall back to Worker.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="networkpolicymode">NetworkPolicyMode<a class="headerlink" href="#networkpolicymode" title="Permanent link">&para;</a></h4>
+<p><em>Underlying type:</em> <em>string</em></p>
+<p>NetworkPolicyMode is the type for network isolation mode constants.</p>
+<p><em>Validation:</em>
+- Enum: [DenyAll DenyAllIngress DenyAllEgress]</p>
+<p><em>Appears in:</em>
+- <a href="#networkpolicyconfig">NetworkPolicyConfig</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DenyAll</code></td>
+<td>NetworkPolicyDenyAll denies all ingress and egress traffic.<br /></td>
+</tr>
+<tr>
+<td><code>DenyAllIngress</code></td>
+<td>NetworkPolicyDenyAllIngress denies all ingress traffic.<br /></td>
+</tr>
+<tr>
+<td><code>DenyAllEgress</code></td>
+<td>NetworkPolicyDenyAllEgress denies all egress traffic.<br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="networkpolicyrules">NetworkPolicyRules<a class="headerlink" href="#networkpolicyrules" title="Permanent link">&para;</a></h4>
+<p>NetworkPolicyRules defines custom ingress and egress rules for a NetworkPolicy.</p>
+<p><em>Appears in:</em>
+- <a href="#networkpolicyconfig">NetworkPolicyConfig</a>
+- <a href="#workergroupnetworkpolicyrules">WorkerGroupNetworkPolicyRules</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ingressRules</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#networkpolicyingressrule-v1-networking">NetworkPolicyIngressRule</a> array</em></td>
+<td>IngressRules specifies custom ingress rules appended to the base policy.<br />Only meaningful when the mode includes ingress denial (DenyAll or DenyAllIngress).</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>egressRules</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#networkpolicyegressrule-v1-networking">NetworkPolicyEgressRule</a> array</em></td>
+<td>EgressRules specifies custom egress rules appended to the base policy.<br />Only meaningful when the mode includes egress denial (DenyAll or DenyAllEgress).<br />DNS egress is NOT added automatically: under DenyAll/DenyAllEgress you MUST<br />add a DNS rule here (e.g. to kube-system pods labeled k8s-app=kube-dns on<br />port 53), because Ray workers reach the head via its service FQDN and cannot<br />resolve it without DNS. See the network-policy-deny-all sample.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="nodefieldref">NodeFieldRef<a class="headerlink" href="#nodefieldref" title="Permanent link">&para;</a></h4>
+<p>NodeFieldRef selects a field of the node in downward API syntax.</p>
+<p><em>Appears in:</em>
+- <a href="#labelrefsource">LabelRefSource</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fieldPath</code> <em>string</em></td>
+<td>FieldPath is the node field to read; only metadata.labels['<key>'] is supported in this version.<br />The key must be in the operator's allowedNodeLabels.</td>
+<td></td>
+<td>MinLength: 1 <br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="raycluster">RayCluster<a class="headerlink" href="#raycluster" title="Permanent link">&para;</a></h4>
+<p>RayCluster is the Schema for the RayClusters API</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>apiVersion</code> <em>string</em></td>
+<td><code>ray.io/v1</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>kind</code> <em>string</em></td>
+<td><code>RayCluster</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>metadata</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta">ObjectMeta</a></em></td>
+<td>Refer to Kubernetes API documentation for fields of <code>metadata</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec</code> <em><a href="#rayclusterspec">RayClusterSpec</a></em></td>
+<td>Specification of the desired behavior of the RayCluster.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayclusterspec">RayClusterSpec<a class="headerlink" href="#rayclusterspec" title="Permanent link">&para;</a></h4>
+<p>RayClusterSpec defines the desired state of RayCluster</p>
+<p><em>Appears in:</em>
+- <a href="#raycluster">RayCluster</a>
+- <a href="#rayjobspec">RayJobSpec</a>
+- <a href="#rayservicespec">RayServiceSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>upgradeStrategy</code> <em><a href="#rayclusterupgradestrategy">RayClusterUpgradeStrategy</a></em></td>
+<td>UpgradeStrategy defines the scaling policy used when upgrading the RayCluster</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>authOptions</code> <em><a href="#authoptions">AuthOptions</a></em></td>
+<td>AuthOptions specifies the authentication options for the RayCluster.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>suspend</code> <em>boolean</em></td>
+<td>Suspend indicates whether a RayCluster should be suspended.<br />A suspended RayCluster will have head pods and worker pods deleted.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>idleSuspend</code> <em>boolean</em></td>
+<td>IdleSuspend indicates whether a RayCluster should be suspended due to idleness.<br />An idle-suspended RayCluster will have head pods and worker pods deleted.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>idleTerminationOptions</code> <em><a href="#idleterminationoptions">IdleTerminationOptions</a></em></td>
+<td>IdleTerminationOptions specifies optional configuration for terminating an idle RayCluster.<br />A RayCluster is considered idle when no Ray driver is connected.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>managedBy</code> <em>string</em></td>
+<td>ManagedBy is an optional configuration for the controller or entity that manages a RayCluster.<br />The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.<br />The kuberay-operator reconciles a RayCluster which doesn't have this field at all or<br />the field value is the reserved string 'ray.io/kuberay-operator',<br />but delegates reconciling the RayCluster with 'kueue.x-k8s.io/multikueue' to the Kueue.<br />The field is immutable.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>autoscalerOptions</code> <em><a href="#autoscaleroptions">AutoscalerOptions</a></em></td>
+<td>AutoscalerOptions specifies optional configuration for the Ray autoscaler.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>headServiceAnnotations</code> <em>object (keys:string, values:string)</em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>enableInTreeAutoscaling</code> <em>boolean</em></td>
+<td>EnableInTreeAutoscaling indicates whether operator should create in tree autoscaling configs</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>gcsFaultToleranceOptions</code> <em><a href="#gcsfaulttoleranceoptions">GcsFaultToleranceOptions</a></em></td>
+<td>GcsFaultToleranceOptions for enabling GCS FT</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>historyServerOptions</code> <em><a href="#historyserveroptions">HistoryServerOptions</a></em></td>
+<td>HistoryServerOptions used for history server related configuration</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>networkPolicy</code> <em><a href="#networkpolicyconfig">NetworkPolicyConfig</a></em></td>
+<td>NetworkPolicy specifies optional configuration for network isolation.<br />When set, separate NetworkPolicies are created for head and worker pods.<br />The reconciler always permits intra-cluster pod-to-pod traffic.<br />Note: under DenyAll/DenyAllEgress, DNS egress is not added<br />automatically; since Ray pods reach the head via its service FQDN, you must<br />allow DNS egress via Head/Worker EgressRules or the cluster will fail to start.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>tlsOptions</code> <em><a href="#tlsoptions">TLSOptions</a></em></td>
+<td>TLSOptions specifies optional TLS encryption settings for the RayCluster.<br />If omitted or Enabled is false, TLS is disabled. When Enabled is true,<br />the operator enables mTLS using cert-manager to provision and manage certificates.<br />Requires the RayClusterMTLS feature gate on the operator.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>headGroupSpec</code> <em><a href="#headgroupspec">HeadGroupSpec</a></em></td>
+<td>HeadGroupSpec is the spec for the head pod</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>rayVersion</code> <em>string</em></td>
+<td>RayVersion is used to determine the command for the Kubernetes Job managed by RayJob</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>workerGroupSpecs</code> <em><a href="#workergroupspec">WorkerGroupSpec</a> array</em></td>
+<td>WorkerGroupSpecs are the specs for the worker pods</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayclusterupgradestrategy">RayClusterUpgradeStrategy<a class="headerlink" href="#rayclusterupgradestrategy" title="Permanent link">&para;</a></h4>
+<p><em>Appears in:</em>
+- <a href="#rayclusterspec">RayClusterSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>type</code> <em><a href="#rayclusterupgradetype">RayClusterUpgradeType</a></em></td>
+<td>Type represents the strategy used when upgrading the RayCluster Pods. Currently supports <code>Recreate</code> and <code>None</code>.</td>
+<td></td>
+<td>Enum: [Recreate None] <br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayclusterupgradetype">RayClusterUpgradeType<a class="headerlink" href="#rayclusterupgradetype" title="Permanent link">&para;</a></h4>
+<p><em>Underlying type:</em> <em>string</em></p>
+<p><em>Validation:</em>
+- Enum: [Recreate None]</p>
+<p><em>Appears in:</em>
+- <a href="#rayclusterupgradestrategy">RayClusterUpgradeStrategy</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Recreate</code></td>
+<td>During upgrade, Recreate strategy will delete all existing pods before creating new ones<br /></td>
+</tr>
+<tr>
+<td><code>None</code></td>
+<td>No new pod will be created while the strategy is set to None<br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="raycronjob">RayCronJob<a class="headerlink" href="#raycronjob" title="Permanent link">&para;</a></h4>
+<p>RayCronJob is the Schema for the raycronjobs API</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>apiVersion</code> <em>string</em></td>
+<td><code>ray.io/v1</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>kind</code> <em>string</em></td>
+<td><code>RayCronJob</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>metadata</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta">ObjectMeta</a></em></td>
+<td>Refer to Kubernetes API documentation for fields of <code>metadata</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec</code> <em><a href="#raycronjobspec">RayCronJobSpec</a></em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="raycronjobspec">RayCronJobSpec<a class="headerlink" href="#raycronjobspec" title="Permanent link">&para;</a></h4>
+<p><em>Appears in:</em>
+- <a href="#raycronjob">RayCronJob</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>jobTemplate</code> <em><a href="#rayjobspec">RayJobSpec</a></em></td>
+<td>JobTemplate defines the job spec that will be created by cron scheduling</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>schedule</code> <em>string</em></td>
+<td>Schedule is the cron schedule string</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>timeZone</code> <em>string</em></td>
+<td>TimeZone is the time zone name for the given schedule. If not specified, default to the local time zone of the<br />KubeRay operator. Empty string is not allowed.<br />The bundled version of the time zone database is used.</td>
+<td></td>
+<td>MinLength: 1 <br /></td>
+</tr>
+<tr>
+<td><code>suspend</code> <em>boolean</em></td>
+<td>Suspend tells the controller to suspend the scheduling, it does not apply to<br />scheduled RayJob.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayjob">RayJob<a class="headerlink" href="#rayjob" title="Permanent link">&para;</a></h4>
+<p>RayJob is the Schema for the rayjobs API</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>apiVersion</code> <em>string</em></td>
+<td><code>ray.io/v1</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>kind</code> <em>string</em></td>
+<td><code>RayJob</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>metadata</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta">ObjectMeta</a></em></td>
+<td>Refer to Kubernetes API documentation for fields of <code>metadata</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec</code> <em><a href="#rayjobspec">RayJobSpec</a></em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayjobspec">RayJobSpec<a class="headerlink" href="#rayjobspec" title="Permanent link">&para;</a></h4>
+<p>RayJobSpec defines the desired state of RayJob</p>
+<p><em>Appears in:</em>
+- <a href="#raycronjobspec">RayCronJobSpec</a>
+- <a href="#rayjob">RayJob</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>activeDeadlineSeconds</code> <em>integer</em></td>
+<td>ActiveDeadlineSeconds is the duration in seconds that the RayJob may be active before<br />KubeRay actively tries to terminate the RayJob; value must be positive integer.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>backoffLimit</code> <em>integer</em></td>
+<td>Specifies the number of retries before marking this job failed.<br />Each retry creates a new RayCluster.</td>
+<td>0</td>
+<td></td>
+</tr>
+<tr>
+<td><code>rayClusterSpec</code> <em><a href="#rayclusterspec">RayClusterSpec</a></em></td>
+<td>RayClusterSpec is the cluster template to run the job</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>submitterPodTemplate</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#podtemplatespec-v1-core">PodTemplateSpec</a></em></td>
+<td>SubmitterPodTemplate is the template for the pod that will run <code>ray job submit</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>metadata</code> <em>object (keys:string, values:string)</em></td>
+<td>Refer to Kubernetes API documentation for fields of <code>metadata</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>clusterSelector</code> <em>object (keys:string, values:string)</em></td>
+<td>clusterSelector is used to select running rayclusters by labels</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>submitterConfig</code> <em><a href="#submitterconfig">SubmitterConfig</a></em></td>
+<td>Configurations of submitter k8s job.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>managedBy</code> <em>string</em></td>
+<td>ManagedBy is an optional configuration for the controller or entity that manages a RayJob.<br />The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.<br />The kuberay-operator reconciles a RayJob which doesn't have this field at all or<br />the field value is the reserved string 'ray.io/kuberay-operator',<br />but delegates reconciling the RayJob with 'kueue.x-k8s.io/multikueue' to the Kueue.<br />The field is immutable.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>deletionStrategy</code> <em><a href="#deletionstrategy">DeletionStrategy</a></em></td>
+<td>DeletionStrategy automates post-completion cleanup.<br />Choose one style or omit:<br />  - Legacy: both onSuccess &amp; onFailure (deprecated; may combine with shutdownAfterJobFinishes and TTLSecondsAfterFinished).<br />  - Rules: deletionRules (non-empty) — incompatible with shutdownAfterJobFinishes, legacy fields, and global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds).<br />Global TTLSecondsAfterFinished &gt; 0 requires shutdownAfterJobFinishes=true.<br />Feature gate RayJobDeletionPolicy must be enabled when this field is set.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>entrypoint</code> <em>string</em></td>
+<td>Entrypoint represents the command to start execution.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>runtimeEnvYAML</code> <em>string</em></td>
+<td>RuntimeEnvYAML represents the runtime environment configuration<br />provided as a multi-line YAML string.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>jobId</code> <em>string</em></td>
+<td>If jobId is not set, a new jobId will be auto-generated.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>submissionMode</code> <em><a href="#jobsubmissionmode">JobSubmissionMode</a></em></td>
+<td>SubmissionMode specifies how RayJob submits the Ray job to the RayCluster.<br />In "K8sJobMode", the KubeRay operator creates a submitter Kubernetes Job to submit the Ray job.<br />In "HTTPMode", the KubeRay operator sends a request to the RayCluster to create a Ray job.<br />In "InteractiveMode", the KubeRay operator waits for a user to submit a job to the Ray cluster.<br />In "SidecarMode", the KubeRay operator injects a container into the Ray head Pod that acts as the job submitter to submit the Ray job.</td>
+<td>K8sJobMode</td>
+<td></td>
+</tr>
+<tr>
+<td><code>entrypointResources</code> <em>string</em></td>
+<td>EntrypointResources specifies the custom resources and quantities to reserve for the<br />entrypoint command.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>entrypointNumCpus</code> <em>float</em></td>
+<td>EntrypointNumCpus specifies the number of cpus to reserve for the entrypoint command.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>entrypointNumGpus</code> <em>float</em></td>
+<td>EntrypointNumGpus specifies the number of gpus to reserve for the entrypoint command.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>ttlSecondsAfterFinished</code> <em>integer</em></td>
+<td>TTLSecondsAfterFinished is the TTL to clean up RayCluster.<br />It's only working when ShutdownAfterJobFinishes set to true.</td>
+<td>0</td>
+<td></td>
+</tr>
+<tr>
+<td><code>preRunningDeadlineSeconds</code> <em>integer</em></td>
+<td>PreRunningDeadlineSeconds is the deadline in seconds for a RayJob to reach the Running state<br />from when it is first initialized (StartTime). If the RayJob does not transition to<br />Running within this time, it will be marked as Failed.<br />This is useful for cleaning up jobs stuck in Initializing or Waiting states.<br />If not set, there is no deadline. Value must be a positive integer.</td>
+<td></td>
+<td>Minimum: 1 <br /></td>
+</tr>
+<tr>
+<td><code>shutdownAfterJobFinishes</code> <em>boolean</em></td>
+<td>ShutdownAfterJobFinishes will determine whether to delete the ray cluster once rayJob succeed or failed.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>suspend</code> <em>boolean</em></td>
+<td>suspend specifies whether the RayJob controller should create a RayCluster instance<br />If a job is applied with the suspend field set to true,<br />the RayCluster will not be created and will wait for the transition to false.<br />If the RayCluster is already created, it will be deleted.<br />In case of transition to false a new RayCluster will be created.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayservice">RayService<a class="headerlink" href="#rayservice" title="Permanent link">&para;</a></h4>
+<p>RayService is the Schema for the rayservices API</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>apiVersion</code> <em>string</em></td>
+<td><code>ray.io/v1</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>kind</code> <em>string</em></td>
+<td><code>RayService</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>metadata</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta">ObjectMeta</a></em></td>
+<td>Refer to Kubernetes API documentation for fields of <code>metadata</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec</code> <em><a href="#rayservicespec">RayServiceSpec</a></em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayservicespec">RayServiceSpec<a class="headerlink" href="#rayservicespec" title="Permanent link">&para;</a></h4>
+<p>RayServiceSpec defines the desired state of RayService</p>
+<p><em>Appears in:</em>
+- <a href="#rayservice">RayService</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rayClusterDeletionDelaySeconds</code> <em>integer</em></td>
+<td>RayClusterDeletionDelaySeconds specifies the delay, in seconds, before deleting old RayClusters.<br />The default value is 60 seconds.</td>
+<td></td>
+<td>Minimum: 0 <br /></td>
+</tr>
+<tr>
+<td><code>serviceUnhealthySecondThreshold</code> <em>integer</em></td>
+<td>Deprecated: This field is not used anymore. ref: https://github.com/ray-project/kuberay/issues/1685</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>deploymentUnhealthySecondThreshold</code> <em>integer</em></td>
+<td>Deprecated: This field is not used anymore. ref: https://github.com/ray-project/kuberay/issues/1685</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>serveService</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#service-v1-core">Service</a></em></td>
+<td>ServeService is the Kubernetes service for head node and worker nodes who have healthy http proxy to serve traffics.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>upgradeStrategy</code> <em><a href="#rayserviceupgradestrategy">RayServiceUpgradeStrategy</a></em></td>
+<td>UpgradeStrategy defines the scaling policy used when upgrading the RayService.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>managedBy</code> <em>string</em></td>
+<td>ManagedBy is an optional configuration for the controller or entity that manages a RayService.<br />The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.<br />The kuberay-operator reconciles a RayService which doesn't have this field at all or<br />the field value is the reserved string 'ray.io/kuberay-operator',<br />but delegates reconciling the RayService with 'kueue.x-k8s.io/multikueue' to the Kueue.<br />The field is immutable.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>serveConfigV2</code> <em>string</em></td>
+<td>Important: Run "make" to regenerate code after modifying this file<br />Defines the applications and deployments to deploy, should be a YAML multi-line scalar string.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>rayClusterConfig</code> <em><a href="#rayclusterspec">RayClusterSpec</a></em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>excludeHeadPodFromServeSvc</code> <em>boolean</em></td>
+<td>If the field is set to true, the value of the label <code>ray.io/serve</code> on the head Pod should always be false.<br />Therefore, the head Pod's endpoint will not be added to the Kubernetes Serve service.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>suspend</code> <em>boolean</em></td>
+<td>Suspend indicates whether the RayService should suspend its execution. When set to true,<br />all Kubernetes resources owned by the RayService controller will be deleted. Setting it<br />back to false will allow the RayService controller to recreate the resources.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayserviceupgradestrategy">RayServiceUpgradeStrategy<a class="headerlink" href="#rayserviceupgradestrategy" title="Permanent link">&para;</a></h4>
+<p><em>Appears in:</em>
+- <a href="#rayservicespec">RayServiceSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>type</code> <em><a href="#rayserviceupgradetype">RayServiceUpgradeType</a></em></td>
+<td>Type represents the strategy used when upgrading the RayService. Currently supports <code>NewCluster</code>, <code>NewClusterWithIncrementalUpgrade</code> and <code>None</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>clusterUpgradeOptions</code> <em><a href="#clusterupgradeoptions">ClusterUpgradeOptions</a></em></td>
+<td>ClusterUpgradeOptions defines the behavior of a NewClusterWithIncrementalUpgrade type.<br />RayServiceIncrementalUpgrade feature gate must be enabled to set ClusterUpgradeOptions.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayserviceupgradetype">RayServiceUpgradeType<a class="headerlink" href="#rayserviceupgradetype" title="Permanent link">&para;</a></h4>
+<p><em>Underlying type:</em> <em>string</em></p>
+<p><em>Appears in:</em>
+- <a href="#rayserviceupgradestrategy">RayServiceUpgradeStrategy</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NewClusterWithIncrementalUpgrade</code></td>
+<td>During upgrade, NewClusterWithIncrementalUpgrade strategy will create an upgraded cluster to gradually scale<br />and migrate traffic to using Gateway API.<br /></td>
+</tr>
+<tr>
+<td><code>NewCluster</code></td>
+<td>During upgrade, NewCluster strategy will create new upgraded cluster and switch to it when it becomes ready<br /></td>
+</tr>
+<tr>
+<td><code>None</code></td>
+<td>No new cluster will be created while the strategy is set to None<br /></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rediscredential">RedisCredential<a class="headerlink" href="#rediscredential" title="Permanent link">&para;</a></h4>
+<p>RedisCredential is the redis username/password or a reference to the source containing the username/password</p>
+<p><em>Appears in:</em>
+- <a href="#gcsfaulttoleranceoptions">GcsFaultToleranceOptions</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>valueFrom</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#envvarsource-v1-core">EnvVarSource</a></em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>value</code> <em>string</em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="scalegate">ScaleGate<a class="headerlink" href="#scalegate" title="Permanent link">&para;</a></h4>
+<p>ScaleGate marks a worker group as not currently scalable. Type is the merge
+key, so a gate is added and removed by exactly one controller. This API is
+intended to be consistent with PodCondition:
+https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.37/#podcondition-v1-core</p>
+<p><em>Appears in:</em>
+- <a href="#scalestrategy">ScaleStrategy</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>type</code> <em>string</em></td>
+<td>Type uniquely identifies this gate and its owner, for example<br />"example.com/gate-name".</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="scalestrategy">ScaleStrategy<a class="headerlink" href="#scalestrategy" title="Permanent link">&para;</a></h4>
+<p>ScaleStrategy controls scaling of a worker group.</p>
+<p><em>Appears in:</em>
+- <a href="#workergroupspec">WorkerGroupSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>workersToDelete</code> <em>string array</em></td>
+<td>WorkersToDelete workers to be deleted</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>scaleGate</code> <em><a href="#scalegate">ScaleGate</a> array</em></td>
+<td>ScaleGate is a signal written by an external controller to indicate that<br />this worker group cannot currently be scaled up. KubeRay preserves the<br />field across reconciles but never reads or writes it; the Ray Autoscaler<br />consumes it and falls back to another worker group while it is non-empty.<br />Each gate is keyed by its type. A writer must add or remove only its own<br />gates via Server-Side Apply under a distinct field manager; replacing the<br />list wholesale, or using read-modify-write Update, drops gates owned by<br />others.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="submitterconfig">SubmitterConfig<a class="headerlink" href="#submitterconfig" title="Permanent link">&para;</a></h4>
+<p><em>Appears in:</em>
+- <a href="#rayjobspec">RayJobSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>backoffLimit</code> <em>integer</em></td>
+<td>BackoffLimit of the submitter. In K8sJobMode, this is the K8s Job backoffLimit.<br />In SidecarMode with SidecarSubmitterRestart enabled, this is the maximum container restart count.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="tlsoptions">TLSOptions<a class="headerlink" href="#tlsoptions" title="Permanent link">&para;</a></h4>
+<p>TLSOptions configures TLS encryption for the RayCluster.
+When TLSOptions is nil or Enabled is nil/false, TLS is disabled.
+When Enabled is true, the operator uses cert-manager to automatically
+provision a full PKI (self-signed CA, head and worker leaf certificates)
+and keeps certificates up to date as pod IPs change during autoscaling.</p>
+<p><em>Appears in:</em>
+- <a href="#rayclusterspec">RayClusterSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code> <em>boolean</em></td>
+<td>Enabled controls whether mTLS is active for this RayCluster.<br />Defaults to false when omitted. Set to true to enable mTLS.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="upscalingmode">UpscalingMode<a class="headerlink" href="#upscalingmode" title="Permanent link">&para;</a></h4>
+<p><em>Underlying type:</em> <em>string</em></p>
+<p><em>Validation:</em>
+- Enum: [Default Aggressive Conservative]</p>
+<p><em>Appears in:</em>
+- <a href="#autoscaleroptions">AutoscalerOptions</a></p>
+<h4 id="workergroupnetworkpolicyrules">WorkerGroupNetworkPolicyRules<a class="headerlink" href="#workergroupnetworkpolicyrules" title="Permanent link">&para;</a></h4>
+<p>WorkerGroupNetworkPolicyRules is NetworkPolicyRules bound to one worker group.</p>
+<p><em>Appears in:</em>
+- <a href="#networkpolicyconfig">NetworkPolicyConfig</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>groupName</code> <em>string</em></td>
+<td>GroupName matches WorkerGroupSpec.GroupName.</td>
+<td></td>
+<td>Required: {} <br /></td>
+</tr>
+<tr>
+<td><code>ingressRules</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#networkpolicyingressrule-v1-networking">NetworkPolicyIngressRule</a> array</em></td>
+<td>IngressRules specifies custom ingress rules appended to the base policy.<br />Only meaningful when the mode includes ingress denial (DenyAll or DenyAllIngress).</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>egressRules</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#networkpolicyegressrule-v1-networking">NetworkPolicyEgressRule</a> array</em></td>
+<td>EgressRules specifies custom egress rules appended to the base policy.<br />Only meaningful when the mode includes egress denial (DenyAll or DenyAllEgress).<br />DNS egress is NOT added automatically: under DenyAll/DenyAllEgress you MUST<br />add a DNS rule here (e.g. to kube-system pods labeled k8s-app=kube-dns on<br />port 53), because Ray workers reach the head via its service FQDN and cannot<br />resolve it without DNS. See the network-policy-deny-all sample.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="workergroupspec">WorkerGroupSpec<a class="headerlink" href="#workergroupspec" title="Permanent link">&para;</a></h4>
+<p>WorkerGroupSpec are the specs for the worker pods</p>
+<p><em>Appears in:</em>
+- <a href="#rayclusterspec">RayClusterSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>suspend</code> <em>boolean</em></td>
+<td>Suspend indicates whether a worker group should be suspended.<br />A suspended worker group will have all pods deleted.<br />This is not a user-facing API and is only used by RayJob DeletionStrategy.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>groupName</code> <em>string</em></td>
+<td>we can have multiple worker groups, we distinguish them by name</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>replicas</code> <em>integer</em></td>
+<td>Replicas is the number of desired Pods for this worker group. See https://github.com/ray-project/kuberay/pull/1443 for more details about the reason for making this field optional.</td>
+<td>0</td>
+<td></td>
+</tr>
+<tr>
+<td><code>minReplicas</code> <em>integer</em></td>
+<td>MinReplicas denotes the minimum number of desired Pods for this worker group.</td>
+<td>0</td>
+<td></td>
+</tr>
+<tr>
+<td><code>maxReplicas</code> <em>integer</em></td>
+<td>MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.</td>
+<td>2147483647</td>
+<td></td>
+</tr>
+<tr>
+<td><code>idleTimeoutSeconds</code> <em>integer</em></td>
+<td>IdleTimeoutSeconds denotes the number of seconds to wait before the v2 autoscaler terminates an idle worker pod of this type.<br />This value is only used with the Ray Autoscaler enabled and defaults to the value set by the AutoscalingConfig if not specified for this worker group.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>priority</code> <em>integer</em></td>
+<td>Priority influences which worker group the autoscaler prefers when multiple<br />groups can satisfy the same resource demand. Higher priority groups are<br />preferred for scale-up. Only honored by Ray Autoscaler v2 (Ray &gt;= 2.56).</td>
+<td>0</td>
+<td></td>
+</tr>
+<tr>
+<td><code>resources</code> <em>object (keys:string, values:string)</em></td>
+<td>Resources specifies the resource quantities for this worker group.<br />These values override the resources passed to <code>rayStartParams</code> for the group, but<br />have no effect on the resources set at the K8s Pod container level.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>labels</code> <em>object (keys:string, values:string)</em></td>
+<td>Labels specifies the Ray node labels for this worker group.<br />These labels will also be added to the Pods of this worker group and override the <code>--labels</code><br />argument passed to <code>rayStartParams</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>rayStartParams</code> <em>object (keys:string, values:string)</em></td>
+<td>RayStartParams are the params of the start command: address, object-store-memory, ...</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>template</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#podtemplatespec-v1-core">PodTemplateSpec</a></em></td>
+<td>Template is a pod template for the worker</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>scaleStrategy</code> <em><a href="#scalestrategy">ScaleStrategy</a></em></td>
+<td>ScaleStrategy controls scaling of this worker group: which pods to remove,<br />and whether the group can currently be scaled up.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>numOfHosts</code> <em>integer</em></td>
+<td>NumOfHosts denotes the number of hosts to create per replica. The default value is 1.</td>
+<td>1</td>
+<td></td>
+</tr>
+<tr>
+<td><code>labelRefs</code> <em><a href="#labelref">LabelRef</a> array</em></td>
+<td>LabelRefs delivers labels of the node each worker pod is bound to as Ray node labels.<br />This enables Ray scheduling based on node attributes, such as topology placement (e.g., rack, zone, or topology domain).<br />Only allowlisted node labels can be delivered. Every referenced label must exist on the node or pod startup fails.<br />Empty means no labels are delivered.<br />Requires the <code>NodeLabelDelivery</code> feature gate and <code>ENABLE_WEBHOOKS</code> enabled on the operator, and Ray 2.45.0 or later (<code>--labels-file</code>).</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h2 id="rayiov1alpha1">ray.io/v1alpha1<a class="headerlink" href="#rayiov1alpha1" title="Permanent link">&para;</a></h2>
+<p>Package v1alpha1 contains API Schema definitions for the ray v1alpha1 API group</p>
+<p>Deprecated: ray.io/v1alpha1 is served for backward compatibility only, is
+frozen at its December 2023 feature set, and will be unavailable in KubeRay
+1.9. Use github.com/ray-project/kuberay/ray-operator/apis/ray/v1 instead.</p>
+<h3 id="resource-types_1">Resource Types<a class="headerlink" href="#resource-types_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><a href="#raycluster">RayCluster</a></li>
+<li><a href="#rayjob">RayJob</a></li>
+<li><a href="#rayservice">RayService</a></li>
+</ul>
+<h4 id="autoscaleroptions_1">AutoscalerOptions<a class="headerlink" href="#autoscaleroptions_1" title="Permanent link">&para;</a></h4>
+<p>AutoscalerOptions specifies optional configuration for the Ray autoscaler.</p>
+<p><em>Appears in:</em>
+- <a href="#rayclusterspec">RayClusterSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>resources</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcerequirements-v1-core">ResourceRequirements</a></em></td>
+<td>Resources specifies optional resource request and limit overrides for the autoscaler container.<br />Default values: 500m CPU request and limit. 512Mi memory request and limit.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>image</code> <em>string</em></td>
+<td>Image optionally overrides the autoscaler's container image. This override is provided for autoscaler testing and development.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>imagePullPolicy</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#pullpolicy-v1-core">PullPolicy</a></em></td>
+<td>ImagePullPolicy optionally overrides the autoscaler container's image pull policy. This override is provided for autoscaler testing and development.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>securityContext</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#securitycontext-v1-core">SecurityContext</a></em></td>
+<td>SecurityContext defines the security options the container should be run with.<br />If set, the fields of SecurityContext override the equivalent fields of PodSecurityContext.<br />More info: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>idleTimeoutSeconds</code> <em>integer</em></td>
+<td>IdleTimeoutSeconds is the number of seconds to wait before scaling down a worker pod which is not using Ray resources.<br />Defaults to 60 (one minute). It is not read by the KubeRay operator but by the Ray autoscaler.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>upscalingMode</code> <em><a href="#upscalingmode">UpscalingMode</a></em></td>
+<td>UpscalingMode is "Conservative", "Default", or "Aggressive."<br />Conservative: Upscaling is rate-limited; the number of pending worker pods is at most the size of the Ray cluster.<br />Default: Upscaling is not rate-limited.<br />Aggressive: An alias for Default; upscaling is not rate-limited.<br />It is not read by the KubeRay operator but by the Ray autoscaler.</td>
+<td></td>
+<td>Enum: [Default Aggressive Conservative] <br /></td>
+</tr>
+<tr>
+<td><code>env</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#envvar-v1-core">EnvVar</a> array</em></td>
+<td>Optional list of environment variables to set in the autoscaler container.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>envFrom</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#envfromsource-v1-core">EnvFromSource</a> array</em></td>
+<td>Optional list of sources to populate environment variables in the autoscaler container.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>volumeMounts</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#volumemount-v1-core">VolumeMount</a> array</em></td>
+<td>Optional list of volumeMounts.  This is needed for enabling TLS for the autoscaler container.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="headgroupspec_1">HeadGroupSpec<a class="headerlink" href="#headgroupspec_1" title="Permanent link">&para;</a></h4>
+<p>HeadGroupSpec are the spec for the head pod</p>
+<p><em>Appears in:</em>
+- <a href="#rayclusterspec">RayClusterSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>template</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#podtemplatespec-v1-core">PodTemplateSpec</a></em></td>
+<td>Template is the exact pod template used in K8s deployments, statefulsets, etc.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>headService</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#service-v1-core">Service</a></em></td>
+<td>HeadService is the Kubernetes service of the head pod.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>enableIngress</code> <em>boolean</em></td>
+<td>EnableIngress indicates whether operator should create ingress object for head service or not.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>rayStartParams</code> <em>object (keys:string, values:string)</em></td>
+<td>RayStartParams are the params of the start command: node-manager-port, object-store-memory, ...</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>serviceType</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#servicetype-v1-core">ServiceType</a></em></td>
+<td>ServiceType is Kubernetes service type of the head service. it will be used by the workers to connect to the head pod</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="raycluster_1">RayCluster<a class="headerlink" href="#raycluster_1" title="Permanent link">&para;</a></h4>
+<p>RayCluster is the Schema for the RayClusters API</p>
+<p>Deprecated: ray.io/v1alpha1 is deprecated. It is served for backward
+compatibility only, is frozen at its December 2023 feature set, and will be
+unavailable in KubeRay 1.9. Use ray.io/v1, the storage version, for all new
+and existing RayClusters.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>apiVersion</code> <em>string</em></td>
+<td><code>ray.io/v1alpha1</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>kind</code> <em>string</em></td>
+<td><code>RayCluster</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>metadata</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta">ObjectMeta</a></em></td>
+<td>Refer to Kubernetes API documentation for fields of <code>metadata</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec</code> <em><a href="#rayclusterspec">RayClusterSpec</a></em></td>
+<td>Specification of the desired behavior of the RayCluster.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayclusterspec_1">RayClusterSpec<a class="headerlink" href="#rayclusterspec_1" title="Permanent link">&para;</a></h4>
+<p>RayClusterSpec defines the desired state of RayCluster</p>
+<p><em>Appears in:</em>
+- <a href="#raycluster">RayCluster</a>
+- <a href="#rayjobspec">RayJobSpec</a>
+- <a href="#rayservicespec">RayServiceSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enableInTreeAutoscaling</code> <em>boolean</em></td>
+<td>EnableInTreeAutoscaling indicates whether operator should create in tree autoscaling configs</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>autoscalerOptions</code> <em><a href="#autoscaleroptions">AutoscalerOptions</a></em></td>
+<td>AutoscalerOptions specifies optional configuration for the Ray autoscaler.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>suspend</code> <em>boolean</em></td>
+<td>Suspend indicates whether a RayCluster should be suspended.<br />A suspended RayCluster will have head pods and worker pods deleted.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>headServiceAnnotations</code> <em>object (keys:string, values:string)</em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>headGroupSpec</code> <em><a href="#headgroupspec">HeadGroupSpec</a></em></td>
+<td>HeadGroupSpec is the spec for the head pod</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>rayVersion</code> <em>string</em></td>
+<td>RayVersion is used to determine the command for the Kubernetes Job managed by RayJob</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>workerGroupSpecs</code> <em><a href="#workergroupspec">WorkerGroupSpec</a> array</em></td>
+<td>WorkerGroupSpecs are the specs for the worker pods</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayjob_1">RayJob<a class="headerlink" href="#rayjob_1" title="Permanent link">&para;</a></h4>
+<p>RayJob is the Schema for the rayjobs API</p>
+<p>Deprecated: ray.io/v1alpha1 is deprecated. It is served for backward
+compatibility only, is frozen at its December 2023 feature set, and will be
+unavailable in KubeRay 1.9. Use ray.io/v1, the storage version, for all new
+and existing RayJobs.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>apiVersion</code> <em>string</em></td>
+<td><code>ray.io/v1alpha1</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>kind</code> <em>string</em></td>
+<td><code>RayJob</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>metadata</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta">ObjectMeta</a></em></td>
+<td>Refer to Kubernetes API documentation for fields of <code>metadata</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec</code> <em><a href="#rayjobspec">RayJobSpec</a></em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayjobspec_1">RayJobSpec<a class="headerlink" href="#rayjobspec_1" title="Permanent link">&para;</a></h4>
+<p>RayJobSpec defines the desired state of RayJob</p>
+<p><em>Appears in:</em>
+- <a href="#rayjob">RayJob</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>submitterPodTemplate</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#podtemplatespec-v1-core">PodTemplateSpec</a></em></td>
+<td>SubmitterPodTemplate is the template for the pod that will run <code>ray job submit</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>metadata</code> <em>object (keys:string, values:string)</em></td>
+<td>Refer to Kubernetes API documentation for fields of <code>metadata</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>rayClusterSpec</code> <em><a href="#rayclusterspec">RayClusterSpec</a></em></td>
+<td>RayClusterSpec is the cluster template to run the job</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>clusterSelector</code> <em>object (keys:string, values:string)</em></td>
+<td>ClusterSelector is used to select running rayclusters by labels</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>entrypoint</code> <em>string</em></td>
+<td>Entrypoint represents the command to start execution.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>runtimeEnvYAML</code> <em>string</em></td>
+<td>RuntimeEnvYAML represents the runtime environment configuration<br />provided as a multi-line YAML string.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>jobId</code> <em>string</em></td>
+<td>If jobId is not set, a new jobId will be auto-generated.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>entrypointResources</code> <em>string</em></td>
+<td>EntrypointResources specifies the custom resources and quantities to reserve for the<br />entrypoint command.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>ttlSecondsAfterFinished</code> <em>integer</em></td>
+<td>TTLSecondsAfterFinished is the TTL to clean up RayCluster.<br />It's only working when ShutdownAfterJobFinishes set to true.</td>
+<td>0</td>
+<td></td>
+</tr>
+<tr>
+<td><code>entrypointNumCpus</code> <em>float</em></td>
+<td>EntrypointNumCpus specifies the number of cpus to reserve for the entrypoint command.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>entrypointNumGpus</code> <em>float</em></td>
+<td>EntrypointNumGpus specifies the number of gpus to reserve for the entrypoint command.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>shutdownAfterJobFinishes</code> <em>boolean</em></td>
+<td>ShutdownAfterJobFinishes will determine whether to delete the ray cluster once rayJob succeed or failed.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>suspend</code> <em>boolean</em></td>
+<td>Suspend specifies whether the RayJob controller should create a RayCluster instance<br />If a job is applied with the suspend field set to true,<br />the RayCluster will not be created and will wait for the transition to false.<br />If the RayCluster is already created, it will be deleted.<br />In case of transition to false a new RayCluster will be created.</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayservice_1">RayService<a class="headerlink" href="#rayservice_1" title="Permanent link">&para;</a></h4>
+<p>RayService is the Schema for the rayservices API</p>
+<p>Deprecated: ray.io/v1alpha1 is deprecated. It is served for backward
+compatibility only, is frozen at its December 2023 feature set, and will be
+unavailable in KubeRay 1.9. Use ray.io/v1, the storage version, for all new
+and existing RayServices.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>apiVersion</code> <em>string</em></td>
+<td><code>ray.io/v1alpha1</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>kind</code> <em>string</em></td>
+<td><code>RayService</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>metadata</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta">ObjectMeta</a></em></td>
+<td>Refer to Kubernetes API documentation for fields of <code>metadata</code>.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec</code> <em><a href="#rayservicespec">RayServiceSpec</a></em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="rayservicespec_1">RayServiceSpec<a class="headerlink" href="#rayservicespec_1" title="Permanent link">&para;</a></h4>
+<p>RayServiceSpec defines the desired state of RayService</p>
+<p><em>Appears in:</em>
+- <a href="#rayservice">RayService</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>serveService</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#service-v1-core">Service</a></em></td>
+<td>ServeService is the Kubernetes service for head node and worker nodes who have healthy http proxy to serve traffics.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>serviceUnhealthySecondThreshold</code> <em>integer</em></td>
+<td>Deprecated: This field is not used anymore. ref: https://github.com/ray-project/kuberay/issues/1685</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>deploymentUnhealthySecondThreshold</code> <em>integer</em></td>
+<td>Deprecated: This field is not used anymore. ref: https://github.com/ray-project/kuberay/issues/1685</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>serveConfigV2</code> <em>string</em></td>
+<td>Important: Run "make" to regenerate code after modifying this file<br />Defines the applications and deployments to deploy, should be a YAML multi-line scalar string.</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>rayClusterConfig</code> <em><a href="#rayclusterspec">RayClusterSpec</a></em></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="scalestrategy_1">ScaleStrategy<a class="headerlink" href="#scalestrategy_1" title="Permanent link">&para;</a></h4>
+<p>ScaleStrategy to remove workers</p>
+<p><em>Appears in:</em>
+- <a href="#workergroupspec">WorkerGroupSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>workersToDelete</code> <em>string array</em></td>
+<td>WorkersToDelete workers to be deleted</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4 id="upscalingmode_1">UpscalingMode<a class="headerlink" href="#upscalingmode_1" title="Permanent link">&para;</a></h4>
+<p><em>Underlying type:</em> <em>string</em></p>
+<p><em>Validation:</em>
+- Enum: [Default Aggressive Conservative]</p>
+<p><em>Appears in:</em>
+- <a href="#autoscaleroptions">AutoscalerOptions</a></p>
+<h4 id="workergroupspec_1">WorkerGroupSpec<a class="headerlink" href="#workergroupspec_1" title="Permanent link">&para;</a></h4>
+<p>WorkerGroupSpec are the specs for the worker pods</p>
+<p><em>Appears in:</em>
+- <a href="#rayclusterspec">RayClusterSpec</a></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+<th>Default</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>groupName</code> <em>string</em></td>
+<td>we can have multiple worker groups, we distinguish them by name</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>replicas</code> <em>integer</em></td>
+<td>Replicas is the number of desired Pods for this worker group. See https://github.com/ray-project/kuberay/pull/1443 for more details about the reason for making this field optional.</td>
+<td>0</td>
+<td></td>
+</tr>
+<tr>
+<td><code>minReplicas</code> <em>integer</em></td>
+<td>MinReplicas denotes the minimum number of desired Pods for this worker group.</td>
+<td>0</td>
+<td></td>
+</tr>
+<tr>
+<td><code>maxReplicas</code> <em>integer</em></td>
+<td>MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.</td>
+<td>2147483647</td>
+<td></td>
+</tr>
+<tr>
+<td><code>rayStartParams</code> <em>object (keys:string, values:string)</em></td>
+<td>RayStartParams are the params of the start command: address, object-store-memory, ...</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>template</code> <em><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#podtemplatespec-v1-core">PodTemplateSpec</a></em></td>
+<td>Template is a pod template for the worker</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>scaleStrategy</code> <em><a href="#scalestrategy">ScaleStrategy</a></em></td>
+<td>ScaleStrategy defines which pods to remove</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright KubeRay a Series of LF Projects, LLC<br> For website terms of use, trademark policy and other project policies please see <a href="https://lfprojects.org/policies/">lfprojects.org/policies/</a>.
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.tabs"], "search": "../../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.1e8ae164.min.js"></script>
+      
+    
+  </body>
+</html>
