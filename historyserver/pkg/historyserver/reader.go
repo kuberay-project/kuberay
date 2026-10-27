@@ -133,7 +133,12 @@ func (s *ServerHandler) listClusters(limit int) []utils.ClusterInfo {
 		}
 		logrus.Infof("live clusters: %v", liveClusterNames)
 	}
-	clusters := s.reader.List()
+	clusters := []utils.ClusterInfo{}
+	for _, info := range s.reader.List() {
+		if s.namespaceAllowed(info.Namespace) {
+			clusters = append(clusters, info)
+		}
+	}
 	sort.Sort(utils.ClusterInfoList(clusters))
 	if limit > 0 && limit < len(clusters) {
 		clusters = clusters[:limit]
@@ -145,6 +150,9 @@ func (s *ServerHandler) listClusters(limit int) []utils.ClusterInfo {
 
 // resolveSession maps (namespace, resourceType, resourceName, session) to a concrete ClusterInfo.
 func (s *ServerHandler) resolveSession(ctx context.Context, namespace, resourceType, resourceName, session string) (utils.ClusterInfo, bool, error) {
+	if !s.namespaceAllowed(namespace) {
+		return utils.ClusterInfo{}, false, errNamespaceNotAllowed
+	}
 	isLatestOrEmpty := session == "latest" || session == ""
 	resTypeLower := strings.ToLower(resourceType)
 	if resTypeLower != utils.RayClusterKind && resTypeLower != utils.RayJobKind && resTypeLower != utils.RayServiceKind {

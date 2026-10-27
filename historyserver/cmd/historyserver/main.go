@@ -26,6 +26,8 @@ func main() {
 	useKubernetesProxy := false
 	useAuthTokenMode := false
 	enableLiveClusters := false
+	namespace := ""
+	namespacePrefix := ""
 	qps := historyserver.DefaultKubeAPIQPS
 	burst := historyserver.DefaultKubeAPIBurst
 	sessionProcessTimeout := historyserver.DefaultSessionProcessTimeout
@@ -40,6 +42,8 @@ func main() {
 	flag.BoolVar(&useKubernetesProxy, "use-kubernetes-proxy", false, "Use local kubeconfig instead of in-cluster config")
 	flag.BoolVar(&useAuthTokenMode, "use-auth-token-mode", false, "Enable Ray dashboard token authentication mode (requires x-ray-authorization header)")
 	flag.BoolVar(&enableLiveClusters, "enable-live-clusters", false, "Enable access to live clusters")
+	flag.StringVar(&namespace, "namespace", "", "Restrict live and archived sessions to this namespace; empty serves all namespaces")
+	flag.StringVar(&namespacePrefix, "namespace-prefix", "", "Restrict live and archived sessions to a literal namespace prefix; mutually exclusive with --namespace")
 	flag.Float64Var(&qps, "kube-api-qps", historyserver.DefaultKubeAPIQPS, "The QPS value for the client communicating with the Kubernetes API server.")
 	flag.IntVar(&burst, "kube-api-burst", historyserver.DefaultKubeAPIBurst, "The maximum burst for throttling requests from this client to the Kubernetes API server.")
 	flag.DurationVar(&sessionProcessTimeout, "session-process-timeout", historyserver.DefaultSessionProcessTimeout, "Timeout duration for processing and loading a single Ray cluster session.")
@@ -83,6 +87,8 @@ func main() {
 	}
 
 	cliMgr, err := historyserver.NewClientManager(historyserver.ClientManagerConfig{
+		Namespace:          namespace,
+		NamespacePrefix:    namespacePrefix,
 		Kubeconfigs:        kubeconfigs,
 		UseKubernetesProxy: useKubernetesProxy,
 		QPS:                float32(qps),

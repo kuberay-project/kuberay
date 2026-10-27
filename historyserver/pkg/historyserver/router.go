@@ -322,6 +322,10 @@ func routerRayClusterSet(s *ServerHandler) {
 
 		resolvedClusterInfo, found, err := s.resolveSession(r1.Request.Context(), namespace, resourceType, resourceName, session)
 		if err != nil {
+			if errors.Is(err, errNamespaceNotAllowed) {
+				r2.WriteErrorString(http.StatusForbidden, err.Error())
+				return
+			}
 			logrus.Errorf("Failed to resolve session %s/%s/%s/%s: %v", namespace, resourceType, resourceName, session, err)
 			r2.WriteErrorString(http.StatusInternalServerError, err.Error())
 			return
@@ -2014,6 +2018,10 @@ func (s *ServerHandler) CookieHandle(req *restful.Request, resp *restful.Respons
 	clusterNamespace, err := req.Request.Cookie(COOKIE_CLUSTER_NAMESPACE_KEY)
 	if err != nil {
 		resp.WriteHeaderAndEntity(http.StatusBadRequest, "Cluster Namespace Cookie not found")
+		return
+	}
+	if !s.namespaceAllowed(clusterNamespace.Value) {
+		resp.WriteHeaderAndEntity(http.StatusForbidden, errNamespaceNotAllowed.Error())
 		return
 	}
 

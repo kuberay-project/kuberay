@@ -36,9 +36,10 @@ const (
 )
 
 type ClientManager struct {
-	configs      []*rest.Config
-	clients      []client.Client
-	svcInfoCache *cache.LRUExpireCache
+	configs        []*rest.Config
+	clients        []client.Client
+	svcInfoCache   *cache.LRUExpireCache
+	namespaceScope namespaceScope
 }
 
 // Client returns the primary controller-runtime client.
@@ -47,22 +48,35 @@ func (c *ClientManager) Client() client.Client {
 }
 
 func (c *ClientManager) ListRayClusters(ctx context.Context, opts ...client.ListOption) ([]*rayv1.RayCluster, error) {
+	options := &client.ListOptions{}
+	options.ApplyOptions(opts)
+	if options.Namespace == "" {
+		options.Namespace = c.namespaceScope.namespace
+	}
+	if options.Namespace != "" && !c.namespaceScope.allows(options.Namespace) {
+		return nil, errNamespaceNotAllowed
+	}
 	list := []*rayv1.RayCluster{}
 	for _, cl := range c.clients {
 		listOfRayCluster := rayv1.RayClusterList{}
-		err := cl.List(ctx, &listOfRayCluster, opts...)
+		err := cl.List(ctx, &listOfRayCluster, options)
 		if err != nil {
 			logrus.Errorf("Failed to list RayClusters: %v", err)
 			return nil, err
 		}
 		for _, rayCluster := range listOfRayCluster.Items {
-			list = append(list, &rayCluster)
+			if c.namespaceScope.allows(rayCluster.Namespace) {
+				list = append(list, &rayCluster)
+			}
 		}
 	}
 	return list, nil
 }
 
 func (c *ClientManager) GetRayCluster(ctx context.Context, namespace, name string) (*rayv1.RayCluster, error) {
+	if !c.namespaceScope.allows(namespace) {
+		return nil, errNamespaceNotAllowed
+	}
 	var rayCluster rayv1.RayCluster
 	if err := c.Client().Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &rayCluster); err != nil {
 		return nil, err
@@ -71,6 +85,8 @@ func (c *ClientManager) GetRayCluster(ctx context.Context, namespace, name strin
 }
 
 type ClientManagerConfig struct {
+	Namespace          string
+	NamespacePrefix    string
 	Kubeconfigs        string
 	UseKubernetesProxy bool
 	QPS                float32
@@ -144,6 +160,9 @@ func (c *ClientManager) GetAuthTokenForRayCluster(ctx context.Context, namespace
 // and is not security-sensitive; auth decisions read the RayCluster spec fresh (see
 // GetAuthTokenForRayCluster).
 func (c *ClientManager) GetSvcInfo(name, namespace string) (ServiceInfo, error) {
+	if !c.namespaceScope.allows(namespace) {
+		return ServiceInfo{}, errNamespaceNotAllowed
+	}
 	cacheKey := namespace + "/" + name
 
 	// Check the cache first.
@@ -166,10 +185,13 @@ func (c *ClientManager) GetSvcInfo(name, namespace string) (ServiceInfo, error) 
 }
 
 func NewClientManager(cfg ClientManagerConfig) (*ClientManager, error) {
+	scope, err := newNamespaceScope(cfg.Namespace, cfg.NamespacePrefix)
+	if err != nil {
+		return nil, err
+	}
 	kubeconfigs := cfg.Kubeconfigs
 
 	var c *rest.Config
-	var err error
 	kubeconfigList := []*rest.Config{}
 	if len(kubeconfigs) > 0 {
 		stringList := strings.Split(kubeconfigs, ",")
@@ -232,9 +254,10 @@ func NewClientManager(cfg ClientManagerConfig) (*ClientManager, error) {
 
 	logrus.Infof("create client manager successfully, clients: %v", len(clientList))
 	clientManager := &ClientManager{
-		configs:      kubeconfigList,
-		clients:      clientList,
-		svcInfoCache: cache.NewLRUExpireCache(svcInfoCacheMaxSize),
+		namespaceScope: scope,
+		configs:        kubeconfigList,
+		clients:        clientList,
+		svcInfoCache:   cache.NewLRUExpireCache(svcInfoCacheMaxSize),
 	}
 	return clientManager, nil
 }

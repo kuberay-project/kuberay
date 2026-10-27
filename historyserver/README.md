@@ -70,12 +70,36 @@ The history server can be configured using command-line flags:
 - `--storage-backend-config-path`: Path to storage backend configuration file
 - `--enable-live-clusters`: Serve RayClusters that are still running by reverse-proxying to their
   head dashboard (default: `false`)
+- `--namespace`: Restrict live and archived session access to one namespace (default: all namespaces)
+- `--namespace-prefix`: Restrict live and archived session access to namespaces beginning with this
+  literal prefix; mutually exclusive with `--namespace` (default: no prefix restriction)
 
 > [!WARNING]
 > The history server does not authenticate its own callers, and the RayCluster it proxies to is
 > chosen from a client-supplied cookie. With `--enable-live-clusters` enabled, anyone who can reach
 > the history server can reach the Ray Dashboard API of every RayCluster the history server can
 > access. Only turn it on where that access is already restricted by other means.
+
+#### Namespace scope
+
+Set `--namespace=team-a` to serve only that namespace. When live discovery is enabled, its
+Kubernetes list request is namespaced, so it can use a Role/RoleBinding rather than a cluster-wide
+reader. Existing label selectors still apply. Access to other namespaces returns HTTP 403.
+
+Set `--namespace-prefix=team-` to serve namespaces such as `team-a` and `team-b`, including matching
+namespaces created after startup. This is a literal prefix, not a glob: use `team-`, not `team-*`.
+Prefix discovery lists RayClusters across all namespaces and filters the results in the server;
+Kubernetes RBAC cannot express a namespace-name prefix, so this mode still requires cluster-wide
+RayCluster list permission. It does not require listing Namespace objects.
+
+Both options filter live clusters and stored sessions before the selector's archive limit is applied.
+They also check direct `/enter_cluster` links and cookie-based dashboard requests, including cached
+live routes. With neither option set, namespace access is unchanged.
+
+The scope applies to every caller of this server instance. It does not authenticate users or implement
+per-user authorization. It also does not restrict which object-storage metadata the reader scans:
+use storage credentials and storage-root configuration to control the server's underlying access.
+Collectors and readable archives are still required for historical replay.
 
 ### Collector Configuration
 
