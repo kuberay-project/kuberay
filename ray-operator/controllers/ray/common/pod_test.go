@@ -1653,6 +1653,123 @@ func TestDefaultWorkerPodTemplateWithConfigurablePorts(t *testing.T) {
 	require.NoError(t, containerPortExists(podTemplateSpec.Spec.Containers[0].Ports, customMetricsPort))
 }
 
+func TestBuildInitContainerResources(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    corev1.ResourceRequirements
+		expected corev1.ResourceRequirements
+	}{
+		{
+			name: "cpu and memory only, no GPU",
+			input: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("512Mi"),
+				},
+			},
+			expected: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("512Mi"),
+				},
+			},
+		},
+		{
+			name: "cpu, memory, and GPU set -> GPU should be dropped",
+			input: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("512Mi"),
+					"nvidia.com/gpu":      resource.MustParse("1"),
+				},
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("512Mi"),
+					"nvidia.com/gpu":      resource.MustParse("1"),
+				},
+			},
+			expected: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("512Mi"),
+				},
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("512Mi"),
+				},
+			},
+		},
+		{
+			name:     "no resources set at all -> result stays nil",
+			input:    corev1.ResourceRequirements{},
+			expected: corev1.ResourceRequirements{},
+		},
+		{
+			name: "only cpu set, memory missing -> asymmetric case",
+			input: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("1"),
+				},
+			},
+			expected: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("1"),
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildInitContainerResources(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDefaultWorkerPodTemplate_InitContainerResourcesWiring(t *testing.T) {
+	ctx := context.Background()
+	cluster := instance.DeepCopy()
+	cluster.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[utils.RayContainerIndex].Resources = corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("2"),
+			corev1.ResourceMemory: resource.MustParse("4Gi"),
+			"nvidia.com/gpu":      resource.MustParse("1"),
+		},
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("1"),
+			corev1.ResourceMemory: resource.MustParse("2Gi"),
+			"nvidia.com/gpu":      resource.MustParse("1"),
+		},
+	}
+
+	worker := cluster.Spec.WorkerGroupSpecs[0]
+	podName := cluster.Name + utils.DashSymbol + string(rayv1.WorkerNode) + utils.DashSymbol + worker.GroupName + utils.DashSymbol + utils.FormatInt32(0)
+	fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
+	podTemplateSpec := DefaultWorkerPodTemplate(ctx, *cluster, worker, podName, fqdnRayIP, "6379", "", 0, 0)
+
+	var gcsReadyContainer *corev1.Container
+	for i := range podTemplateSpec.Spec.InitContainers {
+		if podTemplateSpec.Spec.InitContainers[i].Name == "wait-gcs-ready" {
+			gcsReadyContainer = &podTemplateSpec.Spec.InitContainers[i]
+			break
+		}
+	}
+	require.NotNil(t, gcsReadyContainer, "worker pod should have wait-gcs-ready init container")
+
+	expected := corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("2"),
+			corev1.ResourceMemory: resource.MustParse("4Gi"),
+		},
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("1"),
+			corev1.ResourceMemory: resource.MustParse("2Gi"),
+		},
+	}
+	assert.Equal(t, expected, gcsReadyContainer.Resources)
+}
+
 func TestDefaultWorkerPodTemplate_Autoscaling(t *testing.T) {
 	clusterNoAutoscaling := instance.DeepCopy()
 	clusterAutoscalingV1 := instance.DeepCopy()
