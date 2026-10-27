@@ -57,13 +57,29 @@ func TestRayJobSuspend(t *testing.T) {
 		// Assert the RayCluster has been torn down
 		_, err = GetRayCluster(test, namespace.Name, rayJob.Status.RayClusterName)
 		g.Expect(k8serrors.IsNotFound(err)).To(BeTrue())
+		clusterName := rayJob.Status.RayClusterName
 
 		// Assert the submitter Job has been cascade deleted
 		g.Eventually(Jobs(test, namespace.Name)).Should(BeEmpty())
 
-		// TODO (kevin85421): Check whether the Pods associated with the RayCluster and the submitter Job have been deleted.
-		// For Kubernetes Jobs, the default deletion behavior is "orphanDependents," which means the Pods will not be
-		// cascade-deleted with the Kubernetes Job by default.
+		// Assert all Pods owned by the RayCluster (head + workers) have been deleted.
+		g.Eventually(Pods(test, namespace.Name,
+			LabelSelector(utils.RayClusterLabelKey+"="+clusterName)), TestTimeoutMedium).
+			Should(BeEmpty())
+
+		// Assert the submitter Pod (created by the submitter K8s Job) has been deleted.
+		g.Eventually(Pods(test, namespace.Name,
+			LabelSelector("job-name="+rayJob.Name)), TestTimeoutMedium).
+			Should(BeEmpty())
+
+		// Assert all Services owned by the RayCluster have been deleted.
+		g.Eventually(func(gg Gomega) {
+			svcList, err := test.Client().Core().CoreV1().Services(namespace.Name).List(test.Ctx(), metav1.ListOptions{
+				LabelSelector: utils.RayClusterLabelKey + "=" + clusterName,
+			})
+			gg.Expect(err).NotTo(HaveOccurred())
+			gg.Expect(svcList.Items).To(BeEmpty())
+		}, TestTimeoutMedium).Should(Succeed())
 
 		LogWithTimestamp(test.T(), "Resume the RayJob by updating `suspend` to false.")
 		rayJobAC.Spec.WithSuspend(false)
