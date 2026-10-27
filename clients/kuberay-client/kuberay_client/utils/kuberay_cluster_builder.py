@@ -160,11 +160,19 @@ class ClusterBuilder(IClusterBuilder):
                 )
                 self.cluster["spec"]["workerGroupSpecs"] = []
         else:
-            log.error(
-                "error creating custom resource: {meta}, the spec section is missing, did you run build_head()?".format(
-                    self.cluster["metadata"]
+            meta = self.cluster.get("metadata")
+            if meta:
+                log.error(
+                    "error creating custom resource: {meta}, the spec section is missing, did you run build_head()?".format(
+                        meta=meta
+                    )
                 )
-            )
+            else:
+                log.error(
+                    "error building worker group {}: the cluster has no metadata or spec, call build_meta() and build_head() before build_worker()".format(
+                        group_name
+                    )
+                )
             self.succeeded = False
             return self
 
