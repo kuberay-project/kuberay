@@ -145,7 +145,9 @@ func BuildServiceForHeadPod(ctx context.Context, cluster rayv1.RayCluster, label
 // the worker nodes to connect to the head node.
 // RayService controller updates the service whenever a new RayCluster serves the traffic.
 func BuildHeadServiceForRayService(ctx context.Context, rayService rayv1.RayService, rayCluster rayv1.RayCluster) (*corev1.Service, error) {
-	service, err := BuildServiceForHeadPod(ctx, rayCluster, nil, nil)
+	// Give the RayService head Service the same annotations as the head Service of the RayCluster
+	// it points to. Clone the map so that the Service does not alias the RayCluster spec.
+	service, err := BuildServiceForHeadPod(ctx, rayCluster, nil, maps.Clone(rayCluster.Spec.HeadServiceAnnotations))
 	if err != nil {
 		return nil, err
 	}
