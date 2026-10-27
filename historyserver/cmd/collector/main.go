@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -19,13 +20,16 @@ import (
 	"github.com/ray-project/kuberay/historyserver/pkg/collector"
 	"github.com/ray-project/kuberay/historyserver/pkg/collector/eventcollector"
 	"github.com/ray-project/kuberay/historyserver/pkg/collector/logcollector/runtime"
+	"github.com/ray-project/kuberay/historyserver/pkg/collector/snapshot"
 	"github.com/ray-project/kuberay/historyserver/pkg/collector/types"
+	"github.com/ray-project/kuberay/historyserver/pkg/storage"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 )
 
 const defaultDashboardAddress = "http://localhost:8265"
 
 func main() {
+	mode := "sidecar"
 	role := ""
 	storageBackend := ""
 	rayClusterName := ""
@@ -48,6 +52,7 @@ func main() {
 	eventMaxDiskMB := 200
 	eventCompressionEnabled := false
 
+	flag.StringVar(&mode, "mode", "sidecar", "Execution mode: sidecar (default, long-running) or snapshot (one-shot scrape)")
 	flag.BoolVar(&enableEventCollector, "enable-event-collector", true, "Enable event collector")
 	flag.BoolVar(&enableLogCollector, "enable-log-collector", true, "Enable log collector")
 	flag.StringVar(&role, "role", "Worker", "Role of the collector node: Head or Worker")
@@ -120,17 +125,27 @@ func main() {
 	if val := os.Getenv("RAY_DASHBOARD_ADDRESS"); val != "" {
 		dashboardAddress = val
 	}
-
-	role = strings.TrimSpace(role)
-	if strings.EqualFold(role, "head") {
-		role = "Head"
-	} else if strings.EqualFold(role, "worker") {
-		role = "Worker"
-	} else {
-		logrus.Fatalf("Invalid role: %s, must be Head or Worker", role)
+	if val := os.Getenv("COLLECTOR_MODE"); val != "" {
+		mode = val
 	}
 
-	if err := validateFlags(&rayClusterName, &rayClusterNamespace, &ownerKind, &ownerName, enableEventCollector, enableLogCollector); err != nil {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode != "sidecar" && mode != "snapshot" {
+		logrus.Fatalf("Invalid mode: %s, must be sidecar or snapshot", mode)
+	}
+
+	if mode == "sidecar" {
+		role = strings.TrimSpace(role)
+		if strings.EqualFold(role, "head") {
+			role = "Head"
+		} else if strings.EqualFold(role, "worker") {
+			role = "Worker"
+		} else {
+			logrus.Fatalf("Invalid role: %s, must be Head or Worker", role)
+		}
+	}
+
+	if err := validateFlags(&rayClusterName, &rayClusterNamespace, &ownerKind, &ownerName, enableEventCollector, enableLogCollector, mode); err != nil {
 		logrus.Fatalf("Failed to validate flags: %v", err)
 	}
 
@@ -218,9 +233,59 @@ func main() {
 	registry := collector.GetWriterRegistry()
 	factory, ok := registry[storageBackend]
 	if !ok {
-		logrus.Fatalf("Not supported storage backend: %s for role: %s.", storageBackend, role)
+		logrus.Fatalf("Not supported storage backend: %s.", storageBackend)
 	}
 
+	switch mode {
+	case "snapshot":
+		runSnapshot(factory, jsonData, storageBackend, storageRootDir, dashboardAddress, rayClusterName, rayClusterNamespace, ownerKind, ownerName, additionalEndpoints)
+	case "sidecar":
+		runSidecar(factory, jsonData, storageBackend, storageRootDir, dashboardAddress, rayClusterName, rayClusterNamespace, ownerKind, ownerName, role, logBatching, eventsPort, pushInterval, enableEventCollector, enableLogCollector, additionalEndpoints, endpointPollInterval, eventDataDir, eventRotationInterval, eventMaxFileSizeMB, eventMaxDiskMB, eventCompressionEnabled, rotatedLogScanInterval)
+	}
+}
+
+func runSnapshot(factory func(*types.RayCollectorConfig, map[string]any) (storage.StorageWriter, error), jsonData map[string]any, storageBackend, storageRootDir, dashboardAddress, rayClusterName, rayClusterNamespace, ownerKind, ownerName string, additionalEndpoints []string) {
+	cfg := types.RayCollectorConfig{
+		RootDir:             storageRootDir,
+		RayClusterName:      rayClusterName,
+		RayClusterNamespace: rayClusterNamespace,
+		DashboardAddress:    dashboardAddress,
+		OwnerKind:           ownerKind,
+		OwnerName:           ownerName,
+	}
+
+	writer, err := factory(&cfg, jsonData)
+	if err != nil {
+		logrus.Fatalf("Failed to create storage writer for backend %s: %v", storageBackend, err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		logrus.Info("Received shutdown signal, canceling snapshot...")
+		cancel()
+	}()
+
+	snapshotCfg := snapshot.Config{
+		DashboardAddress:    dashboardAddress,
+		StorageRootDir:      storageRootDir,
+		RayClusterName:      rayClusterName,
+		RayClusterNamespace: rayClusterNamespace,
+		OwnerKind:           ownerKind,
+		OwnerName:           ownerName,
+		AdditionalEndpoints: additionalEndpoints,
+	}
+
+	if err := snapshot.Run(ctx, snapshotCfg, writer); err != nil {
+		logrus.Fatalf("Snapshot failed: %v", err)
+	}
+}
+
+func runSidecar(factory func(*types.RayCollectorConfig, map[string]any) (storage.StorageWriter, error), jsonData map[string]any, storageBackend, storageRootDir, dashboardAddress, rayClusterName, rayClusterNamespace, ownerKind, ownerName, role string, logBatching, eventsPort int, pushInterval time.Duration, enableEventCollector, enableLogCollector bool, additionalEndpoints []string, endpointPollInterval time.Duration, eventDataDir string, eventRotationInterval time.Duration, eventMaxFileSizeMB, eventMaxDiskMB int, eventCompressionEnabled bool, rotatedLogScanInterval time.Duration) {
 	rayNodeId, err := utils.GetNodeRayIDWithFQIP()
 	if err != nil {
 		logrus.Fatalf("Failed to get ray node id via HTTP endpoint: %v", err)
@@ -272,7 +337,7 @@ func main() {
 
 	writer, err := factory(&globalConfig, jsonData)
 	if err != nil {
-		logrus.Fatalf("Failed to create writer for storage backend: %s for role: %s, err: %v", storageBackend, role, err)
+		logrus.Fatalf("Failed to create storage writer for backend %s, role %s: %v", storageBackend, role, err)
 	}
 
 	var wg sync.WaitGroup
@@ -317,8 +382,8 @@ func main() {
 	logrus.Info("Graceful shutdown complete")
 }
 
-func validateFlags(rayClusterName, rayClusterNamespace, ownerKind, ownerName *string, enableEventCollector, enableLogCollector bool) error {
-	if !enableEventCollector && !enableLogCollector {
+func validateFlags(rayClusterName, rayClusterNamespace, ownerKind, ownerName *string, enableEventCollector, enableLogCollector bool, mode string) error {
+	if mode == "sidecar" && !enableEventCollector && !enableLogCollector {
 		return fmt.Errorf("at least one of --enable-event-collector or --enable-log-collector must be enabled")
 	}
 	*rayClusterName = strings.TrimSpace(*rayClusterName)
