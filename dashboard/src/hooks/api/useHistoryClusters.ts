@@ -23,8 +23,11 @@ export const useHistoryClusters = (refreshInterval: number = 5000) => {
     sessionName: string,
   ) => {
     const proxyEndpoint = (await config.getHistoryServerUrl()).proxyEndpoint;
+    // The enter_cluster route is /{namespace}/{kind}/{name}/{session}. Every
+    // row in the history table is a RayCluster, and the server resolves
+    // kind=raycluster by the cluster's own name regardless of its owner.
     const res = await fetch(
-      `${proxyEndpoint}/enter_cluster/${encodeURIComponent(namespace)}/${encodeURIComponent(cluster)}/${encodeURIComponent(sessionName)}`,
+      `${proxyEndpoint}/enter_cluster/${encodeURIComponent(namespace)}/raycluster/${encodeURIComponent(cluster)}/${encodeURIComponent(sessionName)}`,
       { method: "GET", credentials: "include" },
     );
 
