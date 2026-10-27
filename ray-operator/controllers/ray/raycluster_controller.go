@@ -1098,6 +1098,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		if err := r.List(ctx, &workerPods, common.RayClusterGroupPodsAssociationOptions(instance, worker.GroupName).ToListOptions()...); err != nil {
 			return err
 		}
+		workerPods.Items = slices.DeleteFunc(workerPods.Items, func(pod corev1.Pod) bool { return !pod.DeletionTimestamp.IsZero() })
 
 		// Delete all workers if worker group is suspended and skip reconcile
 		if worker.Suspend != nil && *worker.Suspend {

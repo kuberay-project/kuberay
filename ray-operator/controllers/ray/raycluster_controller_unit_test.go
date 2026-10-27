@@ -738,6 +738,42 @@ func TestReconcile_PodDeleted_Diff0_OK(t *testing.T) {
 		"Replica number is wrong after reconcile expect %d actual %d", expectedNumWorkerPods, len(podList.Items))
 }
 
+func TestReconcile_TerminatingWorkerReplaced(t *testing.T) {
+	setupTest(t)
+	testRayCluster.Spec.WorkerGroupSpecs[0].ScaleStrategy.WorkersToDelete = nil
+
+	objects := make([]runtime.Object, 4)
+	for i := range objects {
+		objects[i] = testPods[i].DeepCopyObject()
+	}
+	terminatingWorker := objects[3].(*corev1.Pod)
+	now := metav1.Now()
+	terminatingWorker.DeletionTimestamp = &now
+	terminatingWorker.Finalizers = []string{"test.kuberay.io/hold"}
+
+	createdPods := 0
+	fakeClient := clientFake.NewClientBuilder().
+		WithRuntimeObjects(objects...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.CreateOption) error {
+				if _, ok := obj.(*corev1.Pod); ok {
+					createdPods++
+				}
+				return nil
+			},
+		}).
+		Build()
+	reconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   &events.FakeRecorder{},
+		Scheme:                     scheme.Scheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}
+
+	require.NoError(t, reconciler.reconcilePods(context.Background(), testRayCluster))
+	assert.Equal(t, 1, createdPods)
+}
+
 func TestReconcile_PodDeleted_DiffLess0_OK(t *testing.T) {
 	setupTest(t)
 
