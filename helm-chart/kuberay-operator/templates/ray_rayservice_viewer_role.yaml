@@ -11,14 +11,9 @@ rules:
   - ray.io
   resources:
   - rayservices
+  - rayservices/status
   verbs:
   - get
   - list
   - watch
-- apiGroups:
-  - ray.io
-  resources:
-  - rayservices/status
-  verbs:
-  - get
 {{- end }}

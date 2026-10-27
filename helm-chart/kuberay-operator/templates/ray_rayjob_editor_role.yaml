@@ -1,4 +1,4 @@
-{{- /* ClusterRole for end users to view and edit RayJob. */ -}}
+{{- /* ClusterRole for end users to edit RayJob. */ -}}
 {{- if and .Values.rbacEnable (not .Values.singleNamespaceInstall) }}
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -19,10 +19,5 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - ray.io
-  resources:
-  - rayjobs/status
-  verbs:
-  - get
+  - deletecollection
 {{- end }}

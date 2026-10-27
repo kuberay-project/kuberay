@@ -1,0 +1,37 @@
+suite: Test Aggregate ClusterRoles
+
+templates:
+  - aggregate-clusterroles.yaml
+
+release:
+  name: kuberay-operator
+  namespace: kuberay-system
+
+tests:
+  - it: Should not create aggregated ClusterRoles if `createAggregateClusterRoles` is not enabled
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should create aggregated ClusterRoles if `createAggregateClusterRoles` is `true`
+    set:
+      createAggregateClusterRoles: true
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: Should not create aggregated ClusterRoles if `rbacEnable` is `false`
+    set:
+      createAggregateClusterRoles: true
+      rbacEnable: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should not create aggregated ClusterRoles if `singleNamespaceInstall` is `true`
+    set:
+      createAggregateClusterRoles: true
+      singleNamespaceInstall: true
+    asserts:
+      - hasDocuments:
+          count: 0

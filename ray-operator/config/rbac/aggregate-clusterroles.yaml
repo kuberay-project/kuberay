@@ -1,0 +1,50 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kuberay-operator-aggregate-view
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+rules:
+- apiGroups:
+  - ray.io
+  resources:
+  - rayclusters
+  - rayclusters/status
+  - raycronjobs
+  - raycronjobs/status
+  - rayjobs
+  - rayjobs/status
+  - rayservices
+  - rayservices/status
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kuberay-operator-aggregate-edit
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+- apiGroups:
+  - ray.io
+  resources:
+  - rayclusters
+  - raycronjobs
+  - rayjobs
+  - rayservices
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+  - deletecollection

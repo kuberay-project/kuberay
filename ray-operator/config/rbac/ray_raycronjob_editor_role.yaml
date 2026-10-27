@@ -1,4 +1,4 @@
-# permissions for end users to edit raycronjobs.
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -16,9 +16,4 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - ray.io
-  resources:
-  - raycronjobs/status
-  verbs:
-  - get
+  - deletecollection

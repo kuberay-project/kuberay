@@ -1,4 +1,4 @@
-# permissions for end users to view raycronjobs.
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -8,13 +8,8 @@ rules:
   - ray.io
   resources:
   - raycronjobs
+  - raycronjobs/status
   verbs:
   - get
   - list
   - watch
-- apiGroups:
-  - ray.io
-  resources:
-  - raycronjobs/status
-  verbs:
-  - get
