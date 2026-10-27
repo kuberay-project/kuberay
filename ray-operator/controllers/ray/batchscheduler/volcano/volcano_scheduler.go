@@ -228,10 +228,10 @@ func (v *VolcanoBatchScheduler) calculatePodGroupParams(rayClusterSpec *rayv1.Ra
 	return utils.CalculateMinReplicas(rayCluster) + 1, utils.CalculateMinResources(rayCluster)
 }
 
-// calculateSubGroupPolicy maps the Pods of every Ray group to Volcano subgroups. By default, a worker group is one
-// subgroup. With the replica subgroup scope, each logical replica of NumOfHosts Pods is a subgroup instead.
-// The required replicas follow the same autoscaling or effective desired replica semantics used to calculate
-// the PodGroup's global MinMember. The network topology labels on a group's Pod template apply to each of its subgroups.
+// calculateSubGroupPolicy maps every required logical Ray replica to a Volcano subgroup.
+// A subgroup contains NumOfHosts Pods, and MinSubGroups follows the same autoscaling or
+// effective desired replica semantics used to calculate the PodGroup's global MinMember.
+// The network topology labels on a group's Pod template apply to each replica of that group.
 // Pre-v1.14 Volcano CRDs prune this field and retain the legacy global PodGroup settings.
 func calculateSubGroupPolicy(rayClusterSpec *rayv1.RayClusterSpec) ([]volcanoschedulingv1beta1.SubGroupPolicySpec, error) {
 	if !features.Enabled(features.RayMultiHostIndexing) {
@@ -255,29 +255,22 @@ func calculateSubGroupPolicy(rayClusterSpec *rayv1.RayClusterSpec) ([]volcanosch
 			continue
 		}
 
-		var requiredReplicas int32
+		var minSubGroups int32
 		if autoscalingEnabled {
-			requiredReplicas = ptr.Deref(workerGroupSpec.MinReplicas, int32(0))
+			minSubGroups = ptr.Deref(workerGroupSpec.MinReplicas, int32(0))
 		} else {
-			requiredReplicas = utils.GetWorkerGroupDesiredReplicas(workerGroupSpec) / numOfHosts
+			minSubGroups = utils.GetWorkerGroupDesiredReplicas(workerGroupSpec) / numOfHosts
 		}
-		if requiredReplicas < 0 {
+		if minSubGroups < 0 {
 			continue
 		}
 
-		// Volcano requires at least one Pod in a subgroup, and a required subgroup without Pods makes the
-		// whole PodGroup invalid, so a worker group without required replicas is an optional subgroup.
-		subGroupSize, minSubGroups := max(requiredReplicas*numOfHosts, 1), min(requiredReplicas, 1)
-		matchLabelKey := utils.RayNodeGroupLabelKey
-		if workerGroupSpec.Template.Annotations[utils.RayVolcanoSubGroupScopeAnnotationKey] == utils.RayVolcanoSubGroupScopeReplica {
-			subGroupSize, minSubGroups = numOfHosts, requiredReplicas
-			matchLabelKey = utils.RayWorkerReplicaIndexKey
-			if numOfHosts > 1 {
-				matchLabelKey = utils.RayWorkerReplicaNameKey
-			}
+		matchLabelKey := utils.RayWorkerReplicaIndexKey
+		if numOfHosts > 1 {
+			matchLabelKey = utils.RayWorkerReplicaNameKey
 		}
 
-		workerPolicy, err := newSubGroupPolicy(workerGroupSpec.GroupName, subGroupSize, minSubGroups, matchLabelKey, workerGroupSpec.Template.Labels)
+		workerPolicy, err := newSubGroupPolicy(workerGroupSpec.GroupName, numOfHosts, minSubGroups, matchLabelKey, workerGroupSpec.Template.Labels)
 		if err != nil {
 			return nil, err
 		}

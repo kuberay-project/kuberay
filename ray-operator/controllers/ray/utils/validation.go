@@ -150,9 +150,6 @@ func ValidateRayClusterSpec(spec *rayv1.RayClusterSpec, annotations map[string]s
 		if err := validateWorkerGroupPriority(workerGroup, spec); err != nil {
 			return err
 		}
-		if scope := workerGroup.Template.Annotations[RayVolcanoSubGroupScopeAnnotationKey]; scope != "" && scope != RayVolcanoSubGroupScopeWorkerGroup && scope != RayVolcanoSubGroupScopeReplica {
-			return fmt.Errorf("worker group %s has invalid %s annotation %q, must be %q or %q", workerGroup.GroupName, RayVolcanoSubGroupScopeAnnotationKey, scope, RayVolcanoSubGroupScopeWorkerGroup, RayVolcanoSubGroupScopeReplica)
-		}
 		if len(workerGroup.LabelRefs) > 0 {
 			if !features.Enabled(features.NodeLabelDelivery) {
 				return fmt.Errorf("worker group %s sets labelRefs, which requires the NodeLabelDelivery feature gate to be enabled", workerGroup.GroupName)

@@ -25,30 +25,7 @@ spec:
               cpu: "1"
               memory: "2Gi"
   workerGroupSpecs:
-  - groupName: single-host
-    replicas: 2
-    minReplicas: 2
-    maxReplicas: 2
-    rayStartParams: {}
-    template:
-      metadata:
-        labels:
-          # By default, the whole worker group is one Volcano subgroup, so all 2 Pods of this worker group
-          # must be placed within one HyperNode of tier 1 or below.
-          volcano.sh/network-topology-mode: hard
-          volcano.sh/network-topology-highest-tier-allowed: "1"
-      spec:
-        containers:
-        - name: ray-worker
-          image: rayproject/ray:2.52.0
-          resources:
-            limits:
-              cpu: "1"
-              memory: "1Gi"
-            requests:
-              cpu: "1"
-              memory: "1Gi"
-  - groupName: multi-host
+  - groupName: worker
     replicas: 2
     minReplicas: 2
     maxReplicas: 2
@@ -56,10 +33,6 @@ spec:
     rayStartParams: {}
     template:
       metadata:
-        annotations:
-          # Each replica is one Volcano subgroup. Multi-host worker groups should use the replica scope so that
-          # each replica is scheduled as a whole.
-          ray.io/volcano-subgroup-scope: replica
         labels:
           # Each replica (2 Pods) of this worker group must be placed within one HyperNode of tier 1 or below.
           volcano.sh/network-topology-mode: hard

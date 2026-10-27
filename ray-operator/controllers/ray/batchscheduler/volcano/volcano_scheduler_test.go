@@ -206,13 +206,12 @@ func TestCreatePodGroupForRayCluster(t *testing.T) {
 	// 2 GPUs total
 	a.Equal("2", pg.Spec.MinResources.Name("nvidia.com/gpu", resource.BinarySI).String())
 
-	// By default, the whole worker group of 2 Pods is one subgroup.
 	require.Len(t, pg.Spec.SubGroupPolicy, 2)
 	a.Equal(utils.RayNodeHeadGroupLabelValue, pg.Spec.SubGroupPolicy[0].Name)
 	a.Equal("small-group", pg.Spec.SubGroupPolicy[1].Name)
-	a.Equal(int32(2), ptr.Deref(pg.Spec.SubGroupPolicy[1].SubGroupSize, int32(0)))
-	a.Equal(int32(1), ptr.Deref(pg.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
-	a.Equal([]string{utils.RayNodeGroupLabelKey}, pg.Spec.SubGroupPolicy[1].MatchLabelKeys)
+	a.Equal(int32(1), ptr.Deref(pg.Spec.SubGroupPolicy[1].SubGroupSize, int32(0)))
+	a.Equal(int32(2), ptr.Deref(pg.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
+	a.Equal([]string{utils.RayWorkerReplicaIndexKey}, pg.Spec.SubGroupPolicy[1].MatchLabelKeys)
 }
 
 func TestCreatePodGroupForRayCluster_NumOfHosts2(t *testing.T) {
@@ -243,12 +242,11 @@ func TestCreatePodGroupForRayCluster_NumOfHosts2(t *testing.T) {
 	// 2 GPUs * 2 = 4 GPUs
 	a.Equal("4", pg.Spec.MinResources.Name("nvidia.com/gpu", resource.BinarySI).String())
 
-	// By default, the whole worker group of 2 replicas * 2 hosts is one subgroup.
 	require.Len(t, pg.Spec.SubGroupPolicy, 2)
 	a.Equal("small-group", pg.Spec.SubGroupPolicy[1].Name)
-	a.Equal(int32(4), ptr.Deref(pg.Spec.SubGroupPolicy[1].SubGroupSize, int32(0)))
-	a.Equal(int32(1), ptr.Deref(pg.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
-	a.Equal([]string{utils.RayNodeGroupLabelKey}, pg.Spec.SubGroupPolicy[1].MatchLabelKeys)
+	a.Equal(int32(2), ptr.Deref(pg.Spec.SubGroupPolicy[1].SubGroupSize, int32(0)))
+	a.Equal(int32(2), ptr.Deref(pg.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
+	a.Equal([]string{utils.RayWorkerReplicaNameKey}, pg.Spec.SubGroupPolicy[1].MatchLabelKeys)
 }
 
 func createTestRayClusterWithLabels(labels map[string]string) rayv1.RayCluster {
@@ -583,7 +581,7 @@ func TestCalculatePodGroupParams(t *testing.T) {
 }
 
 func TestCalculateSubGroupPolicy(t *testing.T) {
-	t.Run("autoscaling uses each active worker group's minimum replicas", func(t *testing.T) {
+	t.Run("autoscaling uses each active worker group's minimum logical replicas", func(t *testing.T) {
 		cluster := createTestRayCluster(1)
 		cluster.Spec.EnableInTreeAutoscaling = new(true)
 		cluster.Spec.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
@@ -630,32 +628,6 @@ func TestCalculateSubGroupPolicy(t *testing.T) {
 		assert.Equal(t, map[string]string{utils.RayNodeGroupLabelKey: utils.RayNodeHeadGroupLabelValue}, policies[0].LabelSelector.MatchLabels)
 		assert.Equal(t, []string{utils.RayNodeGroupLabelKey}, policies[0].MatchLabelKeys)
 
-		// By default, each worker group is one subgroup of its minimum replicas * hosts.
-		assert.Equal(t, "cpu-group", policies[1].Name)
-		assert.Equal(t, int32(4), ptr.Deref(policies[1].SubGroupSize, int32(0)))
-		assert.Equal(t, int32(1), ptr.Deref(policies[1].MinSubGroups, int32(0)))
-		assert.Equal(t, map[string]string{utils.RayNodeGroupLabelKey: "cpu-group"}, policies[1].LabelSelector.MatchLabels)
-		assert.Equal(t, []string{utils.RayNodeGroupLabelKey}, policies[1].MatchLabelKeys)
-
-		assert.Equal(t, "gpu-group", policies[2].Name)
-		assert.Equal(t, int32(8), ptr.Deref(policies[2].SubGroupSize, int32(0)))
-		assert.Equal(t, int32(1), ptr.Deref(policies[2].MinSubGroups, int32(0)))
-		assert.Equal(t, map[string]string{utils.RayNodeGroupLabelKey: "gpu-group"}, policies[2].LabelSelector.MatchLabels)
-		assert.Equal(t, []string{utils.RayNodeGroupLabelKey}, policies[2].MatchLabelKeys)
-
-		// A worker group without required replicas is an optional subgroup of at least one Pod.
-		assert.Equal(t, "zero-minimum-group", policies[3].Name)
-		assert.Equal(t, int32(1), ptr.Deref(policies[3].SubGroupSize, int32(0)))
-		assert.Equal(t, int32(0), ptr.Deref(policies[3].MinSubGroups, int32(-1)))
-		assert.Equal(t, []string{utils.RayNodeGroupLabelKey}, policies[3].MatchLabelKeys)
-
-		// With the replica scope, each logical replica of NumOfHosts Pods is a subgroup.
-		for i := range cluster.Spec.WorkerGroupSpecs {
-			cluster.Spec.WorkerGroupSpecs[i].Template.Annotations = map[string]string{utils.RayVolcanoSubGroupScopeAnnotationKey: utils.RayVolcanoSubGroupScopeReplica}
-		}
-		policies = mustCalculateSubGroupPolicy(t, &cluster.Spec)
-
-		require.Len(t, policies, 4)
 		assert.Equal(t, "cpu-group", policies[1].Name)
 		assert.Equal(t, int32(1), ptr.Deref(policies[1].SubGroupSize, int32(0)))
 		assert.Equal(t, int32(4), ptr.Deref(policies[1].MinSubGroups, int32(0)))
@@ -674,7 +646,7 @@ func TestCalculateSubGroupPolicy(t *testing.T) {
 		assert.Equal(t, []string{utils.RayWorkerReplicaNameKey}, policies[3].MatchLabelKeys)
 	})
 
-	t.Run("non-autoscaling uses effective desired replicas", func(t *testing.T) {
+	t.Run("non-autoscaling uses effective desired logical replicas", func(t *testing.T) {
 		cluster := createTestRayCluster(1)
 		cluster.Spec.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
 			{
@@ -696,34 +668,12 @@ func TestCalculateSubGroupPolicy(t *testing.T) {
 		policies := mustCalculateSubGroupPolicy(t, &cluster.Spec)
 
 		require.Len(t, policies, 3)
-		// 2 replicas (clamped to min) * 2 hosts
 		assert.Equal(t, "clamped-to-min", policies[1].Name)
-		assert.Equal(t, int32(4), ptr.Deref(policies[1].SubGroupSize, int32(0)))
-		assert.Equal(t, int32(1), ptr.Deref(policies[1].MinSubGroups, int32(0)))
-		// 8 replicas (clamped to max) * 1 host
-		assert.Equal(t, "clamped-to-max", policies[2].Name)
-		assert.Equal(t, int32(8), ptr.Deref(policies[2].SubGroupSize, int32(0)))
-		assert.Equal(t, int32(1), ptr.Deref(policies[2].MinSubGroups, int32(0)))
-
-		for i := range cluster.Spec.WorkerGroupSpecs {
-			cluster.Spec.WorkerGroupSpecs[i].Template.Annotations = map[string]string{utils.RayVolcanoSubGroupScopeAnnotationKey: utils.RayVolcanoSubGroupScopeReplica}
-		}
-		policies = mustCalculateSubGroupPolicy(t, &cluster.Spec)
-
-		require.Len(t, policies, 3)
 		assert.Equal(t, int32(2), ptr.Deref(policies[1].SubGroupSize, int32(0)))
 		assert.Equal(t, int32(2), ptr.Deref(policies[1].MinSubGroups, int32(0)))
+		assert.Equal(t, "clamped-to-max", policies[2].Name)
 		assert.Equal(t, int32(1), ptr.Deref(policies[2].SubGroupSize, int32(0)))
 		assert.Equal(t, int32(8), ptr.Deref(policies[2].MinSubGroups, int32(0)))
-	})
-
-	t.Run("the worker-group scope is the default", func(t *testing.T) {
-		cluster := createTestRayCluster(2)
-		defaultPolicies := mustCalculateSubGroupPolicy(t, &cluster.Spec)
-
-		cluster.Spec.WorkerGroupSpecs[0].Template.Annotations = map[string]string{utils.RayVolcanoSubGroupScopeAnnotationKey: utils.RayVolcanoSubGroupScopeWorkerGroup}
-
-		assert.Equal(t, defaultPolicies, mustCalculateSubGroupPolicy(t, &cluster.Spec))
 	})
 
 	t.Run("multi-host indexing feature gate disabled omits subgroup policy", func(t *testing.T) {
@@ -733,7 +683,7 @@ func TestCalculateSubGroupPolicy(t *testing.T) {
 		assert.Nil(t, mustCalculateSubGroupPolicy(t, &cluster.Spec))
 	})
 
-	t.Run("group Pod template labels set the network topology of the group's subgroups", func(t *testing.T) {
+	t.Run("group Pod template labels set the network topology of each replica", func(t *testing.T) {
 		cluster := createTestRayCluster(2)
 		cluster.Spec.HeadGroupSpec.Template.Labels = map[string]string{
 			NetworkTopologyModeLabelKey:               "hard",
@@ -755,31 +705,13 @@ func TestCalculateSubGroupPolicy(t *testing.T) {
 
 		require.Len(t, policies, 4)
 		assert.Equal(t, &volcanoschedulingv1beta1.NetworkTopologySpec{Mode: "hard", HighestTierAllowed: new(1)}, policies[0].NetworkTopology)
-		// The whole worker group of 2 replicas * 2 hosts is a subgroup with the worker group's network topology.
-		assert.Equal(t, int32(4), ptr.Deref(policies[1].SubGroupSize, int32(0)))
-		assert.Equal(t, []string{utils.RayNodeGroupLabelKey}, policies[1].MatchLabelKeys)
+		// Each replica of 2 Pods is a subgroup with the worker group's network topology.
+		assert.Equal(t, int32(2), ptr.Deref(policies[1].SubGroupSize, int32(0)))
+		assert.Equal(t, []string{utils.RayWorkerReplicaNameKey}, policies[1].MatchLabelKeys)
 		assert.Equal(t, &volcanoschedulingv1beta1.NetworkTopologySpec{Mode: "soft", HighestTierAllowed: new(2)}, policies[1].NetworkTopology)
 		assert.Equal(t, &volcanoschedulingv1beta1.NetworkTopologySpec{Mode: "hard"}, policies[2].NetworkTopology)
 		// The highest allowed tier is ignored without a mode, the same as the owner labels.
 		assert.Nil(t, policies[3].NetworkTopology)
-	})
-
-	t.Run("the replica scope applies the group network topology to each replica", func(t *testing.T) {
-		cluster := createTestRayCluster(2)
-		cluster.Spec.WorkerGroupSpecs[0].Template.Annotations = map[string]string{utils.RayVolcanoSubGroupScopeAnnotationKey: utils.RayVolcanoSubGroupScopeReplica}
-		cluster.Spec.WorkerGroupSpecs[0].Template.Labels = map[string]string{
-			NetworkTopologyModeLabelKey:               "hard",
-			NetworkTopologyHighestTierAllowedLabelKey: "1",
-		}
-
-		policies := mustCalculateSubGroupPolicy(t, &cluster.Spec)
-
-		require.Len(t, policies, 2)
-		// Each replica of 2 Pods is a subgroup with the worker group's network topology.
-		assert.Equal(t, int32(2), ptr.Deref(policies[1].SubGroupSize, int32(0)))
-		assert.Equal(t, int32(2), ptr.Deref(policies[1].MinSubGroups, int32(0)))
-		assert.Equal(t, []string{utils.RayWorkerReplicaNameKey}, policies[1].MatchLabelKeys)
-		assert.Equal(t, &volcanoschedulingv1beta1.NetworkTopologySpec{Mode: "hard", HighestTierAllowed: new(1)}, policies[1].NetworkTopology)
 	})
 
 	t.Run("group highest tier allowed label that is not an int returns an error", func(t *testing.T) {
@@ -837,15 +769,14 @@ func TestSyncPodGroup_SubGroupPolicy(t *testing.T) {
 	podGroupKey := client.ObjectKey{Namespace: cluster.Namespace, Name: getAppPodGroupName(&cluster)}
 	require.NoError(t, fakeCli.Get(ctx, podGroupKey, podGroup))
 	require.Len(t, podGroup.Spec.SubGroupPolicy, 2)
-	assert.Equal(t, int32(4), ptr.Deref(podGroup.Spec.SubGroupPolicy[1].SubGroupSize, int32(0)))
-	assert.Equal(t, int32(1), ptr.Deref(podGroup.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
+	assert.Equal(t, int32(2), ptr.Deref(podGroup.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
 
 	cluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](3)
 	require.NoError(t, scheduler.handleRayCluster(ctx, &cluster))
 	require.NoError(t, fakeCli.Get(ctx, podGroupKey, podGroup))
 	require.Len(t, podGroup.Spec.SubGroupPolicy, 2)
-	assert.Equal(t, int32(6), ptr.Deref(podGroup.Spec.SubGroupPolicy[1].SubGroupSize, int32(0)))
-	assert.Equal(t, int32(1), ptr.Deref(podGroup.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
+	assert.Equal(t, int32(3), ptr.Deref(podGroup.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
+	assert.Equal(t, int32(2), ptr.Deref(podGroup.Spec.SubGroupPolicy[1].SubGroupSize, int32(0)))
 
 	// The group network topology labels are part of the subgroup policy, so they are synchronized too.
 	cluster.Spec.WorkerGroupSpecs[0].Template.Labels = map[string]string{
@@ -856,15 +787,6 @@ func TestSyncPodGroup_SubGroupPolicy(t *testing.T) {
 	require.NoError(t, fakeCli.Get(ctx, podGroupKey, podGroup))
 	require.Len(t, podGroup.Spec.SubGroupPolicy, 2)
 	assert.Equal(t, &volcanoschedulingv1beta1.NetworkTopologySpec{Mode: "hard", HighestTierAllowed: new(1)}, podGroup.Spec.SubGroupPolicy[1].NetworkTopology)
-
-	// So is the subgroup scope.
-	cluster.Spec.WorkerGroupSpecs[0].Template.Annotations = map[string]string{utils.RayVolcanoSubGroupScopeAnnotationKey: utils.RayVolcanoSubGroupScopeReplica}
-	require.NoError(t, scheduler.handleRayCluster(ctx, &cluster))
-	require.NoError(t, fakeCli.Get(ctx, podGroupKey, podGroup))
-	require.Len(t, podGroup.Spec.SubGroupPolicy, 2)
-	assert.Equal(t, int32(2), ptr.Deref(podGroup.Spec.SubGroupPolicy[1].SubGroupSize, int32(0)))
-	assert.Equal(t, int32(3), ptr.Deref(podGroup.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
-	assert.Equal(t, []string{utils.RayWorkerReplicaNameKey}, podGroup.Spec.SubGroupPolicy[1].MatchLabelKeys)
 
 	minMember, totalResource := scheduler.calculatePodGroupParams(&cluster.Spec)
 	didUpdate, err := scheduler.syncPodGroup(ctx, &cluster, minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster.Spec))
@@ -1201,8 +1123,7 @@ func TestCleanupOnCompletion(t *testing.T) {
 		a.Equal("768Mi", retrievedPg.Spec.MinResources.Memory().String())
 		require.Len(retrievedPg.Spec.SubGroupPolicy, 2)
 		a.Equal("small-group", retrievedPg.Spec.SubGroupPolicy[1].Name)
-		a.Equal(int32(2), ptr.Deref(retrievedPg.Spec.SubGroupPolicy[1].SubGroupSize, int32(0)))
-		a.Equal(int32(1), ptr.Deref(retrievedPg.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
+		a.Equal(int32(2), ptr.Deref(retrievedPg.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
 	})
 
 	t.Run("RayJob - RayCluster exists, recalculates PodGroup with the submitter container", func(t *testing.T) {

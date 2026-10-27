@@ -4474,23 +4474,3 @@ func TestValidateRayClusterSpec_LabelRefs(t *testing.T) {
 	spec.RayVersion = "2.45.0"
 	require.NoError(t, ValidateRayClusterSpec(spec, nil))
 }
-
-// TestValidateRayClusterSpec_VolcanoSubGroupScope checks the values of the Volcano subgroup scope annotation
-func TestValidateRayClusterSpec_VolcanoSubGroupScope(t *testing.T) {
-	spec := createBasicRayClusterSpec()
-	spec.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{{
-		GroupName:   "test",
-		MinReplicas: new(int32(1)),
-		MaxReplicas: new(int32(1)),
-		Template:    corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-worker"}}}},
-	}}
-	require.NoError(t, ValidateRayClusterSpec(spec, nil))
-
-	for _, scope := range []string{"", RayVolcanoSubGroupScopeWorkerGroup, RayVolcanoSubGroupScopeReplica} {
-		spec.WorkerGroupSpecs[0].Template.Annotations = map[string]string{RayVolcanoSubGroupScopeAnnotationKey: scope}
-		require.NoError(t, ValidateRayClusterSpec(spec, nil))
-	}
-
-	spec.WorkerGroupSpecs[0].Template.Annotations = map[string]string{RayVolcanoSubGroupScopeAnnotationKey: "replicas"}
-	require.ErrorContains(t, ValidateRayClusterSpec(spec, nil), `worker group test has invalid ray.io/volcano-subgroup-scope annotation "replicas"`)
-}

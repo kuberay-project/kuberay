@@ -56,15 +56,6 @@ const (
 	RayPriorityClassName     = "ray.io/priority-class-name"
 	RayGangSchedulingEnabled = "ray.io/gang-scheduling-enabled"
 
-	// RayVolcanoSubGroupScopeAnnotationKey is set on a worker group's Pod template to choose how Volcano groups the
-	// worker group's Pods into subgroups, which are the units of gang scheduling and network topology.
-	// "worker-group" (the default) makes the whole worker group one subgroup. "replica" makes each logical replica
-	// of numOfHosts Pods a subgroup, so multi-host worker groups should use it to schedule each replica as a whole.
-	// Set it when creating the RayCluster, because Volcano regroups the running Pods when it changes.
-	RayVolcanoSubGroupScopeAnnotationKey = "ray.io/volcano-subgroup-scope"
-	RayVolcanoSubGroupScopeWorkerGroup   = "worker-group"
-	RayVolcanoSubGroupScopeReplica       = "replica"
-
 	// Ray GCS FT related annotations
 	RayFTEnabledAnnotationKey         = "ray.io/ft-enabled"
 	RayExternalStorageNSAnnotationKey = "ray.io/external-storage-namespace"
