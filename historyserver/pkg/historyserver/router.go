@@ -42,8 +42,8 @@ const (
 
 // handleMissingSnapshot responds 503 when the session snapshot is not in the cache.
 func (s *ServerHandler) handleMissingSnapshot(resp *restful.Response) {
-	resp.WriteErrorString(http.StatusServiceUnavailable,
-		"session snapshot not in cache; reload via /enter_cluster")
+	utils.LogResponseWriteError(resp.WriteErrorString(http.StatusServiceUnavailable,
+		"session snapshot not in cache; reload via /enter_cluster"))
 }
 
 type ServiceInfo struct {
@@ -265,13 +265,13 @@ func routerHealthz(_ *ServerHandler) {
 	http.HandleFunc("/readz", func(w http.ResponseWriter, r *http.Request) {
 		logrus.Infof("Received request: %s %s", r.Method, r.URL.String())
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte("ok"))
+		utils.WriteResponse(w, []byte("ok"))
 		logrus.Debugf("request /readz")
 	})
 	http.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
 		logrus.Infof("Received request: %s %s", r.Method, r.URL.String())
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte("ok"))
+		utils.WriteResponse(w, []byte("ok"))
 		logrus.Debugf("request /livez")
 	})
 }
@@ -283,7 +283,7 @@ func routerSelectCluster(_ *ServerHandler) {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
-		w.Write(html.ClusterSelectorHTML)
+		utils.WriteResponse(w, html.ClusterSelectorHTML)
 	}
 	http.HandleFunc("/select_cluster", handler)
 }
@@ -316,18 +316,18 @@ func routerRayClusterSet(s *ServerHandler) {
 	enterHandler := func(r1 *restful.Request, r2 *restful.Response, namespace, resourceType, resourceName, session string) {
 		kindLower := strings.ToLower(resourceType)
 		if kindLower != utils.RayClusterKind && kindLower != utils.RayJobKind && kindLower != utils.RayServiceKind {
-			r2.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("unsupported resource kind: %q (must be raycluster, rayjob, or rayservice)", resourceType))
+			utils.LogResponseWriteError(r2.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("unsupported resource kind: %q (must be raycluster, rayjob, or rayservice)", resourceType)))
 			return
 		}
 
 		resolvedClusterInfo, found, err := s.resolveSession(r1.Request.Context(), namespace, resourceType, resourceName, session)
 		if err != nil {
 			logrus.Errorf("Failed to resolve session %s/%s/%s/%s: %v", namespace, resourceType, resourceName, session, err)
-			r2.WriteErrorString(http.StatusInternalServerError, err.Error())
+			utils.LogResponseWriteError(r2.WriteErrorString(http.StatusInternalServerError, err.Error()))
 			return
 		}
 		if !found {
-			r2.WriteErrorString(http.StatusNotFound, fmt.Sprintf("cluster %s/%s/%s with session %s not found", namespace, resourceType, resourceName, session))
+			utils.LogResponseWriteError(r2.WriteErrorString(http.StatusNotFound, fmt.Sprintf("cluster %s/%s/%s with session %s not found", namespace, resourceType, resourceName, session)))
 			return
 		}
 
@@ -337,7 +337,7 @@ func routerRayClusterSet(s *ServerHandler) {
 		if resolvedSession != "live" {
 			if ParseSessionTimestamp(resolvedSession).IsZero() {
 				logrus.Warnf("Rejecting invalid session name: %s/%s/%s", namespace, resolvedName, resolvedSession)
-				r2.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("invalid session name: %q", resolvedSession))
+				utils.LogResponseWriteError(r2.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("invalid session name: %q", resolvedSession)))
 				return
 			}
 			// User add reload=true parameter to trigger snapshot refresh.
@@ -347,7 +347,7 @@ func routerRayClusterSet(s *ServerHandler) {
 			live, err := s.sessionLoader.LoadSession(r1.Request.Context(), resolvedClusterInfo)
 			if err != nil {
 				logrus.Errorf("Failed to load session %s/%s/%s: %v", namespace, resolvedName, resolvedSession, err)
-				r2.WriteErrorString(http.StatusInternalServerError, err.Error())
+				utils.LogResponseWriteError(r2.WriteErrorString(http.StatusInternalServerError, err.Error()))
 				return
 			}
 
@@ -355,9 +355,9 @@ func routerRayClusterSet(s *ServerHandler) {
 			// so "live" sentinel is set to avoid querying empty in-memory state.
 			if live {
 				if !s.enableLiveClusters {
-					r2.WriteErrorString(http.StatusNotFound, fmt.Sprintf(
+					utils.LogResponseWriteError(r2.WriteErrorString(http.StatusNotFound, fmt.Sprintf(
 						"RayCluster %s/%s is still running, so session %q has no stored replay to serve; --enable-live-clusters is disabled on this History Server",
-						namespace, resolvedName, resolvedSession))
+						namespace, resolvedName, resolvedSession)))
 					return
 				}
 				resolvedSession = "live"
@@ -370,12 +370,12 @@ func routerRayClusterSet(s *ServerHandler) {
 		http.SetCookie(r2, &http.Cookie{MaxAge: 600, Path: "/", Name: COOKIE_OWNER_KIND_KEY, Value: resolvedClusterInfo.OwnerKind})
 		http.SetCookie(r2, &http.Cookie{MaxAge: 600, Path: "/", Name: COOKIE_OWNER_NAME_KEY, Value: resolvedClusterInfo.OwnerName})
 
-		r2.WriteJson(map[string]any{
+		utils.LogResponseWriteError(r2.WriteJson(map[string]any{
 			"result":    "success",
 			"name":      resolvedName,
 			"namespace": namespace,
 			"session":   resolvedSession,
-		}, "application/json")
+		}, "application/json"))
 	}
 
 	ws.Route(ws.GET("/{namespace}/{kind}/{name}").To(func(r1 *restful.Request, r2 *restful.Response) {
@@ -423,14 +423,14 @@ func (s *ServerHandler) RegisterRouter() {
 
 func (s *ServerHandler) redirectRequest(req *restful.Request, resp *restful.Response) {
 	if !s.enableLiveClusters {
-		resp.WriteErrorString(http.StatusForbidden, "live cluster access is disabled on this History Server")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusForbidden, "live cluster access is disabled on this History Server"))
 		return
 	}
 
 	svcInfo, ok := req.Attribute(ATTRIBUTE_SERVICE_NAME).(ServiceInfo)
 	if !ok {
 		logrus.Errorf("Cannot proxy %s: head service info missing from the request context", req.Request.URL.String())
-		resp.WriteErrorString(http.StatusInternalServerError, "head service info missing from the request context")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, "head service info missing from the request context"))
 		return
 	}
 
@@ -455,7 +455,7 @@ func (s *ServerHandler) redirectRequest(req *restful.Request, resp *restful.Resp
 	proxyReq, err := http.NewRequestWithContext(req.Request.Context(), req.Request.Method, targetURL, req.Request.Body)
 	if err != nil {
 		logrus.Errorf("Failed to create proxy request: %v", err)
-		resp.WriteError(http.StatusInternalServerError, err)
+		utils.LogResponseWriteError(resp.WriteError(http.StatusInternalServerError, err))
 		return
 	}
 
@@ -500,7 +500,7 @@ func (s *ServerHandler) redirectRequest(req *restful.Request, resp *restful.Resp
 	remoteResp, err := s.httpClient.Do(proxyReq)
 	if err != nil {
 		logrus.Errorf("Failed to proxy request to %s: %v", targetURL, err)
-		resp.WriteError(http.StatusBadGateway, err)
+		utils.LogResponseWriteError(resp.WriteError(http.StatusBadGateway, err))
 		return
 	}
 	defer remoteResp.Body.Close()
@@ -524,7 +524,7 @@ func (s *ServerHandler) redirectRequest(req *restful.Request, resp *restful.Resp
 
 func (s *ServerHandler) getClusters(_ *restful.Request, resp *restful.Response) {
 	clusters := s.listClusters(s.maxClusters)
-	resp.WriteAsJson(clusters)
+	utils.LogResponseWriteError(resp.WriteAsJson(clusters))
 }
 
 // getNodes retrieves all node summaries and resource usage information for a specific cluster session.
@@ -562,7 +562,7 @@ func (s *ServerHandler) getNodes(req *restful.Request, resp *restful.Response) {
 		// Default to summary view
 		s.getNodesSummary(snap.Nodes, sessionName, resp)
 	default:
-		resp.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("unsupported view parameter: %s", viewParam))
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("unsupported view parameter: %s", viewParam)))
 	}
 }
 
@@ -612,11 +612,11 @@ func (s *ServerHandler) getNodesSummary(nodeMap map[string]eventtypes.Node, sess
 	data, err := json.Marshal(response)
 	if err != nil {
 		logrus.Errorf("Failed to marshal nodes response: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
-	resp.Write(data)
+	utils.WriteResponse(resp, data)
 }
 
 // getNodesHostNameList returns a list of hostnames for all alive nodes in historical clusters.
@@ -657,11 +657,11 @@ func (s *ServerHandler) getNodesHostNameList(nodeMap map[string]eventtypes.Node,
 	data, err := json.Marshal(response)
 	if err != nil {
 		logrus.Errorf("Failed to marshal nodes hostname list response: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
-	resp.Write(data)
+	utils.WriteResponse(resp, data)
 }
 
 // getNode retrieves node details for a specific node in a specific cluster session.
@@ -678,7 +678,7 @@ func (s *ServerHandler) getNode(req *restful.Request, resp *restful.Response) {
 	// Get the target node ID from the path parameter.
 	targetNodeId := req.PathParameter("node_id")
 	if targetNodeId == "" {
-		resp.WriteErrorString(http.StatusBadRequest, "node_id is required")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusBadRequest, "node_id is required"))
 		return
 	}
 
@@ -692,7 +692,7 @@ func (s *ServerHandler) getNode(req *restful.Request, resp *restful.Response) {
 	}
 	targetNode, found := snap.Nodes[targetNodeId]
 	if !found {
-		resp.WriteErrorString(http.StatusNotFound, fmt.Sprintf("node %s not found", targetNodeId))
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusNotFound, fmt.Sprintf("node %s not found", targetNodeId)))
 		return
 	}
 
@@ -702,7 +702,7 @@ func (s *ServerHandler) getNode(req *restful.Request, resp *restful.Response) {
 	// Frontend expects "detail" to be a single object {hostname, ip, raylet: {...}}, not an array.
 	// Ref: https://github.com/ray-project/ray/blob/27d3d81d47/python/ray/dashboard/client/src/pages/node/hook/useNodeDetail.ts#L33-L34
 	if len(nodeSummaryReplay) == 0 {
-		resp.WriteErrorString(http.StatusNotFound, fmt.Sprintf("node %s has no state transitions yet", targetNodeId))
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusNotFound, fmt.Sprintf("node %s has no state transitions yet", targetNodeId)))
 		return
 	}
 	detail := nodeSummaryReplay[len(nodeSummaryReplay)-1]
@@ -732,11 +732,11 @@ func (s *ServerHandler) getNode(req *restful.Request, resp *restful.Response) {
 	data, err := json.Marshal(response)
 	if err != nil {
 		logrus.Errorf("Failed to marshal nodes response: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
-	resp.Write(data)
+	utils.WriteResponse(resp, data)
 }
 
 func (s *ServerHandler) getEvents(req *restful.Request, resp *restful.Response) {
@@ -801,10 +801,10 @@ func (s *ServerHandler) getEvents(req *restful.Request, resp *restful.Response) 
 	respData, err := json.Marshal(response)
 	if err != nil {
 		logrus.Errorf("Failed to marshal events response: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	resp.Write(respData)
+	utils.WriteResponse(resp, respData)
 }
 
 func (s *ServerHandler) getPrometheusHealth(req *restful.Request, resp *restful.Response) {
@@ -814,7 +814,7 @@ func (s *ServerHandler) getPrometheusHealth(req *restful.Request, resp *restful.
 		return
 	}
 
-	resp.WriteErrorString(http.StatusNotImplemented, "Prometheus health is not yet supported for historical sessions.")
+	utils.LogResponseWriteError(resp.WriteErrorString(http.StatusNotImplemented, "Prometheus health is not yet supported for historical sessions."))
 }
 
 func (s *ServerHandler) getGrafanaHealth(req *restful.Request, resp *restful.Response) {
@@ -824,7 +824,7 @@ func (s *ServerHandler) getGrafanaHealth(req *restful.Request, resp *restful.Res
 		return
 	}
 
-	resp.WriteErrorString(http.StatusNotImplemented, "Grafana health is not yet supported for historical sessions.")
+	utils.LogResponseWriteError(resp.WriteErrorString(http.StatusNotImplemented, "Grafana health is not yet supported for historical sessions."))
 }
 
 func (s *ServerHandler) getJobs(req *restful.Request, resp *restful.Response) {
@@ -860,10 +860,10 @@ func (s *ServerHandler) getJobs(req *restful.Request, resp *restful.Response) {
 	respData, err := json.Marshal(response)
 	if err != nil {
 		logrus.Errorf("Failed to marshal jobs response: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	resp.Write(respData)
+	utils.WriteResponse(resp, respData)
 }
 
 // formatJobForResponse will convert eventtypes.Job to the format expected by Ray Dashboard
@@ -956,17 +956,17 @@ func (s *ServerHandler) getJob(req *restful.Request, resp *restful.Response) {
 	job, found := snap.Jobs[jobID]
 	if !found {
 		responseString := fmt.Sprintf("Job %s does not exist", jobID)
-		resp.Write([]byte(responseString))
+		utils.WriteResponse(resp, []byte(responseString))
 		return
 	}
 
 	respData, err := json.Marshal(formatJobForResponse(job))
 	if err != nil {
 		logrus.Errorf("Failed to marshal jobs response: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	resp.Write(respData)
+	utils.WriteResponse(resp, respData)
 }
 
 func (s *ServerHandler) getClusterStatus(req *restful.Request, resp *restful.Response) {
@@ -1018,11 +1018,11 @@ func (s *ServerHandler) getClusterStatus(req *restful.Request, resp *restful.Res
 	}
 	if err != nil {
 		logrus.Errorf("Failed to marshal cluster status response: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, err.Error()))
 		return
 	}
 	resp.Header().Set("Content-Type", "application/json")
-	resp.Write(respData)
+	utils.WriteResponse(resp, respData)
 }
 
 // buildFormattedClusterStatus reconstructs the cluster status from debug_state.txt and pending tasks and actors
@@ -1100,19 +1100,19 @@ func (s *ServerHandler) getClusterMetadata(req *restful.Request, resp *restful.R
 	endpointPath := path.Join(sessionName, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
 	reader := s.reader.GetContent(clusterLogPathPrefix, endpointPath)
 	if reader == nil {
-		resp.WriteErrorString(http.StatusNotFound, "Cluster metadata not found")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusNotFound, "Cluster metadata not found"))
 		return
 	}
 
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		logrus.Errorf("Failed to read cluster metadata: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, "Failed to read cluster metadata")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, "Failed to read cluster metadata"))
 		return
 	}
 
 	resp.Header().Set("Content-Type", "application/json")
-	resp.Write(data)
+	utils.WriteResponse(resp, data)
 }
 
 // getFetchedEndpoint handles the catch-all route registered after all explicit routes.
@@ -1143,17 +1143,17 @@ func (s *ServerHandler) getFetchedEndpoint(req *restful.Request, resp *restful.R
 		// collected (e.g., Serve was not enabled on the cluster).
 		if emptyResp := missingSnapshotFallback(req.Request.URL.Path); emptyResp != nil {
 			resp.Header().Set("Content-Type", "application/json")
-			resp.Write(emptyResp)
+			utils.WriteResponse(resp, emptyResp)
 			return
 		}
-		resp.WriteErrorString(http.StatusNotFound, "Endpoint data not found in storage")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusNotFound, "Endpoint data not found in storage"))
 		return
 	}
 
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		logrus.Errorf("Failed to read fetched endpoint data for %s: %v", req.Request.URL.Path, err)
-		resp.WriteErrorString(http.StatusInternalServerError, "Failed to read endpoint data")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, "Failed to read endpoint data"))
 		return
 	}
 
@@ -1165,7 +1165,7 @@ func (s *ServerHandler) getFetchedEndpoint(req *restful.Request, resp *restful.R
 	}
 
 	resp.Header().Set("Content-Type", "application/json")
-	resp.Write(data)
+	utils.WriteResponse(resp, data)
 }
 
 // missingSnapshotFallback returns a schema-valid empty payload for a known frontend
@@ -1287,7 +1287,7 @@ func (s *ServerHandler) getNodeLogs(req *restful.Request, resp *restful.Response
 	}
 	nodeID := req.QueryParameter("node_id")
 	if nodeID != "" && !fs.ValidPath(nodeID) {
-		resp.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("invalid path: path traversal not allowed (node_id=%s)", nodeID))
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("invalid path: path traversal not allowed (node_id=%s)", nodeID)))
 		return
 	}
 
@@ -1301,7 +1301,7 @@ func (s *ServerHandler) getNodeLogs(req *restful.Request, resp *restful.Response
 		glob = pattern
 		if base != "." {
 			if !fs.ValidPath(base) {
-				resp.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("invalid path: path traversal not allowed (glob=%s)", req.QueryParameter("glob")))
+				utils.LogResponseWriteError(resp.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("invalid path: path traversal not allowed (glob=%s)", req.QueryParameter("glob"))))
 				return
 			}
 			folder = base
@@ -1311,12 +1311,12 @@ func (s *ServerHandler) getNodeLogs(req *restful.Request, resp *restful.Response
 	data, err := s._getNodeLogs(clusterLogPathPrefix, sessionName, nodeID, folder, glob)
 	if err != nil {
 		logrus.Errorf("Error: %v", err)
-		resp.WriteError(400, err)
+		utils.LogResponseWriteError(resp.WriteError(400, err))
 		return
 	}
 	resp.Header().Set("Content-Type", "application/json")
 	resp.Header().Set("X-Content-Type-Options", "nosniff")
-	resp.Write(data)
+	utils.WriteResponse(resp, data)
 }
 
 func (s *ServerHandler) getLogicalActors(req *restful.Request, resp *restful.Response) {
@@ -1353,10 +1353,10 @@ func (s *ServerHandler) getLogicalActors(req *restful.Request, resp *restful.Res
 	respData, err := json.Marshal(response)
 	if err != nil {
 		logrus.Errorf("Failed to marshal actors response: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	resp.Write(respData)
+	utils.WriteResponse(resp, respData)
 }
 
 // formatActorForResponse converts an eventtypes.Actor to the format expected by Ray Dashboard.
@@ -1438,11 +1438,11 @@ func (s *ServerHandler) getLogicalActor(req *restful.Request, resp *restful.Resp
 	actData, err := json.MarshalIndent(&replyActorInfo, "", "  ")
 	if err != nil {
 		logrus.Errorf("Failed to marshal actor response: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
-	resp.Write(actData)
+	utils.WriteResponse(resp, actData)
 }
 
 func (s *ServerHandler) getNodeLogFile(req *restful.Request, resp *restful.Response) {
@@ -1453,30 +1453,30 @@ func (s *ServerHandler) getNodeLogFile(req *restful.Request, resp *restful.Respo
 	// Parse query parameters into GetLogFileOptions struct
 	options, err := parseGetLogFileOptions(req)
 	if err != nil {
-		resp.WriteErrorString(http.StatusBadRequest, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusBadRequest, err.Error()))
 		return
 	}
 
 	// node_id or node_ip is required when not using actor_id or task_id (they can auto-resolve node_id)
 	if options.NodeID == "" && options.NodeIP == "" && options.ActorID == "" && options.TaskID == "" {
-		resp.WriteErrorString(http.StatusBadRequest, "node_id or node_ip is required when actor_id or task_id is not provided")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusBadRequest, "node_id or node_ip is required when actor_id or task_id is not provided"))
 		return
 	}
 
 	// Validate required parameters following Ray Dashboard logic
 	// At least one of: actor_id, task_id, pid, filename, submission_id must be provided
 	if options.ActorID == "" && options.TaskID == "" && options.PID == 0 && options.Filename == "" {
-		resp.WriteErrorString(http.StatusBadRequest, "At least one of actor_id, task_id, pid, or filename is required")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusBadRequest, "At least one of actor_id, task_id, pid, or filename is required"))
 		return
 	}
 
 	// Prevent path traversal attacks (e.g., ../../etc/passwd)
 	if options.NodeID != "" && !fs.ValidPath(options.NodeID) {
-		resp.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("invalid path: path traversal not allowed (node_id=%s)", options.NodeID))
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("invalid path: path traversal not allowed (node_id=%s)", options.NodeID)))
 		return
 	}
 	if options.Filename != "" && !fs.ValidPath(options.Filename) {
-		resp.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("invalid path: path traversal not allowed (filename=%s)", options.Filename))
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("invalid path: path traversal not allowed (filename=%s)", options.Filename)))
 		return
 	}
 
@@ -1497,8 +1497,8 @@ func (s *ServerHandler) getNodeLogFile(req *restful.Request, resp *restful.Respo
 	if options.NodeID == "" && options.NodeIP != "" {
 		nodeID, err := s.ipToNodeId(clusterLogPathPrefix, sessionName, options.NodeIP)
 		if err != nil {
-			resp.WriteErrorString(http.StatusNotFound,
-				fmt.Sprintf("Cannot find matching node_id for a given node ip %s", options.NodeIP))
+			utils.LogResponseWriteError(resp.WriteErrorString(http.StatusNotFound,
+				fmt.Sprintf("Cannot find matching node_id for a given node ip %s", options.NodeIP)))
 			return
 		}
 		options.NodeID = nodeID
@@ -1509,10 +1509,10 @@ func (s *ServerHandler) getNodeLogFile(req *restful.Request, resp *restful.Respo
 		var httpErr *utils.HTTPError
 		if errors.As(err, &httpErr) {
 			logrus.Errorf("Error getting node log file: %v", httpErr.Unwrap())
-			resp.WriteError(httpErr.StatusCode(), httpErr)
+			utils.LogResponseWriteError(resp.WriteError(httpErr.StatusCode(), httpErr))
 		} else {
 			logrus.Errorf("Error getting node log file: %v", err)
-			resp.WriteError(http.StatusInternalServerError, err)
+			utils.LogResponseWriteError(resp.WriteError(http.StatusInternalServerError, err))
 		}
 		return
 	}
@@ -1534,7 +1534,7 @@ func (s *ServerHandler) getNodeLogFile(req *restful.Request, resp *restful.Respo
 
 	resp.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	resp.Header().Set("X-Content-Type-Options", "nosniff")
-	resp.Write(content)
+	utils.WriteResponse(resp, content)
 }
 
 // parseGetLogFileOptions parses query parameters into GetLogFileOptions struct
@@ -1622,7 +1622,7 @@ func (s *ServerHandler) getNodeLogStream(req *restful.Request, resp *restful.Res
 
 	// Streaming only available for live clusters
 	if sessionName != "live" {
-		resp.WriteErrorString(http.StatusNotImplemented, "Log streaming only available for live clusters")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusNotImplemented, "Log streaming only available for live clusters"))
 		return
 	}
 
@@ -1640,8 +1640,8 @@ func (s *ServerHandler) getNodeLog(req *restful.Request, resp *restful.Response)
 	case "stream":
 		s.getNodeLogStream(req, resp)
 	default:
-		resp.WriteErrorString(http.StatusBadRequest,
-			fmt.Sprintf("unsupported media_type: %s (must be 'file' or 'stream')", mediaType))
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusBadRequest,
+			fmt.Sprintf("unsupported media_type: %s (must be 'file' or 'stream')", mediaType)))
 	}
 }
 
@@ -1657,7 +1657,7 @@ func (s *ServerHandler) getTaskSummarize(req *restful.Request, resp *restful.Res
 
 	listAPIOptions, err := utils.ParseOptionsFromReq(req)
 	if err != nil {
-		resp.WriteErrorString(http.StatusBadRequest, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusBadRequest, err.Error()))
 		return
 	}
 	summaryBy := req.QueryParameter("summary_by")
@@ -1744,10 +1744,10 @@ func (s *ServerHandler) getTaskSummarize(req *restful.Request, resp *restful.Res
 	respData, err := json.Marshal(response)
 	if err != nil {
 		logrus.Errorf("Failed to marshal task summarize response: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	resp.Write(respData)
+	utils.WriteResponse(resp, respData)
 }
 
 // summarizeTasksByFuncName groups tasks by function name and counts by state.
@@ -1832,7 +1832,7 @@ func (s *ServerHandler) getTasks(req *restful.Request, resp *restful.Response) {
 	// Parse query parameters.
 	listAPIOptions, err := utils.ParseOptionsFromReq(req)
 	if err != nil {
-		resp.WriteErrorString(http.StatusBadRequest, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusBadRequest, err.Error()))
 		return
 	}
 
@@ -1880,11 +1880,11 @@ func (s *ServerHandler) getTasks(req *restful.Request, resp *restful.Response) {
 	respData, err := json.Marshal(response)
 	if err != nil {
 		logrus.Errorf("Failed to marshal task response: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
-	resp.Write(respData)
+	utils.WriteResponse(resp, respData)
 }
 
 func formatTaskLogInfoForResponse(taskLogInfo *eventtypes.TaskLogInfo) any {
@@ -2009,17 +2009,17 @@ func (s *ServerHandler) CookieHandle(req *restful.Request, resp *restful.Respons
 	// Get cookie from request
 	clusterName, err := req.Request.Cookie(COOKIE_CLUSTER_NAME_KEY)
 	if err != nil {
-		resp.WriteHeaderAndEntity(http.StatusBadRequest, "Cluster Cookie not found")
+		utils.LogResponseWriteError(resp.WriteHeaderAndEntity(http.StatusBadRequest, "Cluster Cookie not found"))
 		return
 	}
 	sessionName, err := req.Request.Cookie(COOKIE_SESSION_NAME_KEY)
 	if err != nil {
-		resp.WriteHeaderAndEntity(http.StatusBadRequest, "RayCluster Session Name Cookie not found")
+		utils.LogResponseWriteError(resp.WriteHeaderAndEntity(http.StatusBadRequest, "RayCluster Session Name Cookie not found"))
 		return
 	}
 	clusterNamespace, err := req.Request.Cookie(COOKIE_CLUSTER_NAMESPACE_KEY)
 	if err != nil {
-		resp.WriteHeaderAndEntity(http.StatusBadRequest, "Cluster Namespace Cookie not found")
+		utils.LogResponseWriteError(resp.WriteHeaderAndEntity(http.StatusBadRequest, "Cluster Namespace Cookie not found"))
 		return
 	}
 
@@ -2035,24 +2035,24 @@ func (s *ServerHandler) CookieHandle(req *restful.Request, resp *restful.Respons
 
 	// Validate cookie values to prevent path traversal attacks
 	if !fs.ValidPath(clusterName.Value) || !fs.ValidPath(clusterNamespace.Value) || !fs.ValidPath(sessionName.Value) {
-		resp.WriteHeaderAndEntity(http.StatusBadRequest, fmt.Sprintf("invalid cookie values: path traversal not allowed (cluster_name=%s, cluster_namespace=%s, session_name=%s)", clusterName.Value, clusterNamespace.Value, sessionName.Value))
+		utils.LogResponseWriteError(resp.WriteHeaderAndEntity(http.StatusBadRequest, fmt.Sprintf("invalid cookie values: path traversal not allowed (cluster_name=%s, cluster_namespace=%s, session_name=%s)", clusterName.Value, clusterNamespace.Value, sessionName.Value)))
 		return
 	}
 	if ownerKind.Value != "" {
 		kindLower := strings.ToLower(ownerKind.Value)
 		if kindLower != utils.RayClusterKind && kindLower != utils.RayJobKind && kindLower != utils.RayServiceKind {
-			resp.WriteHeaderAndEntity(http.StatusBadRequest, fmt.Sprintf("invalid cookie values: unsupported owner_kind=%s (must be raycluster, rayjob, or rayservice)", ownerKind.Value))
+			utils.LogResponseWriteError(resp.WriteHeaderAndEntity(http.StatusBadRequest, fmt.Sprintf("invalid cookie values: unsupported owner_kind=%s (must be raycluster, rayjob, or rayservice)", ownerKind.Value)))
 			return
 		}
 	}
 	if ownerName.Value != "" && !fs.ValidPath(ownerName.Value) {
-		resp.WriteHeaderAndEntity(http.StatusBadRequest, fmt.Sprintf("invalid cookie values: path traversal not allowed (owner_name=%s)", ownerName.Value))
+		utils.LogResponseWriteError(resp.WriteHeaderAndEntity(http.StatusBadRequest, fmt.Sprintf("invalid cookie values: path traversal not allowed (owner_name=%s)", ownerName.Value)))
 		return
 	}
 
 	if sessionName.Value == "live" && !s.enableLiveClusters {
 		logrus.Warnf("Rejected live session request for %s/%s: live cluster access is disabled", clusterNamespace.Value, clusterName.Value)
-		resp.WriteHeaderAndEntity(http.StatusForbidden, "live cluster access is disabled on this History Server")
+		utils.LogResponseWriteError(resp.WriteHeaderAndEntity(http.StatusForbidden, "live cluster access is disabled on this History Server"))
 		return
 	}
 
@@ -2068,7 +2068,7 @@ func (s *ServerHandler) CookieHandle(req *restful.Request, resp *restful.Respons
 		// TODO: here might be a bottleneck if there are many requests in the future.
 		svcInfo, err := s.clientManager.GetSvcInfo(clusterName.Value, clusterNamespace.Value)
 		if err != nil {
-			resp.WriteHeaderAndEntity(http.StatusBadRequest, err.Error())
+			utils.LogResponseWriteError(resp.WriteHeaderAndEntity(http.StatusBadRequest, err.Error()))
 			return
 		}
 		req.SetAttribute(ATTRIBUTE_SERVICE_NAME, svcInfo)
@@ -2078,7 +2078,7 @@ func (s *ServerHandler) CookieHandle(req *restful.Request, resp *restful.Respons
 			authToken, err := s.clientManager.GetAuthTokenForRayCluster(req.Request.Context(), clusterNamespace.Value, clusterName.Value)
 			if err != nil {
 				logrus.Errorf("Failed to get auth token for cluster %s/%s: %v", clusterNamespace.Value, clusterName.Value, err)
-				resp.WriteErrorString(
+				utils.LogResponseWriteError(resp.WriteErrorString(
 					http.StatusInternalServerError,
 					fmt.Sprintf(
 						"failed to get auth token for cluster %s/%s: %v",
@@ -2086,7 +2086,7 @@ func (s *ServerHandler) CookieHandle(req *restful.Request, resp *restful.Respons
 						clusterName.Value,
 						err,
 					),
-				)
+				))
 				return
 			}
 			req.SetAttribute(ATTRIBUTE_AUTH_TOKEN, authToken)
@@ -2401,7 +2401,7 @@ func (s *ServerHandler) getTasksTimeline(req *restful.Request, resp *restful.Res
 	respData, err := json.Marshal(timeline)
 	if err != nil {
 		logrus.Errorf("Failed to marshal timeline response: %v", err)
-		resp.WriteErrorString(http.StatusInternalServerError, err.Error())
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
@@ -2414,5 +2414,5 @@ func (s *ServerHandler) getTasksTimeline(req *restful.Request, resp *restful.Res
 		}
 		resp.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	}
-	resp.Write(respData)
+	utils.WriteResponse(resp, respData)
 }

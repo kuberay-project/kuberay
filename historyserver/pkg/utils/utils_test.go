@@ -130,7 +130,9 @@ func TestGetNodeRayIDWithFQIP_EnvVars(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v0/nodes" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"data":{"result":{"result":[{"node_id":"node-id-abc","node_ip":"10.0.0.1","state":"ALIVE"}]}}}`))
+			if _, err := w.Write([]byte(`{"data":{"result":{"result":[{"node_id":"node-id-abc","node_ip":"10.0.0.1","state":"ALIVE"}]}}}`)); err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -180,7 +182,9 @@ func TestGetNodeRayIDWithFQIP_EnvVars(t *testing.T) {
 func TestGetNodeRayIDWithFQIP_FailsFastOnAuthConfigError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":{"result":{"result":[{"node_id":"node-id-abc","node_ip":"10.0.0.1","state":"ALIVE"}]}}}`))
+		if _, err := w.Write([]byte(`{"data":{"result":{"result":[{"node_id":"node-id-abc","node_ip":"10.0.0.1","state":"ALIVE"}]}}}`)); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
 	}))
 	defer ts.Close()
 
