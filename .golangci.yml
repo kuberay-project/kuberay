@@ -85,6 +85,9 @@ linters:
             - '**/kubectl-plugin/pkg/util/*.go'
     modernize:
       disable:
+        # Go 1.27's embedlit analyzer rewrites a large part of the existing codebase.
+        # Keep this version upgrade focused; enable it in a dedicated cleanup.
+        - embedlit
         - omitzero
   exclusions:
     # Suppress SA1019 for the project's own deprecated API fields that are

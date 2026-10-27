@@ -110,11 +110,6 @@ generate: mockgen # Generate code using command after //go:generate in each file
 
 ##@ Testing
 
-# TODO: Remove this once a fix for https://github.com/golang/go/issues/75031 is released.
-# This is a workaround for an issue where `go test -cover` reports errors for packages with no test files.
-GOVERSION := $(shell go env GOVERSION)
-export GOTOOLCHAIN := $(GOVERSION)+auto
-
 .PHONY: test
 test: fmt vet fumpt imports generate ## Run all unit tests.
 	go test ./pkg/... $(GO_TEST_FLAGS) -race -coverprofile ray-kube-api-server-coverage.out -parallel 4
@@ -260,7 +255,7 @@ MOCKGEN = $(REPO_ROOT_BIN)/mockgen
 KUSTOMIZE_VERSION ?= v5.4.3
 GOFUMPT_VERSION ?= v0.3.1
 GOIMPORTS_VERSION ?= v0.14.0
-GOLANGCI_LINT_VERSION ?= v2.11.4
+GOLANGCI_LINT_VERSION ?= v2.13.1
 KIND_VERSION ?= v0.19.0
 GOBINDATA_VERSION ?= v4.0.2
 MOCKGEN_VERSION ?= v1.6.0
@@ -284,7 +279,7 @@ $(GOFUMPT): $(REPO_ROOT_BIN)
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci_lint locally if necessary.
 $(GOLANGCI_LINT): $(REPO_ROOT_BIN)
-	test -s $(GOLANGCI_LINT) || (curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | bash -s -- -b $(REPO_ROOT_BIN)/ $(GOLANGCI_LINT_VERSION))
+	test -s $(GOLANGCI_LINT) || (curl -sSfL https://golangci-lint.run/install.sh | bash -s -- -b $(REPO_ROOT_BIN)/ $(GOLANGCI_LINT_VERSION))
 
 .PHONY: kind
 kind: $(KIND) ## Download kind locally if necessary.

@@ -1,4 +1,4 @@
-FROM golang:1.26-bookworm AS builder
+FROM golang:1.27-bookworm AS builder
 
 ARG GOPROXY=https://proxy.golang.org,direct
 ARG ENABLE_RACE=false

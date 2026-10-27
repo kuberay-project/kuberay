@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM golang:1.26-bookworm AS builder
+FROM golang:1.27-bookworm AS builder
 
 WORKDIR /workspace
 # Copy the Go Modules manifests

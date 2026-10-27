@@ -33,9 +33,9 @@ guideline to set up the Collector component for local development and testing.
 
 ### Prerequisites
 
-Please ensure your environment matches the version requirements specified in the [ray-operator development guide](https://github.com/ray-project/kuberay/blob/2959d7d8a4174eedbf7b4a71a79219547f62cc82/ray-operator/DEVELOPMENT.md):
+Please ensure your environment matches the version requirements specified in the [ray-operator development guide](../../ray-operator/DEVELOPMENT.md):
 
-- Go v1.24+
+- Go v1.27+
 - Docker: Engine for building the container image
 - GNU Make
 - K9s (optional)

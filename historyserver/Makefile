@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-GOLANGCI_LINT_VERSION ?= v2.11.4
+GOLANGCI_LINT_VERSION ?= v2.13.1
 REPO_ROOT := $(shell dirname ${PWD})
 REPO_ROOT_BIN := $(REPO_ROOT)/bin
 GOLANGCI_LINT ?= $(REPO_ROOT_BIN)/golangci-lint
@@ -132,11 +132,6 @@ ifeq ($(ENGINE),docker)
 	${ENGINE} buildx use $(DOCKERBUILDER_INSTANCE)
 endif
 
-# TODO: Remove this once a fix for https://github.com/golang/go/issues/75031 is released.
-# This is a workaround for an issue where `go test -cover` reports errors for packages with no test files.
-GOVERSION := $(shell go env GOVERSION)
-export GOTOOLCHAIN := $(GOVERSION)+auto
-
 # Run tests
 .PHONY: test
 test:
@@ -144,7 +139,7 @@ test:
 
 .PHONY: golangci-lint
 golangci-lint: ## Download golangci-lint locally if necessary.
-	test -s $(GOLANGCI_LINT) || (curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | bash -s -- -b $(REPO_ROOT_BIN)/ $(GOLANGCI_LINT_VERSION))
+	test -s $(GOLANGCI_LINT) || (curl -sSfL https://golangci-lint.run/install.sh | bash -s -- -b $(REPO_ROOT_BIN)/ $(GOLANGCI_LINT_VERSION))
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint against code, using the repo-root .golangci.yml.
