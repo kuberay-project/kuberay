@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 
 	"github.com/jarcoal/httpmock"
 	. "github.com/onsi/ginkgo/v2"
@@ -58,6 +61,70 @@ var _ = Describe("RayFrameworkGenerator", func() {
 		rayDashboardClient.dashboardURL = "http://127.0.0.1:8090"
 		rayDashboardClient.client = &http.Client{}
 	})
+
+	DescribeTable("IsNodeAlive through the State API",
+		func(status int, response string, wantAlive, wantError bool) {
+			nodeID := strings.Repeat("1", 56)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				defer GinkgoRecover()
+				Expect(r.Method).To(Equal(http.MethodGet))
+				Expect(r.URL.Path).To(Equal("/api/v0/nodes"))
+				Expect(r.URL.Query().Get("filter_keys")).To(Equal("node_id"))
+				Expect(r.URL.Query().Get("filter_predicates")).To(Equal("="))
+				Expect(r.URL.Query().Get("filter_values")).To(Equal(nodeID))
+				Expect(r.URL.Query().Get("limit")).To(Equal("1"))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_, err := io.WriteString(w, strings.ReplaceAll(response, "$NODE_ID", nodeID))
+				Expect(err).NotTo(HaveOccurred())
+			}))
+			defer server.Close()
+			rayDashboardClient.InitClient(server.Client(), server.URL, "")
+
+			alive, err := rayDashboardClient.IsNodeAlive(context.Background(), nodeID)
+			Expect(alive).To(Equal(wantAlive))
+			if wantError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).NotTo(HaveOccurred())
+			}
+		},
+		Entry("alive node", http.StatusOK,
+			`{"result":true,"msg":"","data":{"result":{"total":1,"num_after_truncation":1,"num_filtered":1,"result":[{"node_id":"$NODE_ID","state":"ALIVE"}]}}}`,
+			true, false),
+		Entry("dead node", http.StatusOK,
+			`{"result":true,"msg":"","data":{"result":{"total":1,"num_after_truncation":1,"num_filtered":1,"result":[{"node_id":"$NODE_ID","state":"DEAD"}]}}}`,
+			false, false),
+		Entry("node absent from a complete result", http.StatusOK,
+			`{"result":true,"msg":"","data":{"result":{"total":0,"num_after_truncation":0,"num_filtered":0,"result":[]}}}`,
+			false, false),
+		Entry("API failure is not a dead node", http.StatusOK,
+			`{"result":false,"msg":"GCS query failed","data":{"result":null}}`,
+			false, true),
+		Entry("missing data is not a dead node", http.StatusOK,
+			`{"result":true,"msg":"","data":{}}`,
+			false, true),
+		Entry("missing node list is not a dead node", http.StatusOK,
+			`{"result":true,"msg":"","data":{"result":{"total":0,"num_after_truncation":0,"num_filtered":0}}}`,
+			false, true),
+		Entry("partial failure is not a dead node", http.StatusOK,
+			`{"result":true,"msg":"","data":{"result":{"total":0,"num_after_truncation":0,"num_filtered":0,"result":[],"partial_failure_warning":"GCS data unavailable"}}}`,
+			false, true),
+		Entry("source-filtered nodes do not imply an incomplete result", http.StatusOK,
+			`{"result":true,"msg":"","data":{"result":{"total":1,"num_after_truncation":0,"num_filtered":0,"result":[]}}}`,
+			false, false),
+		Entry("result limit is not a dead node", http.StatusOK,
+			`{"result":true,"msg":"","data":{"result":{"total":1,"num_after_truncation":1,"num_filtered":1,"result":[]}}}`,
+			false, true),
+		Entry("unexpected node is not a dead node", http.StatusOK,
+			`{"result":true,"msg":"","data":{"result":{"total":1,"num_after_truncation":1,"num_filtered":1,"result":[{"node_id":"other","state":"ALIVE"}]}}}`,
+			false, true),
+		Entry("unknown state is not a dead node", http.StatusOK,
+			`{"result":true,"msg":"","data":{"result":{"total":1,"num_after_truncation":1,"num_filtered":1,"result":[{"node_id":"$NODE_ID","state":"UNKNOWN"}]}}}`,
+			false, true),
+		Entry("HTTP failure", http.StatusServiceUnavailable, `{"result":false}`, false, true),
+		Entry("malformed response", http.StatusOK, `not JSON`, false, true),
+	)
 
 	It("Test ConvertRayJobToReq", func() {
 		rayJobRequest, err := ConvertRayJobToReq(rayJob)
