@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -81,6 +82,14 @@ func IsSessionDirActive(sessionDir string) bool {
 	conn, err := (&net.Dialer{Timeout: 1 * time.Second}).DialContext(context.Background(), "unix", socketPath)
 	if err == nil {
 		conn.Close()
+		return true
+	}
+	// connect() on a filesystem unix socket needs write permission on the socket file, so
+	// EACCES/EPERM still prove the socket exists and raylet started this session. The
+	// collector only reads the session directory, so report it as active instead of
+	// retrying until GetSessionDir times out.
+	if errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM) {
+		logrus.Warnf("Raylet socket %s exists but is not connectable by the current user (uid=%d): %v. Treating the session as active.", socketPath, os.Getuid(), err)
 		return true
 	}
 	return false
