@@ -52,13 +52,7 @@ env_vars:
 						WithTemplate(PodTemplateSpecApplyConfiguration(HeadPodTemplateApplyConfiguration(),
 							MountConfigMap[corev1ac.PodTemplateSpecApplyConfiguration](jobs, "/home/ray/jobs"))))))
 
-		rayJob, err := test.Client().Ray().RayV1().RayJobs(namespace.Name).Apply(test.Ctx(), rayJobAC, TestApplyOptions)
-		g.Expect(err).NotTo(HaveOccurred())
-		LogWithTimestamp(test.T(), "Created RayJob %s/%s successfully", rayJob.Namespace, rayJob.Name)
-
-		LogWithTimestamp(test.T(), "Waiting for RayJob %s/%s to complete", rayJob.Namespace, rayJob.Name)
-		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
-			Should(WithTransform(RayJobStatus, Satisfy(rayv1.IsJobTerminal)))
+		rayJob := ApplyRayJobAndWaitForTerminal(test, rayJobAC)
 
 		// Assert the RayJob has completed successfully
 		g.Expect(GetRayJob(test, rayJob.Namespace, rayJob.Name)).
@@ -86,13 +80,7 @@ env_vars:
 				WithShutdownAfterJobFinishes(false).
 				WithRayClusterSpec(NewRayClusterSpec(MountConfigMap[rayv1ac.RayClusterSpecApplyConfiguration](jobs, "/home/ray/jobs"))))
 
-		rayJob, err := test.Client().Ray().RayV1().RayJobs(namespace.Name).Apply(test.Ctx(), rayJobAC, TestApplyOptions)
-		g.Expect(err).NotTo(HaveOccurred())
-		LogWithTimestamp(test.T(), "Created RayJob %s/%s successfully", rayJob.Namespace, rayJob.Name)
-
-		LogWithTimestamp(test.T(), "Waiting for RayJob %s/%s to complete", rayJob.Namespace, rayJob.Name)
-		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
-			Should(WithTransform(RayJobStatus, Satisfy(rayv1.IsJobTerminal)))
+		rayJob := ApplyRayJobAndWaitForTerminal(test, rayJobAC)
 
 		// Assert the Ray job has failed
 		g.Expect(GetRayJob(test, rayJob.Namespace, rayJob.Name)).

@@ -17,6 +17,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/common"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	rayv1ac "github.com/ray-project/kuberay/ray-operator/pkg/client/applyconfiguration/ray/v1"
 )
 
 func RayCronJob(t Test, namespace, name string) func() (*rayv1.RayCronJob, error) {
@@ -71,6 +72,27 @@ func RayJobSucceeded(job *rayv1.RayJob) int32 {
 
 func RayJobClusterName(job *rayv1.RayJob) string {
 	return job.Status.RayClusterName
+}
+
+// ApplyRayJobAndWaitForTerminal applies the given RayJob configuration and waits for the
+// resulting RayJob to reach a terminal job status (Succeeded, Failed, or Stopped).
+// Returns the RayJob returned by the apply call.
+//
+// Tests that need a stricter completion state (e.g. Succeeded only) should chain an
+// additional assertion on the returned RayJob.
+func ApplyRayJobAndWaitForTerminal(t Test, rayJobAC *rayv1ac.RayJobApplyConfiguration) *rayv1.RayJob {
+	t.T().Helper()
+	g := NewWithT(t.T())
+
+	rayJob, err := t.Client().Ray().RayV1().RayJobs(*rayJobAC.Namespace).Apply(t.Ctx(), rayJobAC, TestApplyOptions)
+	g.Expect(err).NotTo(HaveOccurred())
+	LogWithTimestamp(t.T(), "Created RayJob %s/%s successfully", rayJob.Namespace, rayJob.Name)
+
+	LogWithTimestamp(t.T(), "Waiting for RayJob %s/%s to complete", rayJob.Namespace, rayJob.Name)
+	g.Eventually(RayJob(t, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
+		Should(WithTransform(RayJobStatus, Satisfy(rayv1.IsJobTerminal)))
+
+	return rayJob
 }
 
 func RayCluster(t Test, namespace, name string) func() (*rayv1.RayCluster, error) {
