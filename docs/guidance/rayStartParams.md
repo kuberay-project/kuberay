@@ -26,7 +26,25 @@ The default value is `""` after Ray 2.3.0. See [#929](https://github.com/ray-pro
 
 - `--block`: This option blocks the ray start command indefinitely. It will be automatically set by KubeRay. See [PR #675](https://github.com/ray-project/kuberay/pull/675) for more details. Modification is not recommended.
 
-- `--memory`: Amount of memory on this Ray node. Default is determined by Ray container resource limits. Modify Ray container resource limits instead of this option. See [PR #170](https://github.com/ray-project/kuberay/pull/170).
+- `--memory`: Amount of memory on this Ray node, in bytes. See [PR #170](https://github.com/ray-project/kuberay/pull/170).
+  - When `rayStartParams` omits `memory` and the Ray container has a memory limit, KubeRay fills `--memory` from that limit. The value is the limit in bytes; a limit of `5G` becomes `5000000000`. KubeRay injects that number as an explicit `--memory` and does not reduce it for the object store. If the container has no memory limit, KubeRay leaves `--memory` unset and Ray auto-detects memory.
+  - An explicit `--memory` does not cause Ray to subtract object-store memory. Ray subtracts the object store only when it auto-detects memory because `--memory` is absent. On that path Ray assigns about 70% of available memory to the `memory` resource and about 30% to the object store ([Resources](https://docs.ray.io/en/latest/ray-core/scheduling/resources.html)). KubeRay's injected flag takes the explicit path, so Ray keeps the full limit as schedulable `memory` and still allocates object-store memory separately. The object store defaults to 30% of the memory available when the node starts (total memory minus memory already in use), capped by `/dev/shm` and by Ray's object-store maximum ([Memory Management](https://docs.ray.io/en/latest/ray-core/scheduling/memory-management.html)). Unless `plasma-directory` is set, KubeRay mounts an in-memory `emptyDir` at `/dev/shm` for that store and sizes the volume from the container memory limit, or from the memory request when no limit is set. Both the Ray `memory` resource and the `/dev/shm` object store count against the pod's memory cgroup, so tasks scheduled up to the advertised `memory` can push the pod past its limit and be OOMKilled.
+  - A worker with `limits.memory: 5G` (5,000,000,000 bytes) and no `memory` in `rayStartParams` starts with `--memory=5000000000`. Ray reports `memory` of 5e9 plus roughly 1.46e9 bytes of object-store memory. The reported `object_store_memory` was 1,458,823,987, which is 30% of the memory still free at startup rather than 30% of the full 5e9 limit. Those two allocations sum to about 6.46e9 bytes on a 5e9 cgroup limit. Every other memory limit follows the same injection: `--memory` is the whole limit, and the object store is an additional allocation.
+  - Set `memory` and `object-store-memory` in `rayStartParams` so their sum fits in the container memory limit, with room left for Ray system processes. Both values are integer byte strings passed to `ray start`, not Kubernetes quantities such as `5Gi`. For the 5G worker above, `memory: "3500000000"` and `object-store-memory: "1000000000"` sum to 4.5e9 and leave about 0.5e9 bytes of headroom. A group-level `resources.memory` value overrides `rayStartParams.memory` and is also passed through as an explicit `--memory`, so keep that quantity inside the same sum. If `memory` stays unset, raising the container memory limit causes KubeRay to inject `--memory` equal to the new limit, and the object store is still allocated on top of it.
+
+    ```yaml
+    # Fields on a workerGroupSpec or headGroupSpec. The container limit stays 5G.
+    rayStartParams:
+      memory: "3500000000"
+      object-store-memory: "1000000000"
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          resources:
+            limits:
+              memory: "5G"
+    ```
 
 - `--metrics-export-port`: Port for exposing Ray metrics through a Prometheus endpoint. The port is set to `8080` by default. Please ensure that this value matches the `metrics` container port if you need to customize it. See [PR #954](https://github.com/ray-project/kuberay/pull/954) and [prometheus-grafana doc](https://github.com/ray-project/kuberay/blob/master/docs/guidance/prometheus-grafana.md) for more details.
 
