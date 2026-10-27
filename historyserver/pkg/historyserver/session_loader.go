@@ -73,8 +73,8 @@ type SessionLoader struct {
 	processor processor
 	cache     *expirable.LRU[string, *cacheEntry]
 	maxBytes  int
-	// mu guards only the byte-budget read-modify-write; expirable.LRU is
-	// independently thread-safe. A lone Get/Add/Peek does not need mu.
+	// mu guards the byte-budget read-modify-write and every Remove, so a
+	// concurrent renewTTL cannot resurrect a removed entry.
 	mu             sync.Mutex
 	sf             singleflight.Group
 	serverCtx      context.Context
@@ -119,6 +119,14 @@ func (s *SessionLoader) GetSnapshot(clusterSessionKey string) (*eventserver.Sess
 	// freed by GC once no request holds snap, the next caller decodes again
 	entry.decoded = weak.Make(snap)
 	return snap, true
+}
+
+// Invalidate drops a cached snapshot so the next LoadSession re-reads the
+// session from storage. Used to pick up data uploaded since the last load.
+func (s *SessionLoader) Invalidate(clusterSessionKey string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cache.Remove(clusterSessionKey)
 }
 
 // renewTTL extends ExpiresAt for a cache hit.

@@ -28,9 +28,11 @@ const (
 	// active log name it was rotated out of: <base>.rotated.<time>-<inode><ext>.
 	RotatedLogMarker = ".rotated."
 
-	// DefaultRotatedLogScanInterval is how often the collector scans the active
-	// session log directory for completed Ray rotation backups.
-	DefaultRotatedLogScanInterval = 30 * time.Second
+	// DefaultLogUploadInterval is how often the collector scans the active
+	// session log directory and uploads rotation backups and active log chunks.
+	// A shorter interval creates more smaller objects in the object store, which
+	// slows down reads that merge the chunks.
+	DefaultLogUploadInterval = 5 * time.Minute
 )
 
 // IsRotatedLogName reports whether a log file name refers to a rotated

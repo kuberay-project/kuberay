@@ -23,7 +23,8 @@ const (
 	// SessionStatusUnknown is the zero value, reserved as a defensive guard.
 	SessionStatusUnknown SessionStatus = iota
 	// SessionStatusLive means the RayCluster CR is still present and the
-	// session is intentionally skipped.
+	// session is intentionally skipped. Never returned when the processor
+	// serves running clusters from storage.
 	SessionStatusLive
 	// SessionStatusProcessed means events were ingested into EventHandler's
 	// in-memory state.
@@ -42,27 +43,34 @@ const (
 type SessionProcessor struct {
 	reader    storage.StorageReader
 	k8sClient client.Client
+	// serveRunningClusters builds snapshots for sessions whose RayCluster CR
+	// still exists, instead of reporting them as live. Set when the live proxy
+	// is disabled, so running clusters are served from storage.
+	serveRunningClusters bool
 }
 
 // NewSessionProcessor constructs a SessionProcessor.
-func NewSessionProcessor(reader storage.StorageReader, k8sClient client.Client) *SessionProcessor {
+func NewSessionProcessor(reader storage.StorageReader, k8sClient client.Client, serveRunningClusters bool) *SessionProcessor {
 	return &SessionProcessor{
-		reader:    reader,
-		k8sClient: k8sClient,
+		reader:               reader,
+		k8sClient:            k8sClient,
+		serveRunningClusters: serveRunningClusters,
 	}
 }
 
 // ProcessSession processes one session end-to-end.
 func (p *SessionProcessor) ProcessSession(ctx context.Context, session utils.ClusterInfo) (SessionStatus, *eventserver.SessionSnapshot, error) {
-	dead, err := p.isDead(ctx, session)
-	if err != nil {
-		if isCtxCanceled(err) {
-			return SessionStatusCanceled, nil, err
+	if !p.serveRunningClusters {
+		dead, err := p.isDead(ctx, session)
+		if err != nil {
+			if isCtxCanceled(err) {
+				return SessionStatusCanceled, nil, err
+			}
+			return SessionStatusClusterStateUnknown, nil, fmt.Errorf("check cluster state for %s/%s: %w", session.Namespace, session.Name, err)
 		}
-		return SessionStatusClusterStateUnknown, nil, fmt.Errorf("check cluster state for %s/%s: %w", session.Namespace, session.Name, err)
-	}
-	if !dead {
-		return SessionStatusLive, nil, nil
+		if !dead {
+			return SessionStatusLive, nil, nil
+		}
 	}
 
 	// Use per-call EventHandler so ingestion maps become GC-eligible once the snapshot is built.

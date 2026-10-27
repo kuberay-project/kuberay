@@ -41,7 +41,7 @@ func main() {
 	flag.StringVar(&storageBackendConfigPath, "storage-backend-config-path", "", "Path to backend config JSON")
 	flag.BoolVar(&useKubernetesProxy, "use-kubernetes-proxy", false, "Use local kubeconfig instead of in-cluster config")
 	flag.BoolVar(&useAuthTokenMode, "use-auth-token-mode", false, "Enable Ray dashboard token authentication mode (requires x-ray-authorization header)")
-	flag.BoolVar(&enableLiveClusters, "enable-live-clusters", false, "Enable access to live clusters")
+	flag.BoolVar(&enableLiveClusters, "enable-live-clusters", false, "Proxy requests for running RayClusters to their live dashboard. When disabled, running RayClusters are served from storage like dead ones.")
 	flag.StringVar(&namespace, "namespace", "", "Restrict live and archived sessions to this namespace; empty serves all namespaces")
 	flag.StringVar(&namespacePrefix, "namespace-prefix", "", "Restrict live and archived sessions to a literal namespace prefix; mutually exclusive with --namespace")
 	flag.Float64Var(&qps, "kube-api-qps", historyserver.DefaultKubeAPIQPS, "The QPS value for the client communicating with the Kubernetes API server.")
@@ -130,7 +130,10 @@ func main() {
 	)
 	defer serverCancel()
 
-	processor := historyserver.NewSessionProcessor(reader, cliMgr.Client())
+	// Without the live proxy, a running cluster is served from whatever the
+	// collector has uploaded so far, the same way a dead one is.
+	serveRunningClusters := !enableLiveClusters
+	processor := historyserver.NewSessionProcessor(reader, cliMgr.Client(), serveRunningClusters)
 	sessionLoader := historyserver.NewSessionLoader(serverCtx, processor, sessionProcessTimeout, sessionCacheSize, sessionCacheMaxBytes, sessionCacheTTL)
 
 	// ServerHandler.Run consumes a stop chan; bridge serverCtx into it.

@@ -1,7 +1,6 @@
 package logcollector
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -9,11 +8,9 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -91,85 +88,6 @@ func rotatedLogName(backupName string, id rotatedIdentity) (string, bool) {
 		return base + identity, true
 	}
 	return stem + identity + ext, true
-}
-
-// scanRotatedLogs uploads the active session's rotation backups until stop is
-// closed, preserving each generation before Ray's ring overwrites it.
-func (r *RayLogHandler) scanRotatedLogs(stop <-chan struct{}) {
-	interval := r.RotatedLogScanInterval
-	if interval <= 0 {
-		interval = utils.DefaultRotatedLogScanInterval
-	}
-	logrus.Infof("Started scanning for rotated logs (interval=%v)", interval)
-	r.collectActiveSessionRotatedLogs(stop)
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-stop:
-			logrus.Info("Shutdown signaled, stopping rotated log scan")
-			return
-		case <-ticker.C:
-			r.collectActiveSessionRotatedLogs(stop)
-		}
-	}
-}
-
-// collectActiveSessionRotatedLogs re-resolves session_latest on every pass so
-// backups are attributed to the session that produced them.
-func (r *RayLogHandler) collectActiveSessionRotatedLogs(stop <-chan struct{}) {
-	sessionDir, err := filepath.EvalSymlinks(utils.GetRaySessionLatestPath())
-	if err != nil {
-		logrus.Debugf("Rotated log scan: session_latest is not resolvable yet: %v", err)
-		return
-	}
-	logsDir := filepath.Join(sessionDir, utils.RAY_SESSIONDIR_LOGDIR_NAME)
-	r.collectRotatedLogsUnder(logsDir, filepath.Base(sessionDir), r.GetRayNodeName(), stop)
-}
-
-// collectRotatedLogsUnder collects every rotation backup below logsDir, highest
-// rotation index first because that is the generation Ray evicts next. Walk
-// errors go unreported: entries disappear as Ray advances the ring.
-func (r *RayLogHandler) collectRotatedLogsUnder(logsDir, sessionID, nodeID string, stop <-chan struct{}) {
-	objectPrefix := r.rotatedObjectPrefix(sessionID, nodeID)
-	if objectPrefix == "" {
-		logrus.Warnf("Skipping rotated log scan of %s: session or node ID is unknown", logsDir)
-		return
-	}
-
-	var backups []string
-	walkComplete := true
-	_ = filepath.WalkDir(logsDir, func(absPath string, entry fs.DirEntry, walkErr error) error {
-		walkComplete = walkComplete && walkErr == nil
-		if walkErr == nil && entry.Type().IsRegular() {
-			if _, isBackup := rotationBaseName(entry.Name()); isBackup {
-				backups = append(backups, absPath)
-			}
-		}
-		return nil
-	})
-	slices.SortStableFunc(backups, func(a, b string) int {
-		return cmp.Compare(rotationIndex(filepath.Base(b)), rotationIndex(filepath.Base(a)))
-	})
-
-	seen := make(map[string]struct{}, len(backups))
-	for _, absPath := range backups {
-		// Shutdown collection picks up whatever this pass leaves behind.
-		if stopRequested(stop) {
-			logrus.Debug("Shutdown signaled, ending rotated log scan early")
-			return
-		}
-		if objectName, ok := r.collectRotatedLog(absPath, logsDir, objectPrefix); ok {
-			seen[objectName] = struct{}{}
-		}
-	}
-	// Only a pass that saw the whole directory can tell which generations Ray has
-	// dropped, so a partial walk leaves the uploaded set alone.
-	if walkComplete {
-		r.pruneRotatedUploaded(objectPrefix, seen)
-	}
 }
 
 // collectIfRotatedLog uploads absPath when it is a Ray rotation backup and

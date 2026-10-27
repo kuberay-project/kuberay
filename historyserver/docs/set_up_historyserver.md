@@ -85,9 +85,10 @@ kubectl port-forward svc/historyserver 8080:30080
 ```
 
 > [!IMPORTANT]
-> Access to live RayClusters is disabled by default. When disabled, `/clusters` only lists sessions
-> already flushed to storage, and `/enter_cluster/.../live` returns 404. To enable access to live
-> RayCluster, set `--enable-live-clusters=true`.
+> Access to live RayClusters is disabled by default. When disabled, a running RayCluster is served
+> from the data the collector has uploaded to storage so far, and `/enter_cluster/.../live` returns
+> 404; enter the cluster with `?reload=true` to pick up newer uploads. To proxy requests to the
+> live Ray Dashboard instead, set `--enable-live-clusters=true`.
 
 #### Run History Server Outside the Kind Cluster
 

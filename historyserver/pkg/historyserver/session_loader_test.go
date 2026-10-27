@@ -246,6 +246,33 @@ func TestLoadSession_LiveAndProcessed(t *testing.T) {
 	}
 }
 
+// Invalidate must force the next LoadSession to run the processor again.
+func TestLoadSession_InvalidateReprocesses(t *testing.T) {
+	fp := &fakeProcessor{}
+	sl := newTestLoader(t, fp, loaderTestConfig{})
+	info := testClusterInfo()
+
+	for i := range 2 {
+		if _, err := sl.LoadSession(context.Background(), info); err != nil {
+			t.Fatalf("LoadSession #%d: %v", i, err)
+		}
+	}
+	if got := fp.callCount(); got != 1 {
+		t.Fatalf("processor calls before Invalidate = %d, want 1 (second load must hit cache)", got)
+	}
+
+	sl.Invalidate(testClusterSessionKey())
+	requireSnapshotCached(t, sl, testClusterSessionKey(), false)
+
+	if _, err := sl.LoadSession(context.Background(), info); err != nil {
+		t.Fatalf("LoadSession after Invalidate: %v", err)
+	}
+	if got := fp.callCount(); got != 2 {
+		t.Fatalf("processor calls after Invalidate = %d, want 2", got)
+	}
+	requireSnapshotCached(t, sl, testClusterSessionKey(), true)
+}
+
 // TestLoadSession_ZeroValueStatus_DoesNotSilentlyMatchLive verifies the zero-value
 // SessionStatus (SessionStatusUnknown) surfaces an error.
 func TestLoadSession_ZeroValueStatus_DoesNotSilentlyMatchLive(t *testing.T) {

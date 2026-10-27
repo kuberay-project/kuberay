@@ -344,6 +344,10 @@ func routerRayClusterSet(s *ServerHandler) {
 				r2.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("invalid session name: %q", resolvedSession))
 				return
 			}
+			// User add reload=true parameter to trigger snapshot refresh.
+			if r1.QueryParameter("reload") == "true" {
+				s.sessionLoader.Invalidate(utils.BuildClusterSessionKey(resolvedName, namespace, resolvedSession))
+			}
 			live, err := s.sessionLoader.LoadSession(r1.Request.Context(), resolvedClusterInfo)
 			if err != nil {
 				logrus.Errorf("Failed to load session %s/%s/%s: %v", namespace, resolvedName, resolvedSession, err)
@@ -388,6 +392,7 @@ func routerRayClusterSet(s *ServerHandler) {
 		Param(ws.PathParameter("namespace", "namespace")).
 		Param(ws.PathParameter("kind", "kind (raycluster, rayjob, or rayservice)")).
 		Param(ws.PathParameter("name", "name")).
+		Param(ws.QueryParameter("reload", "re-read the session from storage instead of serving the cached snapshot (true/false)")).
 		Writes(""))
 
 	ws.Route(ws.GET("/{namespace}/{kind}/{name}/{session}").To(func(r1 *restful.Request, r2 *restful.Response) {
@@ -402,6 +407,7 @@ func routerRayClusterSet(s *ServerHandler) {
 		Param(ws.PathParameter("kind", "kind (raycluster, rayjob, or rayservice)")).
 		Param(ws.PathParameter("name", "name")).
 		Param(ws.PathParameter("session", "session")).
+		Param(ws.QueryParameter("reload", "re-read the session from storage instead of serving the cached snapshot (true/false)")).
 		Writes(""))
 }
 

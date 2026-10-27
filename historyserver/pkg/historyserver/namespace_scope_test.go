@@ -184,11 +184,13 @@ func TestNamespaceScopeRejectsSessionBypasses(t *testing.T) {
 		}
 		for _, kind := range []string{"raycluster", "rayjob", "rayservice"} {
 			for _, session := range []string{"live", "latest", "session_2026-04-22_10-00-00_000000_1"} {
-				resp := httptest.NewRecorder()
 				url := "/enter_cluster/other/" + kind + "/cluster/" + session
-				restful.DefaultContainer.ServeHTTP(resp, httptest.NewRequestWithContext(t.Context(), "GET", url, nil))
-				assert.Equal(t, http.StatusForbidden, resp.Code, resp.Body.String())
-				assert.Empty(t, resp.Result().Cookies())
+				for _, query := range []string{"", "?reload=true"} {
+					resp := httptest.NewRecorder()
+					restful.DefaultContainer.ServeHTTP(resp, httptest.NewRequestWithContext(t.Context(), "GET", url+query, nil))
+					assert.Equal(t, http.StatusForbidden, resp.Code, resp.Body.String())
+					assert.Empty(t, resp.Result().Cookies())
+				}
 			}
 		}
 		assert.Zero(t, reader.listCount, "deny before listing archives")
