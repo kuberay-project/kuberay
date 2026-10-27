@@ -24,6 +24,8 @@ type RayClusterSpec struct {
 	// RayVersion is used to determine the command for the Kubernetes Job managed by RayJob
 	RayVersion string `json:"rayVersion,omitempty"`
 	// WorkerGroupSpecs are the specs for the worker pods
+	// +listType=map
+	// +listMapKey=groupName
 	WorkerGroupSpecs []WorkerGroupSpec `json:"workerGroupSpecs,omitempty"`
 }
 
