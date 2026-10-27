@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -512,9 +514,14 @@ func TestGetSubmitterTemplate(t *testing.T) {
 			HeadGroupSpec: rayv1.HeadGroupSpec{
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
+						ServiceAccountName: "head-sa",
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "head-secret"},
+						},
 						Containers: []corev1.Container{
 							{
-								Image: "rayproject/ray:test-submitter-template",
+								Image:           "rayproject/ray:test-submitter-template",
+								ImagePullPolicy: corev1.PullAlways,
 							},
 						},
 					},
@@ -524,4 +531,59 @@ func TestGetSubmitterTemplate(t *testing.T) {
 	}
 	template := GetSubmitterTemplate(&rayJob.Spec, &rayCluster.Spec)
 	assert.Equal(t, template.Spec.Containers[0].Image, rayCluster.Spec.HeadGroupSpec.Template.Spec.Containers[utils.RayContainerIndex].Image)
+	assert.Equal(t, corev1.PullAlways, template.Spec.Containers[0].ImagePullPolicy)
+	assert.Equal(t, "head-secret", template.Spec.ImagePullSecrets[0].Name)
+}
+
+func TestGetSubmitterPodTemplate(t *testing.T) {
+	rayJob := &rayv1.RayJob{
+		Spec: rayv1.RayJobSpec{},
+	}
+	rayCluster := &rayv1.RayCluster{
+		Spec: rayv1.RayClusterSpec{
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						ServiceAccountName: "head-sa",
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "head-secret"},
+						},
+						Containers: []corev1.Container{
+							{
+								Image:           "my-custom-image:latest",
+								ImagePullPolicy: corev1.PullAlways,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	rayJob.Spec.SubmitterPodTemplate = &corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels:      map[string]string{"my-label": "true"},
+			Annotations: map[string]string{"my-annotation": "true"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Image: "rayproject/ray:test-submitter-template",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("250m"),
+						},
+					},
+				},
+			},
+		},
+	}
+	template := GetSubmitterTemplate(&rayJob.Spec, &rayCluster.Spec)
+	assert.Equal(t, "rayproject/ray:test-submitter-template", template.Spec.Containers[0].Image)
+	assert.Equal(t, "true", template.ObjectMeta.Labels["my-label"])
+	assert.Equal(t, "true", template.ObjectMeta.Annotations["my-annotation"])
+	assert.Equal(t, resource.MustParse("250m"), template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
+
+	// Verify that custom SubmitterPodTemplate is returned as-is without merging/overriding from Head Pod
+	assert.Equal(t, corev1.PullPolicy(""), template.Spec.Containers[0].ImagePullPolicy)
+	assert.Empty(t, template.Spec.ImagePullSecrets)
 }
