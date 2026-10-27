@@ -24,6 +24,9 @@ var (
 	DeployPathV2     = "/api/serve/applications/"
 	// Job URL paths
 	JobPath = "/api/jobs/"
+
+	// NodesPath reports the cluster's Ray nodes and their liveness.
+	NodesPath = "/nodes?view=summary"
 )
 
 type RayDashboardClientInterface interface {
@@ -32,6 +35,7 @@ type RayDashboardClientInterface interface {
 	GetServeDetails(ctx context.Context) (*utiltypes.ServeDetails, error)
 	GetMultiApplicationStatus(context.Context) (map[string]*utiltypes.ServeApplicationStatus, error)
 	GetJobInfo(ctx context.Context, jobId string) (*utiltypes.RayJobInfo, error)
+	IsNodeAlive(ctx context.Context, nodeID string) (bool, error)
 	ListJobs(ctx context.Context) (*[]utiltypes.RayJobInfo, error)
 	SubmitJob(ctx context.Context, rayJob *rayv1.RayJob) (string, error)
 	SubmitJobReq(ctx context.Context, request *utiltypes.RayJobRequest) (string, error)
@@ -151,6 +155,52 @@ func (r *RayDashboardClient) ConvertServeDetailsToApplicationStatuses(serveDetai
 
 // Note that RayJobInfo and error can't be nil at the same time.
 // Please make sure if the Ray job with JobId can't be found. Return a BadRequest error.
+// IsNodeAlive reports whether the given Ray node is currently ALIVE in the cluster.
+//
+// A job status read from the dashboard is only current while the node running its driver is up.
+// Once that node is gone the status is frozen at whatever it last was, so an active JobStatus on a
+// dead node must not be trusted.
+func (r *RayDashboardClient) IsNodeAlive(ctx context.Context, nodeID string) (bool, error) {
+	if nodeID == "" {
+		return false, nil
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.dashboardURL+NodesPath, nil)
+	if err != nil {
+		return false, err
+	}
+	r.setAuthHeader(req)
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	// A non-2xx body often still parses as JSON with an empty summary, which would read as a dead
+	// driver and fail a healthy job. Reject it as an error so the caller retries instead.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false, fmt.Errorf("listing nodes returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, fmt.Errorf("failed to read response when listing nodes: %w", err)
+	}
+
+	var nodes utiltypes.RayNodesSummaryResponse
+	if err = json.Unmarshal(body, &nodes); err != nil {
+		return false, fmt.Errorf("IsNodeAlive fail: %s", string(body))
+	}
+
+	for _, node := range nodes.Data.Summary {
+		if node.Raylet.NodeID == nodeID {
+			return node.Raylet.State == "ALIVE", nil
+		}
+	}
+	return false, nil
+}
+
 func (r *RayDashboardClient) GetJobInfo(ctx context.Context, jobId string) (*utiltypes.RayJobInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.dashboardURL+JobPath+jobId, nil)
 	if err != nil {
