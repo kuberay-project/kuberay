@@ -1,0 +1,72 @@
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: test-rayservice
+spec:
+  serveConfigV2: |
+    applications:
+      - name: no_ops
+        route_prefix: /
+        import_path: microbenchmarks.no_ops:app_builder
+        args:
+          num_forwards: 0
+        runtime_env:
+          working_dir: https://github.com/ray-project/serve_workloads/archive/a9f184f4d9ddb7f9a578502ae106470f87a702ef.zip
+        deployments:
+          - name: NoOp
+            autoscaling_config:
+              metrics_interval_s: 0.2
+              min_replicas: 1
+              max_replicas: 14
+              look_back_period_s: 2
+              downscale_delay_s: 5
+              upscale_delay_s: 2
+              target_ongoing_requests: 1
+            graceful_shutdown_timeout_s: 5
+            ray_actor_options:
+              num_cpus: 0.5
+  rayClusterConfig:
+    rayVersion: "2.52.0"
+    enableInTreeAutoscaling: true
+    autoscalerOptions:
+      idleTimeoutSeconds: 60
+    headGroupSpec:
+      rayStartParams:
+        num-cpus: "0"
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: rayproject/ray:2.52.0
+              resources:
+                requests:
+                  cpu: "1"
+                  memory: 1G
+                limits:
+                  memory: 2G
+              ports:
+                - containerPort: 6379
+                  name: gcs-server
+                - containerPort: 8265
+                  name: dashboard
+                - containerPort: 10001
+                  name: client
+                - containerPort: 8000
+                  name: serve
+    workerGroupSpecs:
+      - replicas: 0
+        minReplicas: 0
+        maxReplicas: 5
+        groupName: small-group
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: rayproject/ray:2.52.0
+                resources:
+                  requests:
+                    cpu: "300m"
+                    memory: "1G"
+                  limits:
+                    cpu: "500m"
+                    memory: "1G"

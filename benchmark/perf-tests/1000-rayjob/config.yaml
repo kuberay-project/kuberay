@@ -1,0 +1,83 @@
+name: kuberay
+namespace:
+  number: 100
+tuningSets:
+- name: Uniform100qps
+  qpsLoad:
+    qps: 100
+steps:
+- name: Start measurements
+  measurements:
+  - Identifier: PodStartupLatency
+    Method: PodStartupLatency
+    Params:
+      action: start
+      labelSelector: app.kubernetes.io/created-by = kuberay-operator
+      threshold: 30m
+  - Identifier: WaitForControlledPodsRunning
+    Method: WaitForControlledPodsRunning
+    Params:
+      action: start
+      apiVersion: ray.io/v1
+      kind: RayCluster
+      labelSelector: app.kubernetes.io/created-by = kuberay-operator
+      operationTimeout: 120s
+  - Identifier: JobLifecycleLatency
+    Method: JobLifecycleLatency
+    Params:
+      action: start
+      labelSelector: app.kubernetes.io/created-by = kuberay-operator
+      threshold: 10m
+- name: Creating RayJobs for PyTorch MNIST fine-tuning
+  phases:
+  - namespaceRange:
+      min: 1
+      max: 100
+    replicasPerNamespace: 5
+    tuningSet: Uniform100qps
+    objectBundle:
+    - basename: pytorch-mnist
+      objectTemplatePath: pytorch-mnist-rayjob.yaml
+      templateFillMap:
+        Image: "rayproject/ray:2.52.0"
+- name: Creating RayJobs for Ray Data Image Resizing
+  phases:
+  - namespaceRange:
+      min: 1
+      max: 100
+    replicasPerNamespace: 5
+    tuningSet: Uniform100qps
+    objectBundle:
+    - basename: ray-data-image-resize
+      objectTemplatePath: ray-data-image-resize.yaml
+      templateFillMap:
+        Image: "rayproject/ray:2.52.0"
+- name: Wait for RayJobs complete
+  measurements:
+  - Identifier: WaitForRayJob
+    Method: Exec
+    Params:
+      timeout: 30m
+      command:
+      - "bash"
+      - "common/wait-for-rayjobs.sh"
+      - "500" # 1000 since we deploy two RayJobs with 500 instances each
+- name: Measure wait for pods to be running
+  measurements:
+  - Identifier: WaitForControlledPodsRunning
+    Method: WaitForControlledPodsRunning
+    Params:
+      action: gather
+      operationTimeout: 10m
+- name: Measure pod startup latency
+  measurements:
+  - Identifier: PodStartupLatency
+    Method: PodStartupLatency
+    Params:
+      action: gather
+- name: Measure job finished
+  measurements:
+  - Identifier: JobLifecycleLatency
+    Method: JobLifecycleLatency
+    Params:
+      action: gather

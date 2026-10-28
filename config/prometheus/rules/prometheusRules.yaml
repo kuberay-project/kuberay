@@ -1,0 +1,41 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ray-cluster-gcs-rules
+  namespace: prometheus-system
+  labels:
+    # `release: $HELM_RELEASE`: Prometheus can only detect Rule with this label.
+    release: prometheus
+spec:
+  groups:
+  - interval: 30s
+    name: ray-cluster-main-staging-gcs.rules
+    rules:
+    - expr: |2
+                      (
+                        100 * (
+                                sum(
+                                     rate(
+                                           ray_gcs_update_resource_usage_time_bucket{container="ray-head", le="20.0"}[30d]
+                                     )
+                                )
+                                /
+                                sum(
+                                     rate(
+                                           ray_gcs_update_resource_usage_time_count{container="ray-head"}[30d]
+                                     )
+                                )
+                        )
+                      )
+      record: ray_gcs_availability_30d
+    - alert: MissingMetricRayGlobalControlStore
+      annotations:
+        description: Ray GCS is not emitting any metrics for Resource Update requests
+        summary: Ray GCS is not emitting metrics anymore
+      expr: |2
+                      (
+                       absent(ray_gcs_update_resource_usage_time_bucket) == 1
+                      )
+      for: 5m
+      labels:
+        severity: critical

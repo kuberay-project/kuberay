@@ -1,0 +1,2445 @@
+suite: Test RayCluster
+
+templates:
+  - raycluster-cluster.yaml
+
+release:
+  name: test
+  namespace: ray
+
+tests:
+  - it: Should create a RayCluster
+    asserts:
+      - containsDocument:
+          apiVersion: ray.io/v1
+          kind: RayCluster
+          name: test-kuberay
+          namespace: ray
+
+  - it: Should set Ray version when `head.rayVersion` is set
+    set:
+      head:
+        rayVersion: 2.52.0
+    asserts:
+      - equal:
+          path: spec.rayVersion
+          value: 2.52.0
+
+  - it: Should enable in-tree auto scaling when `head.enableInTreeAutoscaling` is `true`
+    set:
+      head:
+        enableInTreeAutoscaling: true
+    asserts:
+      - equal:
+          path: spec.enableInTreeAutoscaling
+          value: true
+
+  - it: Should use the specified auto scaler options when `head.autoScalerOptions` is set
+    set:
+      head:
+        autoscalerOptions:
+          upscalingMode: Default
+          idleTimeoutSeconds: 60
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ENV_KEY
+              value: ENV_VALUE
+          envFrom:
+            - configMapRef:
+                name: test-cm
+            - secretRef:
+                name: test-secret
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+    asserts:
+      - equal:
+          path: spec.autoscalerOptions
+          value:
+            upscalingMode: Default
+            idleTimeoutSeconds: 60
+            imagePullPolicy: IfNotPresent
+            env:
+              - name: ENV_KEY
+                value: ENV_VALUE
+            envFrom:
+              - configMapRef:
+                  name: test-cm
+              - secretRef:
+                  name: test-secret
+            resources:
+              limits:
+                cpu: 500m
+                memory: 512Mi
+              requests:
+                cpu: 500m
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault
+
+  - it: Should set upgradeStrategy when `upgradeStrategy` is set
+    set:
+      upgradeStrategy:
+        type: Recreate
+    asserts:
+      - equal:
+          path: spec.upgradeStrategy
+          value:
+            type: Recreate
+
+  - it: Should set upgradeStrategy type None when configured
+    set:
+      upgradeStrategy:
+        type: None
+    asserts:
+      - equal:
+          path: spec.upgradeStrategy
+          value:
+            type: None
+
+  - it: Should set authOptions when `authOptions` is set
+    set:
+      authOptions:
+        mode: token
+        secretName: ray-cluster-token
+    asserts:
+      - equal:
+          path: spec.authOptions
+          value:
+            mode: token
+            secretName: ray-cluster-token
+
+  - it: Should set Kubernetes token auth when `authOptions.enableK8sTokenAuth` is true
+    set:
+      authOptions:
+        mode: token
+        enableK8sTokenAuth: true
+    asserts:
+      - equal:
+          path: spec.authOptions
+          value:
+            mode: token
+            enableK8sTokenAuth: true
+
+  - it: Should add GCS fault tolerance options when `gcsFaultTolerance.enabled` is `true`
+    set:
+      gcsFaultTolerance:
+        enabled: true
+        redisAddress: "test-redis:6379"
+        externalStorageNamespace: "test-gcs-namespace"
+        redisPassword:
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: password
+        redisUsername:
+          value: "test-user"
+    asserts:
+      - equal:
+          path: spec.gcsFaultToleranceOptions
+          value:
+            redisAddress: "test-redis:6379"
+            externalStorageNamespace: "test-gcs-namespace"
+            redisPassword:
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: password
+            redisUsername:
+              value: "test-user"
+
+  # ===========================================================================
+  # Test Head Group
+  # ===========================================================================
+
+  - it: Should use the specified head service if `head.headService` is set
+    set:
+      head:
+        headService:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: test-head-service
+            namespace: ray
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.headService
+          value:
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: test-head-service
+              namespace: ray
+
+  - it: Should not set ingress fields by default
+    asserts:
+      - notExists:
+          path: spec.headGroupSpec.enableIngress
+      - notExists:
+          path: spec.headGroupSpec.ingressOptions
+
+  - it: Should enable ingress if `head.enableIngress` is `true`
+    set:
+      head:
+        enableIngress: true
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.enableIngress
+          value: true
+
+  - it: Should not enable ingress if `head.enableIngress` is `false`
+    set:
+      head:
+        enableIngress: false
+    asserts:
+      - notExists:
+          path: spec.headGroupSpec.enableIngress
+
+  - it: Should use the specified ingress options if `head.ingressOptions` is set
+    set:
+      head:
+        enableIngress: true
+        ingressOptions:
+          host: ray.example.com
+          path: /dashboard
+          pathType: Exact
+          tls:
+            - hosts:
+                - ray.example.com
+              secretName: ray-tls
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.ingressOptions
+          value:
+            host: ray.example.com
+            path: /dashboard
+            pathType: Exact
+            tls:
+              - hosts:
+                  - ray.example.com
+                secretName: ray-tls
+
+  - it: Should use the specified service type if `service.type` is set
+    set:
+      service:
+        type: LoadBalancer
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.serviceType
+          value: LoadBalancer
+
+  - it: Should add ray start parameters if `head.rayStartParams` is set
+    set:
+      head:
+        rayStartParams:
+          dashboard-host: 0.0.0.0
+          num-cpus: "4"
+          num-gpus: "2"
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.rayStartParams
+          value:
+            dashboard-host: 0.0.0.0
+            num-cpus: "4"
+            num-gpus: "2"
+
+  - it: Should add ray start parameters if `head.initArgs` is set
+    set:
+      head:
+        initArgs:
+          dashboard-host: 0.0.0.0
+          num-cpus: "4"
+          num-gpus: "2"
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.rayStartParams
+          value:
+            dashboard-host: 0.0.0.0
+            num-cpus: "4"
+            num-gpus: "2"
+
+  - it: Should add ray start parameters if both `head.rayStartParams` and `head.initArgs` are set
+    set:
+      head:
+        rayStartParams:
+          dashboard-host: 0.0.0.0
+          port: "6379"
+        initArgs:
+          num-cpus: "4"
+          num-gpus: "2"
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.rayStartParams
+          value:
+            dashboard-host: 0.0.0.0
+            port: "6379"
+            num-cpus: "4"
+            num-gpus: "2"
+
+  - it: Should add the specified labels if `head.labels` is set
+    set:
+      head:
+        labels:
+          key1: value1
+          key2: value2
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.metadata.labels.key1
+          value: value1
+      - equal:
+          path: spec.headGroupSpec.template.metadata.labels.key2
+          value: value2
+
+  - it: Should add the specified annotations if `head.annotations` is set
+    set:
+      head:
+        annotations:
+          key1: value1
+          key2: value2
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.metadata.annotations.key1
+          value: value1
+      - equal:
+          path: spec.headGroupSpec.template.metadata.annotations.key2
+          value: value2
+
+  - it: Should add init containers if `head.initContainers` is set
+    set:
+      head:
+        initContainers:
+          - name: test-init-container-1
+            image: test-image-1
+            command:
+              - echo
+              - "Hello, Ray!"
+          - name: test-init-container-2
+            image: test-image-2
+            command:
+              - echo
+              - "Hello, Kuberay!"
+    asserts:
+      - contains:
+          path: spec.headGroupSpec.template.spec.initContainers
+          content:
+            name: test-init-container-1
+            image: test-image-1
+            command:
+              - echo
+              - "Hello, Ray!"
+      - contains:
+          path: spec.headGroupSpec.template.spec.initContainers
+          content:
+            name: test-init-container-2
+            image: test-image-2
+            command:
+              - echo
+              - "Hello, Kuberay!"
+
+  - it: Should first use the image specified by `head.image`
+    set:
+      image:
+        repository: test-repository-1
+        tag: test-tag-1
+        pullPolicy: IfNotPresent
+      head:
+        image:
+          repository: test-repository-2
+          tag: test-tag-2
+          pullPolicy: Always
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name == "ray-head")].image
+          value: test-repository-2:test-tag-2
+      - equal:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name == "ray-head")].imagePullPolicy
+          value: Always
+
+  - it: Should use the image specified by `image` if `head.image` is not set
+    set:
+      image:
+        repository: test-repository
+        tag: test-tag
+        pullPolicy: Always
+      head:
+        image: {}
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name == "ray-head")].image
+          value: test-repository:test-tag
+      - equal:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name == "ray-head")].imagePullPolicy
+          value: Always
+
+  - it: Should add command if `head.command` is set
+    set:
+      head:
+        command:
+          - /bin/bash
+          - -c
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name == "ray-head")].command
+          value:
+            - /bin/bash
+            - -c
+
+  - it: Should add args if `head.args` is set
+    set:
+      head:
+        args:
+          - arg1
+          - arg2
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name == "ray-head")].args
+          value:
+            - arg1
+            - arg2
+
+  - it: Should add env specified by `common.containerEnv` and `head.containerEnv`
+    set:
+      common:
+        containerEnv:
+          - name: KEY1
+            value: VALUE1
+          - name: KEY2
+            valueFrom:
+              configMapKeyRef:
+                name: test-configmap
+                key: TEST_KEY2
+                optional: false
+          - name: KEY3
+            valueFrom:
+              secretRef:
+                name: test-secret
+                key: TEST_KEY3
+                optional: false
+      head:
+        containerEnv:
+          - name: KEY4
+            value: VALUE4
+          - name: KEY5
+            valueFrom:
+              configMapKeyRef:
+                name: test-configmap
+                key: TEST_KEY5
+                optional: false
+          - name: KEY6
+            valueFrom:
+              secretRef:
+                name: test-secret
+                key: TEST_KEY6
+                optional: false
+    asserts:
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].env
+          content:
+            name: KEY1
+            value: VALUE1
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].env
+          content:
+            name: KEY2
+            valueFrom:
+              configMapKeyRef:
+                name: test-configmap
+                key: TEST_KEY2
+                optional: false
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].env
+          content:
+            name: KEY3
+            valueFrom:
+              secretRef:
+                name: test-secret
+                key: TEST_KEY3
+                optional: false
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].env
+          content:
+            name: KEY4
+            value: VALUE4
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].env
+          content:
+            name: KEY5
+            valueFrom:
+              configMapKeyRef:
+                name: test-configmap
+                key: TEST_KEY5
+                optional: false
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].env
+          content:
+            name: KEY6
+            valueFrom:
+              secretRef:
+                name: test-secret
+                key: TEST_KEY6
+                optional: false
+
+  - it: Should add envFrom if `head.envFrom` is set
+    set:
+      head:
+        envFrom:
+          - configMapRef:
+              name: test-configmap
+          - secretRef:
+              name: test-secret
+    asserts:
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].envFrom
+          content:
+            configMapRef:
+              name: test-configmap
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].envFrom
+          content:
+            secretRef:
+              name: test-secret
+
+  - it: Should add volumeMounts if `head.volumeMounts` is set
+    set:
+      head:
+        volumeMounts:
+          - name: test-volume-1
+            mountPath: /mnt/test-volume-1
+          - name: test-volume-2
+            mountPath: /mnt/test-volume-2
+    asserts:
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].volumeMounts
+          content:
+            name: test-volume-1
+            mountPath: /mnt/test-volume-1
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].volumeMounts
+          content:
+            name: test-volume-2
+            mountPath: /mnt/test-volume-2
+
+  - it: Should add container ports if `head.ports` is set
+    set:
+      head:
+        ports:
+          - name: port1
+            containerPort: 1234
+            protocol: TCP
+          - name: port2
+            containerPort: 5678
+            protocol: UDP
+    asserts:
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].ports
+          content:
+            name: port1
+            containerPort: 1234
+            protocol: TCP
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].ports
+          content:
+            name: port2
+            containerPort: 5678
+            protocol: UDP
+
+  - it: Should add resources if `head.resources` is set
+    set:
+      head:
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 250m
+          limits:
+            memory: 128Mi
+            cpu: 500m
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].resources
+          value:
+            requests:
+              memory: 64Mi
+              cpu: 250m
+            limits:
+              memory: 128Mi
+              cpu: 500m
+
+  - it: Should add lifecycle if `head.lifecycle` is set
+    set:
+      head:
+        lifecycle:
+          postStart:
+            httpGet:
+              port: 80
+              path: /healthz
+          preStop:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Pre-stop command executed"
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].lifecycle
+          value:
+            postStart:
+              httpGet:
+                port: 80
+                path: /healthz
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    echo "Pre-stop command executed"
+
+  - it: Should add container security context if `head.securityContext` is set
+    set:
+      head:
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+
+  - it: Should add sidecar containers if `head.sidecarContainers` is set
+    set:
+      head:
+        sidecarContainers:
+          - name: sidecar-1
+            image: sidecar-image-1
+          - name: sidecar-2
+            image: sidecar-image-2
+    asserts:
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers
+          content:
+            name: sidecar-1
+            image: sidecar-image-1
+      - contains:
+          path: spec.headGroupSpec.template.spec.containers
+          content:
+            name: sidecar-2
+            image: sidecar-image-2
+
+  - it: Should use the specified image pull secrets if `imagePullSecrets` is set
+    set:
+      imagePullSecrets:
+        - name: test-secret-1
+        - name: test-secret-2
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.imagePullSecrets
+          value:
+            - name: test-secret-1
+            - name: test-secret-2
+
+  - it: Should add volumes if `head.volumes` is set
+    set:
+      head:
+        volumes:
+          - name: volume1
+            emptyDir:
+              sizeLimit: 1Gi
+          - name: volume2
+            hostPath:
+              path: /host/path
+    asserts:
+      - contains:
+          path: spec.headGroupSpec.template.spec.volumes
+          content:
+            name: volume1
+            emptyDir:
+              sizeLimit: 1Gi
+      - contains:
+          path: spec.headGroupSpec.template.spec.volumes
+          content:
+            name: volume2
+            hostPath:
+              path: /host/path
+
+  - it: Should use the specified dns config if `head.dnsConfig` is set
+    set:
+      head:
+        dnsConfig:
+          nameservers:
+            - 8.8.8.8
+          searches:
+            - example.local
+          options:
+            - name: ndots
+              value: "2"
+            - name: edns0
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.dnsConfig
+          value:
+            nameservers:
+              - 8.8.8.8
+            searches:
+              - example.local
+            options:
+              - name: ndots
+                value: "2"
+              - name: edns0
+
+  - it: Should add nodeSelector if `head.nodeSelector` is set
+    set:
+      head:
+        nodeSelector:
+          key1: value1
+          key2: value2
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.nodeSelector.key1
+          value: value1
+      - equal:
+          path: spec.headGroupSpec.template.spec.nodeSelector.key2
+          value: value2
+
+  - it: Should add affinity if `head.affinity` is set
+    set:
+      head:
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: topology.kubernetes.io/zone
+                      operator: In
+                      values:
+                        - antarctica-east1
+                        - antarctica-west1
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 1
+                preference:
+                  matchExpressions:
+                    - key: another-node-label-key
+                      operator: In
+                      values:
+                        - another-node-label-value
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.affinity
+          value:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: topology.kubernetes.io/zone
+                        operator: In
+                        values:
+                          - antarctica-east1
+                          - antarctica-west1
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 1
+                  preference:
+                    matchExpressions:
+                      - key: another-node-label-key
+                        operator: In
+                        values:
+                          - another-node-label-value
+
+  - it: Should add tolerations if `head.tolerations` is set
+    set:
+      head:
+        tolerations:
+          - key: key1
+            operator: Equal
+            value: value1
+            effect: NoSchedule
+          - key: key2
+            operator: Exists
+            effect: NoSchedule
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.tolerations
+          value:
+            - key: key1
+              operator: Equal
+              value: value1
+              effect: NoSchedule
+            - key: key2
+              operator: Exists
+              effect: NoSchedule
+
+  - it: Should add priorityClassName if `head.priorityClassName` is set
+    set:
+      head:
+        priorityClassName: test-priority-class
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.priorityClassName
+          value: test-priority-class
+
+  - it: Should add priority if `head.priority` is set
+    set:
+      head:
+        priority: 100
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.priority
+          value: 100
+
+  - it: Should add topology spread constraints if `head.topologySpreadConstraints` is set
+    set:
+      head:
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: zone
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                foo: bar
+          - maxSkew: 1
+            topologyKey: node
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                foo: bar
+    asserts:
+      - contains:
+          path: spec.headGroupSpec.template.spec.topologySpreadConstraints
+          content:
+            maxSkew: 1
+            topologyKey: zone
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                foo: bar
+      - contains:
+          path: spec.headGroupSpec.template.spec.topologySpreadConstraints
+          content:
+            maxSkew: 1
+            topologyKey: node
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                foo: bar
+
+  - it: Should use the specified restart policy if `head.restartPolicy` is set
+    set:
+      head:
+        restartPolicy: Always
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.restartPolicy
+          value: Always
+
+  - it: Should use the specified service account name if `head.serviceAccountName` is set
+    set:
+      head:
+        serviceAccountName: test-sa
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.serviceAccountName
+          value: test-sa
+
+  - it: Should add pod securityContext if `head.podSecurityContext` is set
+    set:
+      head:
+        podSecurityContext:
+          runAsUser: 1000
+          runAsGroup: 2000
+          fsGroup: 3000
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.securityContext.runAsUser
+          value: 1000
+      - equal:
+          path: spec.headGroupSpec.template.spec.securityContext.runAsGroup
+          value: 2000
+      - equal:
+          path: spec.headGroupSpec.template.spec.securityContext.fsGroup
+          value: 3000
+
+  - it: Should add resource claims if `head.resourceClaims` is set
+    set:
+      head:
+        resourceClaims:
+          - name: gpu
+            resourceClaimName: gpu-claim
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.resourceClaims
+          value:
+            - name: gpu
+              resourceClaimName: gpu-claim
+
+  # ===========================================================================
+  # Test Default Worker Group
+  # ===========================================================================
+
+  - it: Should add ray start parameters if `worker.rayStartParams` is set
+    set:
+      worker:
+        rayStartParams:
+          dashboard-host: 0.0.0.0
+          num-cpus: "4"
+          num-gpus: "2"
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].rayStartParams
+          value:
+            dashboard-host: 0.0.0.0
+            num-cpus: "4"
+            num-gpus: "2"
+
+  - it: Should add ray start parameters if `worker.initArgs` is set
+    set:
+      worker:
+        initArgs:
+          dashboard-host: 0.0.0.0
+          num-cpus: "4"
+          num-gpus: "2"
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].rayStartParams
+          value:
+            dashboard-host: 0.0.0.0
+            num-cpus: "4"
+            num-gpus: "2"
+
+  - it: Should add ray start parameters if both `worker.rayStartParams` and `worker.initArgs` are set
+    set:
+      worker:
+        rayStartParams:
+          dashboard-host: 0.0.0.0
+          port: "6379"
+        initArgs:
+          num-cpus: "4"
+          num-gpus: "2"
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].rayStartParams
+          value:
+            dashboard-host: 0.0.0.0
+            port: "6379"
+            num-cpus: "4"
+            num-gpus: "2"
+
+  - it: Should add the specified labels if `worker.labels` is set
+    set:
+      worker:
+        labels:
+          key1: value1
+          key2: value2
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.metadata.labels.key1
+          value: value1
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.metadata.labels.key2
+          value: value2
+
+  - it: Should add the specified annotations if `worker.annotations` is set
+    set:
+      worker:
+        annotations:
+          key1: value1
+          key2: value2
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.metadata.annotations.key1
+          value: value1
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.metadata.annotations.key2
+          value: value2
+
+  - it: Should add init containers if `worker.initContainers` is set
+    set:
+      worker:
+        initContainers:
+          - name: test-init-container-1
+            image: test-image-1
+            command:
+              - echo
+              - "Hello, Ray!"
+          - name: test-init-container-2
+            image: test-image-2
+            command:
+              - echo
+              - "Hello, Kuberay!"
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.initContainers
+          content:
+            name: test-init-container-1
+            image: test-image-1
+            command:
+              - echo
+              - "Hello, Ray!"
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.initContainers
+          content:
+            name: test-init-container-2
+            image: test-image-2
+            command:
+              - echo
+              - "Hello, Kuberay!"
+
+  - it: Should first use the image specified by `worker.image`
+    set:
+      image:
+        repository: test-repository-1
+        tag: test-tag-1
+        pullPolicy: IfNotPresent
+      worker:
+        image:
+          repository: test-repository-2
+          tag: test-tag-2
+          pullPolicy: Always
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name == "ray-worker")].image
+          value: test-repository-2:test-tag-2
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name == "ray-worker")].imagePullPolicy
+          value: Always
+
+  - it: Should use the image specified by `image` if `worker.image` is not set
+    set:
+      image:
+        repository: test-repository
+        tag: test-tag
+        pullPolicy: Always
+      worker:
+        image: {}
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name == "ray-worker")].image
+          value: test-repository:test-tag
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name == "ray-worker")].imagePullPolicy
+          value: Always
+
+  - it: Should add command if `worker.command` is set
+    set:
+      worker:
+        command:
+          - /bin/bash
+          - -c
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name == "ray-worker")].command
+          value:
+            - /bin/bash
+            - -c
+
+  - it: Should add args if `worker.args` is set
+    set:
+      worker:
+        args:
+          - arg1
+          - arg2
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name == "ray-worker")].args
+          value:
+            - arg1
+            - arg2
+
+  - it: Should add env specified by `common.containerEnv` and `worker.containerEnv`
+    set:
+      common:
+        containerEnv:
+          - name: KEY1
+            value: VALUE1
+          - name: KEY2
+            valueFrom:
+              configMapKeyRef:
+                name: test-configmap
+                key: TEST_KEY2
+                optional: false
+          - name: KEY3
+            valueFrom:
+              secretRef:
+                name: test-secret
+                key: TEST_KEY3
+                optional: false
+      worker:
+        containerEnv:
+          - name: KEY4
+            value: VALUE4
+          - name: KEY5
+            valueFrom:
+              configMapKeyRef:
+                name: test-configmap
+                key: TEST_KEY5
+                optional: false
+          - name: KEY6
+            valueFrom:
+              secretRef:
+                name: test-secret
+                key: TEST_KEY6
+                optional: false
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].env
+          content:
+            name: KEY1
+            value: VALUE1
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].env
+          content:
+            name: KEY2
+            valueFrom:
+              configMapKeyRef:
+                name: test-configmap
+                key: TEST_KEY2
+                optional: false
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].env
+          content:
+            name: KEY3
+            valueFrom:
+              secretRef:
+                name: test-secret
+                key: TEST_KEY3
+                optional: false
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].env
+          content:
+            name: KEY4
+            value: VALUE4
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].env
+          content:
+            name: KEY5
+            valueFrom:
+              configMapKeyRef:
+                name: test-configmap
+                key: TEST_KEY5
+                optional: false
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].env
+          content:
+            name: KEY6
+            valueFrom:
+              secretRef:
+                name: test-secret
+                key: TEST_KEY6
+                optional: false
+
+  - it: Should add envFrom if `worker.envFrom` is set
+    set:
+      worker:
+        envFrom:
+          - configMapRef:
+              name: test-configmap
+          - secretRef:
+              name: test-secret
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+          content:
+            configMapRef:
+              name: test-configmap
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+          content:
+            secretRef:
+              name: test-secret
+
+  - it: Should add volumeMounts if `worker.volumeMounts` is set
+    set:
+      worker:
+        volumeMounts:
+          - name: test-volume-1
+            mountPath: /mnt/test-volume-1
+          - name: test-volume-2
+            mountPath: /mnt/test-volume-2
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].volumeMounts
+          content:
+            name: test-volume-1
+            mountPath: /mnt/test-volume-1
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].volumeMounts
+          content:
+            name: test-volume-2
+            mountPath: /mnt/test-volume-2
+
+  - it: Should add container ports if `worker.ports` is set
+    set:
+      worker:
+        ports:
+          - name: port1
+            containerPort: 1234
+            protocol: TCP
+          - name: port2
+            containerPort: 5678
+            protocol: UDP
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].ports
+          content:
+            name: port1
+            containerPort: 1234
+            protocol: TCP
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].ports
+          content:
+            name: port2
+            containerPort: 5678
+            protocol: UDP
+
+  - it: Should add resources if `worker.resources` is set
+    set:
+      worker:
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 250m
+          limits:
+            memory: 128Mi
+            cpu: 500m
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].resources
+          value:
+            requests:
+              memory: 64Mi
+              cpu: 250m
+            limits:
+              memory: 128Mi
+              cpu: 500m
+
+  - it: Should add lifecycle if `worker.lifecycle` is set
+    set:
+      worker:
+        lifecycle:
+          postStart:
+            httpGet:
+              port: 80
+              path: /healthz
+          preStop:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Pre-stop command executed"
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].lifecycle
+          value:
+            postStart:
+              httpGet:
+                port: 80
+                path: /healthz
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    echo "Pre-stop command executed"
+
+  - it: Should add container security context if `worker.securityContext` is set
+    set:
+      worker:
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+
+  - it: Should add sidecar containers if `worker.sidecarContainers` is set
+    set:
+      worker:
+        sidecarContainers:
+          - name: sidecar-1
+            image: sidecar-image-1
+          - name: sidecar-2
+            image: sidecar-image-2
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers
+          content:
+            name: sidecar-1
+            image: sidecar-image-1
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers
+          content:
+            name: sidecar-2
+            image: sidecar-image-2
+
+  - it: Should use the specified image pull secrets if `imagePullSecrets` is set
+    set:
+      imagePullSecrets:
+        - name: test-secret-1
+        - name: test-secret-2
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.imagePullSecrets
+          value:
+            - name: test-secret-1
+            - name: test-secret-2
+
+  - it: Should add volumes if `worker.volumes` is set
+    set:
+      worker:
+        volumes:
+          - name: volume1
+            emptyDir:
+              sizeLimit: 1Gi
+          - name: volume2
+            hostPath:
+              path: /host/path
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.volumes
+          content:
+            name: volume1
+            emptyDir:
+              sizeLimit: 1Gi
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.volumes
+          content:
+            name: volume2
+            hostPath:
+              path: /host/path
+
+  - it: Should use the specified dns config if `worker.dnsConfig` is set
+    set:
+      worker:
+        dnsConfig:
+          nameservers:
+            - 8.8.8.8
+          searches:
+            - example.local
+          options:
+            - name: ndots
+              value: "2"
+            - name: edns0
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.dnsConfig
+          value:
+            nameservers:
+              - 8.8.8.8
+            searches:
+              - example.local
+            options:
+              - name: ndots
+                value: "2"
+              - name: edns0
+
+  - it: Should add nodeSelector if `worker.nodeSelector` is set
+    set:
+      worker:
+        nodeSelector:
+          key1: value1
+          key2: value2
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.nodeSelector.key1
+          value: value1
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.nodeSelector.key2
+          value: value2
+
+  - it: Should add affinity if `worker.affinity` is set
+    set:
+      worker:
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: topology.kubernetes.io/zone
+                      operator: In
+                      values:
+                        - antarctica-east1
+                        - antarctica-west1
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 1
+                preference:
+                  matchExpressions:
+                    - key: another-node-label-key
+                      operator: In
+                      values:
+                        - another-node-label-value
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.affinity
+          value:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: topology.kubernetes.io/zone
+                        operator: In
+                        values:
+                          - antarctica-east1
+                          - antarctica-west1
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 1
+                  preference:
+                    matchExpressions:
+                      - key: another-node-label-key
+                        operator: In
+                        values:
+                          - another-node-label-value
+
+  - it: Should add tolerations if `worker.tolerations` is set
+    set:
+      worker:
+        tolerations:
+          - key: key1
+            operator: Equal
+            value: value1
+            effect: NoSchedule
+          - key: key2
+            operator: Exists
+            effect: NoSchedule
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.tolerations
+          value:
+            - key: key1
+              operator: Equal
+              value: value1
+              effect: NoSchedule
+            - key: key2
+              operator: Exists
+              effect: NoSchedule
+
+  - it: Should add priorityClassName if `worker.priorityClassName` is set
+    set:
+      worker:
+        priorityClassName: test-priority-class
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.priorityClassName
+          value: test-priority-class
+
+  - it: Should add priority if `worker.priority` is set
+    set:
+      worker:
+        priority: 100
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.priority
+          value: 100
+
+  - it: Should add topology spread constraints if `worker.topologySpreadConstraints` is set
+    set:
+      worker:
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: zone
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                foo: bar
+          - maxSkew: 1
+            topologyKey: node
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                foo: bar
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.topologySpreadConstraints
+          content:
+            maxSkew: 1
+            topologyKey: zone
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                foo: bar
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.topologySpreadConstraints
+          content:
+            maxSkew: 1
+            topologyKey: node
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                foo: bar
+
+  - it: Should use the specified restart policy if `worker.restartPolicy` is set
+    set:
+      worker:
+        restartPolicy: Always
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.restartPolicy
+          value: Always
+
+  - it: Should use the specified service account name if `worker.serviceAccountName` is set
+    set:
+      worker:
+        serviceAccountName: test-sa
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.serviceAccountName
+          value: test-sa
+
+  - it: Should add pod securityContext if `worker.podSecurityContext` is set
+    set:
+      worker:
+        podSecurityContext:
+          runAsUser: 1000
+          runAsGroup: 2000
+          fsGroup: 3000
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.securityContext.runAsUser
+          value: 1000
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.securityContext.runAsGroup
+          value: 2000
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.securityContext.fsGroup
+          value: 3000
+
+  - it: Should add resource claims if `worker.resourceClaims` is set
+    set:
+      worker:
+        resourceClaims:
+          - name: gpu
+            resourceClaimName: gpu-claim
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.resourceClaims
+          value:
+            - name: gpu
+              resourceClaimName: gpu-claim
+
+  # ===========================================================================
+  # Test Additional Worker Groups
+  # ===========================================================================
+
+  - it: Should add ray start parameters if `additionalWorkerGroups.smallGroup.rayStartParams` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          rayStartParams:
+            dashboard-host: 0.0.0.0
+            num-cpus: "4"
+            num-gpus: "2"
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].rayStartParams
+          value:
+            dashboard-host: 0.0.0.0
+            num-cpus: "4"
+            num-gpus: "2"
+
+  - it: Should add ray start parameters if `additionalWorkerGroups.smallGroup.initArgs` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          initArgs:
+            dashboard-host: 0.0.0.0
+            num-cpus: "4"
+            num-gpus: "2"
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].rayStartParams
+          value:
+            dashboard-host: 0.0.0.0
+            num-cpus: "4"
+            num-gpus: "2"
+
+  - it: Should add ray start parameters if both `additionalWorkerGroups.smallGroup.rayStartParams` and `additionalWorkerGroups.smallGroup.initArgs` are set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          rayStartParams:
+            dashboard-host: 0.0.0.0
+            port: "6379"
+          initArgs:
+            num-cpus: "4"
+            num-gpus: "2"
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].rayStartParams
+          value:
+            dashboard-host: 0.0.0.0
+            port: "6379"
+            num-cpus: "4"
+            num-gpus: "2"
+
+  - it: Should add the specified labels if `additionalWorkerGroups.smallGroup.labels` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          labels:
+            key1: value1
+            key2: value2
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.metadata.labels.key1
+          value: value1
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.metadata.labels.key2
+          value: value2
+
+  - it: Should add the specified annotations if `additionalWorkerGroups.smallGroup.annotations` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          annotations:
+            key1: value1
+            key2: value2
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.metadata.annotations.key1
+          value: value1
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.metadata.annotations.key2
+          value: value2
+
+  - it: Should add init containers if `additionalWorkerGroups.smallGroup.initContainers` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          initContainers:
+            - name: test-init-container-1
+              image: test-image-1
+              command:
+                - echo
+                - "Hello, Ray!"
+            - name: test-init-container-2
+              image: test-image-2
+              command:
+                - echo
+                - "Hello, Kuberay!"
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.initContainers
+          content:
+            name: test-init-container-1
+            image: test-image-1
+            command:
+              - echo
+              - "Hello, Ray!"
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.initContainers
+          content:
+            name: test-init-container-2
+            image: test-image-2
+            command:
+              - echo
+              - "Hello, Kuberay!"
+
+  - it: Should first use the image specified by `additionalWorkerGroups.smallGroup.image`
+    set:
+      image:
+        repository: test-repository-1
+        tag: test-tag-1
+        pullPolicy: IfNotPresent
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          image:
+            repository: test-repository-2
+            tag: test-tag-2
+            pullPolicy: Always
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name == "ray-worker")].image
+          value: test-repository-2:test-tag-2
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name == "ray-worker")].imagePullPolicy
+          value: Always
+
+  - it: Should use the image specified by `image` if `additionalWorkerGroups.smallGroup.image` is not set
+    set:
+      image:
+        repository: test-repository
+        tag: test-tag
+        pullPolicy: Always
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          image: {}
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name == "ray-worker")].image
+          value: test-repository:test-tag
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name == "ray-worker")].imagePullPolicy
+          value: Always
+
+  - it: Should add command if `additionalWorkerGroups.smallGroup.command` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          command:
+            - /bin/bash
+            - -c
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name == "ray-worker")].command
+          value:
+            - /bin/bash
+            - -c
+
+  - it: Should add args if `additionalWorkerGroups.smallGroup.args` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          args:
+            - arg1
+            - arg2
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name == "ray-worker")].args
+          value:
+            - arg1
+            - arg2
+
+  - it: Should add env specified by `common.containerEnv` and `additionalWorkerGroups.smallGroup.containerEnv`
+    set:
+      common:
+        containerEnv:
+          - name: KEY1
+            value: VALUE1
+          - name: KEY2
+            valueFrom:
+              configMapKeyRef:
+                name: test-configmap
+                key: TEST_KEY2
+                optional: false
+          - name: KEY3
+            valueFrom:
+              secretRef:
+                name: test-secret
+                key: TEST_KEY3
+                optional: false
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          containerEnv:
+            - name: KEY4
+              value: VALUE4
+            - name: KEY5
+              valueFrom:
+                configMapKeyRef:
+                  name: test-configmap
+                  key: TEST_KEY5
+                  optional: false
+            - name: KEY6
+              valueFrom:
+                secretRef:
+                  name: test-secret
+                  key: TEST_KEY6
+                  optional: false
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].env
+          content:
+            name: KEY1
+            value: VALUE1
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].env
+          content:
+            name: KEY2
+            valueFrom:
+              configMapKeyRef:
+                name: test-configmap
+                key: TEST_KEY2
+                optional: false
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].env
+          content:
+            name: KEY3
+            valueFrom:
+              secretRef:
+                name: test-secret
+                key: TEST_KEY3
+                optional: false
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].env
+          content:
+            name: KEY4
+            value: VALUE4
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].env
+          content:
+            name: KEY5
+            valueFrom:
+              configMapKeyRef:
+                name: test-configmap
+                key: TEST_KEY5
+                optional: false
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].env
+          content:
+            name: KEY6
+            valueFrom:
+              secretRef:
+                name: test-secret
+                key: TEST_KEY6
+                optional: false
+
+  - it: Should add envFrom if `additionalWorkerGroups.smallGroup.envFrom` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          envFrom:
+            - configMapRef:
+                name: test-configmap
+            - secretRef:
+                name: test-secret
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+          content:
+            configMapRef:
+              name: test-configmap
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+          content:
+            secretRef:
+              name: test-secret
+
+  - it: Should add volumeMounts if `additionalWorkerGroups.smallGroup.volumeMounts` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          volumeMounts:
+            - name: test-volume-1
+              mountPath: /mnt/test-volume-1
+            - name: test-volume-2
+              mountPath: /mnt/test-volume-2
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].volumeMounts
+          content:
+            name: test-volume-1
+            mountPath: /mnt/test-volume-1
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].volumeMounts
+          content:
+            name: test-volume-2
+            mountPath: /mnt/test-volume-2
+
+  - it: Should add container ports if `additionalWorkerGroups.smallGroup.ports` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          ports:
+            - name: port1
+              containerPort: 1234
+              protocol: TCP
+            - name: port2
+              containerPort: 5678
+              protocol: UDP
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].ports
+          content:
+            name: port1
+            containerPort: 1234
+            protocol: TCP
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].ports
+          content:
+            name: port2
+            containerPort: 5678
+            protocol: UDP
+
+  - it: Should add resources if `additionalWorkerGroups.smallGroup.resources` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 250m
+            limits:
+              memory: 128Mi
+              cpu: 500m
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].resources
+          value:
+            requests:
+              memory: 64Mi
+              cpu: 250m
+            limits:
+              memory: 128Mi
+              cpu: 500m
+
+  - it: Should add default resources if `additionalWorkerGroups.smallGroup.resources` is not set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          resources: null
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].resources
+          value:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+            requests:
+              cpu: "1"
+              memory: 1Gi
+
+  - it: Should add lifecycle if `additionalWorkerGroups.smallGroup.lifecycle` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          lifecycle:
+            postStart:
+              httpGet:
+                port: 80
+                path: /healthz
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    echo "Pre-stop command executed"
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].lifecycle
+          value:
+            postStart:
+              httpGet:
+                port: 80
+                path: /healthz
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    echo "Pre-stop command executed"
+
+  - it: Should add container security context if `additionalWorkerGroups.smallGroup.securityContext` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+
+  - it: Should add sidecar containers if `additionalWorkerGroups.smallGroup.sidecarContainers` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          sidecarContainers:
+            - name: sidecar-1
+              image: sidecar-image-1
+            - name: sidecar-2
+              image: sidecar-image-2
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers
+          content:
+            name: sidecar-1
+            image: sidecar-image-1
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers
+          content:
+            name: sidecar-2
+            image: sidecar-image-2
+
+  - it: Should use the specified image pull secrets if `imagePullSecrets` is set
+    set:
+      imagePullSecrets:
+        - name: test-secret-1
+        - name: test-secret-2
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.imagePullSecrets
+          value:
+            - name: test-secret-1
+            - name: test-secret-2
+
+  - it: Should add volumes if `additionalWorkerGroups.smallGroup.volumes` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          volumes:
+            - name: volume1
+              emptyDir:
+                sizeLimit: 1Gi
+            - name: volume2
+              hostPath:
+                path: /host/path
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.volumes
+          content:
+            name: volume1
+            emptyDir:
+              sizeLimit: 1Gi
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.volumes
+          content:
+            name: volume2
+            hostPath:
+              path: /host/path
+
+  - it: Should use the specified dns config if `additionalWorkerGroups.smallGroup.dnsConfig` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          dnsConfig:
+            nameservers:
+              - 8.8.8.8
+            searches:
+              - example.local
+            options:
+              - name: ndots
+                value: "2"
+              - name: edns0
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.dnsConfig
+          value:
+            nameservers:
+              - 8.8.8.8
+            searches:
+              - example.local
+            options:
+              - name: ndots
+                value: "2"
+              - name: edns0
+
+  - it: Should add nodeSelector if `additionalWorkerGroups.smallGroup.nodeSelector` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          nodeSelector:
+            key1: value1
+            key2: value2
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.nodeSelector.key1
+          value: value1
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.nodeSelector.key2
+          value: value2
+
+  - it: Should add affinity if `additionalWorkerGroups.smallGroup.affinity` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: topology.kubernetes.io/zone
+                        operator: In
+                        values:
+                          - antarctica-east1
+                          - antarctica-west1
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 1
+                  preference:
+                    matchExpressions:
+                      - key: another-node-label-key
+                        operator: In
+                        values:
+                          - another-node-label-value
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.affinity
+          value:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: topology.kubernetes.io/zone
+                        operator: In
+                        values:
+                          - antarctica-east1
+                          - antarctica-west1
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 1
+                  preference:
+                    matchExpressions:
+                      - key: another-node-label-key
+                        operator: In
+                        values:
+                          - another-node-label-value
+
+  - it: Should add tolerations if `additionalWorkerGroups.smallGroup.tolerations` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          tolerations:
+            - key: key1
+              operator: Equal
+              value: value1
+              effect: NoSchedule
+            - key: key2
+              operator: Exists
+              effect: NoSchedule
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.tolerations
+          value:
+            - key: key1
+              operator: Equal
+              value: value1
+              effect: NoSchedule
+            - key: key2
+              operator: Exists
+              effect: NoSchedule
+
+  - it: Should add priorityClassName if `additionalWorkerGroups.smallGroup.priorityClassName` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          priorityClassName: test-priority-class
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.priorityClassName
+          value: test-priority-class
+
+  - it: Should add priority if `additionalWorkerGroups.smallGroup.priority` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          priority: 100
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.priority
+          value: 100
+
+  - it: Should add topology spread constraints if `additionalWorkerGroups.smallGroup.topologySpreadConstraints` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: zone
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  foo: bar
+            - maxSkew: 1
+              topologyKey: node
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  foo: bar
+    asserts:
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.topologySpreadConstraints
+          content:
+            maxSkew: 1
+            topologyKey: zone
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                foo: bar
+      - contains:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.topologySpreadConstraints
+          content:
+            maxSkew: 1
+            topologyKey: node
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                foo: bar
+
+  - it: Should use the specified restart policy if `additionalWorkerGroups.smallGroup.restartPolicy` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          restartPolicy: Always
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.restartPolicy
+          value: Always
+
+  - it: Should use the specified service account name if `additionalWorkerGroups.smallGroup.serviceAccountName` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          serviceAccountName: test-sa
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.serviceAccountName
+          value: test-sa
+
+  - it: Should add pod securityContext if `additionalWorkerGroups.smallGroup.podSecurityContext` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          podSecurityContext:
+            runAsUser: 1000
+            runAsGroup: 2000
+            fsGroup: 3000
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.securityContext.runAsUser
+          value: 1000
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.securityContext.runAsGroup
+          value: 2000
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.securityContext.fsGroup
+          value: 3000
+
+  - it: Should add resource claims if `additionalWorkerGroups.smallGroup.resourceClaims` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          resourceClaims:
+            - name: gpu
+              resourceClaimName: gpu-claim
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.resourceClaims
+          value:
+            - name: gpu
+              resourceClaimName: gpu-claim
+
+  - it: Should set head runtimeClassName when `head.runtimeClassName` is set
+    set:
+      head:
+        runtimeClassName: nvidia
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.runtimeClassName
+          value: nvidia
+
+  - it: Should set worker runtimeClassName when `worker.runtimeClassName` is set
+    set:
+      worker:
+        runtimeClassName: nvidia
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.runtimeClassName
+          value: nvidia
+
+  - it: Should set additional worker group runtimeClassName when `additionalWorkerGroups.smallGroup.runtimeClassName` is set
+    set:
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          runtimeClassName: nvidia
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.runtimeClassName
+          value: nvidia
+
+  # ===========================================================================
+  # Test common.envFrom
+  # ===========================================================================
+
+  - it: Should prepend common.envFrom before each group's envFrom
+    set:
+      common:
+        envFrom:
+          - configMapRef:
+              name: common-config
+          - secretRef:
+              name: common-secret
+      head:
+        envFrom:
+          - secretRef:
+              name: head-secret
+      worker:
+        envFrom:
+          - secretRef:
+              name: worker-secret
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          replicas: 1
+          minReplicas: 0
+          maxReplicas: 1
+          envFrom:
+            - secretRef:
+                name: additional-secret
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].envFrom
+          value:
+            - configMapRef:
+                name: common-config
+            - secretRef:
+                name: common-secret
+            - secretRef:
+                name: head-secret
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+          value:
+            - configMapRef:
+                name: common-config
+            - secretRef:
+                name: common-secret
+            - secretRef:
+                name: worker-secret
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+          value:
+            - configMapRef:
+                name: common-config
+            - secretRef:
+                name: common-secret
+            - secretRef:
+                name: additional-secret
+
+  - it: Should apply common.envFrom to custom additional worker groups without local envFrom
+    set:
+      common:
+        envFrom:
+          - secretRef:
+              name: common-secret
+      additionalWorkerGroups:
+        customGroup:
+          replicas: 1
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="customGroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+          value:
+            - secretRef:
+                name: common-secret
+
+  - it: Should not render envFrom when both common and local lists are empty
+    asserts:
+      - notExists:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].envFrom
+      - notExists:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+
+  - it: Should keep duplicate entries when common and group envFrom reference the same source
+    set:
+      common:
+        envFrom:
+          - configMapRef:
+              name: shared-config
+      head:
+        envFrom:
+          - configMapRef:
+              name: shared-config-head
+      worker:
+        envFrom:
+          - configMapRef:
+              name: shared-config-worker
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].envFrom
+          value:
+            - configMapRef:
+                name: shared-config
+            - configMapRef:
+                name: shared-config-head
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+          value:
+            - configMapRef:
+                name: shared-config
+            - configMapRef:
+                name: shared-config-worker

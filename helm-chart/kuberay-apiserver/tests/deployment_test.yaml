@@ -1,0 +1,241 @@
+suite: Test Deployment
+
+release:
+  name: kuberay-apiserver
+  namespace: kuberay-system
+
+templates:
+  - deployment.yaml
+
+tests:
+  - it: Should create a deployment
+    asserts:
+      - containsDocument:
+          apiVersion: apps/v1
+          kind: Deployment
+          name: kuberay-apiserver
+          namespace: kuberay-system
+
+  - it: Should use the specified replicas if `replicaCount` is set
+    set:
+      replicaCount: 0
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 0
+
+  - it: Should use the specified image if `image.repository` and `image.tag` are set
+    set:
+      image:
+        repository: test-repository/test-image
+        tag: test-tag
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="kuberay-apiserver-container")].image
+          value: test-repository/test-image:test-tag
+
+  - it: Should use the specified image pull policy if `image.pullPolicy` is set
+    set:
+      image:
+        pullPolicy: Always
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="kuberay-apiserver-container")].imagePullPolicy
+          value: Always
+
+  - it: Should use the specified image if `security.proxy.repository` and `security.proxy.tag` are set
+    set:
+      security:
+        proxy:
+          repository: test-repository/test-image
+          tag: test-tag
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="security-proxy-container")].image
+          value: test-repository/test-image:test-tag
+
+  - it: Should use the specified image pull policy if `security.proxy.pullPolicy` is set
+    set:
+      security:
+        proxy:
+          pullPolicy: Always
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="security-proxy-container")].imagePullPolicy
+          value: Always
+
+  - it: Should add deployment labels if `labels` is set
+    set:
+      labels:
+        key1: value1
+        key2: value2
+    asserts:
+      - equal:
+          path: metadata.labels.key1
+          value: value1
+      - equal:
+          path: metadata.labels.key2
+          value: value2
+
+  - it: Should add pod template labels if `labels` is set
+    set:
+      labels:
+        key1: value1
+        key2: value2
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels.key1
+          value: value1
+      - equal:
+          path: spec.template.metadata.labels.key2
+          value: value2
+
+  - it: Should add pod template annotations if `annotations` is set
+    set:
+      annotations:
+        key1: value1
+        key2: value2
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations.key1
+          value: value1
+      - equal:
+          path: spec.template.metadata.annotations.key2
+          value: value2
+
+  - it: Should add resources to kuberay apiserver container if `resources` is set
+    set:
+      resources:
+        requests:
+          memory: 64Mi
+          cpu: 250m
+        limits:
+          memory: 128Mi
+          cpu: 500m
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="kuberay-apiserver-container")].resources
+          value:
+            requests:
+              memory: 64Mi
+              cpu: 250m
+            limits:
+              memory: 128Mi
+              cpu: 500m
+
+  - it: Should add resources to security proxy container if both `resources` and `security` are set
+    set:
+      resources:
+        requests:
+          memory: 64Mi
+          cpu: 250m
+        limits:
+          memory: 128Mi
+          cpu: 500m
+      security:
+        proxy:
+          repository: quay.io/kuberay/security-proxy
+          tag: nightly
+          pullPolicy: IfNotPresent
+        env:
+          HTTP_LOCAL_PORT: 8988
+          GRPC_LOCAL_PORT: 8987
+          SECURITY_TOKEN: "12345"
+          SECURITY_PREFIX: "/"
+          ENABLE_GRPC: "true"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="security-proxy-container")].resources
+          value:
+            requests:
+              memory: 64Mi
+              cpu: 250m
+            limits:
+              memory: 128Mi
+              cpu: 500m
+
+  - it: Should add nodeSelector if `nodeSelector` is set
+    set:
+      nodeSelector:
+        key1: value1
+        key2: value2
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector.key1
+          value: value1
+      - equal:
+          path: spec.template.spec.nodeSelector.key2
+          value: value2
+
+  - it: Should add affinity if `affinity` is set
+    set:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: topology.kubernetes.io/zone
+                    operator: In
+                    values:
+                      - antarctica-east1
+                      - antarctica-west1
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 1
+              preference:
+                matchExpressions:
+                  - key: another-node-label-key
+                    operator: In
+                    values:
+                      - another-node-label-value
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity
+          value:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: topology.kubernetes.io/zone
+                        operator: In
+                        values:
+                          - antarctica-east1
+                          - antarctica-west1
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 1
+                  preference:
+                    matchExpressions:
+                      - key: another-node-label-key
+                        operator: In
+                        values:
+                          - another-node-label-value
+
+  - it: Should add tolerations if `tolerations` is set
+    set:
+      tolerations:
+        - key: key1
+          operator: Equal
+          value: value1
+          effect: NoSchedule
+        - key: key2
+          operator: Exists
+          effect: NoSchedule
+    asserts:
+      - equal:
+          path: spec.template.spec.tolerations
+          value:
+            - key: key1
+              operator: Equal
+              value: value1
+              effect: NoSchedule
+            - key: key2
+              operator: Exists
+              effect: NoSchedule
+
+  - it: Should use the specified service account name if `serviceAccount.name` is set
+    set:
+      serviceAccount:
+        name: test-sa
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: test-sa

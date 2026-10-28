@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+option go_package = "github.com/ray-project/kuberay/proto/go_client";
+package proto;
+
+import "google/api/field_behavior.proto";
+import "google/protobuf/any.proto";
+
+// Status of the request, including underling errors and codes
+message Status {
+  string error = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  int32 code = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  repeated google.protobuf.Any details = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}

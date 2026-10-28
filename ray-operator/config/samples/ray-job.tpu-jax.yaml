@@ -1,0 +1,88 @@
+# This sample configures a RayJob for JAX TPU profiling on a single-host TPU v4 PodSlice.
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob-tpu-jax
+spec:
+  entrypoint: |
+    python -c "
+    import time
+    import jax
+    import ray
+    from ray.util.tpu import init_jax_profiler
+
+    ray.init()
+
+    @ray.remote(resources={'TPU': 4})
+    def train_step():
+        init_jax_profiler()
+        x = jax.numpy.ones((1000, 1000))
+        for _ in range(100):
+            x = jax.numpy.dot(x, x)
+            time.sleep(0.5)
+        return f'Finished computation on {jax.device_count()} TPU devices.'
+
+    print('Starting TPU JAX task...')
+    print(ray.get(train_step.remote()))
+    "
+  runtimeEnvYAML: |
+    pip:
+      - jax[tpu]==0.6.1
+      - -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+  rayClusterSpec:
+    rayVersion: "2.57.0"
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.57.0-py310
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            resources:
+              limits:
+                cpu: "4"
+                memory: "16G"
+              requests:
+                cpu: "4"
+                memory: "16G"
+            env:
+            # IMPORTANT: Enable Ray Dashboard profiling endpoints
+            - name: RAY_DASHBOARD_ENABLE_PROFILING
+              value: "1"
+    workerGroupSpecs:
+    - replicas: 1
+      minReplicas: 1
+      maxReplicas: 1
+      numOfHosts: 1
+      groupName: tpu-workers
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            # NOTE on Dashboard JAX profiling (/worker/jax_profile):
+            # The Dashboard ReporterAgent daemon requires `tensorflow` to be installed in the
+            # container's base Python environment (packages in `runtimeEnvYAML` are not visible
+            # to the daemon). Build a custom Docker image on top of `rayproject/ray:2.57.0-py310` with:
+            #   pip install tensorflow tensorboard-plugin-profile
+            image: rayproject/ray:2.57.0-py310
+            resources:
+              limits:
+                cpu: "8"
+                memory: "32G"
+                google.com/tpu: "4"
+              requests:
+                cpu: "8"
+                memory: "32G"
+                google.com/tpu: "4"
+          nodeSelector:
+            cloud.google.com/gke-tpu-accelerator: tpu-v4-podslice
+            cloud.google.com/gke-tpu-topology: 2x2x1

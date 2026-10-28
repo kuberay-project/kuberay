@@ -1,0 +1,54 @@
+{
+  "name": "ha-cluster",
+  "namespace": "default",
+  "user": "kuberay",
+  "version": "2.46.0",
+  "environment": "DEV",
+  "annotations": {
+    "ray.io/ft-enabled": "true"
+  },
+  "clusterSpec": {
+    "headGroupSpec": {
+      "computeTemplate": "default-template",
+      "image": "rayproject/ray:2.46.0-py310",
+      "rayStartParams": {
+        "num-cpus": "0",
+        "redis-password": "$REDIS_PASSWORD"
+      },
+      "environment": {
+        "values": {
+          "RAY_REDIS_ADDRESS": "redis.default.svc.cluster.local:6379"
+        },
+        "valuesFrom": {
+          "REDIS_PASSWORD": {
+            "source": 1,
+            "name": "redis-password-secret",
+            "key": "password"
+          }
+        }
+      },
+      "volumes": [
+        {
+          "name": "code-sample",
+          "mountPath": "/home/ray/samples",
+          "volumeType": "CONFIGMAP",
+          "source": "ray-example",
+          "items": {
+            "detached_actor.py": "detached_actor.py",
+            "increment_counter.py": "increment_counter.py"
+          }
+        }
+      ]
+    },
+    "workerGroupSpec": [
+      {
+        "groupName": "small-wg",
+        "computeTemplate": "default-template",
+        "image": "rayproject/ray:2.46.0-py310",
+        "replicas": 1,
+        "minReplicas": 0,
+        "maxReplicas": 5
+      }
+    ]
+  }
+}

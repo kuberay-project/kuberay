@@ -1,0 +1,76 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-embed-grafana
+spec:
+  # Ray head pod configuration
+  headGroupSpec:
+    rayStartParams: {}
+    # pod template
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          ports:
+          - containerPort: 6379
+            name: gcs
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          # The name of a containerPort cannot be longer than 15 characters.
+          # Hence, we use the name "as-metrics" instead of "autoscaler-metrics".
+          - containerPort: 44217
+            name: as-metrics # autoscaler
+          - containerPort: 44227
+            name: dash-metrics # dashboard
+          volumeMounts:
+          - mountPath: /tmp/ray
+            name: ray-logs
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+          env:
+          - name: RAY_GRAFANA_IFRAME_HOST
+            value: http://127.0.0.1:3000
+          - name: RAY_GRAFANA_HOST
+            value: http://prometheus-grafana.prometheus-system.svc:80
+          - name: RAY_PROMETHEUS_HOST
+            value: http://prometheus-kube-prometheus-prometheus.prometheus-system.svc:9090
+        volumes:
+        - name: ray-logs
+          emptyDir: {}
+  workerGroupSpecs:
+  # the pod replicas in this group typed worker
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 10
+    groupName: small-group
+    rayStartParams: {}
+    #pod template
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          volumeMounts:
+          - mountPath: /tmp/ray
+            name: ray-logs
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+        # use volumes
+        # Refer to https://kubernetes.io/docs/concepts/storage/volumes/
+        volumes:
+        - name: ray-logs
+          emptyDir: {}
+######################status#################################

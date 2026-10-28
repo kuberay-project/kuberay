@@ -1,0 +1,59 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-tpu-v6e-singlehost
+spec:
+  rayVersion: "2.52.0"
+  headGroupSpec:
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: "8"
+              memory: "40G"
+            requests:
+              cpu: "8"
+              memory: "40G"
+          ports:
+          - containerPort: 6379
+            name: gcs
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          - containerPort: 8000
+            name: serve
+          - containerPort: 8081
+            name: mxla
+          - containerPort: 8888
+            name: grpc
+  workerGroupSpecs:
+  - groupName: tpu-group
+    replicas: 1
+    minReplicas: 0
+    maxReplicas: 1
+    numOfHosts: 1
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: "24"
+              google.com/tpu: "4"
+              memory: "200G"
+            requests:
+              cpu: "24"
+              google.com/tpu: "4"
+              memory: "200G"
+        nodeSelector:
+          cloud.google.com/gke-tpu-accelerator: tpu-v6e-slice
+          cloud.google.com/gke-tpu-topology: 2x2

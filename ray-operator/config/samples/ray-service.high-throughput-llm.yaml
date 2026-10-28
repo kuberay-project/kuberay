@@ -1,0 +1,106 @@
+# This sample Ray Service shows how to configure Ray Serve LLM for high
+# throughput serving.
+# This is enabled by the env vars
+#
+# - RAY_SERVE_ENABLE_HA_PROXY=1
+# - RAY_SERVE_THROUGHPUT_OPTIMIZED=1
+# - RAY_SERVE_LLM_ENABLE_DIRECT_STREAMING=1
+# - VLLM_USE_RAY_V2_EXECUTOR_BACKEND=1
+#
+# ...which should be set on both the head and workers.
+# This example uses L4s on GKE with Qwen 3.5 for illustrative purposes only.
+# The high throughput routing can be used with any model, accelerators,
+# resources, and workloads.
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: qwen-35-4b
+spec:
+  serveConfigV2: |
+    applications:
+    - name: llm_app
+      import_path: ray.serve.llm:build_openai_app
+      args:
+        llm_configs:
+            - model_loading_config:
+                model_id: qwen-3.5-4b
+                model_source: Qwen/Qwen3.5-4b
+              accelerator_type: L4
+              deployment_config:
+                num_replicas: 4
+  rayClusterConfig:
+    rayVersion: 2.56.0
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: 0.0.0.0
+        num-cpus: '0'
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray-llm:2.56.0-py312-cu130
+            resources:
+              limits:
+                memory: 8Gi
+                ephemeral-storage: 32Gi
+              requests:
+                cpu: '2'
+                memory: 8Gi
+                ephemeral-storage: 32Gi
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            - containerPort: 8000
+              name: serve
+            env:
+            - name: RAY_SERVE_ENABLE_HA_PROXY
+              value: '1'
+            - name: RAY_SERVE_THROUGHPUT_OPTIMIZED
+              value: '1'
+            - name: RAY_SERVE_LLM_ENABLE_DIRECT_STREAMING
+              value: '1'
+            - name: VLLM_USE_RAY_V2_EXECUTOR_BACKEND
+              value: '1'
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: hf_api_token
+    workerGroupSpecs:
+    - replicas: 4
+      groupName: gpu-group
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: llm
+            image: rayproject/ray-llm:2.56.0-py312-cu130
+            env:
+            - name: RAY_SERVE_ENABLE_HA_PROXY
+              value: '1'
+            - name: RAY_SERVE_THROUGHPUT_OPTIMIZED
+              value: '1'
+            - name: RAY_SERVE_LLM_ENABLE_DIRECT_STREAMING
+              value: '1'
+            - name: VLLM_USE_RAY_V2_EXECUTOR_BACKEND
+              value: '1'
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: hf_api_token
+            resources:
+              limits:
+                nvidia.com/gpu: '1'
+                ephemeral-storage: 24Gi
+              requests:
+                cpu: '6'
+                memory: 24Gi
+                nvidia.com/gpu: '1'
+                ephemeral-storage: 24Gi
+          nodeSelector:
+            cloud.google.com/gke-accelerator: nvidia-l4

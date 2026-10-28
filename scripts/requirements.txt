@@ -1,0 +1,5 @@
+PyYAML==6.0
+deepdiff==5.8.1
+PyGithub==1.57
+pytest==7.0.1
+jsonpatch==1.32

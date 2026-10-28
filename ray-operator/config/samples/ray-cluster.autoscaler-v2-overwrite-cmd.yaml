@@ -1,0 +1,71 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-autoscaler-overwrite-cmd
+spec:
+  rayVersion: "2.52.0"
+  enableInTreeAutoscaling: true
+  autoscalerOptions:
+    version: v2
+    upscalingMode: Default
+    idleTimeoutSeconds: 60
+    imagePullPolicy: IfNotPresent
+    securityContext: {}
+    env: []
+    envFrom: []
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+    # KubeRay will overwrite the generated autoscaler container command with `command` and `args` if they are present.
+    # Hence, you need to specify the command to start the autoscaler by yourself.
+    # Note that the generated autoscaler start command is injected into the environment variable `KUBERAY_GEN_AUTOSCALER_START_CMD`, so you can use it in the `args`.
+    command: ["/bin/bash", "-lc", "--"]
+    # Override the autoscaler container's args.
+    # `KUBERAY_GEN_AUTOSCALER_START_CMD` is injected by KubeRay and holds the
+    # generated autoscaler start command, so you can wrap it with extra logic.
+    args: ["echo 'Starting autoscaler...'; $KUBERAY_GEN_AUTOSCALER_START_CMD"]
+  headGroupSpec:
+    rayStartParams:
+      # Setting "num-cpus: 0" to avoid any Ray actors or tasks being scheduled on the Ray head Pod.
+      num-cpus: "0"
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          ports:
+          - containerPort: 6379
+            name: gcs
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+  workerGroupSpecs:
+  - replicas: 0
+    minReplicas: 0
+    maxReplicas: 10
+    groupName: small-group
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"

@@ -1,0 +1,6 @@
+{
+  "name": "default-template",
+  "namespace": "default",
+  "cpu": 2,
+  "memory": 4
+}

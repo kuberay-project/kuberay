@@ -1,0 +1,96 @@
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: rayservice-incremental-upgrade
+spec:
+  upgradeStrategy:
+    type: NewClusterWithIncrementalUpgrade
+    clusterUpgradeOptions:
+      gatewayClassName: istio
+      stepSizePercent: 10
+      intervalSeconds: 30
+      maxSurgePercent: 10
+  serveConfigV2: |
+    applications:
+      - name: fruit_app
+        import_path: fruit.deployment_graph
+        route_prefix: /fruit
+        runtime_env:
+          working_dir: "https://github.com/ray-project/test_dag/archive/78b4a5da38796123d9f9ffff59bab2792a043e95.zip"
+        deployments:
+          - name: MangoStand
+            user_config:
+              price: 4
+            ray_actor_options:
+              num_cpus: 0.5
+            max_ongoing_requests: 100
+            autoscaling_config:
+              min_replicas: 1
+              max_replicas: 3
+          - name: OrangeStand
+            num_replicas: 1
+            user_config:
+              price: 2
+            ray_actor_options:
+              num_cpus: 0
+          - name: PearStand
+            num_replicas: 1
+            user_config:
+              price: 1
+            ray_actor_options:
+              num_cpus: 0
+          - name: FruitMarket
+            ray_actor_options:
+              num_cpus: 0.5
+            max_ongoing_requests: 100
+            autoscaling_config:
+              min_replicas: 1
+              max_replicas: 3
+  rayClusterConfig:
+    rayVersion: "2.51.0"
+    enableInTreeAutoscaling: true
+    headGroupSpec:
+      rayStartParams:
+        num-cpus: "0"
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.51.0
+            resources:
+              limits:
+                cpu: "1"
+                memory: "5Gi"
+              requests:
+                cpu: "1"
+                memory: "2Gi"
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            - containerPort: 8000
+              name: serve
+    workerGroupSpecs:
+    - groupName: small-group
+      minReplicas: 0
+      maxReplicas: 4
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.51.0
+            lifecycle:
+              preStop:
+                exec:
+                  command: ["/bin/sh", "-c", "ray stop"]
+            resources:
+              requests:
+                cpu: "500m"
+                memory: "1Gi"
+              limits:
+                cpu: "1"
+                memory: "4Gi"

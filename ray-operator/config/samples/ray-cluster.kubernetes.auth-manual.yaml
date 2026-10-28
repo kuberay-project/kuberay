@@ -1,0 +1,132 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: ray-cluster-with-k8s-auth
+spec:
+  rayVersion: '2.57.0'
+  headGroupSpec:
+    rayStartParams: {}
+    template:
+      spec:
+        serviceAccountName: ray-cluster-with-k8s-auth
+        containers:
+        - name: ray-head
+          imagePullPolicy: Always
+          image: rayproject/ray:2.57.0
+          env:
+          - name: RAY_AUTH_MODE
+            value: "token"
+          - name: RAY_ENABLE_K8S_TOKEN_AUTH
+            value: "true"
+          resources:
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+            requests:
+              cpu: "4"
+              memory: "8Gi"
+          ports:
+          - containerPort: 6379
+            name: gcs-server
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          volumeMounts:
+          - mountPath: /var/run/secrets/ray.io/serviceaccount
+            name: ray-token
+        volumes:
+        - name: ray-token
+          projected:
+            sources:
+            - serviceAccountToken:
+                path: token
+  workerGroupSpecs:
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 5
+    groupName: workergroup
+    rayStartParams: {}
+    template:
+      spec:
+        serviceAccountName: ray-cluster-with-k8s-auth
+        containers:
+        - name: ray-worker
+          imagePullPolicy: Always
+          image: rayproject/ray:2.57.0
+          env:
+          - name: RAY_AUTH_MODE
+            value: "token"
+          - name: RAY_ENABLE_K8S_TOKEN_AUTH
+            value: "true"
+          resources:
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+            requests:
+              cpu: "4"
+              memory: "8Gi"
+          volumeMounts:
+          - mountPath: /var/run/secrets/ray.io/serviceaccount
+            name: ray-token
+        volumes:
+        - name: ray-token
+          projected:
+            sources:
+            - serviceAccountToken:
+                path: token
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ray-cluster-with-k8s-auth
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ray-authenticator
+rules:
+- apiGroups: ["authentication.k8s.io"]
+  resources:
+  - 'tokenreviews'
+  verbs: ["create"]
+- apiGroups: ["authorization.k8s.io"]
+  resources:
+  - 'subjectaccessreviews'
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ray-writer
+rules:
+- apiGroups: ["ray.io"]
+  resources:
+  - 'rayclusters'
+  verbs: ["ray:write"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ray-authenticator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ray-authenticator
+subjects:
+- kind: ServiceAccount
+  name: ray-cluster-with-k8s-auth
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ray-cluster-with-k8s-auth
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ray-writer
+subjects:
+- kind: ServiceAccount
+  name: ray-cluster-with-k8s-auth
+  namespace: default

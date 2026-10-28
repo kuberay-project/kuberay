@@ -1,0 +1,45 @@
+- label: 'Test Sample YAMLs (nightly operator)'
+  instance_size: large
+  image: golang:1.26-bookworm
+  commands:
+    - source .buildkite/setup-env.sh
+    - kind create cluster --wait 900s --config ./ci/kind-config-buildkite.yml
+    - kubectl config set clusters.kind-kind.server https://docker:6443
+    # Build nightly KubeRay operator image
+    - pushd ray-operator
+    - IMG=kuberay/operator:nightly make docker-image
+    - kind load docker-image kuberay/operator:nightly
+    - IMG=kuberay/operator:nightly make deploy
+    - kubectl wait --timeout=90s --for=condition=Available=true deployment kuberay-operator
+    # Run sample YAML tests
+    - echo "--- START:Running Sample YAMLs (nightly operator) tests"
+    - set -o pipefail
+    # JUnit results are uploaded to Buildkite Test Engine by .buildkite/hooks/pre-exit.
+    # KUBERAY_TEST_OUTPUT_DIR is deliberately not exported here (unlike the e2e steps),
+    # so the tests keep their original behavior of not persisting pod logs.
+    - KUBERAY_TEST_TIMEOUT_SHORT=1m KUBERAY_TEST_TIMEOUT_MEDIUM=5m KUBERAY_TEST_TIMEOUT_LONG=10m bash ../.buildkite/run-gotest.sh 30m ./test/sampleyaml
+    - echo "--- END:Sample YAMLs (nightly operator) tests finished"
+    # Printing KubeRay operator logs
+    - kubectl logs --tail -1 -l app.kubernetes.io/name=kuberay
+
+- label: 'Test Sample YAMLs (latest release)'
+  instance_size: large
+  image: golang:1.26-bookworm
+  commands:
+    - source .buildkite/setup-env.sh
+    - kind create cluster --wait 900s --config ./ci/kind-config-buildkite.yml
+    - kubectl config set clusters.kind-kind.server https://docker:6443
+    # Deploy KubeRay operator
+    - pushd ray-operator
+    - helm install kuberay-operator kuberay/kuberay-operator --version 1.5.1
+    - kubectl wait --timeout=90s --for=condition=Available=true deployment kuberay-operator
+    # Run sample YAML tests
+    - echo "--- START:Running Sample YAMLs (latest release) tests"
+    - set -o pipefail
+    # JUnit results are uploaded to Buildkite Test Engine by .buildkite/hooks/pre-exit.
+    # KUBERAY_TEST_OUTPUT_DIR is deliberately not exported here (unlike the e2e steps),
+    # so the tests keep their original behavior of not persisting pod logs.
+    - KUBERAY_TEST_TIMEOUT_SHORT=1m KUBERAY_TEST_TIMEOUT_MEDIUM=5m KUBERAY_TEST_TIMEOUT_LONG=10m bash ../.buildkite/run-gotest.sh 30m ./test/sampleyaml
+    - echo "--- END:Sample YAMLs (latest release) tests finished"
+    # Printing KubeRay operator logs
+    - kubectl logs --tail -1 -l app.kubernetes.io/name=kuberay

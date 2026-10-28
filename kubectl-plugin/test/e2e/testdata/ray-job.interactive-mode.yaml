@@ -1,0 +1,50 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob-sample
+spec:
+  # The current value is "InteractiveMode", meaning that it will wait for user to submit job and provide the job submission ID
+  submissionMode: "InteractiveMode"
+  runtimeEnvYAML: |
+    pip:
+      - emoji==2.14.0
+      - pyjokes==0.6.0
+    env_vars:
+      test_env_var: "first_env_var"
+      another_env_var: "second_env_var"
+
+  rayClusterSpec:
+    rayVersion: "2.52.0" # should match the Ray version in the image of the containers
+    headGroupSpec:
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: rayproject/ray:2.52.0
+              ports:
+                - containerPort: 6379
+                  name: gcs-server
+                - containerPort: 8265
+                  name: dashboard
+                - containerPort: 10001
+                  name: client
+              resources:
+                limits:
+                  cpu: "1"
+                requests:
+                  cpu: "200m"
+    workerGroupSpecs:
+      - replicas: 1
+        minReplicas: 1
+        maxReplicas: 5
+        groupName: small-group
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: rayproject/ray:2.52.0
+                resources:
+                  limits:
+                    cpu: "1"
+                  requests:
+                    cpu: "200m"

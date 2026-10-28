@@ -1,0 +1,53 @@
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: rayservice-no-ray-serve-replica
+spec:
+  serveConfigV2: |
+    applications:
+      - name: simple_app
+        import_path: ray-operator.config.samples.ray-serve.single_deployment_dag:DagNode
+        route_prefix: /basic
+        runtime_env:
+          working_dir: "https://github.com/ray-project/kuberay/archive/master.zip"
+        deployments:
+          - name: BaseService
+            num_replicas: 1
+            max_replicas_per_node: 1
+            ray_actor_options:
+              num_cpus: 0.1
+  rayClusterConfig:
+    rayVersion: "2.52.0"
+    headGroupSpec:
+      rayStartParams:
+        num-cpus: "0"
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.52.0
+            resources:
+              limits:
+                cpu: "1"
+                memory: "5Gi"
+              requests:
+                cpu: "1"
+                memory: "2Gi"
+    workerGroupSpecs:
+    - replicas: 2
+      minReplicas: 1
+      maxReplicas: 5
+      groupName: small-group
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.52.0
+            resources:
+              limits:
+                cpu: "1"
+                memory: "2Gi"
+              requests:
+                cpu: "500m"
+                memory: "2Gi"

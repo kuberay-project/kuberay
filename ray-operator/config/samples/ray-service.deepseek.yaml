@@ -1,0 +1,81 @@
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: deepseek-r1
+spec:
+  serveConfigV2: |
+    applications:
+    - args:
+        llm_configs:
+          - model_loading_config:
+              model_id: "deepseek"
+              model_source: "deepseek-ai/DeepSeek-R1"
+            accelerator_type: "H100"
+            deployment_config:
+              autoscaling_config:
+                min_replicas: 1
+                max_replicas: 1
+            runtime_env:
+              env_vars:
+                VLLM_USE_V1: "1"
+            engine_kwargs:
+              tensor_parallel_size: 8
+              pipeline_parallel_size: 2
+              gpu_memory_utilization: 0.92
+              dtype: "auto"
+              max_num_seqs: 40
+              max_model_len: 16384
+              enable_chunked_prefill: true
+              enable_prefix_caching: true
+      import_path: ray.serve.llm:build_openai_app
+      name: llm_app
+      route_prefix: "/"
+  rayClusterConfig:
+    headGroupSpec:
+      rayStartParams:
+        num-gpus: "0"
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray-llm:2.52.0-py311-cu128
+            resources:
+              limits:
+                cpu: "2"
+                memory: "32Gi"
+              requests:
+                cpu: "2"
+                memory: "32Gi"
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            - containerPort: 8000
+              name: serve
+    workerGroupSpecs:
+    - replicas: 2
+      minReplicas: 2
+      maxReplicas: 2
+      groupName: gpu-group
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray-llm:2.52.0-py311-cu128
+            resources:
+              limits:
+                cpu: "24"
+                memory: "500Gi"
+                nvidia.com/gpu: "8"
+              requests:
+                cpu: "24"
+                memory: "500Gi"
+                nvidia.com/gpu: "8"
+          tolerations:
+          - key: "nvidia.com/gpu"
+            operator: "Exists"
+            effect: "NoSchedule"

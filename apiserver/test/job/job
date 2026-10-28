@@ -1,0 +1,52 @@
+curl -X POST 'localhost:8888/apis/v1/namespaces/default/jobs' \
+--header 'Content-Type: application/json' \
+--data '{
+  "name": "job-test",
+  "namespace": "default",
+  "user": "kuberay",
+  "entrypoint": "python /home/ray/samples/sample_code.py",
+  "activeDeadlineSeconds": 120,
+  "runtimeEnv": "pip:\n  - requests==2.26.0\n  - pendulum==2.1.2\nenv_vars:\n  counter_name: test_counter\n",
+  "clusterSpec": {
+    "headGroupSpec": {
+      "computeTemplate": "default-template",
+      "image": "rayproject/ray:2.46.0-py310",
+      "serviceType": "NodePort",
+      "rayStartParams": {
+         "dashboard-host": "0.0.0.0",
+         "metrics-export-port": "8080"
+       },
+       "volumes": [
+         {
+           "name": "code-sample",
+           "mountPath": "/home/ray/samples",
+           "volumeType": "CONFIGMAP",
+           "source": "ray-job-code-sample",
+           "items": {"sample_code.py" : "sample_code.py"}
+         }
+       ]
+    },
+    "workerGroupSpec": [
+      {
+        "groupName": "small-wg",
+        "computeTemplate": "default-template",
+        "image": "rayproject/ray:2.46.0-py310",
+        "replicas": 1,
+        "minReplicas": 0,
+        "maxReplicas": 5,
+        "rayStartParams": {
+           "node-ip-address": "$MY_POD_IP"
+         },
+        "volumes": [
+          {
+            "name": "code-sample",
+            "mountPath": "/home/ray/samples",
+            "volumeType": "CONFIGMAP",
+            "source": "ray-job-code-sample",
+            "items": {"sample_code.py" : "sample_code.py"}
+          }
+        ]
+      }
+    ]
+  }
+}'

@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberay-apiserver.labels" . | nindent 4 }}
+    {{- with .Values.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: {{ include "kuberay-apiserver.name" . }}
+      app.kubernetes.io/name: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: {{ include "kuberay-apiserver.name" . }}
+        app.kubernetes.io/name: {{ .Release.Name }}
+        {{- with .Values.labels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.annotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      containers:
+      - name: {{ .Values.name }}-container
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        {{- with .Values.image.pullPolicy }}
+        imagePullPolicy: {{ . }}
+        {{- end }}
+        args:
+          {{- $argList := list -}}
+          {{- $argList = append $argList (printf "--enable-api-server-v2=%t" .Values.enableAPIServerV2) -}}
+          {{- if .Values.cors }}
+            {{- with .Values.cors.allowOrigin }}
+              {{- $argList = append $argList (printf "--cors-allow-origin=%s" .) -}}
+            {{- end }}
+          {{- end }}
+          {{- (printf "\n") -}}
+          {{- $argList | toYaml | indent 10 }}
+        ports:
+          {{- toYaml .Values.containerPort | nindent 8 }}
+        {{- with .Values.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+      {{- if .Values.security }}
+      - name: security-proxy-container
+        image: "{{ .Values.security.proxy.repository }}:{{ .Values.security.proxy.tag }}"
+        {{- with .Values.security.proxy.pullPolicy }}
+        imagePullPolicy: {{ . }}
+        {{- end }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.security.env.HTTP_LOCAL_PORT }}
+          protocol: TCP
+        - name: grpc
+          containerPort: {{ .Values.security.env.GRPC_LOCAL_PORT }}
+          protocol: TCP
+        env:
+        {{- range $key, $value := .Values.security.env }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- range $port := .Values.containerPort }}
+          {{- if eq $port.name "http" }}
+        - name: "HTTP_REMOTE_PORT"
+          value: {{ $port.containerPort | quote }}
+          {{- end }}
+          {{- if eq $port.name "grpc" }}
+        - name: "GRPC_REMOTE_PORT"
+          value: {{ $port.containerPort | quote }}
+          {{- end }}
+        {{- end }}
+        {{- with .Values.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.sidecarContainers }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}

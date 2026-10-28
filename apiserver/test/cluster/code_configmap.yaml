@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-example
+data:
+  detached_actor.py: |
+    import ray
+
+    @ray.remote(num_cpus=1)
+    class Counter:
+      def __init__(self):
+          self.value = 0
+
+      def increment(self):
+          self.value += 1
+          return self.value
+
+    ray.init(namespace="default_namespace")
+    print("detached actor. Connected to Ray")
+    Counter.options(name="counter_actor", lifetime="detached").remote()
+  increment_counter.py: |
+    import ray
+
+    ray.init(namespace="default_namespace")
+    print("increment counter. Connected to Ray")
+    counter = ray.get_actor("counter_actor")
+    print(ray.get(counter.increment.remote()))

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <testsuite name="ClusterLoaderV2" tests="0" failures="0" errors="0" time="58.451">
+    <testcase name="kuberay overall (github.com/ray-project/kuberary/benchmark/perf-tests/100-raycluster/config.yaml)" classname="ClusterLoaderV2" time="135.242997357"/>
+    <testcase name="kuberay: [step: 01] Start measurements [00] - PodStartupLatency" classname="ClusterLoaderV2" time="0.106477876"/>
+    <testcase name="kuberay: [step: 01] Start measurements [01] - WaitForControlledPodsRunning" classname="ClusterLoaderV2" time="0.307346494"/>
+    <testcase name="kuberay: [step: 02] Creating Ray clusters" classname="ClusterLoaderV2" time="1.057693754"/>
+    <testcase name="kuberay: [step: 03] Wait for RayClusters ready [00] - WaitForRayCluster" classname="ClusterLoaderV2" time="83.460650317"/>
+    <testcase name="kuberay: [step: 04] Wait for pods to be running [00] - WaitForControlledPodsRunning" classname="ClusterLoaderV2" time="5.065870284"/>
+    <testcase name="kuberay: [step: 05] Measure pod startup latency [00] - PodStartupLatency" classname="ClusterLoaderV2" time="0.191868969"/>
+  </testsuite>

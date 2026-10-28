@@ -1,0 +1,35 @@
+suite: Test Service
+
+templates:
+  - service.yaml
+
+release:
+  name: kuberay-operator
+  namespace: kuberay-system
+
+tests:
+  - it: Should create Service
+    asserts:
+      - containsDocument:
+          apiVersion: v1
+          kind: Service
+          name: kuberay-operator
+          namespace: kuberay-system
+
+  - it: Should use the specified service type if `service.type` is set
+    set:
+      service:
+        type: NodePort
+    asserts:
+      - equal:
+          path: spec.type
+          value: NodePort
+
+  - it: Should use the specified service port if `service.port` is set
+    set:
+      service:
+        port: 18080
+    asserts:
+      - equal:
+          path: spec.ports[?(@.name=="http")].port
+          value: 18080

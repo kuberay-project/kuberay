@@ -1,0 +1,381 @@
+# Default values for kuberay-operator.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# -- String to partially override release name.
+nameOverride: kuberay-operator
+
+# -- String to fully override release name.
+fullnameOverride: kuberay-operator
+
+# -- String to override component name.
+componentOverride: kuberay-operator
+
+# -- Number of replicas for the KubeRay operator Deployment.
+replicas: 1
+
+image:
+  # -- Image repository.
+  repository: quay.io/kuberay/operator
+
+  # -- Image tag.
+  tag: nightly
+
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+# -- Secrets with credentials to pull images from a private registry
+imagePullSecrets: []
+
+# -- Restrict to run on particular nodes.
+nodeSelector: {}
+
+# -- Pod priorityClassName
+priorityClassName: ""
+
+# -- Extra labels.
+labels: {}
+
+# -- Extra annotations.
+annotations: {}
+
+# -- Pod affinity
+affinity: {}
+
+# -- Pod tolerations
+tolerations: []
+
+serviceAccount:
+  # -- Specifies whether a service account should be created.
+  create: true
+  # -- The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template.
+  name: kuberay-operator
+
+logging:
+  # -- Log encoder to use for stdout (one of `json` or `console`).
+  stdoutEncoder: json
+  # -- Log encoder to use for file logging (one of `json` or `console`).
+  fileEncoder: json
+  # -- Directory for kuberay-operator log file.
+  baseDir: ""
+  # -- File name for kuberay-operator log file.
+  fileName: ""
+  # -- EmptyDir volume size limit for kuberay-operator log file.
+  sizeLimit: ""
+
+# Enable customized Kubernetes scheduler integration. If enabled, Ray workloads will be scheduled
+# by the customized scheduler.
+#  * "enabled" is the legacy option and will be deprecated soon.
+#  * "name" is the standard option, expecting a scheduler name, supported values are
+#    "default", "volcano", "yunikorn", and "scheduler-plugins".
+#
+# Note: "enabled" and "name" should not be set at the same time. If both are set, an error will be thrown.
+#
+# Examples:
+#  1. Use volcano (deprecated)
+#       batchScheduler:
+#         enabled: true
+#
+#  2. Use volcano
+#       batchScheduler:
+#         name: volcano
+#
+#  3. Use yunikorn
+#       batchScheduler:
+#         name: yunikorn
+#
+#  4. Use PodGroup
+#       batchScheduler:
+#         name: scheduler-plugins
+
+#  5. Use Kai Scheduler
+#       batchScheduler:
+#         name: kai-scheduler
+
+batchScheduler:
+  # Deprecated. This option will be removed in the future.
+  # Note, for backwards compatibility. When it sets to true, it enables volcano scheduler integration.
+  enabled: false
+  # Set the customized scheduler name, supported values are "volcano", "yunikorn", "kai-scheduler" or "scheduler-plugins", do not set
+  # "batchScheduler.enabled=true" at the same time as it will override this option.
+  name: ""
+
+# Configuration for the KubeRay operator.
+configuration:
+  # -- Whether to enable the configuration feature. If enabled, a ConfigMap will be created and mounted to the operator.
+  # When enabled, flag-based configuration values (leaderElectionEnabled, metrics.enabled, kubeClient.qps, etc.)
+  # will be injected into the ConfigMap. The operator will use the ConfigMap and ignore command-line flags.
+  enabled: false
+  # -- Default environment variables to inject into all Ray containers in all RayCluster CRs.
+  # This allows user to set feature flags across all Ray pods.
+  # Example:
+  # defaultContainerEnvs:
+  # - name: RAY_enable_open_telemetry
+  #   value: "true"
+  # - name: RAY_metric_cardinality_level
+  #   value: "recommended"
+  defaultContainerEnvs: []
+
+  # -- Default annotations to add to all Ray pod templates.
+  # User-specified annotations take precedence.
+  # Example:
+  # defaultPodAnnotations:
+  #   prometheus.io/scrape: "true"
+  #   prometheus.io/port: "8080"
+  defaultPodAnnotations: {}
+
+  # -- Default labels to add to all Ray pod templates.
+  # User-specified labels take precedence.
+  # Example:
+  # defaultPodLabels:
+  #   app.kubernetes.io/managed-by: kuberay
+  defaultPodLabels: {}
+
+  # -- Sidecar containers to inject into every Ray head pod.
+  # Example:
+  # headSidecarContainers:
+  # - name: fluentbit
+  #   image: fluent/fluent-bit:1.9
+  headSidecarContainers: []
+
+  # -- Sidecar containers to inject into every Ray worker pod.
+  # Example:
+  # workerSidecarContainers:
+  # - name: fluentbit
+  #   image: fluent/fluent-bit:1.9
+  workerSidecarContainers: []
+
+  # -- Node label keys worker groups may deliver as Ray node labels through workerGroupSpecs[].labelRefs.
+  # Enforced by the validating webhooks, so it requires ENABLE_WEBHOOKS to be enabled. Empty disables delivery.
+  # Example:
+  # allowedNodeLabels:
+  # - nvidia.com/gpu.clique
+  # - topology.kubernetes.io/zone
+  allowedNodeLabels: []
+
+# Admission webhooks: validating webhooks for RayCluster, RayJob and RayService, and the pod mutating webhooks
+# that deliver node labels to Ray workers (workerGroupSpecs[].labelRefs, NodeLabelDelivery feature gate).
+webhooks:
+  # -- Deploy the admission webhooks. Currently requires cert-manager in the cluster for the serving certificate
+  # and CA injection. The webhook configurations are cluster-scoped, so the install fails with singleNamespaceInstall.
+  # The pod webhooks for node label delivery are registered only when the NodeLabelDelivery feature gate is enabled.
+  enabled: false
+
+featureGates:
+- name: RayClusterStatusConditions
+  enabled: true
+- name: RayJobDeletionPolicy
+  enabled: true
+- name: RayMultiHostIndexing
+  enabled: true
+- name: RayServiceIncrementalUpgrade
+  enabled: true
+- name: RayCronJob
+  enabled: false
+- name: RayClusterMTLS
+  enabled: false
+- name: RayClusterNetworkPolicy
+  enabled: false
+- name: RayClusterHistoryServer
+  enabled: false
+- name: RayNodeEventForwarder
+  enabled: false
+- name: NodeLabelDelivery
+  enabled: false
+
+# Configurations for KubeRay node event forwarder controller.
+# The controller forwards Kubernetes Node events to the corresponding RayCluster custom resources.
+# Ref: https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/k8s-events.html
+# Note: Node event forwarding is not supported when singleNamespaceInstall is true.
+nodeEventForwarder:
+  # -- Whether KubeRay operator should forward Kubernetes Node events to RayCluster custom resources. Note: not supported when singleNamespaceInstall is true.
+  enabled: false
+  # -- Only forward Node events emitted by these components, matched against both source.component and reportingController. Empty means all sources.
+  sources: []
+    # - node-problem-detector
+    # - nvidia-gpu-device-plugin
+  # -- Only forward Node events with these reasons, e.g. ["XIDError"]. Empty means all reasons.
+  reasons: []
+  # -- Only forward Node events with these types. Valid values are "Warning" and "Normal". Empty means all types.
+  # Note: Removing the "Warning" filter (or including "Normal") may result in a large number of noisy Normal Node events being forwarded.
+  types:
+    - Warning
+
+# -- Default image for the History Server collector sidecar. A RayCluster can override it with
+# `spec.historyServerOptions.collectorOptions.image`. If empty, defaults to
+# `quay.io/kuberay/collector` with the tag matching the operator version.
+collectorImage: ""
+
+# Configurations for KubeRay operator metrics.
+metrics:
+  # -- Whether KubeRay operator should emit control plane metrics.
+  enabled: true
+  serviceMonitor:
+    # -- Enable a prometheus ServiceMonitor
+    enabled: false
+    # -- Prometheus ServiceMonitor interval
+    interval: 30s
+    # -- When true, honorLabels preserves the metric’s labels when they collide with the target’s labels.
+    honorLabels: true
+    # -- Additional labels to add to the ServiceMonitor's metadata.
+    additionalLabels: {}
+      #  release: prometheus
+    # -- Prometheus ServiceMonitor namespace
+    namespace: ""  # "monitoring"
+
+# -- Path to the operator binary
+operatorCommand: /manager
+
+# if userKubernetesProxy is set to true, the KubeRay operator will be configured with the --use-kubernetes-proxy flag.
+# Using this option to configure kuberay-operator to comunitcate to Ray head pods by proxying through the Kubernetes API Server.
+# useKubernetesProxy: true
+
+# -- If leaderElectionEnabled is set to true, the KubeRay operator will use leader election for high availability.
+leaderElectionEnabled: true
+
+# -- The maximum number of reconcile operations that can be performed simultaneously.
+# This setting controls the concurrency of the controller reconciliation loops.
+# Higher values can improve throughput in clusters with many resources, but may increase resource consumption.
+reconcileConcurrency: 1
+
+# -- Kube Client configuration for QPS and burst settings.
+# This setting controls the QPS and burst rate of the kube client when sending requests to the Kubernetes API server.
+# If the QPS and burst values are too low, we may easily hit rate limits on the API server and slow down the controller reconciliation loops.
+kubeClient:
+  # -- The QPS value for the client communicating with the Kubernetes API server.
+  # Must be a float number.
+  qps: 100.0
+  # -- The maximum burst for throttling requests from this client to the Kubernetes API server.
+  # Must be a non-negative integer.
+  burst: 200
+
+# -- If rbacEnable is set to false, no RBAC resources will be created, including the Role for leader election, the Role for Pods and Services, and so on.
+rbacEnable: true
+
+# -- When crNamespacedRbacEnable is set to true, the KubeRay operator will create a Role for RayCluster preparation (e.g., Pods, Services)
+# and a corresponding RoleBinding for each namespace listed in the "watchNamespace" parameter. Please note that even if crNamespacedRbacEnable
+# is set to false, the Role and RoleBinding for leader election will still be created.
+#
+# Note:
+# (1) This variable is only effective when rbacEnable and singleNamespaceInstall are both set to true.
+# (2) In most cases, it should be set to true, unless you are using a Kubernetes cluster managed by GitOps tools such as ArgoCD.
+crNamespacedRbacEnable: true
+
+# -- When singleNamespaceInstall is true:
+# - Install namespaced RBAC resources such as Role and RoleBinding instead of cluster-scoped ones like ClusterRole and ClusterRoleBinding so that
+#   the chart can be installed by users with permissions restricted to a single namespace.
+#   (Please note that this excludes the CRDs, which can only be installed at the cluster scope.)
+# - If "watchNamespace" is not set, the KubeRay operator will, by default, only listen
+#   to resource events within its own namespace.
+# - Node event forwarding (nodeEventForwarder.enabled) is not supported when singleNamespaceInstall is true.
+singleNamespaceInstall: false
+
+# The KubeRay operator will watch the custom resources in the namespaces listed in the "watchNamespace" parameter.
+# watchNamespace:
+#   - n1
+#   - n2
+
+# -- Environment variables.
+
+env:
+# If not set or set to true, kuberay auto injects an init container waiting for ray GCS.
+# If false, you will need to inject your own init container to ensure ray GCS is up before the ray workers start.
+# Warning: we highly recommend setting to true and let kuberay handle for you.
+# - name: ENABLE_INIT_CONTAINER_INJECTION
+#   value: "true"
+# If set to true, kuberay creates a normal ClusterIP service for a Ray Head instead of a Headless service. Default to false.
+# - name: ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE
+#   value: "false"
+# If not set or set to "", kuberay will pick up the default k8s cluster domain `cluster.local`
+# Otherwise, kuberay will use your custom domain
+# - name: CLUSTER_DOMAIN
+#   value: ""
+# If not set or set to false, when running on OpenShift with Ingress creation enabled, kuberay will create OpenShift route
+# Otherwise, regardless of the type of cluster with Ingress creation enabled, kuberay will create Ingress
+# - name: USE_INGRESS_ON_OPENSHIFT
+#   value: "true"
+# Unconditionally requeue after the number of seconds specified in the
+# environment variable RAYCLUSTER_DEFAULT_REQUEUE_SECONDS_ENV. If the
+# environment variable is not set, requeue after the default value (300).
+# - name: RAYCLUSTER_DEFAULT_REQUEUE_SECONDS_ENV
+#   value: 300
+# If not set or set to "true", KubeRay will clean up the Redis storage namespace when a GCS FT-enabled RayCluster is deleted.
+# - name: ENABLE_GCS_FT_REDIS_CLEANUP
+#   value: "true"
+# For LLM serving, some users might not have sufficient GPU resources to run two RayClusters simultaneously.
+# Therefore, KubeRay offers ENABLE_ZERO_DOWNTIME as a feature flag for zero-downtime upgrades.
+# - name: ENABLE_ZERO_DOWNTIME
+#   value: "true"
+# This environment variable for the KubeRay operator is used to determine whether to enable
+# the injection of readiness and liveness probes into Ray head and worker containers.
+# Enabling this feature contributes to the robustness of Ray clusters.
+# - name: ENABLE_PROBES_INJECTION
+#   value: "true"
+# If set to true, the RayJob CR itself will be deleted if shutdownAfterJobFinishes is set to true. Note that all resources created by the RayJob CR will be deleted, including the K8s Job. Otherwise, only the RayCluster CR will be deleted. Default is false.
+# - name: DELETE_RAYJOB_CR_AFTER_JOB_FINISHES
+#   value: "false"
+# If set to true, we will use deterministic name for head pod. Otherwise, the non-deterministic name is used.
+# - name: ENABLE_DETERMINISTIC_HEAD_POD_NAME
+#   value: "false"
+# This environment variable determines whether to enable a login shell by passing the -l option to the container command /bin/bash.
+# The -l flag was added by default before KubeRay v1.4.0, but it is no longer added by default starting with v1.4.0.
+# - name: ENABLE_LOGIN_SHELL
+#   value: "true"
+# This KubeRay operator environment variable is used to determine if random Pod
+# deletion should be enabled. Note that this only takes effect when autoscaling
+# is enabled for the RayCluster.
+# - name: ENABLE_RANDOM_POD_DELETE
+#   value: "false"
+# If JobDeploymentStatus does not transition to Complete or Failed within
+# this grace period seconds after JobStatus reaches a terminal state,
+# KubeRay will update JobDeploymentStatus directly.
+# - name: RAYJOB_DEPLOYMENT_STATUS_TRANSITION_GRACE_PERIOD_SECONDS
+#   value: "300"
+# If job status checks keep failing for longer than this timeout in seconds,
+# KubeRay will transition the RayJob's JobDeploymentStatus to Failed. Default is 300.
+# - name: RAYJOB_STATUS_CHECK_TIMEOUT_SECONDS
+#   value: "300"
+
+# -- Resource requests and limits for containers.
+resources:
+  limits:
+    cpu: 100m
+    # Anecdotally, managing 500 Ray pods requires roughly 500MB memory.
+    # Monitor memory usage and adjust as needed.
+    memory: 512Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 512Mi
+
+# @Ignore -- Pod liveness probe configuration.
+livenessProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  failureThreshold: 5
+
+# @Ignore -- Pod readiness probe configuration.
+readinessProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  failureThreshold: 5
+
+# -- Set up `securityContext` to improve Pod security.
+podSecurityContext: {}
+
+# @ignore -- Set up `securityContext` to improve container security.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+service:
+  # -- Service type.
+  type: ClusterIP
+  # -- Service port.
+  port: 8080

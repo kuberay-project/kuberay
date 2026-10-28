@@ -1,0 +1,95 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob-deletion-rules
+spec:
+  entrypoint: |
+    python -c "
+    import ray
+    ray.init()
+    print(f'ray.cluster_resources(): {ray.cluster_resources()}')
+    "
+  # DeletionStrategy defines the deletion policies for a RayJob.
+  # It allows for fine-grained control over resource cleanup after a job finishes.
+  # DeletionRules is a list of deletion rules, processed based on their trigger conditions.
+  # Currently, both JobStatus and JobDeploymentStatus are supported as deletion conditions:
+  # - JobStatus (application-level): Match the Ray job execution status.
+  #   - Currently, only "SUCCEEDED" and "FAILED" are supported.
+  # - JobDeploymentStatus (infrastructure-level): Match the RayJob deployment lifecycle status. This is particularly useful for cleaning up resources when Ray jobs fail to be submitted.
+  #   - Currently, only "Failed" is supported.
+  # For each deletion rule, exactly one of JobStatus and JobDeploymentStatus must be specified.
+  # While the rules can be used to define a sequence, if multiple rules are overdue (e.g., due to controller downtime),
+  # the most impactful rule (e.g., DeleteCluster) will be executed first to prioritize resource cleanup and cost savings.
+  deletionStrategy:
+    # This sample demonstrates a staged cleanup process for a RayJob.
+    # Regardless of whether the job succeeds or fails, the cleanup follows these steps:
+    # 1. After 30 seconds, the worker pods are deleted. This allows for quick resource release while keeping the head pod for debugging.
+    # 2. After 60 seconds, the entire RayCluster (including the head pod) is deleted.
+    # 3. After 90 seconds, the RayJob custom resource itself is deleted, removing it from the Kubernetes API server.
+    deletionRules:
+    - condition:
+        jobStatus: FAILED
+        ttlSeconds: 30
+      policy: DeleteWorkers
+    - condition:
+        jobStatus: FAILED
+        ttlSeconds: 60
+      policy: DeleteCluster
+    - condition:
+        jobStatus: FAILED
+        ttlSeconds: 90
+      policy: DeleteSelf
+    - condition:
+        jobStatus: SUCCEEDED
+        ttlSeconds: 30
+      policy: DeleteWorkers
+    - condition:
+        jobStatus: SUCCEEDED
+        ttlSeconds: 60
+      policy: DeleteCluster
+    - condition:
+        jobStatus: SUCCEEDED
+        ttlSeconds: 90
+      policy: DeleteSelf
+  # rayClusterSpec specifies the RayCluster instance to be created by the RayJob controller.
+  rayClusterSpec:
+    rayVersion: "2.52.0"
+    headGroupSpec:
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.52.0
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            resources:
+              limits:
+                cpu: "1"
+                memory: "5Gi"
+              requests:
+                cpu: "1"
+                memory: "2Gi"
+    workerGroupSpecs:
+    - replicas: 1
+      minReplicas: 1
+      maxReplicas: 5
+      groupName: small-group
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.52.0
+            resources:
+              limits:
+                cpu: "1"
+                memory: "1Gi"
+              requests:
+                cpu: "1"
+                memory: "1Gi"

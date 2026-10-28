@@ -1,0 +1,21 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: test-cluster-0
+spec:
+  rayVersion: "2.52.0"
+  headGroupSpec:
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+  workerGroupSpecs: []

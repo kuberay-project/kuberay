@@ -1,0 +1,35 @@
+FROM golang:1.26-bookworm AS builder
+
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+WORKDIR /historyserver
+
+# Copy the go modules and manifests.
+COPY go.mod go.mod
+COPY go.sum go.sum
+# Cache dependencies to avoid re-downloading when only sources change.
+RUN go mod download
+
+# Copy the go source.
+COPY cmd/historyserver/main.go cmd/historyserver/main.go
+# need collector because storage's interface is put in here, will change
+# after this is merged
+# https://github.com/ray-project/kuberay/pull/4302
+COPY pkg/collector/ pkg/collector/
+COPY pkg/historyserver/ pkg/historyserver/
+COPY pkg/storage/ pkg/storage/
+COPY pkg/utils/ pkg/utils/
+COPY pkg/eventserver/ pkg/eventserver/
+COPY pkg/compression/ pkg/compression/
+COPY html/ html/
+
+# Build the historyserver binary.
+COPY Makefile Makefile
+RUN make buildhistoryserver GOOS=linux GOARCH=amd64
+
+FROM gcr.io/distroless/base-debian12:nonroot
+WORKDIR /
+COPY --from=builder /historyserver/output/bin/historyserver /usr/local/bin/historyserver
+USER 65532:65532
+
+ENTRYPOINT ["/usr/local/bin/historyserver"]

@@ -1,0 +1,46 @@
+suite: Test Service
+
+release:
+  name: kuberay-apiserver
+  namespace: kuberay-system
+
+templates:
+  - service.yaml
+
+tests:
+  - it: Should create a service
+    asserts:
+      - containsDocument:
+          apiVersion: v1
+          kind: Service
+          name: kuberay-apiserver-service
+          namespace: kuberay-system
+
+  - it: Should use the specified service type if `service.type` is set
+    set:
+      service:
+        type: NodePort
+    asserts:
+      - equal:
+          path: spec.type
+          value: NodePort
+
+  - it: Should have service name matching fullnameOverride when set
+    set:
+      fullnameOverride: test-name
+    asserts:
+      - containsDocument:
+          apiVersion: v1
+          kind: Service
+          name: test-name-service
+          namespace: kuberay-system
+
+  - it: Should have service name matching nameOverride when set
+    set:
+      nameOverride: custom-api
+    asserts:
+      - containsDocument:
+          apiVersion: v1
+          kind: Service
+          name: kuberay-apiserver-custom-api-service
+          namespace: kuberay-system

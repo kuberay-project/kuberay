@@ -1,0 +1,64 @@
+suite: Test ClusterRole
+
+templates:
+  - rbac/cluster_role.yaml
+
+release:
+  name: kuberay-apiserver
+  namespace: kuberay-system
+
+tests:
+  - it: Should not create cluster role if `rbacEnable` is `false`
+    set:
+      rbacEnable: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should not create cluster role if `rbacEnable` and `singleNamespaceInstall` are `true` and `enableAPIServerV2` is `false`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: true
+      enableAPIServerV2: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should create cluster role kuberay-apiserver if `rbacEnable` is `true` and `singleNamespaceInstall` is `false`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+      enableAPIServerV2: false
+    asserts:
+      - containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          name: kuberay-apiserver
+
+  - it: Should create cluster role kuberay-apiserver-service-access if both `rbacEnable` and `enableAPIServerV2` are `true`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: true
+      enableAPIServerV2: true
+    asserts:
+      - containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          name: kuberay-apiserver-service-access
+
+  - it: Should create two cluster roles if `rbacEnable` and `enableAPIServerV2` are `true` and `singleNamespaceInstall` is `false`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+      enableAPIServerV2: true
+    asserts:
+      - documentIndex: 0
+        containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          name: kuberay-apiserver
+      - documentIndex: 1
+        containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          name: kuberay-apiserver-service-access

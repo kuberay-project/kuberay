@@ -1,0 +1,49 @@
+# ray-service.custom-head-service.yaml: This sample YAML file demonstrates how to set up a custom head service
+# for a Ray cluster using the field spec.headGroupSpec.headService.
+# For examples with more realistic resource configuration, see
+# ray-cluster.complete.large.yaml and
+# ray-cluster.autoscaler.large.yaml.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: custom-head-svc
+spec:
+  rayVersion: "2.52.0" # should match the Ray version in the image of the containers
+  # Ray head pod template
+  headGroupSpec:
+    # the following params are used to complete the ray start: ray start --head --block --redis-port=6379 ...
+    rayStartParams:
+      num-cpus: "1" # can be auto-completed from the limits
+    headService:
+      metadata:
+        name: custom-ray-head-service-name
+        labels:
+          custom-label: custom-ray-head-service-label
+        annotations:
+          custom-annotation: custom-ray-head-service-annotation
+      spec:
+        type: LoadBalancer
+        ports:
+        - port: 12345
+          targetPort: 12345
+          name: custom-ray-head-service-port
+    #pod template
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+          ports:
+          - containerPort: 6379
+            name: gcs-server
+          - containerPort: 8265 # Ray dashboard
+            name: dashboard
+          - containerPort: 10001
+            name: client

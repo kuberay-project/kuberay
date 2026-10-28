@@ -1,0 +1,119 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-autoscaler
+spec:
+  # The version of Ray you are using. Make sure all Ray containers are running this version of Ray.
+  # Use the Ray nightly or Ray version >= 2.10.0 and KubeRay 1.1.0 or later for autoscaler v2.
+  rayVersion: "2.52.0"
+  enableInTreeAutoscaling: true
+  autoscalerOptions:
+    version: v2
+    upscalingMode: Default
+    idleTimeoutSeconds: 60
+    imagePullPolicy: IfNotPresent
+    # Optionally specify the Autoscaler container's securityContext.
+    securityContext: {}
+    env: []
+    # AUTOSCALER_UPDATE_INTERVAL_S is used to control how often the Autoscaler container checks the cluster state
+    # and decides whether to request scaling the cluster up or down. The default value is 5 seconds.
+    # - name: AUTOSCALER_UPDATE_INTERVAL_S
+    #   value: "5"
+    # RAY_LOGGER_LEVEL is used to control autoscaler and ray logging verbosity (info|debug|warning|error|critical). The default value is "info".
+    # - name: RAY_LOGGER_LEVEL
+    #   value: "debug"
+    envFrom: []
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+  # Ray head pod template
+  headGroupSpec:
+    rayStartParams:
+      # Setting "num-cpus: 0" to avoid any Ray actors or tasks being scheduled on the Ray head Pod.
+      num-cpus: "0"
+    # Pod template
+    template:
+      spec:
+        containers:
+        # The Ray head container
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          ports:
+          - containerPort: 6379
+            name: gcs
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+          volumeMounts:
+          - mountPath: /home/ray/samples
+            name: ray-example-configmap
+        volumes:
+        - name: ray-example-configmap
+          configMap:
+            name: ray-example
+            defaultMode: 0777
+            items:
+            - key: detached_actor.py
+              path: detached_actor.py
+            - key: terminate_detached_actor.py
+              path: terminate_detached_actor.py
+  workerGroupSpecs:
+  # the Pod replicas in this group typed worker
+  - replicas: 0
+    minReplicas: 0
+    maxReplicas: 10
+    groupName: small-group
+    # Priority influences which worker group the autoscaler prefers when multiple
+    # groups can satisfy the same resource demand. Higher priority groups are
+    # preferred for scale-up. Only honored by Ray Autoscaler v2 (Ray >= 2.56).
+    # priority: 0
+    rayStartParams: {}
+    # Pod template
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-example
+data:
+  detached_actor.py: |
+    import ray
+    import sys
+
+    @ray.remote(num_cpus=1)
+    class Actor:
+      pass
+
+    ray.init(namespace="default_namespace")
+    Actor.options(name=sys.argv[1], lifetime="detached").remote()
+
+  terminate_detached_actor.py: |
+    import ray
+    import sys
+
+    ray.init(namespace="default_namespace")
+    detached_actor = ray.get_actor(sys.argv[1])
+    ray.kill(detached_actor)

@@ -1,0 +1,38 @@
+FROM golang:1.26-bookworm AS builder
+
+ARG GOPROXY=https://proxy.golang.org,direct
+ARG ENABLE_RACE=false
+ENV GOPROXY=${GOPROXY}
+WORKDIR /historyserver
+
+# Copy the go modules and manifests.
+COPY go.mod go.mod
+COPY go.sum go.sum
+# Cache dependencies to avoid re-downloading when only sources change.
+RUN go mod download
+
+# Copy the go source.
+COPY cmd/collector/main.go cmd/collector/main.go
+COPY pkg/collector/ pkg/collector/
+COPY pkg/storage/ pkg/storage/
+COPY pkg/utils/ pkg/utils/
+COPY pkg/eventserver/ pkg/eventserver/
+COPY pkg/compression/ pkg/compression/
+
+# Build the collector binary.
+COPY Makefile Makefile
+RUN if [ "$ENABLE_RACE" = "true" ]; then \
+    make buildcollector-race GOOS=linux GOARCH=amd64; \
+    else \
+    make buildcollector GOOS=linux GOARCH=amd64; \
+    fi
+
+# Using :debug-nonroot instead of :nonroot because critical tests currently requires `kill`
+FROM gcr.io/distroless/base-debian12:debug-nonroot
+WORKDIR /
+COPY --from=builder /historyserver/output/bin/collector /usr/local/bin/collector
+# Run collector as non-root (UID 1000) to match the standard ray user in official Ray containers
+# and avoid permission errors under the shared RAY_TMP_ROOT emptyDir volume while running non-root.
+USER 1000:1000
+
+ENTRYPOINT ["/usr/local/bin/collector"]

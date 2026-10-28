@@ -1,0 +1,36 @@
+apiVersion: krew.googlecontainertools.github.com/v1alpha2
+kind: Plugin
+metadata:
+  name: ray
+spec:
+  version: {{ .TagName }}
+  homepage: https://github.com/ray-project/kuberay/tree/master/kubectl-plugin
+  platforms:
+    - selector:
+        matchLabels:
+          os: darwin
+          arch: amd64
+      {{addURIAndSha "https://github.com/ray-project/kuberay/releases/download/{{ .TagName }}/kubectl-ray_{{ .TagName }}_darwin_amd64.tar.gz" .TagName | indent 6 }}
+      bin: kubectl-ray
+    - selector:
+        matchLabels:
+          os: darwin
+          arch: arm64
+      {{addURIAndSha "https://github.com/ray-project/kuberay/releases/download/{{ .TagName }}/kubectl-ray_{{ .TagName }}_darwin_arm64.tar.gz" .TagName | indent 6 }}
+      bin: kubectl-ray
+    - selector:
+        matchLabels:
+          os: linux
+          arch: amd64
+      {{addURIAndSha "https://github.com/ray-project/kuberay/releases/download/{{ .TagName }}/kubectl-ray_{{ .TagName }}_linux_amd64.tar.gz" .TagName | indent 6 }}
+      bin: kubectl-ray
+    - selector:
+        matchLabels:
+          os: linux
+          arch: arm64
+      {{addURIAndSha "https://github.com/ray-project/kuberay/releases/download/{{ .TagName }}/kubectl-ray_{{ .TagName }}_linux_arm64.tar.gz" .TagName | indent 6 }}
+      bin: kubectl-ray
+  shortDescription: Ray kubectl plugin
+  description: |
+    Kubectl plugin/extension for Kuberay CLI that provides the ability to manage ray resources.
+    Read more documentation at: https://github.com/ray-project/kuberay/tree/master/kubectl-plugin

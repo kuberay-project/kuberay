@@ -1,0 +1,25 @@
+# Create
+curl -X POST 'localhost:8888/apis/v1/namespaces/default/compute_templates' \
+--header 'Content-Type: application/json' \
+--data '{
+  "name": "default-template",
+  "namespace": "default",
+  "cpu": 2,
+  "memory": 4
+}'
+
+# List for given namespace
+curl 'localhost:8888/apis/v1/namespaces/default/compute_templates' \
+--header 'Content-Type: application/json'
+
+# List for all namespaces
+curl 'localhost:8888/apis/v1/compute_templates' \
+--header 'Content-Type: application/json'
+
+# Get by name
+curl 'localhost:8888/apis/v1/namespaces/default/compute_templates/default-template' \
+--header 'Content-Type: application/json'
+
+# Delete by name
+curl -X DELETE 'localhost:8888/apis/v1/namespaces/default/compute_templates/default-template' \
+--header 'Content-Type: application/json'

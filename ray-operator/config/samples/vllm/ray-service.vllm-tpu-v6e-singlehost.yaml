@@ -1,0 +1,137 @@
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: vllm-tpu
+spec:
+  serveConfigV2: |
+    applications:
+      - name: llm
+        import_path: ray-operator.config.samples.vllm.serve_tpu:model
+        deployments:
+        - name: VLLMDeployment
+          num_replicas: 1
+        runtime_env:
+          working_dir: "https://github.com/ray-project/kuberay/archive/master.zip"
+          env_vars:
+            MODEL_ID: "$MODEL_ID"
+            MAX_MODEL_LEN: "$MAX_MODEL_LEN"
+            DTYPE: "$DTYPE"
+            TOKENIZER_MODE: "$TOKENIZER_MODE"
+            TPU_CHIPS: "8"
+  rayClusterConfig:
+    headGroupSpec:
+      rayStartParams: {}
+      template:
+        metadata:
+          annotations:
+            gke-gcsfuse/volumes: "true"
+            gke-gcsfuse/cpu-limit: "0"
+            gke-gcsfuse/memory-limit: "0"
+            gke-gcsfuse/ephemeral-storage-limit: "0"
+        spec:
+          # replace $KSA_NAME with your Kubernetes Service Account
+          serviceAccountName: $KSA_NAME
+          containers:
+          - name: ray-head
+            # replace $VLLM_IMAGE with your vLLM container image
+            image: $VLLM_IMAGE
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: hf_api_token
+            - name: VLLM_XLA_CACHE_PATH
+              value: "/data"
+            resources:
+              limits:
+                cpu: "2"
+                memory: "8G"
+              requests:
+                cpu: "2"
+                memory: "8G"
+            volumeMounts:
+            - name: gcs-fuse-csi-ephemeral
+              mountPath: /data
+            - name: dshm
+              mountPath: /dev/shm
+          volumes:
+          - name: gke-gcsfuse-cache
+            emptyDir:
+              medium: Memory
+          - name: dshm
+            emptyDir:
+              medium: Memory
+          - name: gcs-fuse-csi-ephemeral
+            csi:
+              driver: gcsfuse.csi.storage.gke.io
+              volumeAttributes:
+                # replace $GSBUCKET with your GCS bucket
+                bucketName: $GSBUCKET
+                mountOptions: "implicit-dirs,file-cache:enable-parallel-downloads:true,file-cache:parallel-downloads-per-file:100,file-cache:max-parallel-downloads:-1,file-cache:download-chunk-size-mb:10,file-cache:max-size-mb:-1"
+    workerGroupSpecs:
+    - groupName: tpu-group
+      replicas: 1
+      minReplicas: 1
+      maxReplicas: 1
+      numOfHosts: 1
+      rayStartParams: {}
+      template:
+        metadata:
+          annotations:
+            gke-gcsfuse/volumes: "true"
+            gke-gcsfuse/cpu-limit: "0"
+            gke-gcsfuse/memory-limit: "0"
+            gke-gcsfuse/ephemeral-storage-limit: "0"
+        spec:
+          # replace $KSA_NAME with your Kubernetes Service Account
+          serviceAccountName: $KSA_NAME
+          containers:
+          - name: ray-worker
+            # replace $VLLM_IMAGE with your vLLM container image
+            image: $VLLM_IMAGE
+            imagePullPolicy: IfNotPresent
+            resources:
+              limits:
+                cpu: "100"
+                google.com/tpu: "8"
+                ephemeral-storage: "40G"
+                memory: "200G"
+              requests:
+                cpu: "100"
+                google.com/tpu: "8"
+                ephemeral-storage: "40G"
+                memory: "200G"
+            env:
+            - name: JAX_PLATFORMS
+              value: "tpu"
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: hf_api_token
+            - name: VLLM_XLA_CACHE_PATH
+              value: "/data"
+            volumeMounts:
+            - name: gcs-fuse-csi-ephemeral
+              mountPath: /data
+            - name: dshm
+              mountPath: /dev/shm
+          volumes:
+          - name: gke-gcsfuse-cache
+            emptyDir:
+              medium: Memory
+          - name: dshm
+            emptyDir:
+              medium: Memory
+          - name: gcs-fuse-csi-ephemeral
+            csi:
+              driver: gcsfuse.csi.storage.gke.io
+              volumeAttributes:
+                # replace $GSBUCKET with your GCS bucket
+                bucketName: $GSBUCKET
+                mountOptions: "implicit-dirs,file-cache:enable-parallel-downloads:true,file-cache:parallel-downloads-per-file:100,file-cache:max-parallel-downloads:-1,file-cache:download-chunk-size-mb:10,file-cache:max-size-mb:-1"
+          nodeSelector:
+            cloud.google.com/gke-tpu-accelerator: tpu-v6e-slice
+            cloud.google.com/gke-tpu-topology: 2x4

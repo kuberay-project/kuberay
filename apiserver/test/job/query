@@ -1,0 +1,78 @@
+Getting/Listing jobs
+
+1. For a given ns
+
+curl -X GET 'localhost:8888/apis/v1/namespaces/default/jobs' \
+--header 'Content-Type: application/json'
+
+2. For any namespace
+
+curl -X GET 'localhost:8888/apis/v1/jobs' \
+--header 'Content-Type: application/json'
+
+3 By namespace and name
+
+curl -X GET 'localhost:8888/apis/v1/namespaces/default/jobs/job-test' \
+--header 'Content-Type: application/json'
+
+All of them return the same value (for our case with a single job deployed):
+
+{
+    "name":"job-test",
+    "namespace":"default",
+    "user":"kuberay",
+    "entrypoint":"python /home/ray/samples/sample_code.py",
+    "runtimeEnv":"pip:\n  - requests==2.26.0\n  - pendulum==2.1.2\nenv_vars:\n  counter_name: test_counter\n",
+    "jobId":"job-test-mbpl7",
+    "clusterSpec":{
+        "headGroupSpec":{
+            "computeTemplate":"default-template",
+            "image":"rayproject/ray:2.46.0-py310",
+            "serviceType":"NodePort",
+            "rayStartParams":{
+                "dashboard-host":"0.0.0.0",
+                "metrics-export-port":"8080"
+            },
+            "volumes":[
+                {
+                    "mountPath":"/home/ray/samples",
+                    "volumeType":3,
+                    "name":"code-sample",
+                    "source":"ray-job-code-sample",
+                    "items":{"sample_code.py":"sample_code.py"}
+                }
+            ]
+        },
+        "workerGroupSpec":[
+            {
+                "groupName":"small-wg",
+                "computeTemplate":"default-template",
+                "image":"rayproject/ray:2.46.0-py310",
+                "replicas":1,
+                "minReplicas":5,
+                "maxReplicas":1,
+                "rayStartParams":{
+                    "node-ip-address":"$MY_POD_IP"
+                 },
+                 "volumes":[
+                    {
+                        "mountPath":"/home/ray/samples",
+                        "volumeType":3,
+                        "name":"code-sample",
+                        "source":"ray-job-code-sample",
+                        "items":{"sample_code.py":"sample_code.py"}
+                    }
+                 ]
+            }
+        ]
+    },
+    "createdAt":"2023-09-25T15:15:49Z",
+    "jobStatus":"SUCCEEDED",
+    "jobDeploymentStatus":"Running",
+    "message":"Job finished successfully."
+}
+
+Deleting job
+
+curl -X DELETE 'localhost:8888/apis/v1/namespaces/default/jobs/job-test' \
+--header 'Content-Type: application/json'

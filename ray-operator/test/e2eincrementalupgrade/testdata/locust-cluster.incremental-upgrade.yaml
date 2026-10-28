@@ -1,0 +1,77 @@
+# This is a head-only RayCluster to run Locust load test for incremental upgrade.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: locust-cluster
+spec:
+  rayVersion: '2.52.0'
+  headGroupSpec:
+    template:
+      spec:
+        containers:
+          - name: ray-head
+            image: rayproject/ray:2.52.0
+            resources:
+              requests:
+                cpu: 300m
+                memory: 1G
+              limits:
+                cpu: 500m
+                memory: 2G
+            ports:
+              - containerPort: 6379
+                name: gcs-server
+              - containerPort: 8265
+                name: dashboard
+              - containerPort: 10001
+                name: client
+            volumeMounts:
+              - mountPath: /locustfile
+                name: locustfile-volume
+              - mountPath: /locust-runner
+                name: locust-runner-volume
+        volumes:
+          # locustfile defines user behavior for Locust load test.
+          - name: locustfile-volume
+            configMap:
+              name: locustfile-config
+          # locust-runner is a script to start Locust load test.
+          - name: locust-runner-volume
+            configMap:
+              name: locust-runner-script
+---
+# This is a ConfigMap that contains the locustfile.py which defines user behavior for Locust load test.
+# Requests are sent to the /test endpoint of the serve application.
+# With wait_time = constant(0), each test_request is sent immediately after the previous one completes.
+# TODO(jwj): Consider making stages parameter configurable.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: locustfile-config
+data:
+  locustfile.py: |
+    from locust import HttpUser, constant, task, LoadTestShape
+
+    class SimpleUser(HttpUser):
+        wait_time = constant(0)
+        network_timeout = None
+        connection_timeout = None
+
+        @task
+        def test_request(self):
+            resp = self.client.get("/test")
+            if resp.status_code != 200:
+                print(f"Error: {resp.status_code} - {resp.text}")
+
+    class StagesShape(LoadTestShape):
+        stages = [
+            {"duration": 900, "users": 10, "spawn_rate": 10},
+        ]
+
+        def tick(self):
+            run_time = self.get_run_time()
+            for stage in self.stages:
+                if run_time < stage["duration"]:
+                    tick_data = (stage["users"], stage["spawn_rate"])
+                    return tick_data
+            return None

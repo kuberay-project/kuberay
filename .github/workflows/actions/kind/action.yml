@@ -1,0 +1,58 @@
+name: "Set up KinD"
+description: "Step to start and configure KinD cluster"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Init directories
+      shell: bash
+      run: |
+        TEMP_DIR="$(pwd)/tmp"
+        mkdir -p "${TEMP_DIR}"
+        echo "TEMP_DIR=${TEMP_DIR}" >> $GITHUB_ENV
+
+        mkdir -p "$(pwd)/bin"
+        echo "$(pwd)/bin" >> $GITHUB_PATH
+
+    - name: Container image registry
+      shell: bash
+      run: |
+        podman run -d -p 5000:5000 --name registry registry:2.8.1
+
+        export REGISTRY_ADDRESS=$(hostname -i):5000
+        echo "REGISTRY_ADDRESS=${REGISTRY_ADDRESS}" >> $GITHUB_ENV
+        echo "Container image registry started at ${REGISTRY_ADDRESS}"
+
+        KIND_CONFIG_FILE=${{ env.TEMP_DIR }}/kind.yaml
+        echo "KIND_CONFIG_FILE=${KIND_CONFIG_FILE}" >> $GITHUB_ENV
+        envsubst < .github/workflows/actions/kind/kind.yaml > ${KIND_CONFIG_FILE}
+
+        sudo --preserve-env=REGISTRY_ADDRESS sh -c 'cat > /etc/containers/registries.conf.d/local.conf <<EOF
+        [[registry]]
+        prefix = "$REGISTRY_ADDRESS"
+        insecure = true
+        location = "$REGISTRY_ADDRESS"
+        EOF'
+
+    - name: Setup KinD cluster
+      uses: helm/kind-action@v1.12.0
+      with:
+        cluster_name: cluster
+        version: v0.24.0
+        config: ${{ env.KIND_CONFIG_FILE }}
+
+    - name: Print cluster info
+      shell: bash
+      run: |
+        echo "KinD cluster:"
+        kubectl cluster-info
+        kubectl describe nodes
+
+    - name: Install Ingress controller
+      shell: bash
+      run: |
+        VERSION=controller-v1.6.4
+        echo "Deploying Ingress controller into KinD cluster"
+        curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/"${VERSION}"/deploy/static/provider/kind/deploy.yaml | sed "s/--publish-status-address=localhost/--report-node-internal-ip-address\\n        - --status-update-interval=10/g" | kubectl apply -f -
+        kubectl annotate ingressclass nginx "ingressclass.kubernetes.io/is-default-class=true"
+        kubectl -n ingress-nginx wait --timeout=300s --for=condition=Available deployments --all

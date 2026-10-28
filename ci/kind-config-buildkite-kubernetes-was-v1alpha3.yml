@@ -1,0 +1,26 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  apiServerAddress: "0.0.0.0"
+  # Ensure stable port so we can rewrite the server address later.
+  apiServerPort: 6443
+# Adding this so containers from the same docker network can access it.
+# https://blog.scottlowe.org/2019/07/30/adding-a-name-to-kubernetes-api-server-certificate/
+nodes:
+- role: control-plane
+  image: kindest/node:v1.37.0
+  kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    apiServer:
+      extraArgs:
+        feature-gates: "GenericWorkload=true"
+        runtime-config: "scheduling.k8s.io/v1beta1=true,scheduling.k8s.io/v1alpha3=true"
+      certSANs:
+        - "docker"
+    controllerManager:
+      extraArgs:
+        feature-gates: "GenericWorkload=true"
+    scheduler:
+      extraArgs:
+        feature-gates: "GenericWorkload=true"

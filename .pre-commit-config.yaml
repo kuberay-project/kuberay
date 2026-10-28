@@ -1,0 +1,106 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+exclude: _generated.go$|\.svg$|^third_party/|^proto/swagger/|^apiserver/pkg/swagger/datafile.go$|^docs/reference/api.md$|^config/grafana/|^dashboard/\.yarn/releases/yarn-.*\.cjs$
+
+default_language_version:
+  golang: 1.26.0
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        exclude: ^helm-chart/|^mkdocs\.yml$|^benchmark/perf-tests/|^\.krew\.yaml$
+      - id: check-added-large-files
+        exclude: ^ray-operator/config/crd/bases/
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-vcs-permalinks
+      - id: check-json
+      - id: pretty-format-json
+        args: [--autofix, --no-sort-keys, --no-ensure-ascii]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: detect-private-key
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.2
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+
+  - repo: local
+    hooks:
+      - id: golangci-lint
+        name: golangci-lint
+        entry: ./scripts/lint.sh
+        types: [go]
+        language: golang
+        require_serial: true
+        always_run: true
+        pass_filenames: false
+        additional_dependencies:
+          - github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
+      - id: generate-crd-schema
+        name: generate CRD schemas for use of kubeconform
+        entry: ./scripts/generate-crd-schema.sh
+        language: python
+        require_serial: true
+        always_run: true
+        pass_filenames: false
+        additional_dependencies:
+          - PyYAML==6.0.1
+      - id: validate-helm-charts
+        name: validate helm charts with kubeconform
+        entry: bash scripts/validate-helm.sh
+        language: golang
+        require_serial: true
+        always_run: true
+        pass_filenames: false
+        additional_dependencies:
+          - github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
+      - id: eslint
+        name: ESLint TypeScript/JavaScript check
+        entry: ./scripts/dashboard-lint.sh
+        language: node
+        require_serial: true
+        pass_filenames: true
+        files: .*\.(js|jsx|ts|tsx|cjs|mjs)$
+        additional_dependencies:
+          - eslint@8
+
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.44.0
+    hooks:
+      - id: markdownlint-fix
+        name: Markdown linting
+        args:
+          - --ignore=.github/pull_request_template.md
+          - --disable=MD033
+
+  - repo: https://github.com/google/yamlfmt
+    rev: v0.17.0
+    hooks:
+      - id: yamlfmt
+        files: ^ray-operator/config/samples/
+
+  - repo: https://github.com/norwoodj/helm-docs
+    rev: v1.14.2
+    hooks:
+      - id: helm-docs-built
+        args:
+          # Make the tool search for charts only under the `helm-chart` directory
+          - --chart-search-root=helm-chart
+          - --chart-to-generate=helm-chart/kuberay-operator
+          - --chart-to-generate=helm-chart/kuberay-apiserver
+          - --chart-to-generate=helm-chart/ray-cluster
+          - --template-files=README.md.gotmpl
+          - --sort-values-order=file

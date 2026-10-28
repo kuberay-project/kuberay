@@ -1,0 +1,81 @@
+# RayCluster CR with a FluentBit sidecar
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-fluentbit-sidecar-logs
+spec:
+  rayVersion: "2.52.0"
+  headGroupSpec:
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          # This config is meant for demonstration purposes only.
+          # Use larger Ray containers in production!
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+          # Share logs with Fluent Bit
+          volumeMounts:
+          - mountPath: /tmp/ray
+            name: ray-logs
+        # Fluent Bit sidecar
+        - name: fluentbit
+          image: fluent/fluent-bit:3.2.2
+          # Get Kubernetes metadata via downward API
+          env:
+          - name: POD_LABELS
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.labels['ray.io/cluster']
+          # These resource requests for Fluent Bit should be sufficient in production.
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          volumeMounts:
+          - mountPath: /tmp/ray
+            name: ray-logs
+          - mountPath: /fluent-bit/etc/fluent-bit.conf
+            subPath: fluent-bit.conf
+            name: fluentbit-config
+        # Log and config volumes
+        volumes:
+        - name: ray-logs
+          emptyDir: {}
+        - name: fluentbit-config
+          configMap:
+            name: fluentbit-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluentbit-config
+data:
+  fluent-bit.conf: |
+    [INPUT]
+        Name tail
+        Path /tmp/ray/session_latest/logs/*
+        Tag ray
+        Path_Key true
+        Refresh_Interval 5
+    [FILTER]
+        Name modify
+        Match ray
+        Add POD_LABELS ${POD_LABELS}
+    [OUTPUT]
+        Name loki
+        Match *
+        Host loki-gateway
+        Port 80
+        Labels RayCluster=${POD_LABELS}
+        tenant_id test

@@ -1,0 +1,53 @@
+# This RayJob is based on the "Fine-tune a PyTorch Lightning Text Classifier with Ray Data" example in the Ray documentation.
+# See https://docs.ray.io/en/master/train/examples/lightning/lightning_cola_advanced.html for more details.
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  generateName: pytorch-text-classifier-
+spec:
+  shutdownAfterJobFinishes: true
+  entrypoint: python ray-operator/config/samples/pytorch-text-classifier/fine-tune-pytorch-text-classifier.py
+  runtimeEnvYAML: |
+    pip:
+      - numpy
+      - datasets
+      - transformers>=4.19.1
+      - pytorch-lightning>=2.0
+      - torchmetrics
+    working_dir: "https://github.com/ray-project/kuberay/archive/master.zip"
+  rayClusterSpec:
+    rayVersion: "2.58.0"
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+      template:
+        spec:
+          tolerations:
+          - key: "nvidia.com/gpu"
+            operator: "Exists"
+            effect: "NoSchedule"
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.58.0-py311-gpu
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            resources:
+              limits:
+                cpu: "2"
+                memory: "8G"
+                nvidia.com/gpu: "1"
+              requests:
+                cpu: "2"
+                memory: "8G"
+                nvidia.com/gpu: "1"
+            volumeMounts:
+            - mountPath: /tmp/ray
+              name: ray-logs
+          volumes:
+          - name: ray-logs
+            emptyDir: {}

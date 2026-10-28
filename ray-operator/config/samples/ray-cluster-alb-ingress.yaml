@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ray-cluster-ingress
+  annotations:
+    # WARNING: Do not expose this ALB publicly without additional authentication/authorization.
+    # The Ray Dashboard provides read and write access to the cluster. Anyone with access to the
+    # ALB can launch arbitrary code execution on the Ray Cluster.
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/tags: Environment=dev,Team=test
+    # See `ingress.md` for more details about how to choose subnets.
+    alb.ingress.kubernetes.io/subnets: subnet-0930d6b677fb40a74, subnet-0066ab2e15925618c
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  ingressClassName: alb
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ray-cluster-kuberay-head-svc # Your head pod service
+            port:
+              number: 8265

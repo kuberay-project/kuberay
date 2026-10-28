@@ -1,0 +1,68 @@
+# For examples with more realistic resource configuration, see
+# ray-cluster.complete.large.yaml and
+# ray-cluster.autoscaler.large.yaml.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-kuberay
+spec:
+  # UpgradeStrategy defines the pod recreation behavior when RayCluster configuration changes
+  # Available since: KubeRay 1.6.0
+  # Type of upgrade strategy to use:
+  # - "None" (default):
+  #   * Configuration changes do not trigger pod recreation
+  #   * Existing pods continue running with old configuration
+  #   * New pods (from scaling) will use new configuration
+  #   * Use this for maximum stability
+  # - "Recreate":
+  #   * All pods are deleted and recreated when configuration changes
+  #   * Ensures all pods run with the latest configuration
+  #   * Useful for GitOps system like ArgoCD
+  #   * May cause temporary service disruption during recreation
+  # upgradeStrategy:
+  #   type: None
+  rayVersion: "2.52.0" # should match the Ray version in the image of the containers
+  # Ray head pod template
+  headGroupSpec:
+    # rayStartParams is optional with RayCluster CRD from KubeRay 1.4.0 or later but required in earlier versions.
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "5Gi"
+          ports:
+          - containerPort: 6379
+            name: gcs-server
+          - containerPort: 8265 # Ray dashboard
+            name: dashboard
+          - containerPort: 10001
+            name: client
+  workerGroupSpecs:
+  # the pod replicas in this group typed worker
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 5
+    # logical group name, for this called small-group, also can be functional
+    groupName: workergroup
+    # rayStartParams is optional with RayCluster CRD from KubeRay 1.4.0 or later but required in earlier versions.
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker # must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character (e.g. 'my-name',  or '123-abc'
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"

@@ -1,0 +1,386 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-tls
+spec:
+  rayVersion: "2.52.0"
+  # Note: Uncomment the `enableInTreeAutoscaling` and `autoscalerOptions`
+  # if you wish to configure TLS for the autoscaler.
+
+  # enableInTreeAutoscaling: true
+  # autoscalerOptions:
+  #   upscalingMode: Default
+  #   idleTimeoutSeconds: 60
+  #   imagePullPolicy: IfNotPresent
+  #   securityContext: {}
+  #   env:
+  #     - name: RAY_USE_TLS
+  #       value: "1"
+  #     - name: RAY_TLS_SERVER_CERT
+  #       value: "/etc/ray/tls/tls.crt"
+  #     - name: RAY_TLS_SERVER_KEY
+  #       value: "/etc/ray/tls/tls.key"
+  #     - name: RAY_TLS_CA_CERT
+  #       value: "/etc/ca/tls/ca.crt"
+  #   envFrom: []
+  #   # Use volumeMounts to mount the volumes where the TLS certs exist.
+  #   volumeMounts:
+  #     - mountPath: /etc/ca/tls
+  #       name: ca-tls
+  #     - mountPath: /etc/ray/tls
+  #       name: ray-tls
+  #   resources:
+  #     limits:
+  #       cpu: "500m"
+  #       memory: "512Mi"
+  #     requests:
+  #       cpu: "500m"
+  #       memory: "512Mi"
+
+  # Ray head pod configuration
+  headGroupSpec:
+    # The `rayStartParams` are used to configure the `ray start` command.
+    # See https://github.com/ray-project/kuberay/blob/master/docs/guidance/rayStartParams.md for the default settings of `rayStartParams` in KubeRay.
+    # See https://docs.ray.io/en/latest/cluster/cli.html#ray-start for all available options in `rayStartParams`.
+    rayStartParams: {}
+    # pod template
+    template:
+      metadata:
+        labels: {}
+      spec:
+        initContainers:
+        # Generate head's private key and certificate before `ray start`.
+        - name: ray-head-tls
+          image: rayproject/ray:2.52.0
+          command: ["/bin/sh", "-c", "cp -R /etc/ca/tls /etc/ray && /etc/gen/tls/gencert_head.sh"]
+          volumeMounts:
+          - mountPath: /etc/ca/tls
+            name: ca-tls
+            readOnly: true
+          - mountPath: /etc/ray/tls
+            name: ray-tls
+          - mountPath: /etc/gen/tls
+            name: gen-tls-script
+          env:
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          ports:
+          - containerPort: 6379
+            name: gcs
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          volumeMounts:
+          - mountPath: /tmp/ray
+            name: ray-logs
+          - mountPath: /etc/ca/tls
+            name: ca-tls
+            readOnly: true
+          - mountPath: /etc/ray/tls
+            name: ray-tls
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+          env:
+          # Environment variables for Ray TLS authentication.
+          # See https://docs.ray.io/en/latest/ray-core/configure.html#tls-authentication for more details.
+          - name: RAY_USE_TLS
+            value: "1"
+          - name: RAY_TLS_SERVER_CERT
+            value: "/etc/ray/tls/tls.crt"
+          - name: RAY_TLS_SERVER_KEY
+            value: "/etc/ray/tls/tls.key"
+          - name: RAY_TLS_CA_CERT
+            value: "/etc/ca/tls/ca.crt"
+        volumes:
+        - name: ray-logs
+          emptyDir: {}
+        # Secret `ca-tls` has the information of CA's private key and certificate.
+        - name: ca-tls
+          secret:
+            secretName: ca-tls
+        - name: ray-tls
+          emptyDir: {}
+        # `gencert_head.sh` is a script to generate head Pod's private key and head's certificate.
+        - name: gen-tls-script
+          configMap:
+            name: tls
+            defaultMode: 0777
+            items:
+            - key: gencert_head.sh
+              path: gencert_head.sh
+  workerGroupSpecs:
+  # the pod replicas in this group typed worker
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 10
+    groupName: small-group
+    # The `rayStartParams` are used to configure the `ray start` command.
+    # See https://github.com/ray-project/kuberay/blob/master/docs/guidance/rayStartParams.md for the default settings of `rayStartParams` in KubeRay.
+    # See https://docs.ray.io/en/latest/cluster/cli.html#ray-start for all available options in `rayStartParams`.
+    rayStartParams: {}
+    #pod template
+    template:
+      spec:
+        initContainers:
+        # Generate worker's private key and certificate before `ray start`.
+        - name: ray-worker-tls
+          image: rayproject/ray:2.52.0
+          command: ["/bin/sh", "-c", "cp -R /etc/ca/tls /etc/ray && /etc/gen/tls/gencert_worker.sh"]
+          volumeMounts:
+          - mountPath: /etc/ca/tls
+            name: ca-tls
+            readOnly: true
+          - mountPath: /etc/ray/tls
+            name: ray-tls
+          - mountPath: /etc/gen/tls
+            name: gen-tls-script
+          env:
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          # use volumeMounts.Optional.
+          # Refer to https://kubernetes.io/docs/concepts/storage/volumes/
+          volumeMounts:
+          - mountPath: /tmp/ray
+            name: ray-logs
+          - mountPath: /etc/ca/tls
+            name: ca-tls
+            readOnly: true
+          - mountPath: /etc/ray/tls
+            name: ray-tls
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+          env:
+          # Environment variables for Ray TLS authentication.
+          # See https://docs.ray.io/en/latest/ray-core/configure.html#tls-authentication for more details.
+          - name: RAY_USE_TLS
+            value: "1"
+          - name: RAY_TLS_SERVER_CERT
+            value: "/etc/ray/tls/tls.crt"
+          - name: RAY_TLS_SERVER_KEY
+            value: "/etc/ray/tls/tls.key"
+          - name: RAY_TLS_CA_CERT
+            value: "/etc/ca/tls/ca.crt"
+        volumes:
+        - name: ray-logs
+          emptyDir: {}
+        # Secret `ca-tls` has the information of CA's private key and certificate.
+        - name: ca-tls
+          secret:
+            secretName: ca-tls
+        - name: ray-tls
+          emptyDir: {}
+        # `gencert_worker.sh` is a script to generate worker Pod's private key and worker's certificate.
+        - name: gen-tls-script
+          configMap:
+            name: tls
+            defaultMode: 0777
+            # An array of keys from the ConfigMap to create as files
+            items:
+            - key: gencert_worker.sh
+              path: gencert_worker.sh
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ca-tls
+data:
+  # cat ca.crt | base64
+  ca.crt: |
+    LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURXekNDQWtPZ0F3SUJBZ0lVVzQyUDZxZVEr
+    MU54M2xzazFaY2hCTjhSUmhnd0RRWUpLb1pJaHZjTkFRRUwKQlFBd1BURVdNQlFHQTFVRUF3d05L
+    aTVyZFdKbGNtRjVMbU52YlRFTE1Ba0dBMVVFQmhNQ1ZWTXhGakFVQmdOVgpCQWNNRFZOaGJpQkdj
+    bUZ1WTJselkyOHdIaGNOTWpNd016STJNREUxT1RNeVdoY05Nek13TXpJek1ERTFPVE15CldqQTlN
+    Ull3RkFZRFZRUUREQTBxTG10MVltVnlZWGt1WTI5dE1Rc3dDUVlEVlFRR0V3SlZVekVXTUJRR0Ex
+    VUUKQnd3TlUyRnVJRVp5WVc1amFYTmpiekNDQVNJd0RRWUpLb1pJaHZjTkFRRUJCUUFEZ2dFUEFE
+    Q0NBUW9DZ2dFQgpBTkh5Yk1PWjNlZ2hZS0gzTVJlcVhqSU83QlRHUGk3NXJ0ekpsMjN5WVhRdEFP
+    Y050eVNxZUllVk43YnJIYzAyCkN1RXNocUNpSHBDeVdYcDlVMWRCYlZwYWU3OXc3R1AySHBJclBr
+    WXZITm5ZZEF3a0dnYkpTeTNPSkJOb2N0MUEKbVdwYWI5N243dGlFbkw1bFFsR01vejBwR0FYQ1BK
+    Q3lVTWtsbDE2eUlSVUtjdjZkZThBcWZMU0FPRmxIY1BHRQo1SnhpRlhJcWtzbStqN0txZDVqQk14
+    b1RCV0puVmk4MTRVZ3U4eEMxZkV2ZlRKM1hMeWZ6cmtIbkJHZGYyUG4wCkJHVWtobzB3dDNoSGVt
+    QUs4NXV2OWZIUUdNMlpZOTYxVzhFT2ZQL3pCT3FIODZZMG9hU0VUQlpiSm45WEg2Y2UKdnIvWW9z
+    OU1wQU52K3dpemhqZFVPUWNDQXdFQUFhTlRNRkV3SFFZRFZSME9CQllFRkh2bk81LzdjakVMVXpt
+    NwpiaUJSay9Qc2N5dDdNQjhHQTFVZEl3UVlNQmFBRkh2bk81LzdjakVMVXptN2JpQlJrL1BzY3l0
+    N01BOEdBMVVkCkV3RUIvd1FGTUFNQkFmOHdEUVlKS29aSWh2Y05BUUVMQlFBRGdnRUJBTHg1cXZW
+    VUQvNVMwUjE2UUpFTWRlS3IKQzhaazhPL2dMa3ZkTlNEeUVzam5zU1JKWFF5aW4zdEJXQjhLaSs3
+    VXBlQ3Y4TCtjOUdHM05oNzBUdGhxTmNrOApHT0ZHVHdYTi9XLy9MbTNIZEJVK2UzSkJkbElOTEo4
+    alRuRjFQUXJvS2ZacURCZnVlR0FwSDdPT0JKYWl2KzFtCjdxalNsbkovYS9rRlRaWXNsNVpZU204
+    dWI4Q3RGQnFwOFliM0xBcU5YUG9zL3QzVFBVbG1wRHpOK0lPTTBSb1IKKy9vS3A3TUpCNFFoeFQ2
+    T2RYVy9Iekw3bndmbnZ6QU12NXREKzdUamJuaDFrS0d2b0ZBUW5neXRMQnAzcllxcQpBRWFYck8x
+    OUFNKzdCMmpQcHB4RVM1Rm01K3FPdS9BUnBzVDdzbUJ0eitudnlwdEM3Y2J2QUZzZFAwRnhHWjA9
+    Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+  # cat ca.key | base64
+  ca.key: |
+    LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV1d0lCQURBTkJna3Foa2lHOXcwQkFRRUZB
+    QVNDQktVd2dnU2hBZ0VBQW9JQkFRRFI4bXpEbWQzb0lXQ2gKOXpFWHFsNHlEdXdVeGo0dSthN2N5
+    WmR0OG1GMExRRG5EYmNrcW5pSGxUZTI2eDNOTmdyaExJYWdvaDZRc2xsNgpmVk5YUVcxYVdudS9j
+    T3hqOWg2U0t6NUdMeHpaMkhRTUpCb0d5VXN0emlRVGFITGRRSmxxV20vZTUrN1loSnkrClpVSlJq
+    S005S1JnRndqeVFzbERKSlpkZXNpRVZDbkwrblh2QUtueTBnRGhaUjNEeGhPU2NZaFZ5S3BMSnZv
+    K3kKcW5lWXdUTWFFd1ZpWjFZdk5lRklMdk1RdFh4TDMweWQxeThuODY1QjV3Um5YOWo1OUFSbEpJ
+    YU5NTGQ0UjNwZwpDdk9ici9YeDBCak5tV1BldFZ2QkRuei84d1RxaC9PbU5LR2toRXdXV3laL1Z4
+    K25IcjYvMktMUFRLUURiL3NJCnM0WTNWRGtIQWdNQkFBRUNnZ0VBQkx0RzhqMlVmN2ZJMnIyY2NL
+    RVpVRjEvdXBRaE1LUFY2Z250RE1CS3EvaWIKclpsa2lFSURSMkw0aDNuVENSM3ZydFYzRDBXNEZL
+    REFYWDlYa243Wi9SQk8rNmlLMjFIZnJJR20vS1B4TFlPdwpVZG02Y0c2MjhBaFdUYzJyMFFxMHFt
+    M3hXWCsycFZDUHk4YXljTzRQZThCaVZ6YmljSXhrUDdSR0xnOHJxYkt4CkhYM1pOUnhIUy9NOW9X
+    YzYyM2RTZEJwZGdxUitLYlVVM21aWjJXc3ZBSjZiME5sZ0U0Vkc4aTFqUFBLbDVFV2kKRmtnTkVG
+    N0pNZ0RHRDQvODEvMlErUnRCdmtpQTlmZkk0NER4Z04rbVJBZmVaRFQvZWtOTDROVlRUWm9SZkpk
+    YwpKcGtqMmppNE5NUENJTGNnazN5QVBuSXRTamlsWGkrMXFiTjNmZXQwV1FLQmdRRDRGOTBreWhy
+    K0p1cWRrMnIwCjZPTXVVSk9GM3k0UDA2OFFOTHF4blNPOERaMndKL2cwdGJhWk5Senp4anZwWHFZ
+    VVpIWGVhVHdNYkNreE55TnEKb0kvQmYwYTJoUGcyeE9iTm5HVUF6MEgzVGZ2Y0JvcVIvVXlOTFZr
+    d0dtUUx5WVZuNWdmSXdnN1lsS2x2emtsegp3aHUxNnNSVGNPNXpBUkpaTHV3dy9MSWFjd0tCZ1FE
+    WW8xV2Z3N1pWeUQrSSszRlRMbzhCeXJZd2F2S3FjY1dQCjM5T20wdzB2ckZTc0tHQVFnY0ZwR2NX
+    cG5FM0FMWnZ6eHAyU2lRTkc0RkhWTmNZblNqM0tKY2lGRC9vOHJRSTgKNjRxOE82MW9QL2lQOWNt
+    MzFpNjRCYmhsaFhqeUZPZGc4bU9LSWZnOHB2Y1AzeDBMKzdRMy9GbmIzWmxkd1lkdAo5SjhXbDR0
+    ZUhRS0JnUUN4czNZbENkWjN3S3hBSGYxNFd1K09sd3h6MFQ0Ty9CTGl5c0lHd29WOEIweXhobytV
+    ClFhdis1VHBOcWVuejZHV1JLYnY3aU9rSUJOa2tkVmdhNGRMV1NESUFQaElFT05rUTRUcS9iN1RT
+    VEx0Z0NCZHQKSmorVXg2eWdkZWEvUXFNWm5ueG80Z2I4UHM5MlZBM3NxbFpxNFRPcWlMTmpFSnR4
+    NGRndjVuQXozUUtCZ0dtSwphVlNFVEhoT0xtWFYyY2ZranRjWW90bkR3S1U0K0Q2M2xLMVpkTHNk
+    QWNNOWlFK0NaMitFbHIraTNsNFoyamhSCk1zTUk3UWZDa1J1R0x4dEZHQVU3a3cwQVU3RHJ1SU5s
+    WFJtSEdWd0lqbGZVTG9uWlZybGdVQTFsa1I2ZkFIcEMKbkN2WGtOQTdwM0djQ05LbHRZN3c2Zlly
+    WjJROXZIVGRFQVE1b0RRaEFuOCtwUFFySEZ1aHhWMnBGb0RjcFFCSApPR0NjbHZJUGxOZTZzWmFO
+    YXQwb0pjUDkxbkI3TFoxMnVhUG9wa3dZckxGZXBtQVRiOElDbU9LMGNCUWNIenljCm5tM3lWVEt1
+    LzA1NnMvdVQwSnY3dFA0clluR3c3WG5acWV1bVNzd2pqbTZIRHBRNG5Ia1JmWFZ5VkVBZFVONUsK
+    VVc3Q01ubkQ2OGsranZLc2lXbmYKLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLQo=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tls
+data:
+  gencert_head.sh: |
+    #!/bin/sh
+    ## Create tls.key
+    openssl genrsa -out /etc/ray/tls/tls.key 2048
+
+    ## Write CSR Config
+    cat > /etc/ray/tls/csr.conf <<EOF
+    [ req ]
+    default_bits = 2048
+    prompt = no
+    default_md = sha256
+    req_extensions = req_ext
+    distinguished_name = dn
+
+    [ dn ]
+    C = US
+    ST = California
+    L = San Fransisco
+    O = test
+    OU = test
+    CN = *.kuberay.com
+
+    [ req_ext ]
+    subjectAltName = @alt_names
+
+    [ alt_names ]
+    DNS.1 = localhost
+    DNS.2 = $FQ_RAY_IP
+    IP.1 = 127.0.0.1
+    IP.2 = $POD_IP
+
+    EOF
+
+    ## Create CSR using tls.key
+    openssl req -new -key /etc/ray/tls/tls.key -out /etc/ray/tls/ca.csr -config /etc/ray/tls/csr.conf
+
+    ## Write cert config
+    cat > /etc/ray/tls/cert.conf <<EOF
+
+    authorityKeyIdentifier=keyid,issuer
+    basicConstraints=CA:FALSE
+    keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+    subjectAltName = @alt_names
+
+    [alt_names]
+    DNS.1 = localhost
+    DNS.2 = $FQ_RAY_IP
+    IP.1 = 127.0.0.1
+    IP.2 = $POD_IP
+
+    EOF
+
+    ## Generate tls.cert
+    openssl x509 -req \
+        -in /etc/ray/tls/ca.csr \
+        -CA /etc/ray/tls/ca.crt -CAkey /etc/ray/tls/ca.key \
+        -CAcreateserial -out /etc/ray/tls/tls.crt \
+        -days 365 \
+        -sha256 -extfile /etc/ray/tls/cert.conf
+
+  gencert_worker.sh: |
+    #!/bin/sh
+    ## Create tls.key
+    openssl genrsa -out /etc/ray/tls/tls.key 2048
+
+    ## Write CSR Config
+    cat > /etc/ray/tls/csr.conf <<EOF
+    [ req ]
+    default_bits = 2048
+    prompt = no
+    default_md = sha256
+    req_extensions = req_ext
+    distinguished_name = dn
+
+    [ dn ]
+    C = US
+    ST = California
+    L = San Fransisco
+    O = test
+    OU = test
+    CN = *.kuberay.com
+
+    [ req_ext ]
+    subjectAltName = @alt_names
+
+    [ alt_names ]
+    DNS.1 = localhost
+    IP.1 = 127.0.0.1
+    IP.2 = $POD_IP
+
+    EOF
+
+    ## Create CSR using tls.key
+    openssl req -new -key /etc/ray/tls/tls.key -out /etc/ray/tls/ca.csr -config /etc/ray/tls/csr.conf
+
+    ## Write cert config
+    cat > /etc/ray/tls/cert.conf <<EOF
+
+    authorityKeyIdentifier=keyid,issuer
+    basicConstraints=CA:FALSE
+    keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+    subjectAltName = @alt_names
+
+    [alt_names]
+    DNS.1 = localhost
+    IP.1 = 127.0.0.1
+    IP.2 = $POD_IP
+
+    EOF
+
+    ## Generate tls.cert
+    openssl x509 -req \
+        -in /etc/ray/tls/ca.csr \
+        -CA /etc/ray/tls/ca.crt -CAkey /etc/ray/tls/ca.key \
+        -CAcreateserial -out /etc/ray/tls/tls.crt \
+        -days 365 \
+        -sha256 -extfile /etc/ray/tls/cert.conf

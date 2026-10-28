@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: azurite-dev
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: azurite
+  namespace: azurite-dev
+  labels:
+    app: azurite
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: azurite
+  template:
+    metadata:
+      labels:
+        app: azurite
+    spec:
+      containers:
+      - name: azurite
+        image: mcr.microsoft.com/azure-storage/azurite:3.33.0
+        command: ["azurite-blob", "--blobHost", "0.0.0.0", "--skipApiVersionCheck", "--loose", "--disableProductStyleUrl"]
+        ports:
+        - containerPort: 10000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: azurite-service
+  namespace: azurite-dev
+spec:
+  selector:
+    app: azurite
+  ports:
+  - port: 10000
+    targetPort: 10000
+  type: ClusterIP

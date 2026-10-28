@@ -1,0 +1,60 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: v6e-4-job
+spec:
+  entrypoint: python ray-operator/config/samples/tpu/tpu_list_devices.py
+  runtimeEnvYAML: |
+    working_dir: "https://github.com/ray-project/kuberay/archive/master.zip"
+    pip:
+      - jax[tpu]==0.6.1
+      - -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+  rayClusterSpec:
+    rayVersion: "2.52.0"
+    headGroupSpec:
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.52.0-py310
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            resources:
+              limits:
+                cpu: "8"
+                memory: "40G"
+              requests:
+                cpu: "8"
+                memory: "40G"
+    workerGroupSpecs:
+    - replicas: 1
+      minReplicas: 1
+      maxReplicas: 1
+      numOfHosts: 1
+      groupName: tpu-group
+      rayStartParams: {}
+      template:
+        spec:
+          securityContext:
+            runAsUser: 0
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.52.0-py310
+            resources:
+              limits:
+                cpu: "24"
+                google.com/tpu: "4"
+                memory: "200G"
+              requests:
+                cpu: "24"
+                google.com/tpu: "4"
+                memory: "200G"
+          nodeSelector:
+            cloud.google.com/gke-tpu-accelerator: tpu-v6e-slice
+            cloud.google.com/gke-tpu-topology: 2x2

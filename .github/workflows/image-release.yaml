@@ -1,0 +1,421 @@
+name: release-image-build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release_apiserver_image:
+    env:
+      working-directory: ./apiserver
+    name: Release APIServer Docker Image
+    runs-on: ubuntu-22.04
+    steps:
+
+    - name: Error if not a tag
+      uses: actions/github-script@v9
+      if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+      with:
+        script: core.setFailed('This action can only be run on tags')
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: v1.26
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Extract tag
+      id: tag
+      run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+    - name: Install kubebuilder
+      run: |
+        wget https://github.com/kubernetes-sigs/kubebuilder/releases/download/v3.0.0/kubebuilder_$(go env GOOS)_$(go env GOARCH)
+        sudo mv kubebuilder_$(go env GOOS)_$(go env GOARCH) /usr/local/bin/kubebuilder
+
+    - name: Get revision SHA
+      id: vars
+      run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+    - name: Get dependencies
+      run: go mod download
+      working-directory: ${{env.working-directory}}
+
+    - name: Build
+      run: go build ./...
+      working-directory: ${{env.working-directory}}
+
+    - name: Test
+      run: go test ./pkg/... ./cmd/... -race -parallel 4
+      working-directory: ${{env.working-directory}}
+
+    - name: Log in to Quay.io
+      uses: docker/login-action@v4
+      with:
+        registry: quay.io
+        username: ${{ secrets.QUAY_USERNAME }}
+        password: ${{ secrets.QUAY_ROBOT_TOKEN }}
+
+    # Build apiserver binaries inside the gh runner vm directly and then copy the go binaries to docker images using the Dockerfile.buildx
+    - name: Build linux/amd64 apiserver go binary
+      env:
+        CGO_ENABLED: 0
+        GOOS: linux
+        GOARCH: amd64
+      run: |
+        CGO_ENABLED=$CGO_ENABLED GOOS=$GOOS GOARCH=$GOARCH go build -a -o kuberay-apiserver-$GOARCH cmd/main.go
+      working-directory: ${{env.working-directory}}
+
+    - name: Build linux/arm64 apiserver binary
+      env:
+        CGO_ENABLED: 0
+        GOOS: linux
+        GOARCH: arm64
+      run: |
+        CGO_ENABLED=$CGO_ENABLED GOOS=$GOOS GOARCH=$GOARCH go build -a -o kuberay-apiserver-$GOARCH cmd/main.go
+      working-directory: ${{env.working-directory}}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Build MultiArch Image
+      uses: docker/build-push-action@v7
+      env:
+        PUSH: true
+        REPO_ORG: kuberay
+        REPO_NAME: apiserver
+      with:
+        platforms: linux/amd64,linux/arm64
+        context: .
+        file: ./apiserver/Dockerfile.buildx
+        push: ${{env.PUSH}}
+        provenance: false
+        tags: |
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ steps.vars.outputs.sha_short }}
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ env.tag }}
+
+  release_operator_image:
+    env:
+      working-directory: ./ray-operator
+    name: Release Operator Docker Images
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+
+    - name: Error if not a tag
+      uses: actions/github-script@v9
+      if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+      with:
+        script: core.setFailed('This action can only be run on tags')
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: v1.26
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Extract tag
+      id: tag
+      run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+    - name: Install kubebuilder
+      run: |
+        wget https://github.com/kubernetes-sigs/kubebuilder/releases/download/v3.0.0/kubebuilder_$(go env GOOS)_$(go env GOARCH)
+        sudo mv kubebuilder_$(go env GOOS)_$(go env GOARCH) /usr/local/bin/kubebuilder
+
+    - name: Get revision SHA
+      id: vars
+      run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+    - name: Get dependencies
+      run: go mod download
+      working-directory: ${{env.working-directory}}
+
+    - name: Build
+      run: make build
+      working-directory: ${{env.working-directory}}
+
+    - name: Test
+      run: make test
+      working-directory: ${{env.working-directory}}
+
+    - name: Log in to Quay.io
+      uses: docker/login-action@v4
+      with:
+        registry: quay.io
+        username: ${{ secrets.QUAY_USERNAME }}
+        password: ${{ secrets.QUAY_ROBOT_TOKEN }}
+
+    # Build operators inside the gh runner vm directly and then copy the go binaries to docker images using the Dockerfile.buildx
+    - name: Build linux/amd64 Operator go binary
+      env:
+        CGO_ENABLED: 1
+        GOOS: linux
+        GOARCH: amd64
+      run: |
+        CGO_ENABLED=$CGO_ENABLED GOOS=$GOOS GOARCH=$GOARCH go build -tags strictfipsruntime -a -o manager-$GOARCH main.go
+      working-directory: ${{env.working-directory}}
+
+    - name: Build linux/arm64 Operator binary
+      env:
+        CC: aarch64-linux-gnu-gcc
+        CGO_ENABLED: 1
+        GOOS: linux
+        GOARCH: arm64
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+        CC=$CC CGO_ENABLED=$CGO_ENABLED GOOS=$GOOS GOARCH=$GOARCH go build -tags strictfipsruntime -a -o manager-$GOARCH main.go
+      working-directory: ${{env.working-directory}}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Build MultiArch Image
+      uses: docker/build-push-action@v7
+      env:
+        PUSH: true
+        REPO_ORG: kuberay
+        REPO_NAME: operator
+      with:
+        platforms: linux/amd64,linux/arm64
+        context: ${{env.working-directory}}
+        file: ${{env.working-directory}}/Dockerfile.buildx
+        push: ${{env.PUSH}}
+        provenance: false
+        tags: |
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ steps.vars.outputs.sha_short }}
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ env.tag }}
+
+    - name: Create ray-operator tag
+      uses: actions/github-script@v9
+      with:
+        script: |
+          await github.rest.git.createRef({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: 'refs/tags/ray-operator/${{ env.tag }}',
+            sha: '${{ github.sha }}'
+          })
+
+  release_dashboard_image:
+    env:
+      working-directory: ./dashboard
+    name: Release Dashboard Docker Image
+    runs-on: ubuntu-22.04
+    steps:
+
+    - name: Error if not a tag
+      uses: actions/github-script@v9
+      if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+      with:
+        script: core.setFailed('This action can only be run on tags')
+
+    - name: Check out code into dashboard directory
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Extract tag
+      id: tag
+      run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+    - name: Get revision SHA
+      id: vars
+      run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+    - name: Log in to Quay.io
+      uses: docker/login-action@v4
+      with:
+        registry: quay.io
+        username: ${{ secrets.QUAY_USERNAME }}
+        password: ${{ secrets.QUAY_ROBOT_TOKEN }}
+
+    - name: Build and push Dashboard image
+      uses: docker/build-push-action@v7
+      with:
+        context: ${{ env.working-directory }}
+        file: ${{ env.working-directory }}/Dockerfile
+        push: true
+        tags: |
+          quay.io/kuberay/dashboard:${{ steps.vars.outputs.sha_short }}
+          quay.io/kuberay/dashboard:${{ env.tag }}
+        labels: |
+          GIT_COMMIT=${{ steps.vars.outputs.sha_short }}
+        provenance: false
+
+  release_submitter_image:
+    env:
+      working-directory: ./ray-operator
+    name: Release Submitter Docker Images
+    runs-on: ubuntu-22.04
+    steps:
+
+    - name: Error if not a tag
+      uses: actions/github-script@v9
+      if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+      with:
+        script: core.setFailed('This action can only be run on tags')
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: v1.26
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Extract tag
+      id: tag
+      run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+    - name: Get revision SHA
+      id: vars
+      run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+    - name: Get dependencies
+      run: go mod download
+      working-directory: ${{env.working-directory}}
+
+    - name: Log in to Quay.io
+      uses: docker/login-action@v4
+      with:
+        registry: quay.io
+        username: ${{ secrets.QUAY_USERNAME }}
+        password: ${{ secrets.QUAY_ROBOT_TOKEN }}
+
+    - name: Build linux/amd64 submitter go binary
+      env:
+        CGO_ENABLED: 0
+        GOOS: linux
+        GOARCH: amd64
+      run: |
+        CGO_ENABLED=$CGO_ENABLED GOOS=$GOOS GOARCH=$GOARCH go build -tags strictfipsruntime -a -o submitter-$GOARCH ./rayjob-submitter/cmd/main.go
+      working-directory: ${{env.working-directory}}
+
+    - name: Build linux/arm64 submitter binary
+      env:
+        CGO_ENABLED: 0
+        GOOS: linux
+        GOARCH: arm64
+      run: |
+        CGO_ENABLED=$CGO_ENABLED GOOS=$GOOS GOARCH=$GOARCH go build -tags strictfipsruntime -a -o submitter-$GOARCH ./rayjob-submitter/cmd/main.go
+      working-directory: ${{env.working-directory}}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Build MultiArch Image
+      uses: docker/build-push-action@v7
+      env:
+        PUSH: true
+        REPO_ORG: kuberay
+        REPO_NAME: submitter
+      with:
+        platforms: linux/amd64,linux/arm64
+        context: ${{env.working-directory}}
+        file: ${{env.working-directory}}/Dockerfile.submitter.buildx
+        push: ${{env.PUSH}}
+        provenance: false
+        tags: |
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ steps.vars.outputs.sha_short }}
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ env.tag }}
+
+  release_historyserver_collector_image:
+    env:
+      working-directory: ./historyserver
+    name: Release History Server and Collector Docker Images
+    runs-on: ubuntu-22.04
+    steps:
+
+    - name: Error if not a tag
+      uses: actions/github-script@v9
+      if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+      with:
+        script: core.setFailed('This action can only be run on tags')
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: v1.26
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Extract tag
+      id: tag
+      run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+    - name: Get revision SHA
+      id: vars
+      run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+    - name: Get dependencies
+      run: go mod download
+      working-directory: ${{env.working-directory}}
+
+    - name: Build
+      run: make build
+      working-directory: ${{env.working-directory}}
+
+    - name: Test
+      run: make test
+      working-directory: ${{env.working-directory}}
+
+    - name: Log in to Quay.io
+      uses: docker/login-action@v4
+      with:
+        registry: quay.io
+        username: ${{ secrets.QUAY_USERNAME }}
+        password: ${{ secrets.QUAY_ROBOT_TOKEN }}
+
+    - name: Build multi-arch binaries for historyserver and collector
+      run: make build-multi-arch
+      working-directory: ${{env.working-directory}}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Build MultiArch Image for History Server
+      uses: docker/build-push-action@v7
+      env:
+        PUSH: true
+        REPO_ORG: kuberay
+        REPO_NAME: historyserver
+      with:
+        platforms: linux/amd64,linux/arm64
+        context: ${{env.working-directory}}
+        file: ${{env.working-directory}}/Dockerfile.historyserver.buildx
+        push: ${{env.PUSH}}
+        provenance: false
+        tags: |
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ steps.vars.outputs.sha_short }}
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ env.tag }}
+
+    - name: Build MultiArch Image for Historyserver Collector
+      uses: docker/build-push-action@v7
+      env:
+        PUSH: true
+        REPO_ORG: kuberay
+        REPO_NAME: collector
+      with:
+        platforms: linux/amd64,linux/arm64
+        context: ${{env.working-directory}}
+        file: ${{env.working-directory}}/Dockerfile.collector.buildx
+        push: ${{env.PUSH}}
+        provenance: false
+        tags: |
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ steps.vars.outputs.sha_short }}
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ env.tag }}

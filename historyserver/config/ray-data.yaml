@@ -1,0 +1,103 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob-ray-data
+spec:
+  shutdownAfterJobFinishes: true
+  # Keep the RayCluster alive long enough for the collector to gather data from the Ray node.
+  ttlSecondsAfterFinished: 90
+  entrypoint: |
+    python -c "
+    import ray
+    ray.init()
+
+    # materialize() is required: an unexecuted Dataset produces no stats.
+    ds = ray.data.range(100).map_batches(lambda batch: batch).materialize()
+    print(f'Dataset rows: {ds.count()}')
+    "
+  rayClusterSpec:
+    # Head-only: worker collectors would need the generated head Service FQDN in FQ_RAY_IP.
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: 0.0.0.0
+      serviceType: ClusterIP
+      template:
+        spec:
+          containers:
+          - env:
+            - name: RAY_TMP_ROOT
+              value: &rayTmpRoot /tmp/ray
+            - name: RAY_enable_ray_event
+              value: "true"
+            - name: RAY_enable_core_worker_ray_event_to_aggregator
+              value: "true"
+            - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EVENTS_EXPORT_ADDR
+              value: "http://localhost:8084/v1/events"
+            - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES
+              value: "ALL"
+            image: rayproject/ray:2.58.0
+            imagePullPolicy: IfNotPresent
+            name: ray-head
+            resources:
+              limits:
+                cpu: "5"
+                memory: 10G
+              requests:
+                cpu: "50m"
+                memory: 1G
+            volumeMounts:
+            - name: historyserver
+              mountPath: *rayTmpRoot
+          - name: collector
+            image: collector:v0.1.0
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # KubeRay generates the cluster name; read it back from the pod label.
+            - name: RAY_CLUSTER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['ray.io/cluster']
+            - name: RAY_CLUSTER_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # ray.io/originated-from-* labels are on the RayCluster, not the pod; must match metadata.name.
+            - name: OWNER_KIND
+              value: "RayJob"
+            - name: OWNER_NAME
+              value: "rayjob-ray-data"
+            # Only used to look up this pod's Ray NodeID; the dashboard is in this pod.
+            - name: FQ_RAY_IP
+              value: "localhost"
+            - name: RAY_TMP_ROOT
+              value: *rayTmpRoot
+            - name: S3DISABLE_SSL
+              value: "true"
+            - name: AWS_ACCESS_KEY_ID
+              value: rustfsadmin
+            - name: AWS_SECRET_ACCESS_KEY
+              value: rustfsadmin
+            - name: AWS_SESSION_TOKEN
+              value: ""
+            - name: S3_BUCKET
+              value: "ray-historyserver"
+            - name: S3_ENDPOINT
+              value: "rustfs-service.rustfs-dev:9000"
+            - name: S3_REGION
+              value: "test"
+            - name: S3FORCE_PATH_STYLE
+              value: "true"
+            - name: RAY_ROLE
+              value: "Head"
+            - name: STORAGE_BACKEND
+              value: "s3"
+            volumeMounts:
+            - name: historyserver
+              mountPath: *rayTmpRoot
+          volumes:
+          - name: historyserver
+            emptyDir: {}

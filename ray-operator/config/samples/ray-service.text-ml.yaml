@@ -1,0 +1,71 @@
+# Make sure to increase resource requests and limits before using this example in production.
+# For examples with more realistic resource configuration, see
+# ray-cluster.complete.large.yaml and
+# ray-cluster.autoscaler.large.yaml.
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: rayservice-sample
+spec:
+  # serveConfigV2 takes a yaml multi-line scalar, which should be a Ray Serve multi-application config. See https://docs.ray.io/en/latest/serve/multi-app.html.
+  serveConfigV2: |
+    applications:
+      - name: text_ml_app
+        import_path: text_ml.app
+        route_prefix: /summarize_translate
+        runtime_env:
+          working_dir: "https://github.com/ray-project/serve_config_examples/archive/eb49e7cacd846ed12daf0d0f0cf496d3f30d8f0f.zip"
+          pip:
+            - torch
+            - transformers
+        deployments:
+          - name: Translator
+            num_replicas: 1
+            ray_actor_options:
+              num_cpus: 0.2
+            user_config:
+              language: french
+          - name: Summarizer
+            num_replicas: 1
+            ray_actor_options:
+              num_cpus: 0.2
+  rayClusterConfig:
+    rayVersion: "2.52.0" # should match the Ray version in the image of the containers
+    ######################headGroupSpecs#################################
+    # Ray head pod template.
+    headGroupSpec:
+      rayStartParams: {}
+      #pod template
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.52.0
+            resources:
+              limits:
+                cpu: "2"
+                memory: "5Gi"
+              requests:
+                cpu: "2"
+                memory: "2Gi"
+    workerGroupSpecs:
+    # the pod replicas in this group typed worker
+    - replicas: 1
+      minReplicas: 1
+      maxReplicas: 5
+      # logical group name, for this called small-group, also can be functional
+      groupName: small-group
+      rayStartParams: {}
+      #pod template
+      template:
+        spec:
+          containers:
+          - name: ray-worker # must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character (e.g. 'my-name',  or '123-abc'
+            image: rayproject/ray:2.52.0
+            resources:
+              limits:
+                cpu: "1"
+                memory: "2Gi"
+              requests:
+                cpu: "500m"
+                memory: "2Gi"

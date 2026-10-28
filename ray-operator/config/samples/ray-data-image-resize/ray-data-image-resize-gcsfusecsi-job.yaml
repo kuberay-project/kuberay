@@ -1,0 +1,109 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: ray-data-image-resize-gcsfuse
+spec:
+  entrypoint: python ray-operator/config/samples/ray-data-image-resize/ray_data_image_resize_gcsfuse.py
+  runtimeEnvYAML: |
+    pip:
+      - torch
+      - torchvision
+      - numpy
+    working_dir: "https://github.com/ray-project/kuberay/archive/master.zip"
+    env_vars:
+      BUCKET_PREFIX: images
+  shutdownAfterJobFinishes: true
+  ttlSecondsAfterFinished: 30
+  rayClusterSpec:
+    headGroupSpec:
+      rayStartParams:
+        disable-usage-stats: "true"
+      template:
+        metadata:
+          annotations:
+            gke-gcsfuse/cpu-limit: "0"
+            gke-gcsfuse/ephemeral-storage-limit: "0"
+            gke-gcsfuse/memory-limit: "0"
+            gke-gcsfuse/volumes: "true"
+        spec:
+          containers:
+          - image: rayproject/ray:2.52.0
+            name: ray-head
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            resources:
+              limits:
+                cpu: "1"
+                memory: "5Gi"
+              requests:
+                cpu: "1"
+                memory: "4Gi"
+            volumeMounts:
+            - mountPath: /tmp/ray
+              name: ray-logs
+            - name: dshm
+              mountPath: /dev/shm
+            - mountPath: /data
+              name: gcs-fuse-csi-ephemeral
+          volumes:
+          - emptyDir: {}
+            name: ray-logs
+          - name: dshm
+            emptyDir:
+              medium: Memory
+          - csi:
+              driver: gcsfuse.csi.storage.gke.io
+              volumeAttributes:
+                # replace the bucketName to the Google Cloud Storage bucket of your choice. For non-public bucket, ensure access control is setup for the pod by following https://cloud.google.com/kubernetes-engine/docs/how-to/persistent-volumes/cloud-storage-fuse-csi-driver#authentication
+                bucketName: ray-images
+                mountOptions: implicit-dirs,anonymous-access,uid=1000,gid=100,metadata-cache:ttl-secs:-1,metadata-cache:stat-cache-max-size-mb:-1,metadata-cache:type-cache-max-size-mb:-1
+                skipCSIBucketAccessCheck: "true"
+            name: gcs-fuse-csi-ephemeral
+    rayVersion: "2.52.0"
+    workerGroupSpecs:
+    - groupName: worker-group
+      maxReplicas: 3
+      minReplicas: 1
+      replicas: 3
+      rayStartParams: {}
+      template:
+        metadata:
+          annotations:
+            gke-gcsfuse/cpu-limit: "0"
+            gke-gcsfuse/ephemeral-storage-limit: "0"
+            gke-gcsfuse/memory-limit: "0"
+            gke-gcsfuse/volumes: "true"
+        spec:
+          containers:
+          - image: rayproject/ray:2.52.0
+            name: ray-worker
+            resources:
+              requests:
+                cpu: "1"
+                memory: "4Gi"
+            volumeMounts:
+            - mountPath: /tmp/ray
+              name: ray-logs
+            - name: dshm
+              mountPath: /dev/shm
+            - mountPath: /data
+              name: gcs-fuse-csi-ephemeral
+          volumes:
+          - emptyDir: {}
+            name: ray-logs
+          - name: dshm
+            emptyDir:
+              medium: Memory
+          - csi:
+              driver: gcsfuse.csi.storage.gke.io
+              volumeAttributes:
+                # replace the bucketName to the Google Cloud Storage bucket of your choice. For non-public bucket, ensure access control is setup for the pod by following https://cloud.google.com/kubernetes-engine/docs/how-to/persistent-volumes/cloud-storage-fuse-csi-driver#authentication
+                bucketName: ray-images
+                mountOptions: implicit-dirs,anonymous-access,uid=1000,gid=100,metadata-cache:ttl-secs:-1,metadata-cache:stat-cache-max-size-mb:-1,metadata-cache:type-cache-max-size-mb:-1
+                skipCSIBucketAccessCheck: "true"
+            name: gcs-fuse-csi-ephemeral

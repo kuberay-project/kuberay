@@ -1,0 +1,43 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../base/insecure
+namespace: ray-system
+images:
+- name: kuberay/apiserver
+  newName: quay.io/kuberay/apiserver
+  newTag: latest
+# Replace NodePort with ClusterIP as we do not need to receive requests from outside the Kubernetes cluster
+patches:
+- patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0/imagePullPolicy
+      value: IfNotPresent
+  target:
+    kind: Deployment
+    name: kuberay-apiserver
+    version: v1
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/1
+      value:
+        name: apiserver-curl
+        image: curlimages/curl:latest
+        command: ["sleep", "infinity"]
+        imagePullPolicy: IfNotPresent
+  target:
+    kind: Deployment
+    name: kuberay-apiserver
+    version: v1
+- patch: |-
+    - op: replace
+      path: /spec/type
+      value: ClusterIP
+    - op: remove
+      path: /spec/ports/0/nodePort
+    - op: remove
+      path: /spec/ports/1/nodePort
+  target:
+    kind: Service
+    name: kuberay-apiserver
+    version: v1

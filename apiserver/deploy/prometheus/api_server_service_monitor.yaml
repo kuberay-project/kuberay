@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    release: prometheus
+  name: kuberay-apiserver
+  namespace: prometheus-system  # ns where prometheus is deployed
+spec:
+  endpoints:
+      - targetPort: http
+        path: /metrics
+  namespaceSelector:
+    matchNames:
+      - default               # ns where API server is deployed
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: kuberay-apiserver

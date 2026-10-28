@@ -1,0 +1,64 @@
+# This example config does not specify resource requests or limits.
+# For examples with more realistic resource configuration, see
+# ray-cluster.complete.large.yaml and
+# ray-cluster.autoscaler.large.yaml.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-ingress
+spec:
+  rayVersion: "2.52.0" # should match the Ray version in the image of the containers
+  headGroupSpec:
+    serviceType: NodePort
+    # The `rayStartParams` are used to configure the `ray start` command.
+    # See https://github.com/ray-project/kuberay/blob/master/docs/guidance/rayStartParams.md for the default settings of `rayStartParams` in KubeRay.
+    # See https://docs.ray.io/en/latest/cluster/cli.html#ray-start for all available options in `rayStartParams`.
+    rayStartParams: {}
+    #pod template
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+          ports:
+          - containerPort: 6379
+            name: gcs-server
+          - containerPort: 8265 # Ray dashboard
+            name: dashboard
+          - containerPort: 10001
+            name: client
+---
+# Ingress for raycluster
+# WARNING: Nginx must handle authentication/access control. The Ray Dashboard provides
+# read and write access to the cluster. Anyone with access through Nginx can launch
+# arbitrary code execution on the Ray Cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    # Any characters captured by (.*) will be assigned to the placeholder $1, which is then used as a parameter in the rewrite-target annotation
+    # For example, the ingress definition above will result in the following rewrites:
+    # $IP/$CLUSTER_NAME/ rewrites to $IP/ ($1 maps to nothing)
+    # $IP/$CLUSTER_NAME/#/actors rewrites to $IP/#/actors ($1 maps to #/actors)
+    # $IP/$CLUSTER_NAME/#/node rewrites to $IP/#/node ($1 maps to #/node)
+  name: raycluster-ingress-head-ingress
+spec:
+  ingressClassName: nginx # This should be aligned with the ingress-class of the ingress controller
+  rules:
+  - http:
+      paths:
+      - backend:
+          service:
+            name: raycluster-ingress-head-svc # service name should be the same as head service
+            port: # port number should match the port specified for dashboard in the RayCluster setting above
+              number: 8265
+        path: /raycluster-ingress/(.*) # (.*) is regex
+        pathType: ImplementationSpecific

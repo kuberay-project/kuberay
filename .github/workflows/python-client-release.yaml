@@ -1,0 +1,65 @@
+name: release-python-client
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Python Client
+    runs-on: ubuntu-latest
+    steps:
+      - name: Error if not a tag
+        uses: actions/github-script@v9
+        if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+        with:
+          script: core.setFailed('This action can only be run on tags')
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Set version from tag
+        working-directory: clients/kuberay-client
+        run: |
+          python -m pip install packaging
+          VERSION=$(python -c 'import os; from packaging.version import Version; print(Version(os.environ["GITHUB_REF_NAME"]))')
+          sed -i "s/^version = .*/version = \"${VERSION}\"/" pyproject.toml
+          sed -i "s/^__version__ = .*/__version__ = \"${VERSION}\"/" kuberay_client/__init__.py
+
+      - name: Build
+        working-directory: clients/kuberay-client
+        run: |
+          python -m pip install build
+          python -m build
+
+      - name: Upload Artifact Python Client
+        uses: actions/upload-artifact@v7
+        with:
+          name: kuberay_client_dist
+          path: clients/kuberay-client/dist/
+
+  publish-pypi:
+    name: Publish Python Client to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/kuberay-client
+    permissions:
+      id-token: write
+    steps:
+      - name: Download Artifact Python Client
+        uses: actions/download-artifact@v8
+        with:
+          name: kuberay_client_dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

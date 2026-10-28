@@ -1,0 +1,2 @@
+worker-groups:
+  - cpu: 3

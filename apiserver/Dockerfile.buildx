@@ -1,0 +1,8 @@
+FROM scratch
+ARG TARGETARCH
+WORKDIR /workspace
+COPY ./apiserver/kuberay-apiserver-${TARGETARCH} apiserver/kuberay-apiserver
+COPY proto/ proto/
+USER 65532:65532
+
+ENTRYPOINT ["/workspace/apiserver/kuberay-apiserver"]

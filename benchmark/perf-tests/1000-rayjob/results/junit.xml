@@ -1,0 +1,12 @@
+<testsuite name="ClusterLoaderV2" tests="0" failures="0" errors="0" time="1644.719">
+    <testcase name="kuberay overall (/1000-rayjob/config.yaml)" classname="ClusterLoaderV2" time="997.175822609"/>
+    <testcase name="kuberay: [step: 01] Start measurements [00] - PodStartupLatency" classname="ClusterLoaderV2" time="0.1020984"/>
+    <testcase name="kuberay: [step: 01] Start measurements [01] - WaitForControlledPodsRunning" classname="ClusterLoaderV2" time="0.102168466"/>
+    <testcase name="kuberay: [step: 01] Start measurements [02] - JobLifecycleLatency" classname="ClusterLoaderV2" time="0.102137022"/>
+    <testcase name="kuberay: [step: 02] Creating RayJobs for PyTorch MNIST fine-tuning" classname="ClusterLoaderV2" time="5.37741955"/>
+    <testcase name="kuberay: [step: 03] Creating RayJobs for Ray Data Image Resizing" classname="ClusterLoaderV2" time="5.434581719"/>
+    <testcase name="kuberay: [step: 04] Wait for RayJobs complete [00] - WaitForRayJob" classname="ClusterLoaderV2" time="917.488594731"/>
+    <testcase name="kuberay: [step: 05] Wait for pods to be running [00] - WaitForControlledPodsRunning" classname="ClusterLoaderV2" time="5.011579173"/>
+    <testcase name="kuberay: [step: 06] Measure pod startup latency [00] - PodStartupLatency" classname="ClusterLoaderV2" time="1.675936304"/>
+    <testcase name="kuberay: [step: 07] Measure job finished [00] - JobLifecycleLatency" classname="ClusterLoaderV2" time="1.004017669"/>
+</testsuite>

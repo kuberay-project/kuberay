@@ -1,0 +1,49 @@
+curl -X POST 'localhost:8888/apis/v1/namespaces/default/clusters' \
+--header 'Content-Type: application/json' \
+--data '{
+  "name": "test-cluster",
+  "namespace": "default",
+  "user": "kuberay",
+  "clusterSpec": {
+    "headGroupSpec": {
+      "computeTemplate": "default-template",
+      "image": "rayproject/ray:2.46.0-py310",
+      "serviceType": "NodePort",
+      "rayStartParams": {
+         "dashboard-host": "0.0.0.0",
+         "metrics-export-port": "8080"
+       },
+       "volumes": [
+         {
+           "name": "code-sample",
+           "mountPath": "/home/ray/samples",
+           "volumeType": "CONFIGMAP",
+           "source": "ray-job-code-sample",
+           "items": {"sample_code.py" : "sample_code.py"}
+         }
+       ]
+    },
+    "workerGroupSpec": [
+      {
+        "groupName": "small-wg",
+        "computeTemplate": "default-template",
+        "image": "rayproject/ray:2.46.0-py310",
+        "replicas": 1,
+        "minReplicas": 0,
+        "maxReplicas": 5,
+        "rayStartParams": {
+           "node-ip-address": "$MY_POD_IP"
+         },
+        "volumes": [
+          {
+            "name": "code-sample",
+            "mountPath": "/home/ray/samples",
+            "volumeType": "CONFIGMAP",
+            "source": "ray-job-code-sample",
+            "items": {"sample_code.py" : "sample_code.py"}
+          }
+        ]
+      }
+    ]
+  }
+}'

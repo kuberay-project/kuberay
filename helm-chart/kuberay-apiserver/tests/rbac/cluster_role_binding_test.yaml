@@ -1,0 +1,121 @@
+suite: Test ClusterRoleBinding
+
+templates:
+  - rbac/cluster_role_binding.yaml
+
+release:
+  name: kuberay-apiserver
+  namespace: kuberay-system
+
+tests:
+  - it: Should not create cluster role binding if `rbacEnable` is `false`
+    set:
+      rbacEnable: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should not create cluster role if `rbacEnable` and `singleNamespaceInstall` are `true` and `enableAPIServerV2` is `false`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: true
+      enableAPIServerV2: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should create cluster role binding kuberay-apiserver if `rbacEnable` is `true` and `singleNamespaceInstall` is `false`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+      enableAPIServerV2: false
+    asserts:
+      - containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          name: kuberay-apiserver
+      - equal:
+          path: roleRef
+          value:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: kuberay-apiserver
+      - contains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: kuberay-apiserver
+            namespace: kuberay-system
+
+  - it: Should create cluster role binding kuberay-apiserver-service-access if `rbacEnable` is `true` and `enableAPIServerV2` is `true`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: true
+      enableAPIServerV2: true
+    asserts:
+      - containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          name: kuberay-apiserver-service-access
+      - equal:
+          path: roleRef
+          value:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: kuberay-apiserver-service-access
+      - contains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: kuberay-apiserver
+            namespace: kuberay-system
+
+  - it: Should create two cluster role bindings if `rbacEnable` and `enableAPIServerV2` are `true` and `singleNamespaceInstall` is `false`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+      enableAPIServerV2: true
+    asserts:
+      - documentIndex: 0
+        containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          name: kuberay-apiserver
+
+      - documentIndex: 0
+        equal:
+          path: roleRef
+          value:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: kuberay-apiserver
+
+      - documentIndex: 0
+        contains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: kuberay-apiserver
+            namespace: kuberay-system
+
+      - documentIndex: 1
+        containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          name: kuberay-apiserver-service-access
+
+      - documentIndex: 1
+        equal:
+          path: roleRef
+          value:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: kuberay-apiserver-service-access
+
+      - documentIndex: 1
+        contains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: kuberay-apiserver
+            namespace: kuberay-system

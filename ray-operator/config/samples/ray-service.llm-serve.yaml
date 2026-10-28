@@ -1,0 +1,98 @@
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: ray-serve-llm
+spec:
+  serveConfigV2: |
+    applications:
+    - name: llms
+      import_path: ray.serve.llm:build_openai_app
+      route_prefix: "/"
+      args:
+        llm_configs:
+        - model_loading_config:
+            model_id: qwen2.5-7b-instruct
+            model_source: Qwen/Qwen2.5-7B-Instruct
+          engine_kwargs:
+            dtype: bfloat16
+            max_model_len: 1024
+            device: auto
+            gpu_memory_utilization: 0.75
+          deployment_config:
+            autoscaling_config:
+              min_replicas: 1
+              max_replicas: 4
+              target_ongoing_requests: 64
+            max_ongoing_requests: 128
+  rayClusterConfig:
+    rayVersion: "2.52.0"
+    headGroupSpec:
+      rayStartParams:
+        num-cpus: "0"
+        num-gpus: "0"
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray-llm:2.52.0-py311-cu128
+            ports:
+            - containerPort: 8000
+              name: serve
+              protocol: TCP
+            - containerPort: 8080
+              name: metrics
+              protocol: TCP
+            - containerPort: 6379
+              name: gcs
+              protocol: TCP
+            - containerPort: 8265
+              name: dashboard
+              protocol: TCP
+            - containerPort: 10001
+              name: client
+              protocol: TCP
+            resources:
+              limits:
+                cpu: "2"
+                memory: "5Gi"
+              requests:
+                cpu: "2"
+                memory: "4Gi"
+    workerGroupSpecs:
+    - replicas: 1
+      minReplicas: 1
+      maxReplicas: 1
+      numOfHosts: 1
+      groupName: gpu-group
+      rayStartParams:
+        num-gpus: "4"
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray-llm:2.52.0-py311-cu128
+            env:
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: hf_token
+            resources:
+              limits:
+                cpu: "32"
+                memory: "32Gi"
+                nvidia.com/gpu: "4"
+              requests:
+                cpu: "32"
+                memory: "32Gi"
+                nvidia.com/gpu: "4"
+
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hf-token
+type: Opaque
+stringData:
+  hf_token: <your-hf-access-token-value>

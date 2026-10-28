@@ -1,0 +1,70 @@
+curl -X POST 'localhost:8888/apis/v1/namespaces/default/services' \
+--header 'Content-Type: application/json' \
+--data '{
+  "name": "test-v1",
+  "namespace": "default",
+  "user": "user",
+  "serviceUnhealthySecondThreshold": 900,
+  "deploymentUnhealthySecondThreshold": 300,
+  "serveDeploymentGraphSpec": {
+      "importPath": "fruit.deployment_graph",
+      "runtimeEnv": "working_dir: \"https://github.com/ray-project/test_dag/archive/c620251044717ace0a4c19d766d43c5099af8a77.zip\"\n",
+      "serveConfigs": [
+      {
+        "deploymentName": "OrangeStand",
+        "replicas": 1,
+        "userConfig": "price: 2",
+        "actorOptions": {
+          "cpusPerActor": 0.1
+        }
+      },
+      {
+        "deploymentName": "PearStand",
+        "replicas": 1,
+        "userConfig": "price: 1",
+        "actorOptions": {
+          "cpusPerActor": 0.1
+        }
+      },
+      {
+        "deploymentName": "FruitMarket",
+        "replicas": 1,
+        "actorOptions": {
+          "cpusPerActor": 0.1
+        }
+      },
+      {
+        "deploymentName": "DAGDriver",
+        "replicas": 1,
+        "routePrefix": "/",
+        "actorOptions": {
+          "cpusPerActor": 0.1
+        }
+      }]
+  },
+  "clusterSpec": {
+    "headGroupSpec": {
+      "computeTemplate": "default-template",
+      "image": "rayproject/ray:2.46.0-py310",
+      "serviceType": "NodePort",
+      "rayStartParams": {
+         "dashboard-host": "0.0.0.0",
+         "metrics-export-port": "8080"
+       },
+       "volumes": []
+    },
+    "workerGroupSpec": [
+      {
+        "groupName": "small-wg",
+        "computeTemplate": "default-template",
+        "image": "rayproject/ray:2.46.0-py310",
+        "replicas": 1,
+        "minReplicas": 0,
+        "maxReplicas": 5,
+        "rayStartParams": {
+           "node-ip-address": "$MY_POD_IP"
+         }
+      }
+    ]
+  }
+}'

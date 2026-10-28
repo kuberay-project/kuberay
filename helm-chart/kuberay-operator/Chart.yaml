@@ -1,0 +1,24 @@
+apiVersion: v2
+
+name: kuberay-operator
+
+description: A Helm chart for deploying the Kuberay operator on Kubernetes.
+
+version: 1.1.0
+
+type: application
+
+keywords:
+- ray
+- ray operator
+- distributed computing
+- data processing
+- machine learning
+- deep learning
+- hyperparameter tuning
+- reinforcement learning
+- model serving
+
+home: https://github.com/ray-project/kuberay
+
+icon: https://github.com/ray-project/ray/raw/master/doc/source/images/ray_header_logo.png

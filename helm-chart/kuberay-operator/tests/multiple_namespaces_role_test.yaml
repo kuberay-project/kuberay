@@ -1,0 +1,73 @@
+suite: Test Multiple Namespaces Role
+
+templates:
+  - multiple_namespaces_role.yaml
+
+release:
+  name: kuberay-operator
+  namespace: kuberay-system
+
+tests:
+  - it: Should not include scheduling.k8s.io RBAC rules by default
+    set:
+      singleNamespaceInstall: true
+      crNamespacedRbacEnable: true
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups:
+              - scheduling.k8s.io
+            resources:
+              - podgroups
+              - workloads
+            verbs:
+              - create
+              - delete
+              - get
+              - list
+              - patch
+              - update
+              - watch
+
+  - it: Should include scheduling.k8s.io RBAC rules for Kubernetes WAS v1alpha3
+    set:
+      singleNamespaceInstall: true
+      crNamespacedRbacEnable: true
+      featureGates:
+        - name: KubernetesWAS
+          enabled: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - scheduling.k8s.io
+            resources:
+              - podgroups
+              - workloads
+            verbs:
+              - create
+              - delete
+              - get
+              - list
+              - patch
+              - update
+              - watch
+
+  - it: Should not carry the cluster-scoped nodes rule
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: true
+      crNamespacedRbacEnable: true
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - nodes
+            verbs:
+              - get
+        documentIndex: 0

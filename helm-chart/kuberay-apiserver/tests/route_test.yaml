@@ -1,0 +1,72 @@
+suite: Test Route
+
+release:
+  name: kuberay-apiserver
+  namespace: kuberay-system
+
+templates:
+  - route.yaml
+
+tests:
+  - it: Should not create route if `route.enabled` is `false`
+    set:
+      route:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should create route if `route.enabled` is `true`
+    set:
+      route:
+        enabled: true
+    asserts:
+      - containsDocument:
+          apiVersion: route.openshift.io/v1
+          kind: Route
+          name: kuberay-apiserver
+          namespace: kuberay-system
+
+  - it: Should add annotations to route if `route.annotations` is set
+    set:
+      route:
+        enabled: true
+        annotations:
+          key1: value1
+          key2: value2
+    asserts:
+      - equal:
+          path: metadata.annotations.key1
+          value: value1
+      - equal:
+          path: metadata.annotations.key2
+          value: value2
+
+  - it: Should have route backend service name matching the service name
+    set:
+      route:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.to.name
+          value: kuberay-apiserver-service
+
+  - it: Should have route backend service name matching the service name when fullnameOverride is set
+    set:
+      fullnameOverride: test-name
+      route:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.to.name
+          value: test-name-service
+
+  - it: Should have route backend service name matching the service name when nameOverride is set
+    set:
+      nameOverride: custom-api
+      route:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.to.name
+          value: kuberay-apiserver-custom-api-service

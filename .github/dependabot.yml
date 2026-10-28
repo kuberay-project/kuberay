@@ -1,0 +1,36 @@
+version: 2
+updates:
+
+  # Maintain go dependencies for sub-projects
+  - package-ecosystem: "gomod"
+    directories:
+      - "/ray-operator"
+      - "/apiserver"
+      - "/kubectl-plugin"
+      - "/proto"
+    schedule:
+      interval: "weekly"
+    groups:
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+      google-golang:
+        patterns:
+          - "google.golang.org/*"
+      github-dependencies:
+        patterns:
+          - "github.com/*"
+      all-dependencies: # for all other dependencies not listed above
+        patterns:
+          - "*"
+
+  # Maintain GitHub Actions referenced in .github/workflows/
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-actions:
+        patterns:
+          - "*"

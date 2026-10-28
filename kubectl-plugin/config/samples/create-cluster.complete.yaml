@@ -1,0 +1,67 @@
+namespace: my-namespace
+name: sample-create-cluster-complete
+
+labels:
+  foo: bar
+annotations:
+  dead: beef
+
+ray-version: 2.52.0
+image: rayproject/ray:2.52.0
+service-account: my-service-account@my-project.iam.gserviceaccount.com
+
+head:
+  cpu: 3
+  memory: 5Gi
+  gpu: 0
+  ephemeral-storage: 8Gi
+  ray-start-params:
+    metrics-export-port: 8082
+  node-selectors:
+    foo: bar
+    baz: qux
+
+worker-groups:
+  - name: cpu-workers
+    replicas: 1
+    cpu: 2
+    memory: 4Gi
+    gpu: 0
+    ephemeral-storage: 12Gi
+    ray-start-params:
+      metrics-export-port: 8081
+    node-selectors:
+      hi: there
+  - name: gpu-workers
+    replicas: 1
+    cpu: 3
+    memory: 6Gi
+    gpu: 1
+    ephemeral-storage: 13Gi
+    ray-start-params:
+      metrics-export-port: 8081
+
+autoscaler:
+  version: v2
+
+gke:
+  # Cloud Storage FUSE options
+  gcsfuse:
+    # Required bucket name
+    bucket-name: my-bucket
+    # Required mount path where bucket will be mounted in both head and worker nodes
+    mount-path: /mnt/cluster_storage
+    # See the Cloud Storage FUSE CLI file docs for all supported mount options.
+    # https://cloud.google.com/storage/docs/cloud-storage-fuse/cli-options#options
+    mount-options: "implicit-dirs,uid=1000,gid=100"
+    # Optional resource configs for Cloud Storage FUSE CSI driver sidecar container
+    resources:
+      cpu: 250m
+      memory: 256Mi
+      ephemeral-storage: 5Gi
+    # Optional volume attributes for Cloud Storage FUSE CSI driver
+    # from the following page excluding the ones that Google recommends you set as mount options.
+    # https://cloud.google.com/kubernetes-engine/docs/reference/cloud-storage-fuse-csi-driver/volume-attr
+    disable-metrics: true
+    gcsfuse-metadata-prefetch-on-mount: false
+    skip-csi-bucket-access-check: false

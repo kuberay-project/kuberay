@@ -1,0 +1,62 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: {{.Name}}
+  labels:
+    perf-test: ray-data-image-resize
+spec:
+  shutdownAfterJobFinishes: true
+  entrypoint: python ray_data_image_resize.py
+  submitterPodTemplate:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: submitter-job
+          image: {{.Image}}
+          command:
+          - "sh"
+          - "-c"
+          args:
+          - |
+            #!/bin/sh
+
+            ray job logs $RAY_JOB_SUBMISSION_ID --address=http://$RAY_DASHBOARD_ADDRESS --follow || \
+            ray job submit --address=http://$RAY_DASHBOARD_ADDRESS --submission-id=$RAY_JOB_SUBMISSION_ID --runtime-env-json '{"env_vars":{"BUCKET_NAME":"ray-images","BUCKET_PREFIX":"images"}}' -- python ray_data_image_resize.py
+          resources:
+            requests:
+              cpu: "10m"
+  rayClusterSpec:
+    rayVersion: "2.52.0"
+    headGroupSpec:
+      rayStartParams:
+        disable-usage-stats: "true"
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: {{.Image}}
+              ports:
+                - containerPort: 6379
+                  name: gcs-server
+                - containerPort: 8265
+                  name: dashboard
+                - containerPort: 10001
+                  name: client
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "2Gi"
+    workerGroupSpecs:
+      - replicas: 2
+        minReplicas: 1
+        maxReplicas: 5
+        groupName: worker-group
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: {{.Image}}
+                resources:
+                  requests:
+                    cpu: "100m"
+                    memory: "2Gi"

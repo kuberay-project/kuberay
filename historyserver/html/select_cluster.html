@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ray History Server - Select Session</title>
+    <style>
+        /* Custom Reset and Variables */
+        :root {
+            --bg-color: #0e1117;
+            --card-bg: #14161e;
+            --header-bg: #1a1d27;
+            --hover-row-bg: rgba(25, 28, 38, 0.8);
+            --border-color: rgba(30, 41, 59, 0.8);
+            --border-color-light: rgba(30, 41, 59, 0.6);
+            --text-primary: #cbd5e1;
+            --text-white: #ffffff;
+            --text-muted: #94a3b8;
+            --blue-600: #2563eb;
+            --blue-500: #3b82f6;
+            --blue-600-shadow: rgba(37, 99, 235, 0.2);
+            --emerald-500: #10b981;
+            --emerald-600: #059669;
+            --emerald-600-shadow: rgba(5, 150, 105, 0.2);
+            --emerald-badge-bg: rgba(16, 185, 129, 0.1);
+            --emerald-badge-border: rgba(16, 185, 129, 0.2);
+            --amber-badge-bg: rgba(245, 158, 11, 0.1);
+            --amber-badge-text: #fbbf24;
+            --amber-badge-border: rgba(245, 158, 11, 0.2);
+            --indigo-badge-bg: rgba(99, 102, 241, 0.1);
+            --indigo-badge-text: #818cf8;
+            --indigo-badge-border: rgba(99, 102, 241, 0.2);
+            --red-badge-bg: rgba(239, 68, 68, 0.1);
+            --red-badge-text: #f87171;
+            --red-badge-border: rgba(239, 68, 68, 0.2);
+            --slate-800: #1e293b;
+            --slate-700: #334155;
+            --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            margin: 0;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .min-h-screen {
+            min-height: 100vh;
+        }
+
+        .flex {
+            display: flex;
+        }
+
+        .flex-col {
+            flex-direction: column;
+        }
+
+        .flex-1 {
+            flex: 1 1 0%;
+        }
+
+        .max-w-7xl {
+            max-width: 80rem;
+        }
+
+        .w-full {
+            width: 100%;
+        }
+
+        .mx-auto {
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .px-6 {
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
+        }
+
+        .py-10 {
+            padding-top: 2.5rem;
+            padding-bottom: 2.5rem;
+        }
+
+        /* Header and Search Layout */
+        .header-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        @media (min-width: 768px) {
+            .header-wrapper {
+                flex-direction: row;
+                align-items: center;
+                justify-content: space-between;
+            }
+        }
+
+        .title-text {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-white);
+            letter-spacing: -0.025em;
+            margin: 0;
+        }
+
+        .subtitle-text {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.375rem;
+            margin-bottom: 0;
+        }
+
+        /* Search Input */
+        .search-wrapper {
+            position: relative;
+            width: 100%;
+        }
+
+        @media (min-width: 768px) {
+            .search-wrapper {
+                width: 20rem;
+            }
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 0.875rem;
+            top: 0.75rem;
+            height: 1rem;
+            width: 1rem;
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+
+        .search-input {
+            width: 100%;
+            padding-left: 2.5rem;
+            padding-right: 1rem;
+            padding-top: 0.625rem;
+            padding-bottom: 0.625rem;
+            background-color: #16181f;
+            border: 1px solid var(--border-color);
+            font-size: 0.75rem;
+            color: var(--text-white);
+            border-radius: 0.5rem;
+            outline: none;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+            transition: border-color 0.15s ease-in-out;
+        }
+
+        .search-input:focus {
+            border-color: var(--blue-500);
+        }
+
+        /* Alerts */
+        .alert-container {
+            padding: 1rem;
+            font-family: var(--font-mono);
+            font-size: 0.875rem;
+            color: var(--red-badge-text);
+            background-color: var(--red-badge-bg);
+            border: 1px solid var(--red-badge-border);
+            border-radius: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Loading States */
+        .loading-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding-top: 6rem;
+            padding-bottom: 6rem;
+            gap: 1rem;
+        }
+
+        .spinner {
+            animation: spin 1s linear infinite;
+            border-radius: 50%;
+            height: 2.5rem;
+            width: 2.5rem;
+            border: 2px solid var(--blue-500);
+            border-top-color: transparent;
+        }
+
+        .loading-text {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            font-family: var(--font-mono);
+            letter-spacing: 0.05em;
+            margin: 0;
+        }
+
+        /* Table Container styling */
+        .table-container {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+        }
+
+        .overflow-x-auto {
+            overflow-x: auto;
+        }
+
+        table {
+            table-layout: fixed;
+            width: 100%;
+            text-align: left;
+            border-collapse: collapse;
+        }
+
+        thead tr {
+            background-color: var(--header-bg);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        th {
+            padding-top: 1rem;
+            padding-bottom: 1rem;
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
+        }
+
+        .w-23 { width: 23%; }
+        .w-14 { width: 14%; }
+        .w-15 { width: 15%; }
+        .w-16 { width: 16%; }
+        .w-17 { width: 17%; }
+
+        tbody {
+            font-size: 0.75rem;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid var(--border-color-light);
+            transition: background-color 0.15s ease-in-out, opacity 0.15s ease-in-out;
+        }
+
+        .hover-row:hover {
+            background-color: var(--hover-row-bg);
+        }
+
+        .opacity-70 {
+            opacity: 0.7;
+        }
+
+        td {
+            padding-top: 1rem;
+            padding-bottom: 1rem;
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
+        }
+
+        .break-words {
+            overflow-wrap: break-word;
+        }
+
+        /* Flex utilities for dynamic elements */
+        .flex-items-start {
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .gap-1\.5 {
+            gap: 0.375rem;
+        }
+
+        .gap-2\.5 {
+            gap: 0.625rem;
+        }
+
+        .status-dot {
+            width: 0.5rem;
+            height: 0.5rem;
+            border-radius: 50%;
+            flex-shrink: 0;
+            margin-top: 0.375rem;
+        }
+
+        .dot-emerald { background-color: var(--emerald-500); }
+        .dot-blue { background-color: var(--blue-500); }
+
+        /* Badges */
+        .namespace-badge {
+            padding-left: 0.625rem;
+            padding-right: 0.625rem;
+            padding-top: 0.25rem;
+            padding-bottom: 0.25rem;
+            background-color: rgba(30, 41, 59, 0.8);
+            color: #cbd5e1;
+            border: 1px solid rgba(51, 65, 85, 0.6);
+            border-radius: 0.25rem;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            display: inline-block;
+        }
+
+        .badge-emerald {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding-left: 0.625rem;
+            padding-right: 0.625rem;
+            padding-top: 0.25rem;
+            padding-bottom: 0.25rem;
+            background-color: var(--emerald-badge-bg);
+            color: #34d399; /* emerald-400 */
+            border: 1px solid var(--emerald-badge-border);
+            border-radius: 9999px;
+        }
+
+        .badge-amber {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding-left: 0.625rem;
+            padding-right: 0.625rem;
+            padding-top: 0.25rem;
+            padding-bottom: 0.25rem;
+            background-color: var(--amber-badge-bg);
+            color: var(--amber-badge-text);
+            border: 1px solid var(--amber-badge-border);
+            border-radius: 0.25rem;
+        }
+
+        .badge-indigo {
+            display: inline-block;
+            padding-left: 0.375rem;
+            padding-right: 0.375rem;
+            padding-top: 0.125rem;
+            padding-bottom: 0.125rem;
+            background-color: var(--indigo-badge-bg);
+            color: var(--indigo-badge-text);
+            border: 1px solid var(--indigo-badge-border);
+            border-radius: 0.25rem;
+            font-family: var(--font-mono);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            flex-shrink: 0;
+            margin-top: 0.125rem;
+        }
+
+        .small-dot {
+            width: 0.375rem;
+            height: 0.375rem;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .bg-emerald { background-color: var(--emerald-500); }
+        .bg-amber { background-color: #f59e0b; }
+
+        .owner-name {
+            font-weight: 500;
+            color: #cbd5e1;
+        }
+
+        /* Button & Action styling */
+        .text-right { text-align: right; }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.375rem;
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+            color: var(--text-white);
+            font-size: 0.75rem;
+            font-weight: 700;
+            border-radius: 0.5rem;
+            border: none;
+            width: 100%;
+            max-width: 160px;
+            transition: background-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, transform 0.15s ease-in-out;
+        }
+
+        .btn-primary {
+            background-color: var(--blue-600);
+            box-shadow: 0 4px 6px -1px var(--blue-600-shadow), 0 2px 4px -2px var(--blue-600-shadow);
+            cursor: pointer;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--blue-500);
+            transform: translateX(2px);
+        }
+
+        .btn-wait {
+            background-color: var(--emerald-600);
+            cursor: wait;
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            box-shadow: 0 4px 6px -1px var(--emerald-600-shadow), 0 2px 4px -2px var(--emerald-600-shadow);
+        }
+
+        .btn-disabled {
+            background-color: #1e293b;
+            color: #64748b;
+            cursor: not-allowed;
+            border: 1px solid rgba(51, 65, 85, 0.4);
+            box-shadow: none;
+        }
+
+        .mini-spinner {
+            animation: spin 1s linear infinite;
+            border-radius: 50%;
+            height: 0.875rem;
+            width: 0.875rem;
+            border: 2px solid var(--text-white);
+            border-top-color: transparent;
+            flex-shrink: 0;
+        }
+
+        .arrow-icon {
+            width: 0.875rem;
+            height: 0.875rem;
+            flex-shrink: 0;
+        }
+
+        /* Links */
+        .cluster-name-link {
+            font-size: 0.875rem;
+            font-weight: 600;
+            transition: color 0.15s ease-in-out;
+        }
+
+        .clickable-link {
+            cursor: pointer;
+        }
+
+        .clickable-link:hover {
+            color: var(--blue-500);
+            text-decoration: underline;
+        }
+
+        .disabled-link {
+            color: var(--text-muted);
+            cursor: default;
+        }
+
+        /* Empty States */
+        .empty-state {
+            padding-top: 5rem;
+            padding-bottom: 5rem;
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        .empty-state-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+        }
+
+        .empty-state-icon {
+            width: 3rem;
+            height: 3rem;
+            color: #475569;
+        }
+
+        .empty-state-title {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #e2e8f0;
+        }
+
+        .empty-state-subtitle {
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+
+        /* Footer Section */
+        .footer-info {
+            background-color: #11131a;
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
+            padding-top: 0.75rem;
+            padding-bottom: 0.75rem;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+
+        /* Font Helper Utilities */
+        .font-mono { font-family: var(--font-mono); }
+        .text-xs { font-size: 0.75rem; }
+        .font-medium { font-weight: 500; }
+        .text-white { color: var(--text-white); }
+        .text-slate-300 { color: #cbd5e1; }
+        .text-slate-400 { color: #94a3b8; }
+        .text-slate-500 { color: #64748b; }
+        .mt-1\.5 { margin-top: 0.375rem; }
+        .mb-8 { margin-bottom: 2rem; }
+        .items-start { display: flex; align-items: flex-start; }
+        .items-center { display: flex; align-items: center; }
+        .justify-center { justify-content: center; }
+        .whitespace-nowrap { white-space: nowrap; }
+
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        /* Keyframe Animations */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse {
+            50% { opacity: .5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="min-h-screen flex flex-col">
+        <main class="flex-1 max-w-7xl w-full mx-auto px-6 py-10">
+            <!-- Error Alert Container -->
+            <div id="error-container" class="alert-container hidden"></div>
+
+            <!-- Title and Top bar -->
+            <div class="header-wrapper">
+                <div>
+                    <h1 class="title-text">Ray History Server</h1>
+                    <p class="subtitle-text">Select a cluster session to replay and explore its historical Ray dashboard.</p>
+                </div>
+                <!-- Search Box -->
+                <div class="search-wrapper">
+                    <svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <input
+                        id="search-input"
+                        type="text"
+                        placeholder="Filter clusters or sessions..."
+                        class="search-input"
+                    />
+                </div>
+            </div>
+
+            <!-- Loading Spinner -->
+            <div id="loading-container" class="loading-wrapper">
+                <div class="spinner"></div>
+                <p class="loading-text">Scanning historical Ray sessions...</p>
+            </div>
+
+            <!-- Table Container -->
+            <div id="table-container" class="table-container hidden">
+                <div class="overflow-x-auto">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th class="w-23">Cluster Name</th>
+                                <th class="w-14">Namespace</th>
+                                <th class="w-15">Session Status</th>
+                                <th class="w-15">Owner</th>
+                                <th class="w-16">Created At</th>
+                                <th class="w-17 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clusters-tbody">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+                <!-- Footer Info -->
+                <div class="footer-info">
+                    <span id="showing-text">Showing 0 of 0 available sessions</span>
+                    <span>KubeRay Cluster Selector API</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        (function() {
+            let clusters = [];
+            let entering = null;
+
+            const errorContainer = document.getElementById('error-container');
+            const searchInput = document.getElementById('search-input');
+            const loadingContainer = document.getElementById('loading-container');
+            const tableContainer = document.getElementById('table-container');
+            const tbody = document.getElementById('clusters-tbody');
+            const showingText = document.getElementById('showing-text');
+
+            function showError(message) {
+                if (message) {
+                    errorContainer.textContent = message;
+                    errorContainer.classList.remove('hidden');
+                } else {
+                    errorContainer.classList.add('hidden');
+                }
+            }
+
+            function fetchClusters() {
+                showError(null);
+                loadingContainer.classList.remove('hidden');
+                tableContainer.classList.add('hidden');
+
+                fetch('/clusters')
+                    .then(res => {
+                        if (!res.ok) {
+                            throw new Error(`${res.status}: ${res.statusText || 'Error'}`);
+                        }
+                        return res.json();
+                    })
+                    .then(data => {
+                        clusters = data || [];
+                        renderTable();
+                        loadingContainer.classList.add('hidden');
+                        tableContainer.classList.remove('hidden');
+                    })
+                    .catch(err => {
+                        showError(err.message || "500: Internal Server Error");
+                        loadingContainer.classList.add('hidden');
+                    });
+            }
+
+            function enterCluster(namespace, name, session) {
+                if (entering) return; // In-flight lock
+                entering = `${namespace}/${name}/${session}`;
+                showError(null);
+                renderTable();
+
+                fetch(`/enter_cluster/${namespace}/raycluster/${name}/${session}`)
+                    .then(res => {
+                        if (!res.ok) {
+                            return res.text().then(body => {
+                                throw new Error(body.trim() || `${res.status}: ${res.statusText || 'Error'}`);
+                            });
+                        }
+                        return res.json();
+                    })
+                    .then(data => {
+                        if (data.result === 'success') {
+                            window.location.href = '/#/overview';
+                        } else {
+                            showError(data.message || "500: Error entering cluster session");
+                            entering = null;
+                            renderTable();
+                        }
+                    })
+                    .catch(err => {
+                        showError(err.message || "500: Communication Error");
+                        entering = null;
+                        renderTable();
+                    });
+            }
+
+            function renderTable() {
+                const query = searchInput.value.toLowerCase();
+                const filtered = clusters.filter(c => {
+                    return (c.name || '').toLowerCase().includes(query) ||
+                           (c.namespace || '').toLowerCase().includes(query) ||
+                           (c.sessionName || '').toLowerCase().includes(query) ||
+                           (c.ownerName || '').toLowerCase().includes(query);
+                });
+
+                tbody.replaceChildren();
+
+                if (filtered.length === 0) {
+                    const tr = document.createElement('tr');
+                    const td = document.createElement('td');
+                    td.setAttribute('colspan', '6');
+                    td.className = 'empty-state';
+
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'empty-state-wrapper';
+
+                    const svgString = '<svg class="empty-state-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>';
+                    const parser = new DOMParser();
+                    const svgDoc = parser.parseFromString(svgString, 'image/svg+xml');
+                    wrapper.appendChild(svgDoc.documentElement);
+
+                    const titleSpan = document.createElement('span');
+                    titleSpan.className = 'empty-state-title';
+                    titleSpan.textContent = 'No cluster sessions found';
+                    wrapper.appendChild(titleSpan);
+
+                    const subtitleSpan = document.createElement('span');
+                    subtitleSpan.className = 'empty-state-subtitle';
+                    subtitleSpan.textContent = `We couldn't find any session matching your query "${searchInput.value}".`;
+                    wrapper.appendChild(subtitleSpan);
+
+                    td.appendChild(wrapper);
+                    tr.appendChild(td);
+                    tbody.appendChild(tr);
+                } else {
+                    filtered.forEach(c => {
+                        const isLive = c.sessionName === 'live';
+                        const clusterId = `${c.namespace}/${c.name}/${c.sessionName}`;
+                        const isThisEntering = entering === clusterId;
+                        const isAnyEntering = Boolean(entering);
+
+                        const tr = document.createElement('tr');
+                        tr.className = isAnyEntering ? 'opacity-70' : 'hover-row';
+
+                        // Cluster Name
+                        const tdName = document.createElement('td');
+                        tdName.className = 'px-6 font-medium text-white break-words';
+                        const nameWrapper = document.createElement('div');
+                        nameWrapper.className = 'items-start gap-2.5';
+                        const dot = document.createElement('div');
+                        dot.className = `status-dot ${isLive ? 'dot-emerald animate-pulse' : 'dot-blue'}`;
+                        nameWrapper.appendChild(dot);
+                        const nameSpan = document.createElement('span');
+                        nameSpan.className = `cluster-name-link ${isAnyEntering ? 'disabled-link' : 'clickable-link'}`;
+                        nameSpan.textContent = c.name;
+                        if (!isAnyEntering) {
+                            nameSpan.onclick = () => enterCluster(c.namespace, c.name, c.sessionName);
+                        }
+                        nameWrapper.appendChild(nameSpan);
+                        tdName.appendChild(nameWrapper);
+                        tr.appendChild(tdName);
+
+                        // Namespace
+                        const tdNamespace = document.createElement('td');
+                        tdNamespace.className = 'px-6 font-mono text-xs break-words';
+                        const nsSpan = document.createElement('span');
+                        nsSpan.className = 'namespace-badge';
+                        nsSpan.textContent = c.namespace;
+                        tdNamespace.appendChild(nsSpan);
+                        tr.appendChild(tdNamespace);
+
+                        // Session Status
+                        const tdStatus = document.createElement('td');
+                        tdStatus.className = 'px-6 font-mono text-xs break-words';
+                        const statusBadge = document.createElement('span');
+                        statusBadge.className = isLive ? 'badge-emerald font-mono' : 'badge-amber font-mono';
+
+                        const smallDot = document.createElement('span');
+                        smallDot.className = isLive ? 'small-dot bg-emerald' : 'small-dot bg-amber';
+                        statusBadge.appendChild(smallDot);
+
+                        const textSpan = document.createElement('span');
+                        textSpan.textContent = isLive ? 'Live' : (c.sessionName || 'Replay');
+                        statusBadge.appendChild(textSpan);
+
+                        tdStatus.appendChild(statusBadge);
+                        tr.appendChild(tdStatus);
+
+                        // Owner
+                        const tdOwner = document.createElement('td');
+                        tdOwner.className = 'px-6 text-xs text-slate-300 break-words';
+                        if (c.ownerKind || c.ownerName) {
+                            const ownerWrapper = document.createElement('div');
+                            ownerWrapper.className = 'items-start gap-1.5 break-words';
+                            if (c.ownerKind) {
+                                const kindBadge = document.createElement('span');
+                                kindBadge.className = 'badge-indigo';
+                                kindBadge.textContent = c.ownerKind;
+                                ownerWrapper.appendChild(kindBadge);
+                            }
+                            const ownerNameSpan = document.createElement('span');
+                            ownerNameSpan.className = 'owner-name';
+                            ownerNameSpan.textContent = c.ownerName || '—';
+                            ownerWrapper.appendChild(ownerNameSpan);
+                            tdOwner.appendChild(ownerWrapper);
+                        } else {
+                            const dashSpan = document.createElement('span');
+                            dashSpan.className = 'text-slate-500';
+                            dashSpan.textContent = '—';
+                            tdOwner.appendChild(dashSpan);
+                        }
+                        tr.appendChild(tdOwner);
+
+                        // Created At
+                        const tdCreated = document.createElement('td');
+                        tdCreated.className = 'px-6 text-xs text-slate-400 font-mono break-words';
+                        tdCreated.textContent = c.createTime || '—';
+                        tr.appendChild(tdCreated);
+
+                        // Action
+                        const tdAction = document.createElement('td');
+                        tdAction.className = 'px-6 text-right';
+                        const btn = document.createElement('button');
+                        btn.disabled = isAnyEntering;
+
+                        if (isThisEntering) {
+                            btn.className = 'btn btn-wait';
+                            const wrapper = document.createElement('div');
+                            wrapper.className = 'flex items-center gap-1.5 justify-center w-full';
+
+                            const spinner = document.createElement('div');
+                            spinner.className = 'mini-spinner';
+                            wrapper.appendChild(spinner);
+
+                            const textSpan = document.createElement('span');
+                            textSpan.className = 'whitespace-nowrap';
+                            textSpan.textContent = 'Opening...';
+                            wrapper.appendChild(textSpan);
+
+                            btn.appendChild(wrapper);
+                        } else {
+                            btn.className = isAnyEntering ? 'btn btn-disabled' : 'btn btn-primary';
+                            const wrapper = document.createElement('div');
+                            wrapper.className = 'flex items-center gap-1.5 justify-center w-full';
+
+                            const textSpan = document.createElement('span');
+                            textSpan.className = 'whitespace-nowrap';
+                            textSpan.textContent = 'Open Dashboard';
+                            wrapper.appendChild(textSpan);
+
+                            const parser = new DOMParser();
+                            const svgDoc = parser.parseFromString('<svg class="arrow-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>', 'image/svg+xml');
+                            wrapper.appendChild(svgDoc.documentElement);
+
+                            btn.appendChild(wrapper);
+                            if (!isAnyEntering) {
+                                btn.onclick = () => enterCluster(c.namespace, c.name, c.sessionName);
+                            }
+                        }
+                        tdAction.appendChild(btn);
+                        tr.appendChild(tdAction);
+
+                        tbody.appendChild(tr);
+                    });
+                }
+
+                showingText.textContent = `Showing ${filtered.length} of ${clusters.length} available sessions`;
+            }
+
+            searchInput.oninput = () => renderTable();
+
+            window.addEventListener('pageshow', (event) => {
+                if (event.persisted || entering !== null) {
+                    entering = null;
+                    renderTable();
+                }
+            });
+
+            // Initial fetch
+            fetchClusters();
+        })();
+    </script>
+</body>
+</html>

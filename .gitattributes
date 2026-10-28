@@ -1,0 +1,5 @@
+**/go.sum linguist-generated=true
+**/zz_generated.deepcopy.go linguist-generated=true
+**/ray.io_rayclusters.yaml linguist-generated=true
+**/ray.io_rayjobs.yaml linguist-generated=true
+**/ray.io_rayservices.yaml linguist-generated=true

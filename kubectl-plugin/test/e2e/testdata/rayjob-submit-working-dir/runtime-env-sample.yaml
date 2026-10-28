@@ -1,0 +1,7 @@
+pip:
+  - emoji==2.14.0
+  - pyjokes==0.6.0
+env_vars:
+  test_env_var: "first_env_var"
+  another_env_var: "second_env_var"
+working_dir: ./testdata/rayjob-submit-working-dir/

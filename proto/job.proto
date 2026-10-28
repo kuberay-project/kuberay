@@ -1,0 +1,185 @@
+syntax = "proto3";
+
+option go_package = "github.com/ray-project/kuberay/proto/go_client";
+package proto;
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+import "cluster.proto";
+
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  schemes: HTTP;
+  responses: {
+    key: "default";
+    value: {
+      schema: {
+        json_schema: {
+          ref: ".api.Status";
+        }
+      }
+    }
+  }
+};
+
+service RayJobService {
+  // Creates a new job.
+  rpc CreateRayJob(CreateRayJobRequest) returns (RayJob) {
+    option (google.api.http) = {
+      post: "/apis/v1/namespaces/{namespace}/jobs"
+      body: "job"
+    };
+  }
+
+  // Finds a specific job by its name and namespace.
+  rpc GetRayJob(GetRayJobRequest) returns (RayJob) {
+    option (google.api.http) = {
+      get: "/apis/v1/namespaces/{namespace}/jobs/{name}"
+    };
+  }
+
+  // Finds all job in a given namespace. Supports pagination, and sorting on certain fields.
+  rpc ListRayJobs(ListRayJobsRequest) returns (ListRayJobsResponse) {
+    option (google.api.http) = {
+      get: "/apis/v1/namespaces/{namespace}/jobs"
+    };
+  }
+
+  // Finds all job in all namespaces. Supports pagination, and sorting on certain fields.
+  rpc ListAllRayJobs(ListAllRayJobsRequest) returns (ListAllRayJobsResponse) {
+    option (google.api.http) = {
+      get: "/apis/v1/jobs"
+    };
+  }
+
+  // Deletes a job by its name and namespace.
+  rpc DeleteRayJob(DeleteRayJobRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/apis/v1/namespaces/{namespace}/jobs/{name}"
+    };
+  }
+}
+
+message CreateRayJobRequest {
+  // Required. The job to be created.
+  RayJob job = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The namespace of the job to be created
+  string namespace = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message GetRayJobRequest {
+  // Required. The name of the job to be retrieved.
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The namespace of the job to be retrieved.
+  string namespace = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message ListRayJobsRequest {
+  // Required. The namespace of the job to be retrieved.
+  string namespace = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // A continue token to request the next page of results. The token is acquired
+  // from the previous ListRayJobs call or can be omitted when fetching the first page.
+  string continue = 2;
+  // The maximum number of jobs to return for the requested page.
+  // For backward compatibility, the default value is 0 which returns all jobs without pagination.
+  int64 limit = 3;
+}
+
+message ListRayJobsResponse {
+  repeated RayJob jobs = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // The continue token for the next page of jobs. If it is empty, it means this is the last page.
+  string continue = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message ListAllRayJobsRequest {
+  // A continue token to request the next page of results. The token is acquired
+  // from the previous ListAllRayJobs call or can be omitted when fetching the first page.
+  string continue = 1;
+  // The maximum number of jobs to return for the requested page.
+  // For backward compatibility, the default value is 0 which returns all jobs without pagination.
+  int64 limit = 2;
+}
+
+message ListAllRayJobsResponse {
+  repeated RayJob jobs = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // The continue token for the next page of jobs. If it is empty, it means this is the last page.
+  string continue = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message DeleteRayJobRequest {
+  // Required. The name of the job to be deleted.
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The namespace of the job to be deleted.
+  string namespace = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message RayJobSubmitter{
+  // Required base image for job submitter. Make sure that Python/Ray version
+  // of the image corresponds to the one used in the cluster
+  string image = 1 [(google.api.field_behavior) = REQUIRED];
+  // Optional number of CPUs for submitter - default "1"
+  string cpu = 2;
+  // Optional memory for the submitter - default "1Gi"
+  string memory = 3;
+}
+
+// RayJob definition
+message RayJob {
+  // Required input field. Unique job name provided by user.
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required input field. job namespace provided by user
+  string namespace = 2 [(google.api.field_behavior) = REQUIRED];
+  // Required field. This field indicates the user who owns the job.
+  string user = 3 [(google.api.field_behavior) = REQUIRED];
+  // Required field. This field indicates Ray version. Should be the same as image version
+  string version = 21 [(google.api.field_behavior) = REQUIRED];
+  // Required field. The entrypoint of the RayJob
+  string entrypoint = 4 [(google.api.field_behavior) = REQUIRED];
+  // Optional. Metadata is data to store along with this job.
+  map<string, string> metadata = 5;
+  // Optional. RuntimeEnv is a Yaml string which maps to the RuntimeEnvYAML field of the RayJobSpec
+  string runtime_env = 6;
+  // Optional. If jobId is not set, a new jobId will be auto-generated.
+  string job_id = 7;
+  // Optional. If set to true, the rayCluster will be deleted after the rayJob finishes. Defaults to false.
+  bool shutdown_after_job_finishes = 8;
+  // Optional. The label selectors to choose exiting clusters. If not specified, cluster_spec must be set.
+  map<string, string> cluster_selector = 9;
+  // Optional. The cluster template, required if the cluster_selector is not specified.
+  ClusterSpec cluster_spec = 10;
+  // Optional. TTLSecondsAfterFinished is the TTL to clean up RayCluster.
+  int32 ttl_seconds_after_finished = 11;
+  // Optional Ray Job submitter
+  RayJobSubmitter jobSubmitter = 17;
+  // Optional entrypointNumCpus specifies the number of cpus to reserve for the entrypoint command.
+  float entrypointNumCpus = 18;
+  // Optional entrypointNumGpus specifies the number of gpus to reserve for the entrypoint command.
+  float entrypointNumGpus = 19;
+  // Optional entrypointResources specifies the custom resources and quantities to reserve
+  // for the entrypoint command.
+  string entrypointResources = 20;
+  // Optional activeDeadlineSeconds is the duration in seconds that the RayJob may be active before
+  // KubeRay actively tries to terminate the RayJob; value must be positive integer.
+  // If not set, the job may run indefinitely until it completes, fails, or is manually stopped.
+  int32 activeDeadlineSeconds = 25;
+  // Output. The time that the job created.
+  google.protobuf.Timestamp created_at = 12 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output. The time that the job deleted.
+  google.protobuf.Timestamp delete_at = 13 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output. The current job status
+  string job_status = 14 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output. The current job deployment status
+  string job_deployment_status = 15 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output. A human-readable description of the status of this operation.
+  string message = 16 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output. The time when JobDeploymentStatus transitioned from 'New' to 'Initializing'.
+  google.protobuf.Timestamp start_time = 22 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output. When JobDeploymentStatus transitioned to 'Complete' status.
+  google.protobuf.Timestamp end_time = 23 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output. Name of the ray cluster.
+  string ray_cluster_name = 24 [(google.api.field_behavior) = OUTPUT_ONLY];
+}

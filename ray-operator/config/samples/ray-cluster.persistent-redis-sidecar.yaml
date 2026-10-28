@@ -1,0 +1,121 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-redis-sidecar
+spec:
+  rayVersion: '2.52.0'
+  gcsFaultToleranceOptions:
+    redisAddress: "127.0.0.1:6380"
+  headGroupSpec:
+    rayStartParams:
+      num-cpus: "0"
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+            requests:
+              cpu: "4"
+              memory: "8Gi"
+          ports:
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          volumeMounts:
+          - mountPath: /tmp/ray
+            name: ray-logs
+        - name: redis
+          image: redis:7.4.0
+          command:
+          - "sh"
+          - "-c"
+          - "redis-server /usr/local/etc/redis/redis.conf"
+          ports:
+          - containerPort: 6380
+            name: redis
+          volumeMounts:
+          - name: config
+            mountPath: /usr/local/etc/redis/redis.conf
+            subPath: redis.conf
+          - name: redis-data
+            mountPath: /data
+        volumes:
+        - name: ray-logs
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: redis-config
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-data
+  workerGroupSpecs:
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 10
+    groupName: small-group
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          volumeMounts:
+          - mountPath: /tmp/ray
+            name: ray-logs
+          resources:
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+            requests:
+              cpu: "4"
+              memory: "8Gi"
+        volumes:
+        - name: ray-logs
+          emptyDir: {}
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: redis-config
+  labels:
+    app: redis
+data:
+  redis.conf: |-
+    dir /data
+    port 6380
+    bind 127.0.0.1
+    protected-mode no
+    pidfile /data/redis-6380.pid
+    # Dump a backup every 60s, if there are 1000 writes since the prev. backup.
+    save 60 1000
+    dbfilename dump.rdb
+    # Enable the append-only log file.
+    appendonly yes
+    # Sync the log to disk every second.
+    # Alternatives are "no" and "always" (every write).
+    appendfsync everysec
+    # These are the default values, change if desired.
+    appendfilename "appendonly.aof"
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+---
+# This volume claim will use the default storage class for your cluster/provider.
+# On GCP, this is a persistent disk, which is more performant than GCS FUSE
+# (which does not support append operations).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+spec:
+  # choose a storageClassName provided by your Kubernetes:
+  # storageClassName: standard-rwo
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: "8Gi"

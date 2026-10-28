@@ -1,0 +1,63 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: ray-cluster-with-auth
+spec:
+  headGroupSpec:
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          env:
+          - name: RAY_AUTH_MODE
+            value: token
+          # You can create the secret manually with the following command:
+          # kubectl create secret generic ray-cluster-with-auth --from-literal=auth_token='raycluster_secret' -n default
+          # And then use the following valueFrom to reference the secret:
+          - name: RAY_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                key: auth_token
+                name: ray-cluster-with-auth # change this to match your Secret name
+          resources:
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+            requests:
+              cpu: "4"
+              memory: "8Gi"
+          ports:
+          - containerPort: 6379
+            name: gcs-server
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+  workerGroupSpecs:
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 5
+    groupName: workergroup
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          env:
+          - name: RAY_AUTH_MODE
+            value: token
+          - name: RAY_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                key: auth_token
+                name: ray-cluster-with-auth # change this to match your Secret name
+          resources:
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+            requests:
+              cpu: "4"
+              memory: "8Gi"

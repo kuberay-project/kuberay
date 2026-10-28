@@ -1,0 +1,214 @@
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: rayservice-ha
+spec:
+  serveConfigV2: |
+    applications:
+      - name: fruit_app
+        import_path: fruit.deployment_graph
+        route_prefix: /fruit
+        runtime_env:
+          working_dir: "https://github.com/ray-project/test_dag/archive/4d2c9a59d9eabfd4c8a9e04a7aae44fc8f5b416f.zip"
+        deployments:
+          - name: MangoStand
+            num_replicas: 2
+            max_replicas_per_node: 1
+            user_config:
+              price: 3
+            ray_actor_options:
+              num_cpus: 0.1
+          - name: OrangeStand
+            num_replicas: 2
+            max_replicas_per_node: 1
+            user_config:
+              price: 2
+            ray_actor_options:
+              num_cpus: 0.1
+          - name: PearStand
+            num_replicas: 2
+            max_replicas_per_node: 1
+            user_config:
+              price: 1
+            ray_actor_options:
+              num_cpus: 0.1
+          - name: FruitMarket
+            num_replicas: 2
+            max_replicas_per_node: 1
+            ray_actor_options:
+              num_cpus: 0.1
+  rayClusterConfig:
+    rayVersion: "2.52.0" # should match the Ray version in the image of the containers
+    ######################headGroupSpecs#################################
+    # Ray head pod template.
+    gcsFaultToleranceOptions:
+      # In most cases, you don't need to set `externalStorageNamespace` because KubeRay will
+      # automatically set it to the UID of RayCluster. Only modify this annotation if you fully understand
+      # the behaviors of the Ray GCS FT and RayService to avoid misconfiguration.
+      # [Example]:
+      # externalStorageNamespace: "my-raycluster-storage"
+      redisAddress: "redis:6379"
+      redisPassword:
+        valueFrom:
+          secretKeyRef:
+            name: redis-password-secret
+            key: password
+    headGroupSpec:
+      rayStartParams:
+        num-cpus: "0"
+      #pod template
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.52.0
+            resources:
+              limits:
+                cpu: "1"
+                memory: "5Gi"
+              requests:
+                cpu: "1"
+                memory: "2Gi"
+    workerGroupSpecs:
+    # the pod replicas in this group typed worker
+    - replicas: 2
+      minReplicas: 1
+      maxReplicas: 5
+      # logical group name, for this called small-group, also can be functional
+      groupName: worker
+      # The `rayStartParams` are used to configure the `ray start` command.
+      # See https://github.com/ray-project/kuberay/blob/master/docs/guidance/rayStartParams.md for the default settings of `rayStartParams` in KubeRay.
+      # See https://docs.ray.io/en/latest/cluster/cli.html#ray-start for all available options in `rayStartParams`.
+      rayStartParams: {}
+      #pod template
+      template:
+        spec:
+          containers:
+          - name: ray-worker # must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character (e.g. 'my-name',  or '123-abc'
+            image: rayproject/ray:2.52.0
+            resources:
+              limits:
+                cpu: "1"
+                memory: "2Gi"
+              requests:
+                cpu: "1"
+                memory: "2Gi"
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: query-config
+data:
+  query.py: |-
+    import requests
+
+    url = "http://rayservice-ha-serve-svc:8000/fruit/"
+    data = '["PEAR", 12]'
+
+    req_index = 0
+    num_fail = 0
+
+    while True:
+        print(f"req_index : {req_index}, num_fail: {num_fail}")
+        try:
+            response = requests.post(url, data=data)
+            print(f"response: {response.text}")
+        except Exception as e:
+            print(e)
+            num_fail += 1
+        req_index += 1
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ray-pod
+spec:
+  containers:
+  - name: ray-container
+    image: rayproject/ray:2.52.0
+    command: ["/bin/bash", "-c", "--"]
+    args: ["while true; do sleep 30; done;"]
+    volumeMounts:
+    - mountPath: /home/ray/samples
+      name: query-configmap
+  volumes:
+  - name: query-configmap
+    configMap:
+      name: query-config
+      items:
+      - key: query.py
+        path: query.py
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: redis-config
+  labels:
+    app: redis
+data:
+  redis.conf: |-
+    dir /data
+    port 6379
+    bind 0.0.0.0
+    appendonly yes
+    protected-mode no
+    requirepass 5241590000000000
+    pidfile /data/redis-6379.pid
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+  - name: redis
+    port: 6379
+  selector:
+    app: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7.4.0
+        command:
+        - "sh"
+        - "-c"
+        - "redis-server /usr/local/etc/redis/redis.conf"
+        ports:
+        - containerPort: 6379
+        volumeMounts:
+        - name: config
+          mountPath: /usr/local/etc/redis/redis.conf
+          subPath: redis.conf
+      volumes:
+      - name: config
+        configMap:
+          name: redis-config
+---
+# Redis password
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-password-secret
+type: Opaque
+data:
+  # echo -n "5241590000000000" | base64
+  password: NTI0MTU5MDAwMDAwMDAwMA==

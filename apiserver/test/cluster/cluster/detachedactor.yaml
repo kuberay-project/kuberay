@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-example
+data:
+  detached_actor.py: |
+    import ray
+    import sys
+
+    @ray.remote(num_cpus=1)
+    class Actor:
+      pass
+
+    ray.init(namespace="default_namespace")
+    Actor.options(name=sys.argv[1], lifetime="detached").remote()
+
+  terminate_detached_actor.py: |
+    import ray
+    import sys
+
+    ray.init(namespace="default_namespace")
+    detached_actor = ray.get_actor(sys.argv[1])
+    ray.kill(detached_actor)

@@ -1,0 +1,58 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob-interactive-mode
+spec:
+  # InteractiveMode means KubeRay doesn't submit the job for you.
+  # KubeRay will create the RayJob and transition it to the Waiting state.
+  # The user needs to submit the job manually via the `ray job submit` command
+  # and then update the `spec.jobId` field with the job ID.
+  # After that, KubeRay will handle the rest of the lifecycle for the RayJob.
+  submissionMode: InteractiveMode
+
+  # preRunningDeadlineSeconds is the number of seconds before this InteractiveMode RayJob must reach Running.
+  # In InteractiveMode, RayJob can stay in Waiting while you manually submit the job and set `spec.jobId`.
+  # If this deadline is exceeded before Running, the RayJob is marked as Failed.
+  # preRunningDeadlineSeconds: 300
+
+  # User needs to update this field with the job ID after submitting the job
+  jobId: ""
+  rayClusterSpec:
+    headGroupSpec:
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - image: rayproject/ray:2.52.0
+            name: ray-head
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            resources:
+              limits:
+                cpu: "1"
+                memory: "5Gi"
+              requests:
+                cpu: "1"
+                memory: "2Gi"
+    rayVersion: 2.52.0
+    workerGroupSpecs:
+    - groupName: default-group
+      replicas: 1
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - image: rayproject/ray:2.52.0
+            name: ray-worker
+            resources:
+              limits:
+                cpu: "1"
+                memory: "1Gi"
+              requests:
+                cpu: "1"
+                memory: "1Gi"

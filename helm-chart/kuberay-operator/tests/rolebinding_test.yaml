@@ -1,0 +1,51 @@
+suite: Test ClusterRoleBinding
+
+templates:
+  - rolebinding.yaml
+
+release:
+  name: kuberay-operator
+  namespace: kuberay-system
+
+tests:
+  - it: Should not create ClusterRoleBinding if `rbacEnable` is `false`
+    set:
+      rbacEnable: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should not create ClusterRoleBinding if `singleNamespaceInstall` is `true`
+    set:
+      singleNamespaceInstall: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should create ClusterRoleBinding if `rbacEnable` is `true` and `singleNamespaceInstall` is `false`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+    asserts:
+      - containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          name: kuberay-operator
+
+  - it: Should bind ClusterRole to ServiceAccount
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+    asserts:
+      - equal:
+          path: roleRef
+          value:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: kuberay-operator
+      - contains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: kuberay-operator
+            namespace: kuberay-system

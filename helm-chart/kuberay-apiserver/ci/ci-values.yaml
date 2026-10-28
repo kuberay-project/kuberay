@@ -1,0 +1,8 @@
+image:
+  repository: kuberay/apiserver
+  tag: local
+  pullPolicy: Never
+
+security:
+  env:
+    SECURITY_TOKEN: "12345"

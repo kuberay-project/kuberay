@@ -1,0 +1,61 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-resource-isolation
+spec:
+  rayVersion: "2.52.0"
+  headGroupSpec:
+    rayStartParams:
+      enable-resource-isolation: "true" # Set --enable-resource-isolation flag in `ray start`
+      system-reserved-cpu: "2.0"
+      system-reserved-memory: "4000000000" # 4GB
+    template:
+      metadata:
+        annotations:
+          node.gke.io/enable-writable-cgroups.ray-head: "true"
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+            requests:
+              cpu: "4"
+              memory: "8Gi"
+          ports:
+          - containerPort: 6379
+            name: gcs-server
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+        nodeSelector:
+          node.gke.io/enable-writable-cgroups: "true"
+  workerGroupSpecs:
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 5
+    groupName: workergroup
+    rayStartParams:
+      enable-resource-isolation: "true" # Set --enable-resource-isolation flag in `ray start`
+      system-reserved-cpu: "1.0"
+      system-reserved-memory: "2000000000" # 2GB
+    template:
+      metadata:
+        annotations:
+          node.gke.io/enable-writable-cgroups.ray-worker: "true"
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "2"
+              memory: "8Gi"
+            requests:
+              cpu: "2"
+              memory: "8Gi"
+        nodeSelector:
+          node.gke.io/enable-writable-cgroups: "true"

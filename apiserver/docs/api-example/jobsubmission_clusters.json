@@ -1,0 +1,35 @@
+{
+  "name": "test-cluster",
+  "namespace": "default",
+  "user": "kuberay",
+  "clusterSpec": {
+    "headGroupSpec": {
+      "computeTemplate": "default-template",
+      "image": "rayproject/ray:2.46.0-py310",
+      "rayStartParams": {
+        "dashboard-host": "0.0.0.0"
+      },
+      "volumes": [
+        {
+          "name": "code-sample",
+          "mountPath": "/home/ray/samples",
+          "volumeType": "CONFIGMAP",
+          "source": "ray-job-code-sample",
+          "items": {
+            "sample_code.py": "sample_code.py"
+          }
+        }
+      ]
+    },
+    "workerGroupSpec": [
+      {
+        "groupName": "small-wg",
+        "computeTemplate": "default-template",
+        "image": "rayproject/ray:2.46.0-py310",
+        "replicas": 1,
+        "minReplicas": 1,
+        "maxReplicas": 1
+      }
+    ]
+  }
+}

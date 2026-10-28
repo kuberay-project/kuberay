@@ -1,0 +1,75 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  generateName: rayjob-sample-
+spec:
+  # submissionMode specifies how RayJob submits the Ray job to the RayCluster.
+  # The default value is "K8sJobMode", meaning RayJob will submit the Ray job via a submitter Kubernetes Job.
+  # The alternative value is "HTTPMode", indicating that KubeRay will submit the Ray job by sending an HTTP request to the RayCluster.
+  # submissionMode: "K8sJobMode"
+  entrypoint: |
+    python -c "
+    import time
+    import ray
+    ray.init()
+    for i in range(600):
+        print(f'iter: {i}, ray.cluster_resources(): {ray.cluster_resources()}')
+        time.sleep(1)
+    "
+  # shutdownAfterJobFinishes specifies whether the RayCluster should be deleted after the RayJob finishes. Default is false.
+  shutdownAfterJobFinishes: true
+
+  # ttlSecondsAfterFinished specifies the number of seconds after which the RayCluster will be deleted after the RayJob finishes.
+  ttlSecondsAfterFinished: 10
+
+  # activeDeadlineSeconds is the duration in seconds that the RayJob may be active before
+  # KubeRay actively tries to terminate the RayJob; value must be positive integer.
+  # activeDeadlineSeconds: 120
+
+  # Suspend specifies whether the RayJob controller should create a RayCluster instance.
+  # If a job is applied with the suspend field set to true, the RayCluster will not be created and we will wait for the transition to false.
+  # If the RayCluster is already created, it will be deleted. In the case of transition to false, a new RayCluster will be created.
+  # suspend: false
+
+  # rayClusterSpec specifies the RayCluster instance to be created by the RayJob controller.
+  rayClusterSpec:
+    rayVersion: "2.52.0"
+    headGroupSpec:
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.52.0
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            resources:
+              limits:
+                cpu: "1"
+                memory: "5Gi"
+              requests:
+                cpu: "1"
+                memory: "2Gi"
+    workerGroupSpecs:
+    - replicas: 1
+      minReplicas: 1
+      maxReplicas: 5
+      groupName: small-group
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.52.0
+            resources:
+              limits:
+                cpu: "1"
+                memory: "1Gi"
+              requests:
+                cpu: "1"
+                memory: "1Gi"

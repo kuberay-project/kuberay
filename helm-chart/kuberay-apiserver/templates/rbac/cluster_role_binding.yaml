@@ -1,0 +1,35 @@
+{{- if .Values.rbacEnable }}
+{{- if not .Values.singleNamespaceInstall }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kuberay-apiserver.fullname" . }}
+  labels:
+    {{- include "kuberay-apiserver.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.serviceAccount.name  }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if .Values.enableAPIServerV2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kuberay-apiserver.fullname" . }}-service-access
+  labels:
+    {{- include "kuberay-apiserver.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.name }}-service-access
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccount.name  }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

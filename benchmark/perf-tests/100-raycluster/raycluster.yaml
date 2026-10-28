@@ -1,0 +1,56 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: {{.Name}}
+  labels:
+    perf-test: ray-cluster
+spec:
+  rayVersion: "2.52.0"
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: "0.0.0.0"
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          ports:
+          - containerPort: 6379
+            name: gcs
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          volumeMounts:
+            - mountPath: /tmp/ray
+              name: ray-logs
+          resources:
+            limits:
+              cpu: "1"
+            requests:
+              cpu: "100m"
+        volumes:
+          - name: ray-logs
+            emptyDir: {}
+  workerGroupSpecs:
+  - replicas: {{.Replicas}}
+    minReplicas: 1
+    maxReplicas: 10
+    # logical group name, for this called small-group, also can be functional
+    groupName: small-group
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          volumeMounts:
+            - mountPath: /tmp/ray
+              name: ray-logs
+          resources:
+            limits:
+              cpu: "1"
+            requests:
+              cpu: "100m"
+        volumes:
+          - name: ray-logs
+            emptyDir: {}

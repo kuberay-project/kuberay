@@ -1,0 +1,244 @@
+syntax = "proto3";
+
+option go_package = "github.com/ray-project/kuberay/proto/go_client";
+package proto;
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+import "cluster.proto";
+
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  schemes: HTTP;
+  responses: {
+    key: "default";
+    value: {
+      schema: {
+        json_schema: {
+          ref: ".api.Status";
+        }
+      }
+    }
+  }
+};
+
+service RayServeService {
+  // Create a new ray serve.
+  rpc CreateRayService(CreateRayServiceRequest) returns (RayService) {
+    option (google.api.http) = {
+      post: "/apis/v1/namespaces/{namespace}/services"
+      body: "service"
+    };
+  }
+
+  // Update a ray serve.
+  // We may
+  rpc UpdateRayService(UpdateRayServiceRequest) returns (RayService) {
+    option (google.api.http) = {
+      put: "/apis/v1/namespaces/{namespace}/services/{name}"
+      body: "service"
+    };
+  }
+
+  // Find a specific ray serve by name and namespace.
+  rpc GetRayService(GetRayServiceRequest) returns (RayService) {
+    option (google.api.http) = {
+      get: "/apis/v1/namespaces/{namespace}/services/{name}"
+    };
+  }
+  // Finds all ray services in a given namespace. Supports pagination, and sorting on certain fields.
+  rpc ListRayServices(ListRayServicesRequest) returns (ListRayServicesResponse) {
+    option (google.api.http) = {
+      get: "/apis/v1/namespaces/{namespace}/services"
+    };
+  }
+
+  // Finds all ray services in a given namespace. Supports pagination, and sorting on certain fields.
+  rpc ListAllRayServices(ListAllRayServicesRequest) returns (ListAllRayServicesResponse) {
+    option (google.api.http) = {
+      get: "/apis/v1/services"
+    };
+  }
+
+  // Deletes a ray service by its name and namespace
+  rpc DeleteRayService(DeleteRayServiceRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/apis/v1/namespaces/{namespace}/services/{name}"
+    };
+  }
+}
+
+message CreateRayServiceRequest {
+  // Required. The ray service to be created.
+  RayService service = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The namespace of the ray service to be created.
+  string namespace = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message UpdateRayServiceRequest {
+  // Required. The ray service to be updated.
+  RayService service = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The namespace of the ray service to be updated.
+  string namespace = 2 [(google.api.field_behavior) = REQUIRED];
+  // Required. The name of the ray service to be updated.
+  string name = 3 [(google.api.field_behavior) = REQUIRED];
+}
+
+message GetRayServiceRequest {
+  // Required. The name used for retrieving the ray service.
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The namespace used for retrieving the ray service.
+  string namespace = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message ListRayServicesRequest {
+  // Required. The namespace of the ray services to be retrieved.
+  string namespace = 1 [(google.api.field_behavior) = REQUIRED];
+  // A page token to request the next page of results. The token is acquired
+  // from the nextPageToken field of the response from the previous
+  // ListRayServices call or can be omitted when fetching the first page.
+  string page_token = 2;
+  // The number of RayServices to be listed per page. If there are more
+  // RayServices than this number, the response message will contain a
+  // nextPageToken field you can use to fetch the next page.
+  int32 page_size = 3;
+}
+
+message ListRayServicesResponse {
+  // List of services
+  repeated RayService services = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // The total number of RayServices for the given query.
+  int32 total_size = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // The token to list the next page of RayServices.
+  //
+  // If there are no more clusters, this field will be empty.
+  string next_page_token = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message ListAllRayServicesRequest {
+  // A page token to request the next page of results. The token is acquired
+  // from the nextPageToken field of the response from the previous
+  // ListRayServices call or can be omitted when fetching the first page.
+  string page_token = 1;
+  // The number of RayServices to be listed per page. If there are more
+  // RayServices than this number, the response message will contain a
+  // nextPageToken field you can use to fetch the next page.
+  int32 page_size = 2;
+}
+
+message ListAllRayServicesResponse {
+  // A list of services.
+  repeated RayService services = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // The total number of RayServices for the given query.
+  int32 total_size = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // The token to list the next page of RayServices.
+  // If there is no more service, this field will be empty.
+  string next_page_token = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message DeleteRayServiceRequest {
+  // The name of the ray service to be deleted.
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+  // The namespace of the ray service to be deleted.
+  string namespace = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message RayService {
+  // Required input field. Unique ray service name provided by user.
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required input field. ray service namespace provided by user
+  string namespace = 2 [(google.api.field_behavior) = REQUIRED];
+  // Required field. This field indicates the user who owns the ray service.
+  string user = 3 [(google.api.field_behavior) = REQUIRED];
+  // Required field. This field indicates Ray version. Should be the same as image version
+  string version = 12 [(google.api.field_behavior) = REQUIRED];
+  // Config for serve deployment V2. Note that only one config V1 or V2 can be specified
+  string serve_config_V2 = 9;
+  // Serve deployment related health check
+  int32 service_unhealthy_second_threshold = 10 [deprecated=true];
+  // Dashboard agent related health check
+	int32 deployment_unhealthy_second_threshold = 11 [deprecated=true];
+  // Required. The cluster template.
+  ClusterSpec cluster_spec = 5 [(google.api.field_behavior) = REQUIRED];
+  // Output. The status for the ray service.
+  RayServiceStatus ray_service_status = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output. The time that the ray service created.
+  google.protobuf.Timestamp created_at = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output. The time that the ray service deleted.
+  google.protobuf.Timestamp delete_at = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message RayServiceStatus {
+  // NOTE(zcin): the first three fields are deprecated in favor of serve_application_status.
+  // (Deprecated) The ray serve application status.
+  string application_status = 1;
+  // (Deprecated) A human-readable description of the status of this operation.
+  string application_message = 2;
+  // (Deprecated) The status for each deployment.
+  repeated ServeDeploymentStatus serve_deployment_status = 3;
+  // The related event for the ray service.
+  repeated RayServiceEvent ray_service_events = 4;
+  // The ray cluster name.
+  string ray_cluster_name = 5;
+  // The state for ray cluster.
+  string ray_cluster_state = 6;
+  // The service endpoint of the cluster and service.
+  map<string, string> service_endpoint = 7;
+  // All ray serve application statuses
+  repeated ServeApplicationStatus serve_application_status = 8;
+}
+
+message ServeApplicationStatus {
+  // Application name
+  string name = 1;
+  // Application status
+  string status = 2;
+  // Details about the application status.
+  string message = 3;
+  // All ray serve deployment statuses in this application
+  repeated ServeDeploymentStatus serve_deployment_status = 4;
+}
+
+message ServeDeploymentStatus {
+  // Unique ray service deployment name.
+  string deployment_name = 1;
+  // Status of single deployment.
+  string status = 2;
+  // A human-readable description of the status of this operation.
+  string message = 3;
+}
+
+message RayServiceEvent {
+  // Output. Unique Event Id.
+  string id = 1;
+  // Output. Human readable name for event.
+  string name = 2;
+  // Output. The creation time of the event.
+  google.protobuf.Timestamp created_at = 3;
+  // Output. The last time the event occur.
+  google.protobuf.Timestamp first_timestamp = 4;
+  // Output. The first time the event occur
+  google.protobuf.Timestamp last_timestamp = 5;
+  // Output. The reason for the transition into the object's current status.
+  string reason = 6;
+  // Output. A human-readable description of the status of this operation.
+  string message = 7;
+  // Output. Type of this event (Normal, Warning), new types could be added in the future
+  string type = 8;
+  // Output. The number of times this event has occurred.
+  int32 count = 9;
+}
+
+message WorkerGroupUpdateSpec {
+  // The name of the worker group to be updated.
+  string group_name = 1;
+  // Required. The replicas of the worker group to be updated.
+  int32 replicas = 2 [(google.api.field_behavior) = REQUIRED];
+  // Required. The min replicas of the worker group to be updated.
+  int32 min_replicas = 3 [(google.api.field_behavior) = REQUIRED];
+  // Required. The max replicas of the worker group to be updated.
+  int32 max_replicas = 4 [(google.api.field_behavior) = REQUIRED];
+}

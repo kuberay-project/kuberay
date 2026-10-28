@@ -1,0 +1,7 @@
+FROM scratch
+ARG TARGETARCH
+WORKDIR /
+COPY ./submitter-${TARGETARCH} ./submitter
+USER 65532:65532
+
+ENTRYPOINT ["/submitter"]

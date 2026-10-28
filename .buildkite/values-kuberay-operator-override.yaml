@@ -1,0 +1,30 @@
+# Generic Helm values override used only in CI / e2e test environments.
+# Intent:
+#   - Allow e2e tests to turn on alpha / experimental feature gates (e.g. RayJobDeletionPolicy)
+#   - Provide a single place contributors can extend with additional overrides needed for tests
+#   - Keep the default published Helm chart behavior unchanged for normal users
+# Scope / Safety:
+#   - This file is never referenced by the base chart; it is opt‑in via buildkite or manual helm install
+#   - Do NOT rename it to values.yaml or commit changes that enable unstable features by default
+# Usage examples:
+#   helm install kuberay-operator kuberay/kuberay-operator -f ../.buildkite/values-kuberay-operator-override.yaml
+#   (add or remove feature gates below as e2e scenarios expand)
+featureGates:
+  - name: RayClusterStatusConditions
+    enabled: true
+  - name: RayJobDeletionPolicy
+    enabled: true
+  - name: RayMultiHostIndexing
+    enabled: true
+  - name: RayCronJob
+    enabled: true
+  - name: RayServiceIncrementalUpgrade
+    enabled: true
+  - name: SidecarSubmitterRestart
+    enabled: true
+  - name: RayClusterMTLS
+    enabled: true
+  - name: RayNodeEventForwarder
+    enabled: true
+nodeEventForwarder:
+  enabled: true

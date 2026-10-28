@@ -1,0 +1,122 @@
+# Default values for kuberay-apiserver.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+name: kuberay-apiserver
+
+image:
+  # -- Image repository.
+  repository: quay.io/kuberay/apiserver
+  # -- Image tag.
+  tag: nightly
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+# Uncomment allowOrigin to enable CORS
+# It'll set the Access-Control-Allow-Origin response header for the HTTP proxy.
+cors:
+  # allowOrigin: "*"
+
+# -- Extra labels.
+labels: {}
+  # key1: value1
+  # key2: value2
+
+# -- Extra annotations.
+annotations: {}
+  # key1: value1
+  # key2: value2
+
+serviceAccount:
+  # -- Specifies whether a service account should be created.
+  create: true
+  # -- The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: kuberay-apiserver
+
+containerPort:
+- name: http
+  containerPort: 8888
+  protocol: TCP
+- name: grpc
+  containerPort: 8887
+  protocol: TCP
+
+# -- Resource requests and limits for containers.
+resources:
+  limits:
+    cpu: 500m
+    memory: 500Mi
+  requests:
+    cpu: 300m
+    memory: 300Mi
+
+# -- Sidecar containers to run along with the main container.
+sidecarContainers: []
+
+# -- Node selector for pods.
+nodeSelector: {}
+
+# -- Affinity for pods.
+affinity: {}
+
+# -- Tolerations for pods.
+tolerations: []
+
+# Only one service type needs to be picked
+service:
+  # -- Service type.
+  type: ClusterIP
+  # -- Service port.
+  ports:
+  - name: http
+    protocol: TCP
+    port: 8888
+    targetPort: 8888
+  - name: rpc
+    protocol: TCP
+    port: 8887
+    targetPort: 8887
+
+# You can only enable an ingress or route, if you are using OpenShift cluster
+# Also note that in order to enable ingress or route you need to use ClusterIP service
+
+ingress:
+  enabled: false
+  annotations: {}
+  # For Kubernetes >= 1.18 you should specify the ingress-controller via the field ingressClassName
+  # See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/#specifying-the-class-of-an-ingress
+  className: ""
+  tls: []
+
+# openshift routes
+route:
+  enabled: false
+  annotations: {}
+
+# -- Install Default RBAC roles and bindings
+rbacEnable: true
+
+# -- The chart can be installed by users with permissions to a single namespace only
+singleNamespaceInstall: false
+
+# -- If set to true, APIServer v2 would be served on the same port as the APIServer v1.
+enableAPIServerV2: true
+
+# security definition. Comment it out if security is not required
+security:
+  # -- security proxy image.
+  proxy:
+    repository: quay.io/kuberay/security-proxy
+    tag: nightly
+    pullPolicy: IfNotPresent
+  # -- security proxy environment variables.
+  env:
+    HTTP_LOCAL_PORT: 8988
+    GRPC_LOCAL_PORT: 8987
+    # SECURITY_TOKEN must be provided explicitly by the user or fetched from a Secret.
+    # SECURITY_TOKEN: "12345"
+    SECURITY_PREFIX: "/"
+    ENABLE_GRPC: "true"

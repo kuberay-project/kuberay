@@ -1,0 +1,7 @@
+FROM gcr.io/distroless/base-debian12:nonroot
+ARG TARGETARCH
+WORKDIR /
+COPY ./manager-${TARGETARCH} ./manager
+USER 65532:65532
+
+ENTRYPOINT ["/manager"]

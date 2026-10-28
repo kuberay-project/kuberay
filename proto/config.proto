@@ -1,0 +1,231 @@
+syntax = "proto3";
+
+option go_package = "github.com/ray-project/kuberay/proto/go_client";
+package proto;
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/empty.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  schemes: HTTP;
+  responses: {
+    key: "default";
+    value: {
+      schema: {
+        json_schema: {
+          ref: ".api.Status";
+        }
+      }
+    }
+  }
+};
+
+service ComputeTemplateService {
+  // Creates a new compute template.
+  rpc CreateComputeTemplate(CreateComputeTemplateRequest) returns (ComputeTemplate) {
+    option (google.api.http) = {
+      post: "/apis/v1/namespaces/{namespace}/compute_templates"
+      body: "compute_template"
+    };
+  }
+
+  // Finds a specific compute template by its name and namespace.
+  rpc GetComputeTemplate(GetComputeTemplateRequest) returns (ComputeTemplate) {
+    option (google.api.http) = {
+      get: "/apis/v1/namespaces/{namespace}/compute_templates/{name}"
+    };
+  }
+
+  // Finds all compute templates in a given namespace.
+  rpc ListComputeTemplates(ListComputeTemplatesRequest) returns (ListComputeTemplatesResponse) {
+    option (google.api.http) = {
+      get: "/apis/v1/namespaces/{namespace}/compute_templates"
+    };
+  }
+
+  // Finds all compute templates in all namespaces.
+  rpc ListAllComputeTemplates(ListAllComputeTemplatesRequest) returns (ListAllComputeTemplatesResponse) {
+    option (google.api.http) = {
+      get: "/apis/v1/compute_templates"
+    };
+  }
+
+  // Deletes a compute template by its name and namespace
+  rpc DeleteComputeTemplate(DeleteComputeTemplateRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/apis/v1/namespaces/{namespace}/compute_templates/{name}"
+    };
+  }
+}
+
+message CreateComputeTemplateRequest {
+  // The compute template to be created.
+  ComputeTemplate compute_template = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The namespace of the compute template to be created
+  string namespace = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message GetComputeTemplateRequest {
+  // Required. The name of the ComputeTemplate to be retrieved.
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The namespace of the compute template to be retrieved.
+  string namespace = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message ListComputeTemplatesRequest {
+  // Required. The namespace of the compute templates to be retrieved.
+  string namespace = 1 [(google.api.field_behavior) = REQUIRED];
+  // TODO: support paganation later
+}
+
+message ListComputeTemplatesResponse {
+  repeated ComputeTemplate compute_templates = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message ListAllComputeTemplatesRequest {
+  // TODO: support paganation later
+}
+
+message ListAllComputeTemplatesResponse {
+  repeated ComputeTemplate compute_templates = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message DeleteComputeTemplateRequest {
+  // Required. The name of the compute template to be deleted.
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The namespace of the compute template to be deleted.
+  string namespace = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+// Toleration for the compute template
+message PodToleration{
+  // Required. Key created by the node's taint
+  string key = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. Operator to apply
+  string operator = 2 [(google.api.field_behavior) = REQUIRED];
+  // optional string
+  string value = 3;
+  // Required. Effect
+  string effect = 4 [(google.api.field_behavior) = REQUIRED];
+}
+
+// ComputeTemplate can be reused by any compute units like worker group, workspace, image build job, etc
+message ComputeTemplate {
+  // Required. The name of the compute template
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The namespace of the compute template
+  string namespace = 2 [(google.api.field_behavior) = REQUIRED];
+  // Required. Number of cpus
+  uint32 cpu = 3 [(google.api.field_behavior) = REQUIRED];
+  // Required. Number of memory
+  uint32 memory = 4 [(google.api.field_behavior) = REQUIRED];
+  // Optional. Number of gpus
+  uint32 gpu = 5;
+  // Optional. The detail gpu accelerator type
+  string gpu_accelerator = 6;
+  // Optional pod tolerations
+  repeated PodToleration tolerations = 7;
+  // Optional. Name and number of the extended resources
+  map<string, uint32> extended_resources = 8;
+  // Optional. The unit of memory, default is "Gi" for memory
+  string memory_unit = 9;
+}
+
+// This service is not implemented.
+service ImageTemplateService {
+  // Not implemented. Creates a new ImageTemplate.
+  rpc CreateImageTemplate(CreateImageTemplateRequest) returns (ImageTemplate) {
+    option (google.api.http) = {
+      post: "/apis/v1/image_templates"
+      body: "image_template"
+    };
+  }
+
+  // Not implemented. Finds a specific ImageTemplate by ID.
+  rpc GetImageTemplate(GetImageTemplateRequest) returns (ImageTemplate) {
+    option (google.api.http) = {
+      get: "/apis/v1/namespaces/{namespace}/image_templates/{name}"
+    };
+  }
+
+  // Not Implemented. Finds all ImageTemplates.
+  rpc ListImageTemplates(ListImageTemplatesRequest) returns (ListImageTemplatesResponse) {
+    option (google.api.http) = {
+      get: "/apis/v1/namespaces/{namespace}/image_templates"
+    };
+  }
+
+  // Not implemented. Deletes an ImageTemplate.
+  rpc DeleteImageTemplate(DeleteImageTemplateRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/apis/v1/namespaces/{namespace}/image_templates/{name}"
+    };
+  }
+}
+
+message CreateImageTemplateRequest {
+  // The image template to be created.
+  ImageTemplate image_template = 1;
+  // The namespace of the image template to be created.
+  string namespace = 2;
+}
+
+message GetImageTemplateRequest {
+  // The name of the image template to be retrieved.
+  string name = 1;
+  // The namespace of the image template to be retrieved.
+  string namespace = 2;
+}
+
+message ListImageTemplatesRequest {
+  // The namespace of the image templates to be retrieved.
+  string namespace = 1;
+  // TODO: support pagingation later
+}
+
+message ListImageTemplatesResponse {
+  // A list of Compute returned.
+  repeated ImageTemplate image_templates = 1;
+}
+
+message ListAllImageTemplatesRequest {
+  // TODO: support pagingation later
+}
+
+message ListAllImageTemplatesResponse {
+  // A list of Compute returned.
+  repeated ImageTemplate image_templates = 1;
+}
+
+message DeleteImageTemplateRequest {
+  // The name of the image template to be deleted.
+  string name = 1;
+  // The namespace of the image template to be deleted.
+  string namespace = 2;
+}
+
+// ImageTemplate can be used by worker group and workspace.
+// They can be distinguish by different entrypoints
+message ImageTemplate {
+  // The ID of the image template
+  string name = 1;
+  // The namespace of the image template
+  string namespace = 2;
+  // The base container image to be used for image building
+  string base_image = 3;
+  // The pip packages to install
+  repeated string pip_packages = 4;
+  // The conda packages to install
+  repeated string conda_packages = 5;
+  // The system packages to install
+  repeated string system_packages = 6;
+  // The environment variables to set
+  map<string, string> environment_variables = 7;
+  // The post install commands to execute
+  string custom_commands = 8;
+  // Output. The result image generated
+  string image = 9;
+}

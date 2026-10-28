@@ -1,0 +1,179 @@
+syntax = "proto3";
+
+option go_package = "github.com/ray-project/kuberay/proto/go_client";
+package proto;
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/empty.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  schemes: HTTP;
+  responses: {
+    key: "default";
+    value: {
+      schema: {
+        json_schema: {
+          ref: ".api.Status";
+        }
+      }
+    }
+  }
+};
+
+service RayJobSubmissionService {
+  // Submit a new Ray job on the specified cluster.
+  rpc SubmitRayJob(SubmitRayJobRequest) returns (SubmitRayJobReply) {
+    option (google.api.http) = {
+      post: "/apis/v1/namespaces/{namespace}/jobsubmissions/{clustername}"
+      body: "jobsubmission"
+    };
+  }
+
+  // Finds a specific job by its submission_id for the cluster with name and namespace.
+  rpc GetJobDetails(GetJobDetailsRequest) returns (JobSubmissionInfo) {
+    option (google.api.http) = {
+      get: "/apis/v1/namespaces/{namespace}/jobsubmissions/{clustername}/{submissionid}"
+    };
+  }
+
+  // Gets a specific job log by its submissionid for the cluster with name and namespace.
+  rpc GetJobLog(GetJobLogRequest) returns (GetJobLogReply) {
+    option (google.api.http) = {
+      get: "/apis/v1/namespaces/{namespace}/jobsubmissions/{clustername}/log/{submissionid}"
+    };
+  }
+
+  // List all job in a given a given cluster in a namespace. Supports pagination, and sorting on certain fields.
+  rpc ListJobDetails(ListJobDetailsRequest) returns (ListJobSubmissionInfo) {
+    option (google.api.http) = {
+      get: "/apis/v1/namespaces/{namespace}/jobsubmissions/{clustername}"
+    };
+  }
+
+
+  // Stops a job by its name and namespace.
+  rpc StopRayJob(StopRayJobSubmissionRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/apis/v1/namespaces/{namespace}/jobsubmissions/{clustername}/{submissionid}"
+    };
+  }
+
+
+  // Deletes a job by its name and namespace.
+  rpc DeleteRayJob(DeleteRayJobSubmissionRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/apis/v1/namespaces/{namespace}/jobsubmissions/{clustername}/{submissionid}"
+    };
+  }
+}
+
+message SubmitRayJobRequest {
+  // Required. The namespace of the cluster for the job to be created
+  string namespace = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The name of the cluster for the job
+  string clustername = 2 [(google.api.field_behavior) = REQUIRED];
+  // Required. The job to be created.
+  RayJobSubmission jobsubmission = 3 [(google.api.field_behavior) = REQUIRED];
+}
+
+message SubmitRayJobReply{
+  // Created submission ID
+  string submission_id = 1;
+}
+
+message GetJobDetailsRequest {
+  // Required. The namespace of the cluster for the job
+  string namespace = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The name of the cluster for the job
+  string clustername = 2 [(google.api.field_behavior) = REQUIRED];
+  // Required. The submission id of the job
+  string submissionid = 3 [(google.api.field_behavior) = REQUIRED];
+}
+
+message GetJobLogRequest {
+  // Required. The namespace of the cluster for the job
+  string namespace = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The name of the cluster for the job
+  string clustername = 2 [(google.api.field_behavior) = REQUIRED];
+  // Required. The submission id of the job
+  string submissionid = 3 [(google.api.field_behavior) = REQUIRED];
+}
+
+message GetJobLogReply {
+  // Content of the log. Always from the beginning
+  string log = 1;
+}
+
+message ListJobDetailsRequest {
+  // Required. The namespace of the cluster for the job
+  string namespace = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The name of the cluster for the job
+  string clustername = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message ListJobSubmissionInfo {
+  repeated JobSubmissionInfo submissions = 1;
+}
+
+message StopRayJobSubmissionRequest {
+  // Required. The namespace of the cluster for the job
+  string namespace = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The name of the cluster for the job
+  string clustername = 2 [(google.api.field_behavior) = REQUIRED];
+  // Required. The submission id of the job
+  string submissionid = 3 [(google.api.field_behavior) = REQUIRED];
+}
+
+message DeleteRayJobSubmissionRequest {
+  // Required. The namespace of the cluster for the job
+  string namespace = 1 [(google.api.field_behavior) = REQUIRED];
+  // Required. The name of the cluster for the job
+  string clustername = 2 [(google.api.field_behavior) = REQUIRED];
+  // Required. The submission id of the job
+  string submissionid = 3 [(google.api.field_behavior) = REQUIRED];
+}
+
+
+// RayJobSubmission definition
+message RayJobSubmission {
+  // Required. Entry point
+  string entrypoint = 1 [(google.api.field_behavior) = REQUIRED];
+  // Optional submission id
+  string submission_id = 2;
+  // Optional. Arbitrary user-provided metadata for the job.
+  map<string, string> metadata = 3;
+  // Optional. The runtime environment for the job.  - yaml string.
+  string runtime_env = 4;
+  // Optional. Number of CPUs to allocate for the execution of the entrypoint command, separately from any Ray tasks or actors that are created by it.
+  float entrypoint_num_cpus = 5;
+  // Optional. Number of GPUs to allocate for the execution of the entrypoint command, separately from any Ray tasks or actors that are created by it.
+  float entrypoint_num_gpus = 6;
+  // Optional. The quantity of various custom resources to allocate for the execution of the entrypoint command, separately from any Ray tasks or actors that are created by it.
+  map<string, string> entrypoint_resources = 7;
+}
+
+message JobSubmissionInfo{
+  // Submission entry point
+  string entrypoint = 1;
+  // Job ID
+  string job_id = 2;
+  // Submission ID
+  string submission_id = 3;
+  // Submission status
+  string status = 4;
+  // Associated message
+  string message = 5;
+  // Error type
+  string error_type = 6;
+  // Job Start time
+  uint64 start_time = 7;
+  // Job end time
+  uint64 end_time = 8;
+  // Arbitrary user-provided metadata for the job.
+  map<string, string> metadata = 9;
+  // The runtime environment for the job
+  map<string, string> runtime_env = 10;
+}

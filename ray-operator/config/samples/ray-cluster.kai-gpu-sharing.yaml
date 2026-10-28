@@ -1,0 +1,104 @@
+# KAI Scheduler Example - GPU Sharing with RayCluster
+# KAI Scheduler uses a hierarchical queue system for resource management and fair sharing.
+# These queues must be created before any RayCluster can be scheduled by KAI.
+
+# NOTE: This is a DEMO configuration with unlimited quotas (-1) for easy testing.
+# In real-world deployments, you should set appropriate CPU/GPU/memory quotas and limits
+# based on your cluster's actual resources and organizational needs.
+
+# GPU Sharing Note: This example utilizes time slicing GPU sharing.
+# KAI Scheduler also supports MPS and other GPU sharing methods.
+# For more information, check the KAI Scheduler documentation.
+
+# Parent queue: Represents a department or high-level organizational unit
+apiVersion: scheduling.run.ai/v2
+kind: Queue
+metadata:
+  name: department-1
+spec:
+  # priority: 100  # Optional: Higher priority queues get surplus resources first
+  resources:
+    # quota: Guaranteed resources for this queue
+    # limit: Maximum resources this queue can use
+    # overQuotaWeight: How surplus resources are shared among queues
+    # Note: Using -1 (unlimited) for demo purposes
+    cpu:
+      quota: -1
+      limit: -1
+      overQuotaWeight: 1
+    gpu:
+      quota: -1
+      limit: -1
+      overQuotaWeight: 1
+    memory:
+      quota: -1
+      limit: -1
+      overQuotaWeight: 1
+---
+# Child queue: Represents a team within the department-1
+apiVersion: scheduling.run.ai/v2
+kind: Queue
+metadata:
+  name: team-a
+spec:
+  parentQueue: department-1 # Inherits from parent queue
+  # priority: 50   # Optional: Team priority within department
+  resources:
+    # quota: Guaranteed resources for this queue
+    # limit: Maximum resources this queue can use
+    # overQuotaWeight: How surplus resources are shared among queues
+    # Note: Using -1 (unlimited) for demo purposes
+    cpu:
+      quota: -1
+      limit: -1
+      overQuotaWeight: 1
+    gpu:
+      quota: -1
+      limit: -1
+      overQuotaWeight: 1
+    memory:
+      quota: -1
+      limit: -1
+      overQuotaWeight: 1
+---
+# RayCluster with KAI Scheduler and GPU Sharing
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-half-gpu
+  labels:
+    kai.scheduler/queue: team-a # REQUIRED: Queue assignment for scheduling
+spec:
+  headGroupSpec:
+    template:
+      spec:
+        containers:
+        - name: head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+  # ---- Two workers share one GPU (0.5 each) ----
+  workerGroupSpecs:
+  - groupName: shared-gpu
+    replicas: 2
+    minReplicas: 2
+    template:
+      metadata:
+        annotations:
+          gpu-fraction: "0.5" # Request 0.5 GPU per pod (two pods share one GPU)
+      spec:
+        containers:
+        - name: worker
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"

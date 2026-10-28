@@ -1,0 +1,73 @@
+suite: Test ClusterRole
+
+templates:
+  - role.yaml
+
+release:
+  name: kuberay-operator
+  namespace: kuberay-system
+
+tests:
+  - it: Should not create ClusterRole if `rbacEnable` is `false`
+    set:
+      rbacEnable: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should not create ClusterRole if `singleNamespaceInstall` is `true`
+    set:
+      singleNamespaceInstall: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should create ClusterRole if `rbacEnable` is `true` and `singleNamespaceInstall` is `false`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+    asserts:
+      - containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          name: kuberay-operator
+
+  - it: Should include scheduling.k8s.io rules for Kubernetes WAS v1alpha3
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+      featureGates:
+        - name: KubernetesWAS
+          enabled: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - scheduling.k8s.io
+            resources:
+              - podgroups
+              - workloads
+            verbs:
+              - create
+              - delete
+              - get
+              - list
+              - patch
+              - update
+              - watch
+
+  - it: Should grant nodes get for the pods/binding webhook
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - nodes
+            verbs:
+              - get

@@ -1,0 +1,25 @@
+- label: 'Test History Server E2E (nightly operator)'
+  instance_size: large
+  image: golang:1.26-bookworm
+  commands:
+    - source .buildkite/setup-env.sh
+    - kind create cluster --wait 900s --config ./ci/kind-config-buildkite.yml
+    - kubectl config set clusters.kind-kind.server https://docker:6443
+    # Build nightly KubeRay operator image
+    - pushd ray-operator
+    - source ../.buildkite/build-start-operator.sh
+    - kubectl wait --timeout=90s --for=condition=Available=true deployment kuberay-operator
+    # Build history server collector image
+    - popd
+    - pushd historyserver
+    - bash ../.buildkite/build-historyserver.sh
+    # Run e2e tests and print KubeRay operator logs if tests fail
+    - echo "--- START:Running History Server Collector E2E (nightly operator) tests"
+    - if [ -n "$${KUBERAY_TEST_RAY_IMAGE}" ]; then echo "Using Ray Image $${KUBERAY_TEST_RAY_IMAGE}"; fi
+    - set -o pipefail
+    - mkdir -p "$(pwd)/tmp" && export KUBERAY_TEST_OUTPUT_DIR=$(pwd)/tmp
+    - echo "KUBERAY_TEST_OUTPUT_DIR=$$KUBERAY_TEST_OUTPUT_DIR"
+    - KUBERAY_TEST_TIMEOUT_SHORT=3m KUBERAY_TEST_TIMEOUT_MEDIUM=5m KUBERAY_TEST_TIMEOUT_LONG=10m bash ../.buildkite/run-gotest.sh 60m ./test/e2e || TEST_EXIT_CODE=$$?
+    # JUnit results are uploaded to Buildkite Test Engine by .buildkite/hooks/pre-exit
+    - if [ -n "$$TEST_EXIT_CODE" ]; then kubectl logs --tail -1 -l app.kubernetes.io/name=kuberay | tee $$KUBERAY_TEST_OUTPUT_DIR/kuberay-operator.log && cd $$KUBERAY_TEST_OUTPUT_DIR && find . -name "*.log" | tar -cf /artifact-mount/e2e-log.tar -T -; exit 1; fi
+    - echo "--- END:History Server Collector E2E (nightly operator) tests finished"

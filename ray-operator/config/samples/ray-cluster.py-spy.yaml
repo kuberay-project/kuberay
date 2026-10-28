@@ -1,0 +1,62 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-py-spy
+spec:
+  rayVersion: "2.52.0" # should match the Ray version in the image of the containers
+  # Ray head pod template
+  headGroupSpec:
+    rayStartParams: {}
+    #pod template
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+          # `py-spy` is a sampling profiler that requires `SYS_PTRACE` to read process memory effectively.
+          # Once enabled, you can profile Ray worker processes through Ray Dashboard.
+          # For more details, refer to:
+          # https://docs.ray.io/en/latest/ray-observability/user-guides/debug-apps/optimize-performance.html#python-cpu-profiling-in-the-dashboard
+          securityContext:
+            capabilities:
+              add:
+              - SYS_PTRACE
+          ports:
+          - containerPort: 6379
+            name: gcs-server
+          - containerPort: 8265 # Ray Dashboard
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          volumeMounts:
+          - mountPath: /home/ray/samples
+            name: profiling-example-configmap
+        volumes:
+        - name: profiling-example-configmap
+          configMap:
+            name: ray-example
+            items:
+            - key: long_running_task.py
+              path: long_running_task.py
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-example
+data:
+  long_running_task.py: |
+    import ray
+
+    @ray.remote
+    def long_running_task():
+      while True:
+          pass
+
+    ray.get(long_running_task.remote())

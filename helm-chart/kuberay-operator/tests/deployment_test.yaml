@@ -1,0 +1,555 @@
+suite: Test Deployment
+
+templates:
+  - deployment.yaml
+
+release:
+  name: kuberay-operator
+  namespace: kuberay-system
+
+tests:
+  - it: Should create deployment
+    asserts:
+      - containsDocument:
+          apiVersion: apps/v1
+          kind: Deployment
+          name: kuberay-operator
+          namespace: kuberay-system
+
+  - it: Should add deployment labels if `labels` is set
+    set:
+      labels:
+        key1: value1
+        key2: value2
+    asserts:
+      - equal:
+          path: metadata.labels.key1
+          value: value1
+      - equal:
+          path: metadata.labels.key2
+          value: value2
+
+  - it: Should add pod template labels if `labels` is set
+    set:
+      labels:
+        key1: value1
+        key2: value2
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels.key1
+          value: value1
+      - equal:
+          path: spec.template.metadata.labels.key2
+          value: value2
+
+  - it: Should add pod template annotations if `annotations` is set
+    set:
+      annotations:
+        key1: value1
+        key2: value2
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations.key1
+          value: value1
+      - equal:
+          path: spec.template.metadata.annotations.key2
+          value: value2
+
+  - it: Should use the specified image pull policy if `image.pullPolicy` is set
+    set:
+      image:
+        pullPolicy: Always
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[*].imagePullPolicy
+          value: Always
+
+  - it: Should use the specified image pull secrets if `imagePullsecrets` is set
+    set:
+      imagePullSecrets:
+        - name: test-secret1
+        - name: test-secret2
+    asserts:
+      - contains:
+          path: spec.template.spec.imagePullSecrets
+          content:
+            name: test-secret1
+      - contains:
+          path: spec.template.spec.imagePullSecrets
+          content:
+            name: test-secret2
+
+  - it: Should use the specified service account name if `serviceAccount.name` is set
+    set:
+      serviceAccount:
+        name: test-service-account
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: test-service-account
+
+  - it: Should use the specified pod security context if `podSecurityContext` is set
+    set:
+      podSecurityContext:
+        runAsUser: 1000
+        runAsGroup: 2000
+        fsGroup: 3000
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 1000
+      - equal:
+          path: spec.template.spec.securityContext.runAsGroup
+          value: 2000
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 3000
+
+  - it: Should use the specified container security context if `securityContext` is set
+    set:
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+
+  - it: Should add environment variables if `env` is set
+    set:
+      env:
+        - name: KEY1
+          value: VALUE1
+        - name: KEY2
+          valueFrom:
+            configMapKeyRef:
+              name: test-configmap
+              key: TEST_KEY2
+              optional: false
+        - name: KEY3
+          valueFrom:
+            secretRef:
+              name: test-secret
+              key: TEST_KEY3
+              optional: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].env
+          content:
+            name: KEY1
+            value: VALUE1
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].env
+          content:
+            name: KEY2
+            valueFrom:
+              configMapKeyRef:
+                name: test-configmap
+                key: TEST_KEY2
+                optional: false
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].env
+          content:
+            name: KEY3
+            valueFrom:
+              secretRef:
+                name: test-secret
+                key: TEST_KEY3
+                optional: false
+
+  - it: Should add resources if `resources` is set
+    set:
+      resources:
+        requests:
+          memory: 64Mi
+          cpu: 250m
+        limits:
+          memory: 128Mi
+          cpu: 500m
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].resources
+          value:
+            requests:
+              memory: 64Mi
+              cpu: 250m
+            limits:
+              memory: 128Mi
+              cpu: 500m
+
+  - it: Should add nodeSelector if `nodeSelector` is set
+    set:
+      nodeSelector:
+        key1: value1
+        key2: value2
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector.key1
+          value: value1
+      - equal:
+          path: spec.template.spec.nodeSelector.key2
+          value: value2
+
+  - it: Should add affinity if `affinity` is set
+    set:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: topology.kubernetes.io/zone
+                    operator: In
+                    values:
+                      - antarctica-east1
+                      - antarctica-west1
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 1
+              preference:
+                matchExpressions:
+                  - key: another-node-label-key
+                    operator: In
+                    values:
+                      - another-node-label-value
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity
+          value:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: topology.kubernetes.io/zone
+                        operator: In
+                        values:
+                          - antarctica-east1
+                          - antarctica-west1
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 1
+                  preference:
+                    matchExpressions:
+                      - key: another-node-label-key
+                        operator: In
+                        values:
+                          - another-node-label-value
+
+  - it: Should add tolerations if `tolerations` is set
+    set:
+      tolerations:
+        - key: key1
+          operator: Equal
+          value: value1
+          effect: NoSchedule
+        - key: key2
+          operator: Exists
+          effect: NoSchedule
+    asserts:
+      - equal:
+          path: spec.template.spec.tolerations
+          value:
+            - key: key1
+              operator: Equal
+              value: value1
+              effect: NoSchedule
+            - key: key2
+              operator: Exists
+              effect: NoSchedule
+
+  - it: Should add priorityClassName if `priorityClassName` is set
+    set:
+      priorityClassName: high-priority
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: high-priority
+
+  - it: Should set replicas when `replicas` is set
+    set:
+      replicas: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: Should use custom reconcile concurrency when set
+    set:
+      reconcileConcurrency: 5
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--reconcile-concurrency=5"
+
+  - it: Should use custom kube client qps and burst when set
+    set:
+      kubeClient:
+        qps: 75.5
+        burst: 150
+    asserts:
+    - contains:
+        path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+        content: "--qps=75.5"
+    - contains:
+        path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+        content: "--burst=150"
+
+  - it: Should use custom collector image when set
+    set:
+      collectorImage: my-registry.io/kuberay/collector:v1.7.0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--collector-image=my-registry.io/kuberay/collector:v1.7.0"
+
+  - it: Should not add the collector image arg when collectorImage is not set
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--collector-image="
+
+  - it: Should enable Kubernetes WAS batch scheduler when the KubernetesWAS feature gate is set
+    set:
+      featureGates:
+        - name: KubernetesWAS
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--feature-gates=KubernetesWAS=true"
+
+  - it: Should add config volume and volumeMount when configuration is enabled
+    set:
+      configuration:
+        enabled: true
+        defaultContainerEnvs:
+          - name: RAY_enable_open_telemetry
+            value: "true"
+          - name: RAY_metric_cardinality_level
+            value: "recommended"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: operator-config
+            configMap:
+              name: kuberay-operator-config
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].volumeMounts
+          content:
+            name: operator-config
+            mountPath: /etc/kuberay
+            readOnly: true
+
+  - it: Should add --config arg when configuration is enabled
+    set:
+      configuration:
+        enabled: true
+        defaultContainerEnvs:
+          - name: RAY_enable_open_telemetry
+            value: "true"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--config"
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "/etc/kuberay/config.yaml"
+
+  - it: Should not add config volume when configuration is not enabled
+    asserts:
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name=="operator-config")]
+
+  - it: Should not include command-line flags when configuration is enabled (ConfigMap mode)
+    set:
+      configuration:
+        enabled: true
+      reconcileConcurrency: 5
+      kubeClient:
+        qps: 100
+        burst: 200
+      leaderElectionEnabled: false
+      metrics:
+        enabled: false
+      nodeEventForwarder:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--config"
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "/etc/kuberay/config.yaml"
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--reconcile-concurrency=5"
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--qps=100"
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--burst=200"
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--enable-leader-election=false"
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--enable-metrics=false"
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--enable-node-event-forwarder=true"
+
+  - it: Should include command-line flags when configuration is disabled (command-line mode)
+    set:
+      configuration:
+        enabled: false
+      reconcileConcurrency: 5
+      kubeClient:
+        qps: 100
+        burst: 200
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--config"
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--reconcile-concurrency=5"
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--qps=100"
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--burst=200"
+
+  - it: Should include nodeEventForwarder flags with default types when enabled (command-line mode)
+    set:
+      configuration:
+        enabled: false
+      nodeEventForwarder:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--enable-node-event-forwarder=true"
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--node-event-forwarder-types=Warning"
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--node-event-forwarder-sources="
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--node-event-forwarder-reasons="
+
+  - it: Should include custom nodeEventForwarder flags when configured (command-line mode)
+    set:
+      configuration:
+        enabled: false
+      nodeEventForwarder:
+        enabled: true
+        sources:
+          - node-problem-detector
+          - nvidia-gpu-device-plugin
+        reasons:
+          - XIDError
+          - KernelDeadlock
+        types:
+          - Warning
+          - Normal
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--enable-node-event-forwarder=true"
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--node-event-forwarder-sources=node-problem-detector,nvidia-gpu-device-plugin"
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--node-event-forwarder-reasons=XIDError,KernelDeadlock"
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--node-event-forwarder-types=Warning,Normal"
+
+  - it: Should not include nodeEventForwarder filter flags when disabled (command-line mode)
+    set:
+      configuration:
+        enabled: false
+      nodeEventForwarder:
+        enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--enable-node-event-forwarder=false"
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--node-event-forwarder-types"
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--node-event-forwarder-sources"
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--node-event-forwarder-reasons"
+
+  - it: Should fail when nodeEventForwarder is enabled with singleNamespaceInstall
+    set:
+      singleNamespaceInstall: true
+      nodeEventForwarder:
+        enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "nodeEventForwarder is not supported when singleNamespaceInstall is true because Node events are cluster-scoped and recorded in 'default' or 'kube-system', which requires permissions outside a single namespace."
+
+  - it: Should fail if `webhooks.enabled` and `singleNamespaceInstall` are both true
+    set:
+      singleNamespaceInstall: true
+      webhooks:
+        enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "webhooks are not supported when singleNamespaceInstall is true because the webhook configurations and Node reads are cluster-scoped."
+
+  - it: Should not enable webhooks by default
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="ENABLE_WEBHOOKS")]
+      - notExists:
+          path: spec.template.spec.containers[0].ports[?(@.name=="webhook-server")]
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name=="cert")]
+
+  - it: Should enable webhooks and mount the serving certificate if `webhooks.enabled` is true
+    set:
+      webhooks:
+        enabled: true
+      env:
+        - name: FOO
+          value: bar
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: ENABLE_WEBHOOKS
+              value: "true"
+            - name: FOO
+              value: bar
+      - equal:
+          path: spec.template.spec.containers[0].ports[?(@.name=="webhook-server")].containerPort
+          value: 9443
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[?(@.name=="cert")].mountPath
+          value: /tmp/k8s-webhook-server/serving-certs
+      - equal:
+          path: spec.template.spec.volumes[?(@.name=="cert")].secret.secretName
+          value: kuberay-operator-webhook-server-cert

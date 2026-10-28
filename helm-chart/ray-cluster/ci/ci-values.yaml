@@ -1,0 +1,3 @@
+image:
+  repository: rayproject/ray
+  tag: 2.52.0

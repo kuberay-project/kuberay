@@ -1,0 +1,28 @@
+{{- /* ClusterRole for end users to view and edit RayJob. */ -}}
+{{- if and .Values.rbacEnable (not .Values.singleNamespaceInstall) }}
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: rayjob-editor-role
+  labels:
+    {{- include "kuberay-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ray.io
+  resources:
+  - rayjobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ray.io
+  resources:
+  - rayjobs/status
+  verbs:
+  - get
+{{- end }}

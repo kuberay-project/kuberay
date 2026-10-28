@@ -1,0 +1,971 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "serve.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "RayServeService"
+    }
+  ],
+  "schemes": [
+    "http"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/apis/v1/namespaces/{namespace}/services": {
+      "get": {
+        "summary": "Finds all ray services in a given namespace. Supports pagination, and sorting on certain fields.",
+        "operationId": "RayServeService_ListRayServices",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/protoListRayServicesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/googlerpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "namespace",
+            "description": "Required. The namespace of the ray services to be retrieved.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "pageToken",
+            "description": "A page token to request the next page of results. The token is acquired\nfrom the nextPageToken field of the response from the previous\nListRayServices call or can be omitted when fetching the first page.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "pageSize",
+            "description": "The number of RayServices to be listed per page. If there are more\nRayServices than this number, the response message will contain a\nnextPageToken field you can use to fetch the next page.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "RayServeService"
+        ]
+      },
+      "post": {
+        "summary": "Create a new ray serve.",
+        "operationId": "RayServeService_CreateRayService",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/protoRayService"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/googlerpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "namespace",
+            "description": "Required. The namespace of the ray service to be created.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "service",
+            "description": "Required. The ray service to be created.",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/protoRayService",
+              "required": [
+                "service"
+              ]
+            }
+          }
+        ],
+        "tags": [
+          "RayServeService"
+        ]
+      }
+    },
+    "/apis/v1/namespaces/{namespace}/services/{name}": {
+      "get": {
+        "summary": "Find a specific ray serve by name and namespace.",
+        "operationId": "RayServeService_GetRayService",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/protoRayService"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/googlerpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "namespace",
+            "description": "Required. The namespace used for retrieving the ray service.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "description": "Required. The name used for retrieving the ray service.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "RayServeService"
+        ]
+      },
+      "delete": {
+        "summary": "Deletes a ray service by its name and namespace",
+        "operationId": "RayServeService_DeleteRayService",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/googlerpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "namespace",
+            "description": "The namespace of the ray service to be deleted.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "description": "The name of the ray service to be deleted.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "RayServeService"
+        ]
+      },
+      "put": {
+        "summary": "Update a ray serve.\nWe may",
+        "operationId": "RayServeService_UpdateRayService",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/protoRayService"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/googlerpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "namespace",
+            "description": "Required. The namespace of the ray service to be updated.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "description": "Required. The name of the ray service to be updated.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "service",
+            "description": "Required. The ray service to be updated.",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/protoRayService",
+              "required": [
+                "service"
+              ]
+            }
+          }
+        ],
+        "tags": [
+          "RayServeService"
+        ]
+      }
+    },
+    "/apis/v1/services": {
+      "get": {
+        "summary": "Finds all ray services in a given namespace. Supports pagination, and sorting on certain fields.",
+        "operationId": "RayServeService_ListAllRayServices",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/protoListAllRayServicesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/googlerpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pageToken",
+            "description": "A page token to request the next page of results. The token is acquired\nfrom the nextPageToken field of the response from the previous\nListRayServices call or can be omitted when fetching the first page.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "pageSize",
+            "description": "The number of RayServices to be listed per page. If there are more\nRayServices than this number, the response message will contain a\nnextPageToken field you can use to fetch the next page.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "RayServeService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "EnvValueFromSource": {
+      "type": "string",
+      "enum": [
+        "CONFIGMAP",
+        "SECRET",
+        "RESOURCEFIELD",
+        "FIELD"
+      ],
+      "default": "CONFIGMAP",
+      "title": "Source of environment variable"
+    },
+    "VolumeAccessMode": {
+      "type": "string",
+      "enum": [
+        "RWO",
+        "ROX",
+        "RWX"
+      ],
+      "default": "RWO",
+      "title": "- RWO: ReadWriteOnce\n - ROX: ReadOnlyMany\n - RWX: ReadWriteMany"
+    },
+    "VolumeHostPathType": {
+      "type": "string",
+      "enum": [
+        "DIRECTORY",
+        "FILE"
+      ],
+      "default": "DIRECTORY",
+      "description": "If indicate hostpath, we need to let user indicate which type\nthey would like to use."
+    },
+    "VolumeMountPropagationMode": {
+      "type": "string",
+      "enum": [
+        "NONE",
+        "HOSTTOCONTAINER",
+        "BIDIRECTIONAL"
+      ],
+      "default": "NONE"
+    },
+    "VolumeVolumeType": {
+      "type": "string",
+      "enum": [
+        "PERSISTENT_VOLUME_CLAIM",
+        "HOST_PATH",
+        "EPHEMERAL",
+        "CONFIGMAP",
+        "SECRET",
+        "EMPTY_DIR"
+      ],
+      "default": "PERSISTENT_VOLUME_CLAIM",
+      "title": "- EPHEMERAL: Ephemeral (https://kubernetes.io/docs/concepts/storage/ephemeral-volumes/#generic-ephemeral-volumes)\n - CONFIGMAP: Require map name and items, see https://kubernetes.io/docs/concepts/storage/volumes/#configmap\n - SECRET: Require secret name and optional items, see https://stackoverflow.com/questions/53296057/how-do-i-mount-a-single-file-from-a-secret-in-kubernetes\n - EMPTY_DIR: Requires size limit, see https://kubernetes.io/docs/concepts/storage/volumes/#emptydir"
+    },
+    "googlerpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "protoAutoscalerOptions": {
+      "type": "object",
+      "properties": {
+        "idleTimeoutSeconds": {
+          "type": "integer",
+          "format": "int32",
+          "description": "IdleTimeoutSeconds is the number of seconds to wait before scaling down a worker pod which is not using Ray resources.\nDefaults to 60 (one minute)."
+        },
+        "upscalingMode": {
+          "type": "string",
+          "description": "UpscalingMode is \"Conservative\", \"Default\", or \"Aggressive.\"\nConservative: Upscaling is rate-limited; the number of pending worker pods is at most the size of the Ray cluster.\nDefault: Upscaling is not rate-limited.\nAggressive: An alias for Default; upscaling is not rate-limited.\nIt is not read by the KubeRay operator but by the Ray autoscaler."
+        },
+        "image": {
+          "type": "string",
+          "description": "Image optionally overrides the autoscaler's container image. This override is for provided for autoscaler testing and development."
+        },
+        "imagePullPolicy": {
+          "type": "string",
+          "description": "ImagePullPolicy optionally overrides the autoscaler container's image pull policy. This override is for provided for autoscaler testing and development."
+        },
+        "cpu": {
+          "type": "string",
+          "title": "Optional CPUs requirements for autoscaler - default \"500m\""
+        },
+        "memory": {
+          "type": "string",
+          "title": "Optional memory requirements for autoscaler - default \"512Mi\""
+        },
+        "envs": {
+          "$ref": "#/definitions/protoEnvironmentVariables",
+          "description": "Optional list of environment variables to set in the autoscaler container."
+        },
+        "volumes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protoVolume"
+          },
+          "description": "Optional list of volumeMounts.  This is needed for enabling TLS for the autoscaler container."
+        }
+      }
+    },
+    "protoCapabilities": {
+      "type": "object",
+      "properties": {
+        "add": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "title": "Optional. Added capabilities"
+        },
+        "drop": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "title": "Optional. Removed capabilities"
+        }
+      },
+      "description": "Adds and removes POSIX capabilities from running containers."
+    },
+    "protoClusterSpec": {
+      "type": "object",
+      "properties": {
+        "headGroupSpec": {
+          "$ref": "#/definitions/protoHeadGroupSpec",
+          "title": "Required. The head group configuration"
+        },
+        "workerGroupSpec": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protoWorkerGroupSpec"
+          },
+          "title": "Optional. The worker group configurations"
+        },
+        "enableInTreeAutoscaling": {
+          "type": "boolean",
+          "title": "EnableInTreeAutoscaling indicates whether operator should create in tree autoscaling configs"
+        },
+        "autoscalerOptions": {
+          "$ref": "#/definitions/protoAutoscalerOptions",
+          "description": "AutoscalerOptions specifies optional configuration for the Ray autoscaler."
+        },
+        "headServiceAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Optional. The annotations for the head service"
+        }
+      },
+      "description": "Cluster specification.",
+      "required": [
+        "headGroupSpec"
+      ]
+    },
+    "protoEnvValueFrom": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "$ref": "#/definitions/EnvValueFromSource"
+        },
+        "name": {
+          "type": "string",
+          "title": "Name for config map or secret, container name for resource, path for field"
+        },
+        "key": {
+          "type": "string",
+          "title": "Key for config map or secret, resource name for resource"
+        }
+      }
+    },
+    "protoEnvironmentVariables": {
+      "type": "object",
+      "properties": {
+        "values": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "valuesFrom": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/protoEnvValueFrom"
+          }
+        }
+      },
+      "title": "This allows to specify both - environment variables containing values and environment values containing valueFrom"
+    },
+    "protoHeadGroupSpec": {
+      "type": "object",
+      "properties": {
+        "computeTemplate": {
+          "type": "string",
+          "title": "Required. The computeTemplate of head node group"
+        },
+        "image": {
+          "type": "string",
+          "title": "Optional field. This field will be used to retrieve right ray container"
+        },
+        "serviceType": {
+          "type": "string",
+          "title": "Optional. The service type (ClusterIP, NodePort, Load balancer) of the head node"
+        },
+        "enableIngress": {
+          "type": "boolean",
+          "title": "Optional. Enable Ingress\nif Ingress is enabled, we might have to specify annotation IngressClassAnnotationKey, for the cluster itself, defining Ingress class"
+        },
+        "rayStartParams": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Required. The ray start params of head node group."
+        },
+        "volumes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protoVolume"
+          },
+          "title": "Optional. The volumes mount to head pod"
+        },
+        "serviceAccount": {
+          "type": "string",
+          "title": "Optional. ServiceAccount used by head pod\nNote that the service account has to be created prior to usage here"
+        },
+        "imagePullSecret": {
+          "type": "string",
+          "title": "Optional. image pull secret used by head pod"
+        },
+        "environment": {
+          "$ref": "#/definitions/protoEnvironmentVariables",
+          "title": "Optional. Environment variables for head pod"
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Optional. Annotations for the head pod"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Optional. Labels for the head pod"
+        },
+        "imagePullPolicy": {
+          "type": "string",
+          "title": "Optional image pull policy We only support Always and ifNotPresent"
+        },
+        "securityContext": {
+          "$ref": "#/definitions/protoSecurityContext",
+          "description": "Optional. Configure the security context for the head container for debugging etc."
+        }
+      },
+      "title": "Cluster HeadGroup specification",
+      "required": [
+        "computeTemplate",
+        "rayStartParams"
+      ]
+    },
+    "protoListAllRayServicesResponse": {
+      "type": "object",
+      "properties": {
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protoRayService"
+          },
+          "description": "A list of services.",
+          "readOnly": true
+        },
+        "totalSize": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The total number of RayServices for the given query.",
+          "readOnly": true
+        },
+        "nextPageToken": {
+          "type": "string",
+          "description": "The token to list the next page of RayServices.\nIf there is no more service, this field will be empty.",
+          "readOnly": true
+        }
+      }
+    },
+    "protoListRayServicesResponse": {
+      "type": "object",
+      "properties": {
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protoRayService"
+          },
+          "title": "List of services",
+          "readOnly": true
+        },
+        "totalSize": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The total number of RayServices for the given query.",
+          "readOnly": true
+        },
+        "nextPageToken": {
+          "type": "string",
+          "description": "The token to list the next page of RayServices.\n\nIf there are no more clusters, this field will be empty.",
+          "readOnly": true
+        }
+      }
+    },
+    "protoRayService": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Required input field. Unique ray service name provided by user."
+        },
+        "namespace": {
+          "type": "string",
+          "title": "Required input field. ray service namespace provided by user"
+        },
+        "user": {
+          "type": "string",
+          "description": "Required field. This field indicates the user who owns the ray service."
+        },
+        "version": {
+          "type": "string",
+          "title": "Required field. This field indicates Ray version. Should be the same as image version"
+        },
+        "serveConfigV2": {
+          "type": "string",
+          "title": "Config for serve deployment V2. Note that only one config V1 or V2 can be specified"
+        },
+        "serviceUnhealthySecondThreshold": {
+          "type": "integer",
+          "format": "int32",
+          "title": "Serve deployment related health check"
+        },
+        "deploymentUnhealthySecondThreshold": {
+          "type": "integer",
+          "format": "int32",
+          "title": "Dashboard agent related health check"
+        },
+        "clusterSpec": {
+          "$ref": "#/definitions/protoClusterSpec",
+          "description": "Required. The cluster template."
+        },
+        "rayServiceStatus": {
+          "$ref": "#/definitions/protoRayServiceStatus",
+          "description": "Output. The status for the ray service.",
+          "readOnly": true
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Output. The time that the ray service created.",
+          "readOnly": true
+        },
+        "deleteAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Output. The time that the ray service deleted.",
+          "readOnly": true
+        }
+      },
+      "required": [
+        "name",
+        "namespace",
+        "user",
+        "version",
+        "clusterSpec"
+      ]
+    },
+    "protoRayServiceEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Output. Unique Event Id."
+        },
+        "name": {
+          "type": "string",
+          "description": "Output. Human readable name for event."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Output. The creation time of the event."
+        },
+        "firstTimestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Output. The last time the event occur."
+        },
+        "lastTimestamp": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Output. The first time the event occur"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Output. The reason for the transition into the object's current status."
+        },
+        "message": {
+          "type": "string",
+          "description": "Output. A human-readable description of the status of this operation."
+        },
+        "type": {
+          "type": "string",
+          "title": "Output. Type of this event (Normal, Warning), new types could be added in the future"
+        },
+        "count": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Output. The number of times this event has occurred."
+        }
+      }
+    },
+    "protoRayServiceStatus": {
+      "type": "object",
+      "properties": {
+        "applicationStatus": {
+          "type": "string",
+          "description": "NOTE(zcin): the first three fields are deprecated in favor of serve_application_status.\n(Deprecated) The ray serve application status."
+        },
+        "applicationMessage": {
+          "type": "string",
+          "description": "(Deprecated) A human-readable description of the status of this operation."
+        },
+        "serveDeploymentStatus": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protoServeDeploymentStatus"
+          },
+          "description": "(Deprecated) The status for each deployment."
+        },
+        "rayServiceEvents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protoRayServiceEvent"
+          },
+          "description": "The related event for the ray service."
+        },
+        "rayClusterName": {
+          "type": "string",
+          "description": "The ray cluster name."
+        },
+        "rayClusterState": {
+          "type": "string",
+          "description": "The state for ray cluster."
+        },
+        "serviceEndpoint": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The service endpoint of the cluster and service."
+        },
+        "serveApplicationStatus": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protoServeApplicationStatus"
+          },
+          "title": "All ray serve application statuses"
+        }
+      }
+    },
+    "protoSecurityContext": {
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "$ref": "#/definitions/protoCapabilities",
+          "description": "Optional. The capabilities to add/drop when running containers."
+        },
+        "privileged": {
+          "type": "boolean",
+          "description": "Optional. Run container in privileged mode - essentially equivalent to root on the host. Default is false."
+        }
+      },
+      "description": "SecurityContext holds security configuration that will be applied to a container.\nSome fields are present in both SecurityContext and PodSecurityContext.  When both\nare set, the values in SecurityContext take precedence."
+    },
+    "protoServeApplicationStatus": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Application name"
+        },
+        "status": {
+          "type": "string",
+          "title": "Application status"
+        },
+        "message": {
+          "type": "string",
+          "description": "Details about the application status."
+        },
+        "serveDeploymentStatus": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protoServeDeploymentStatus"
+          },
+          "title": "All ray serve deployment statuses in this application"
+        }
+      }
+    },
+    "protoServeDeploymentStatus": {
+      "type": "object",
+      "properties": {
+        "deploymentName": {
+          "type": "string",
+          "description": "Unique ray service deployment name."
+        },
+        "status": {
+          "type": "string",
+          "description": "Status of single deployment."
+        },
+        "message": {
+          "type": "string",
+          "description": "A human-readable description of the status of this operation."
+        }
+      }
+    },
+    "protoVolume": {
+      "type": "object",
+      "properties": {
+        "mountPath": {
+          "type": "string"
+        },
+        "volumeType": {
+          "$ref": "#/definitions/VolumeVolumeType"
+        },
+        "name": {
+          "type": "string",
+          "title": "volume name"
+        },
+        "source": {
+          "type": "string",
+          "title": "volume source, for example hostpath source, secret or configMap name, etc"
+        },
+        "readOnly": {
+          "type": "boolean",
+          "title": "Read only flag"
+        },
+        "hostPathType": {
+          "$ref": "#/definitions/VolumeHostPathType"
+        },
+        "mountPropagationMode": {
+          "$ref": "#/definitions/VolumeMountPropagationMode"
+        },
+        "storageClassName": {
+          "type": "string",
+          "description": "If not defined, default is used",
+          "title": "If indicate ephemeral, we need to let user specify volumeClaimTemplate"
+        },
+        "accessMode": {
+          "$ref": "#/definitions/VolumeAccessMode"
+        },
+        "storage": {
+          "type": "string",
+          "title": "For ephemeral - required storage, GB, for empty dir - MB"
+        },
+        "items": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Items used for configMap and secrets"
+        }
+      }
+    },
+    "protoWorkerGroupSpec": {
+      "type": "object",
+      "properties": {
+        "groupName": {
+          "type": "string",
+          "title": "Required. Group name of the current worker group"
+        },
+        "computeTemplate": {
+          "type": "string",
+          "title": "Required. The computeTemplate of head node group"
+        },
+        "image": {
+          "type": "string",
+          "title": "Optional field. This field will be used to retrieve right ray container"
+        },
+        "replicas": {
+          "type": "integer",
+          "format": "int32",
+          "title": "Required. Desired replicas of the worker group"
+        },
+        "minReplicas": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Optional. Min replicas of the worker group, can't be greater than max_replicas."
+        },
+        "maxReplicas": {
+          "type": "integer",
+          "format": "int32",
+          "title": "Required. Max replicas of the worker group (\u003e0)"
+        },
+        "rayStartParams": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Required. The ray start parameters of worker node group"
+        },
+        "volumes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protoVolume"
+          },
+          "title": "Optional. The volumes mount to worker pods"
+        },
+        "serviceAccount": {
+          "type": "string",
+          "title": "Optional. ServiceAccount used by worker pod\nNote that the service account has to be created prior to usage here"
+        },
+        "imagePullSecret": {
+          "type": "string",
+          "title": "Optional. image pull secret used by worker pod"
+        },
+        "environment": {
+          "$ref": "#/definitions/protoEnvironmentVariables",
+          "title": "Optional. Environment variables for worker pod"
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Optional. Annotations for the worker pod"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Optional. Labels for the worker pod"
+        },
+        "imagePullPolicy": {
+          "type": "string",
+          "title": "Optional image pull policy We only support Always and ifNotPresent"
+        },
+        "securityContext": {
+          "$ref": "#/definitions/protoSecurityContext",
+          "description": "Optional. Configure the security context for the worker container for debugging etc."
+        }
+      },
+      "required": [
+        "groupName",
+        "computeTemplate",
+        "replicas",
+        "maxReplicas",
+        "rayStartParams"
+      ]
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string",
+          "description": "A URL/resource name that uniquely identifies the type of the serialized\nprotocol buffer message. This string must contain at least\none \"/\" character. The last segment of the URL's path must represent\nthe fully qualified name of the type (as in\n`path/google.protobuf.Duration`). The name should be in a canonical form\n(e.g., leading \".\" is not accepted).\n\nIn practice, teams usually precompile into the binary all types that they\nexpect it to use in the context of Any. However, for URLs which use the\nscheme `http`, `https`, or no scheme, one can optionally set up a type\nserver that maps type URLs to message definitions as follows:\n\n* If no scheme is provided, `https` is assumed.\n* An HTTP GET on the URL must yield a [google.protobuf.Type][]\n  value in binary format, or produce an error.\n* Applications are allowed to cache lookup results based on the\n  URL, or have them precompiled into a binary to avoid any\n  lookup. Therefore, binary compatibility needs to be preserved\n  on changes to types. (Use versioned type names to manage\n  breaking changes.)\n\nNote: this functionality is not currently available in the official\nprotobuf release, and it is not used for type URLs beginning with\ntype.googleapis.com. As of May 2023, there are no widely used type server\nimplementations and no plans to implement one.\n\nSchemes other than `http`, `https` (or the empty scheme) might be\nused with implementation specific semantics."
+        }
+      },
+      "additionalProperties": {},
+      "description": "`Any` contains an arbitrary serialized protocol buffer message along with a\nURL that describes the type of the serialized message.\n\nProtobuf library provides support to pack/unpack Any values in the form\nof utility functions or additional generated methods of the Any type.\n\nExample 1: Pack and unpack a message in C++.\n\n    Foo foo = ...;\n    Any any;\n    any.PackFrom(foo);\n    ...\n    if (any.UnpackTo(\u0026foo)) {\n      ...\n    }\n\nExample 2: Pack and unpack a message in Java.\n\n    Foo foo = ...;\n    Any any = Any.pack(foo);\n    ...\n    if (any.is(Foo.class)) {\n      foo = any.unpack(Foo.class);\n    }\n    // or ...\n    if (any.isSameTypeAs(Foo.getDefaultInstance())) {\n      foo = any.unpack(Foo.getDefaultInstance());\n    }\n\n Example 3: Pack and unpack a message in Python.\n\n    foo = Foo(...)\n    any = Any()\n    any.Pack(foo)\n    ...\n    if any.Is(Foo.DESCRIPTOR):\n      any.Unpack(foo)\n      ...\n\n Example 4: Pack and unpack a message in Go\n\n     foo := \u0026pb.Foo{...}\n     any, err := anypb.New(foo)\n     if err != nil {\n       ...\n     }\n     ...\n     foo := \u0026pb.Foo{}\n     if err := any.UnmarshalTo(foo); err != nil {\n       ...\n     }\n\nThe pack methods provided by protobuf library will by default use\n'type.googleapis.com/full.type.name' as the type URL and the unpack\nmethods only use the fully qualified type name after the last '/'\nin the type URL, for example \"foo.bar.com/x/y.z\" will yield type\nname \"y.z\".\n\nJSON\n====\nThe JSON representation of an `Any` value uses the regular\nrepresentation of the deserialized, embedded message, with an\nadditional field `@type` which contains the type URL. Example:\n\n    package google.profile;\n    message Person {\n      string first_name = 1;\n      string last_name = 2;\n    }\n\n    {\n      \"@type\": \"type.googleapis.com/google.profile.Person\",\n      \"firstName\": \u003cstring\u003e,\n      \"lastName\": \u003cstring\u003e\n    }\n\nIf the embedded message type is well-known and has a custom JSON\nrepresentation, that representation will be embedded adding a field\n`value` which holds the custom JSON in addition to the `@type`\nfield. Example (for message [google.protobuf.Duration][]):\n\n    {\n      \"@type\": \"type.googleapis.com/google.protobuf.Duration\",\n      \"value\": \"1.212s\"\n    }"
+    }
+  }
+}

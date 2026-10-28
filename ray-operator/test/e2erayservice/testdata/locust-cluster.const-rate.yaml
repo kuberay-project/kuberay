@@ -1,0 +1,69 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: locust-cluster
+spec:
+  rayVersion: "2.52.0"
+  headGroupSpec:
+    template:
+      spec:
+        containers:
+          - name: ray-head
+            image: rayproject/ray:2.52.0
+            resources:
+              requests:
+                cpu: "300m"
+                memory: "1G"
+              limits:
+                cpu: "500m"
+                memory: "2G"
+            ports:
+              - containerPort: 6379
+                name: gcs-server
+              - containerPort: 8265
+                name: dashboard
+              - containerPort: 10001
+                name: client
+            volumeMounts:
+              - mountPath: /locustfile
+                name: locustfile-volume
+              - mountPath: /locust-runner
+                name: locust-runner-volume
+        volumes:
+          - name: locustfile-volume
+            configMap:
+              name: locustfile-config
+          - name: locust-runner-volume
+            configMap:
+              name: locust-runner-script
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: locustfile-config
+data:
+  locustfile.py: |
+    from locust import FastHttpUser, task, constant, LoadTestShape
+    import os
+
+    class ConstantUser(FastHttpUser):
+        wait_time = constant(1)
+        network_timeout = None
+        connection_timeout = None
+
+        @task
+        def hello_world(self):
+            self.client.post("/")
+
+    class StagesShape(LoadTestShape):
+        stages = [
+            {"duration": 150, "users": 10, "spawn_rate": 10},
+        ]
+
+        def tick(self):
+            run_time = self.get_run_time()
+            for stage in self.stages:
+                if run_time < stage["duration"]:
+                    tick_data = (stage["users"], stage["spawn_rate"])
+                    return tick_data
+            return None

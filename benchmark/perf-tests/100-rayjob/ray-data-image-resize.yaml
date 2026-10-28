@@ -1,0 +1,46 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: {{.Name}}
+  labels:
+    perf-test: ray-data-image-resize
+spec:
+  shutdownAfterJobFinishes: true
+  entrypoint: python ray_data_image_resize.py
+  rayClusterSpec:
+    rayVersion: "2.52.0"
+    headGroupSpec:
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: {{.Image}}
+              ports:
+                - containerPort: 6379
+                  name: gcs-server
+                - containerPort: 8265
+                  name: dashboard
+                - containerPort: 10001
+                  name: client
+              resources:
+                limits:
+                  memory: "10Gi"
+                requests:
+                  cpu: "2"
+                  memory: "10Gi"
+    workerGroupSpecs:
+      - replicas: 2
+        minReplicas: 1
+        maxReplicas: 5
+        groupName: worker-group
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: {{.Image}}
+                resources:
+                  limits:
+                    memory: "4Gi"
+                  requests:
+                    cpu: "2"
+                    memory: "4Gi"

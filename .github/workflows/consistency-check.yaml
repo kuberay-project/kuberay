@@ -1,0 +1,157 @@
+name: operator-consistency-check
+
+on:
+  push:
+    branches:
+    - master
+    - release-*
+  pull_request:
+    branches:
+    - master
+    - release-*
+
+jobs:
+  # Check consistency between types.go and generated API.
+  ray-operator-verify-codegen:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          # Use the same go version with build job
+          go-version: v1.26
+
+      - name: Check golang version
+        working-directory: ./ray-operator
+        run: go version
+
+      - name: Verify Codegen
+        working-directory: ./ray-operator
+        run: ./hack/verify-codegen.sh
+
+      - name: Verify Generated Files
+        working-directory: ./ray-operator
+        run: ./hack/verify-generated-files.sh
+
+  # Check consistency between types.go and generated API reference.
+  ray-operator-verify-api-docs:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          # Use the same go version with build job
+          go-version: v1.26
+
+      - name: Check golang version
+        working-directory: ./ray-operator
+        run: go version
+
+      - name: Verify API reference
+        working-directory: ./ray-operator
+        run: ./hack/verify-api-docs.sh
+
+  # 1. Check consistency between types.go and CRD YAML files.
+  # 2. Check consistency between kubebuilder markers and RBAC.
+  ray-operator-verify-crd-rbac:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          # Use the same go version with build job
+          go-version: v1.26
+
+      - name: Update CRD/RBAC YAML files
+        working-directory: ./ray-operator
+        run: make manifests
+
+      - name: Verify Changed files
+        id: verify-changed-files
+        uses: tj-actions/verify-changed-files@v20
+        with:
+          files: |
+            ./config/crd/bases/*.yaml
+            ./config/rbac/*.yaml
+
+      - name: Check changed files
+        if: steps.verify-changed-files.outputs.files_changed == 'true'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            core.setFailed('Please run \"make manifests\" to synchronize CRD and RBAC!')
+  # Check consistency between CRD YAML files in ray-operator/config/crd/bases
+  # and in helm-chart/kuberay-operator/crds
+  helm-chart-verify-crd:
+    needs: ray-operator-verify-crd-rbac
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Update CRD YAML files
+        run: |
+          rm -r helm-chart/kuberay-operator/crds/
+          cp -r ray-operator/config/crd/bases/ helm-chart/kuberay-operator/crds/
+
+      - name: Verify Changed files
+        id: verify-changed-files
+        uses: tj-actions/verify-changed-files@v20
+        with:
+          files: |
+            ./helm-chart/kuberay-operator/crds/*.yaml
+
+      - name: Check changed files
+        if: steps.verify-changed-files.outputs.files_changed == 'true'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            core.setFailed('Please run \"make sync\" to synchronize CRDs!')
+  # Check consistency between RBAC YAML files in ray-operator/config/rbac/
+  # and in helm-chart/kuberay-operator/templates
+  helm-chart-verify-rbac:
+    needs: ray-operator-verify-crd-rbac
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.9.4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: 3.7
+
+      - name: Install dependencies
+        run: |
+          pip3 install -r scripts/requirements.txt
+
+      - name: Check rbac consistency
+        run: |
+          python3 scripts/rbac-check.py
+
+      - name: Check rbac configuration
+        run: |
+          pytest -s scripts/rbac_test.py

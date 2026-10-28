@@ -1,0 +1,110 @@
+apiVersion: scheduling.volcano.sh/v1beta1
+kind: Queue
+metadata:
+  name: kuberay-test-queue
+spec:
+  weight: 1
+  capability:
+    cpu: "4"
+    memory: "6Gi"
+---
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob-sample-0
+  labels:
+    volcano.sh/queue-name: kuberay-test-queue
+spec:
+  entrypoint: python /home/ray/samples/sample_code.py
+  runtimeEnvYAML: |
+    pip:
+      - requests==2.26.0
+      - pendulum==2.1.2
+    env_vars:
+      counter_name: "test_counter"
+  rayClusterSpec:
+    rayVersion: "2.52.0"
+    headGroupSpec:
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.52.0
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            resources:
+              limits:
+                cpu: "1"
+                memory: "5Gi"
+              requests:
+                cpu: "1"
+                memory: "2Gi"
+            volumeMounts:
+            - mountPath: /home/ray/samples
+              name: code-sample
+          volumes:
+          - name: code-sample
+            configMap:
+              name: ray-job-code-sample
+              items:
+              - key: sample_code.py
+                path: sample_code.py
+    workerGroupSpecs:
+    - replicas: 2
+      minReplicas: 2
+      maxReplicas: 2
+      groupName: small-group
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.52.0
+            resources:
+              limits:
+                cpu: "1"
+                memory: "1Gi"
+              requests:
+                cpu: "1"
+                memory: "1Gi"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-job-code-sample
+data:
+  sample_code.py: |
+    import ray
+    import os
+    import requests
+
+    ray.init()
+
+    @ray.remote
+    class Counter:
+        def __init__(self):
+            # Used to verify runtimeEnv
+            self.name = os.getenv("counter_name")
+            assert self.name == "test_counter"
+            self.counter = 0
+
+        def inc(self):
+            self.counter += 1
+
+        def get_counter(self):
+            return "{} got {}".format(self.name, self.counter)
+
+    counter = Counter.remote()
+
+    for _ in range(5):
+        ray.get(counter.inc.remote())
+        print(ray.get(counter.get_counter.remote()))
+
+    # Verify that the correct runtime env was used for the job.
+    assert requests.__version__ == "2.26.0"

@@ -1,0 +1,9 @@
+# Redis password
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-password-secret
+type: Opaque
+data:
+  # echo -n "5241590000000000" | base64
+  password: NTI0MTU5MDAwMDAwMDAwMA==

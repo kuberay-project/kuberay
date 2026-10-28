@@ -1,0 +1,18 @@
+## ============================================================================
+## Kustomize overlay: test-overrides (CI / e2e only)
+## ----------------------------------------------------------------------------
+## Purpose: Enable alpha / experimental feature gates (currently RayJobDeletionPolicy)
+## for end-to-end testing without modifying base manifests or Helm defaults.
+## ============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../default
+  - event_forwarder_rbac.yaml
+
+patches:
+  - path: deployment-override.yaml
+    target:
+      kind: Deployment
+      name: kuberay-operator

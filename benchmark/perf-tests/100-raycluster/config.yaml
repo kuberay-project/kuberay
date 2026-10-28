@@ -1,0 +1,58 @@
+name: kuberay
+namespace:
+  number: 10
+tuningSets:
+- name: Uniform100qps
+  qpsLoad:
+    qps: 100
+steps:
+- name: Start measurements
+  measurements:
+  - Identifier: PodStartupLatency
+    Method: PodStartupLatency
+    Params:
+      action: start
+      labelSelector: app.kubernetes.io/created-by = kuberay-operator
+      threshold: 30m
+  - Identifier: WaitForControlledPodsRunning
+    Method: WaitForControlledPodsRunning
+    Params:
+      action: start
+      apiVersion: ray.io/v1
+      kind: RayCluster
+      labelSelector: app.kubernetes.io/created-by = kuberay-operator
+      operationTimeout: 120s
+- name: Creating Ray clusters
+  phases:
+  - namespaceRange:
+      min: 1
+      max: 10
+    replicasPerNamespace: 10
+    tuningSet: Uniform100qps
+    objectBundle:
+    - basename: raycluster
+      objectTemplatePath: raycluster.yaml
+      templateFillMap:
+        Replicas: 3
+- name: Wait for RayClusters ready
+  measurements:
+  - Identifier: WaitForRayCluster
+    Method: Exec
+    Params:
+      timeout: 30m
+      command:
+      - "bash"
+      - "common/wait-for-rayclusters.sh"
+      - "100"
+- name: Wait for pods to be running
+  measurements:
+  - Identifier: WaitForControlledPodsRunning
+    Method: WaitForControlledPodsRunning
+    Params:
+      action: gather
+- name: Measure pod startup latency
+  measurements:
+  - Identifier: PodStartupLatency
+    Method: PodStartupLatency
+    Params:
+      action: gather

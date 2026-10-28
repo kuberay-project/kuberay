@@ -1,0 +1,400 @@
+name: Go-build-and-test
+
+on:
+  push:
+    branches:
+    - master
+    - release-*
+  pull_request:
+    branches:
+    - master
+    - release-*
+
+jobs:
+  lint:
+    name: Lint (pre-commit)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: yarn
+          cache-dependency-path: dashboard/yarn.lock
+      - name: Check Yarn lock consistency
+        run: |
+          cd dashboard
+          yarn install --immutable
+          yarn dedupe --check
+      - uses: pre-commit/action@v3.0.1
+
+  build_apiserver:
+    env:
+      working-directory: ./apiserver
+    name: Build Apiserver and Docker Images
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: v1.26
+
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v6
+        with:
+          # When checking out the repository that
+          # triggered a workflow, this defaults to the reference or SHA for that event.
+          # Default value should work for both pull_request and merge(push) event.
+          ref: ${{github.event.pull_request.head.sha}}
+
+      - name: list directories
+        working-directory: ${{env.working-directory}}
+        run: |
+          pwd
+          ls -R
+
+      - name: install kubebuilder
+        run: |
+          wget https://github.com/kubernetes-sigs/kubebuilder/releases/download/v3.0.0/kubebuilder_$(go env GOOS)_$(go env GOARCH)
+          sudo mv kubebuilder_$(go env GOOS)_$(go env GOARCH) /usr/local/bin/kubebuilder
+
+      - name: Get revision SHA
+        id: vars
+        run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+      - name: Get dependencies
+        run: go mod download
+        working-directory: ${{env.working-directory}}
+
+      - name: Build
+        run: go build ./...
+        working-directory: ${{env.working-directory}}
+
+      - name: Test
+        run: go test ./pkg/... ./cmd/... -race -parallel 4
+        working-directory: ${{env.working-directory}}
+
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v5
+
+      - name: Build Docker Image - Apiserver
+        run: |
+          docker build -t kuberay/apiserver:${{ steps.vars.outputs.sha_short }} -f apiserver/Dockerfile .
+          docker save -o /tmp/apiserver.tar kuberay/apiserver:${{ steps.vars.outputs.sha_short }}
+
+      - name: Upload Artifact Apiserver
+        uses: actions/upload-artifact@v7
+        with:
+          name: apiserver_img
+          path: /tmp/apiserver.tar
+
+      - name: Log in to Quay.io
+        uses: docker/login-action@v4
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_ROBOT_TOKEN }}
+        if: contains(fromJson('["refs/heads/master"]'), github.ref)
+
+      # Build apiserver binaries inside the gh runner vm directly and then copy the go binaries to docker images using the Dockerfile.buildx
+      - name: Build linux/amd64 apiserver go binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          CGO_ENABLED=$CGO_ENABLED GOOS=$GOOS GOARCH=$GOARCH go build -a -o kuberay-apiserver-$GOARCH cmd/main.go
+        working-directory: ${{env.working-directory}}
+
+      - name: Build linux/arm64 apiserver binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: arm64
+        run: |
+          CGO_ENABLED=$CGO_ENABLED GOOS=$GOOS GOARCH=$GOARCH go build -a -o kuberay-apiserver-$GOARCH cmd/main.go
+        working-directory: ${{env.working-directory}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build MultiArch Docker Image and Push on Merge
+        uses: docker/build-push-action@v7
+        env:
+          REPO_ORG: kuberay
+          REPO_NAME: apiserver
+        with:
+          platforms: linux/amd64,linux/arm64
+          context: .
+          file: ./apiserver/Dockerfile.buildx
+          push: ${{ contains(fromJson('["refs/heads/master"]'), github.ref) }}
+          provenance: false
+          tags: |
+            quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ steps.vars.outputs.sha_short }}
+            quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:nightly
+
+  build_apiserversdk:
+    env:
+      working-directory: ./apiserversdk
+    name: Build apiserversdk
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: v1.26
+
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v6
+        with:
+          ref: ${{github.event.pull_request.head.sha}}
+
+      - name: Lint
+        run: make lint
+        working-directory: ${{env.working-directory}}
+
+      - name: Get dependencies
+        run: go mod download
+        working-directory: ${{env.working-directory}}
+
+      - name: Test
+        run: make test
+        working-directory: ${{env.working-directory}}
+
+  build_operator:
+    env:
+      working-directory: ./ray-operator
+    name: Build Operator Binaries and Docker Images
+    runs-on: ubuntu-22.04
+    steps:
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: v1.26
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v6
+      with:
+        # When checking out the repository that
+        # triggered a workflow, this defaults to the reference or SHA for that event.
+        # Default value should work for both pull_request and merge(push) event.
+        ref: ${{github.event.pull_request.head.sha}}
+
+    - name: list directories
+      working-directory: ${{env.working-directory}}
+      run: |
+        pwd
+        ls -R
+
+    - name: install kubebuilder
+      run: |
+        wget https://github.com/kubernetes-sigs/kubebuilder/releases/download/v3.0.0/kubebuilder_$(go env GOOS)_$(go env GOARCH)
+        sudo mv kubebuilder_$(go env GOOS)_$(go env GOARCH) /usr/local/bin/kubebuilder
+
+    - name: Get revision SHA
+      id: vars
+      run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+    - name: Get dependencies
+      run: go mod download
+      working-directory: ${{env.working-directory}}
+
+    - name: Build
+      run: make build
+      working-directory: ${{env.working-directory}}
+
+    - name: Test
+      run: make test
+      working-directory: ${{env.working-directory}}
+
+    - name: Set up Docker
+      uses: docker/setup-docker-action@v5
+
+    - name: Build Docker Image - Operator
+      run: |
+        IMG=kuberay/operator:${{ steps.vars.outputs.sha_short }} make docker-image
+        docker save -o /tmp/operator.tar kuberay/operator:${{ steps.vars.outputs.sha_short }}
+      working-directory: ${{env.working-directory}}
+
+    - name: Upload Artifact Operator
+      uses: actions/upload-artifact@v7
+      with:
+        name: operator_img
+        path: /tmp/operator.tar
+
+    - name: Log in to Quay.io
+      uses: docker/login-action@v4
+      with:
+        registry: quay.io
+        username: ${{ secrets.QUAY_USERNAME }}
+        password: ${{ secrets.QUAY_ROBOT_TOKEN }}
+      if: contains(fromJson('["refs/heads/master"]'), github.ref)
+
+    # Build operators inside the gh runner vm directly and then copy the go binaries to docker images using the Dockerfile.buildx
+    - name: Compile linux/amd64 Operator go binary
+      env:
+        CGO_ENABLED: 1
+        GOOS: linux
+        GOARCH: amd64
+      run: |
+        CGO_ENABLED=$CGO_ENABLED GOOS=$GOOS GOARCH=$GOARCH go build -tags strictfipsruntime -a -o manager-$GOARCH main.go
+      working-directory: ${{env.working-directory}}
+      if: contains(fromJson('["refs/heads/master"]'), github.ref)
+
+    - name: Cross Compile linux/arm64 Operator binary
+      env:
+        CC: aarch64-linux-gnu-gcc
+        CGO_ENABLED: 1
+        GOOS: linux
+        GOARCH: arm64
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+        CC=$CC CGO_ENABLED=$CGO_ENABLED GOOS=$GOOS GOARCH=$GOARCH go build -tags strictfipsruntime -a -o manager-$GOARCH main.go
+      working-directory: ${{env.working-directory}}
+      if: contains(fromJson('["refs/heads/master"]'), github.ref)
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+      if: contains(fromJson('["refs/heads/master"]'), github.ref)
+
+    - name: Build MultiArch Docker Image and Push on Merge
+      uses: docker/build-push-action@v7
+      env:
+        REPO_ORG: kuberay
+        REPO_NAME: operator
+      with:
+        platforms: linux/amd64,linux/arm64
+        context: ${{env.working-directory}}
+        file: ${{env.working-directory}}/Dockerfile.buildx
+        push: true
+        provenance: false
+        tags: |
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ steps.vars.outputs.sha_short }}
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:nightly
+      if: contains(fromJson('["refs/heads/master"]'), github.ref)
+
+  build_kubectl-plugin:
+    env:
+      working-directory: ./kubectl-plugin
+    name: Build Ray Kubectl plugin
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: v1.26
+
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v6
+        with:
+          # When checking out the repository that
+          # triggered a workflow, this defaults to the reference or SHA for that event.
+          # Default value should work for both pull_request and merge(push) event.
+          ref: ${{github.event.pull_request.head.sha}}
+
+      - name: Get dependencies
+        run: go mod download
+        working-directory: ${{env.working-directory}}
+
+      - name: Build CLI
+        run: go build -o kubectl-ray -a ./cmd/kubectl-ray.go
+        working-directory: ${{env.working-directory}}
+
+      - name: Test
+        run: go test ./pkg/... -race -parallel 4
+        working-directory: ${{env.working-directory}}
+
+  build_historyserver:
+    env:
+      working-directory: ./historyserver
+    name: Build historyserver
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: v1.26
+
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v6
+        with:
+          ref: ${{github.event.pull_request.head.sha}}
+
+      - name: Get revision SHA
+        id: vars
+        run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+      - name: Get dependencies
+        run: go mod download
+        working-directory: ${{env.working-directory}}
+
+      - name: Lint
+        run: make lint
+        working-directory: ${{env.working-directory}}
+
+      - name: Build
+        run: make build
+        working-directory: ${{env.working-directory}}
+
+      - name: Test
+        run: make test
+        working-directory: ${{env.working-directory}}
+
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v5
+
+      - name: Build Docker Images - Historyserver and Collector
+        run: make localimage-build
+        working-directory: ${{env.working-directory}}
+
+      - name: Log in to Quay.io
+        uses: docker/login-action@v4
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_ROBOT_TOKEN }}
+        if: contains(fromJson('["refs/heads/master"]'), github.ref)
+
+      - name: Build multi-arch binaries for historyserver and collector
+        run: make build-multi-arch
+        working-directory: ${{env.working-directory}}
+        if: contains(fromJson('["refs/heads/master"]'), github.ref)
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        if: contains(fromJson('["refs/heads/master"]'), github.ref)
+
+      - name: Build MultiArch Docker Image and Push on Merge
+        uses: docker/build-push-action@v7
+        env:
+          REPO_ORG: kuberay
+          REPO_NAME: historyserver
+        with:
+          platforms: linux/amd64,linux/arm64
+          context: ${{env.working-directory}}
+          file: ${{env.working-directory}}/Dockerfile.historyserver.buildx
+          push: true
+          provenance: false
+          tags: |
+            quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ steps.vars.outputs.sha_short }}
+            quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:nightly
+        if: contains(fromJson('["refs/heads/master"]'), github.ref)
+
+      - name: Build MultiArch Docker Image for Historyserver Collector and Push on Merge
+        uses: docker/build-push-action@v7
+        env:
+          REPO_ORG: kuberay
+          REPO_NAME: collector
+        with:
+          platforms: linux/amd64,linux/arm64
+          context: ${{env.working-directory}}
+          file: ${{env.working-directory}}/Dockerfile.collector.buildx
+          push: true
+          provenance: false
+          tags: |
+            quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ steps.vars.outputs.sha_short }}
+            quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:nightly
+        if: contains(fromJson('["refs/heads/master"]'), github.ref)

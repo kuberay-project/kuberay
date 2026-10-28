@@ -1,0 +1,51 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: agent-sandbox-code-execution-demo
+spec:
+  entrypoint: python ray-operator/config/samples/agent-sandbox/sandboxed_code_execution.py
+  runtimeEnvYAML: |
+    pip:
+      - k8s-agent-sandbox
+    working_dir: "https://github.com/ray-project/kuberay/archive/master.zip"
+  rayClusterSpec:
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: 0.0.0.0
+      template:
+        spec:
+          containers:
+          - image: rayproject/ray:2.55.0
+            name: ray-head
+            ports:
+            - containerPort: 6379
+              name: gcs
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            resources:
+              requests:
+                cpu: "2"
+                memory: "4Gi"
+              limits:
+                cpu: "2"
+                memory: "4Gi"
+    workerGroupSpecs:
+    - groupName: sandbox-executor-workers
+      replicas: 2
+      minReplicas: 1
+      maxReplicas: 2
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - image: rayproject/ray:2.55.0
+            name: ray-worker
+            resources:
+              requests:
+                cpu: "1"
+                memory: "2Gi"
+              limits:
+                cpu: "1"
+                memory: "2Gi"

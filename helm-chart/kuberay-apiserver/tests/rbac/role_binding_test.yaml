@@ -1,0 +1,47 @@
+suite: Test RoleBinding
+
+templates:
+  - rbac/role_binding.yaml
+
+release:
+  name: kuberay-apiserver
+  namespace: kuberay-system
+
+tests:
+  - it: Should not create role binding if `rbacEnable` is `false`
+    set:
+      rbacEnable: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should not create role binding if `rbacEnable` is `true` and `singleNamespaceInstall` is `false`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should create role binding if both `rbacEnable` and `singleNamespaceInstall` are `true`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: true
+    asserts:
+      - containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          name: kuberay-apiserver
+          namespace: kuberay-system
+      - equal:
+          path: roleRef
+          value:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: kuberay-apiserver
+      - contains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: kuberay-apiserver
+            namespace: kuberay-system

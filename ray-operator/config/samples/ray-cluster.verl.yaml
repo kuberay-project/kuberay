@@ -1,0 +1,29 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: verl-cluster
+spec:
+  rayVersion: "2.43.0"
+  headGroupSpec:
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.4-flashinfer0.2.2-cxx11abi0
+          resources:
+            limits:
+              cpu: "48"
+              memory: "192G"
+              nvidia.com/gpu: "4"
+            requests:
+              cpu: "36"
+              memory: "144G"
+              nvidia.com/gpu: "4"
+          ports:
+          - containerPort: 6379
+            name: gcs-server
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client

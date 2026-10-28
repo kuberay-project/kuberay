@@ -1,0 +1,63 @@
+# This example config is used to describe how does the annotation "ray.io/overwrite-container-cmd" work.
+# See https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/pod-command.html#kuberay-pod-command for more details.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  annotations:
+    ray.io/overwrite-container-cmd: "true"
+  name: raycluster-overwrite-cmd
+spec:
+  rayVersion: "2.52.0" # should match the Ray version in the image of the containers
+  # Ray head Pod template
+  headGroupSpec:
+    rayStartParams: {}
+    # Pod template
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+          ports:
+          - containerPort: 6379
+            name: gcs-server
+          - containerPort: 8265 # Ray dashboard
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          # Because the annotation "ray.io/overwrite-container-cmd" is set to "true",
+          # KubeRay will overwrite the generated container command with `command` and
+          # `args` in the following. Hence, you need to specify the `ulimit` command
+          # by yourself to avoid Ray scalability issues.
+          command: ["/bin/bash", "-c", "--"]
+          # Starting from v1.1.0, KubeRay injects the environment variable `KUBERAY_GEN_RAY_START_CMD`
+          # into the Ray container. This variable can be used to retrieve the generated Ray start command.
+          # Note that this environment variable does not include the `ulimit` command.
+          args: ["ulimit -n 65536; echo head; $KUBERAY_GEN_RAY_START_CMD"]
+  workerGroupSpecs:
+  - replicas: 1
+    minReplicas: 0
+    maxReplicas: 10
+    groupName: small-group
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+          # See the comments in headGroupSpec.
+          command: ["/bin/bash", "-c", "--"]
+          args: ["ulimit -n 65536; echo worker; $KUBERAY_GEN_RAY_START_CMD"]

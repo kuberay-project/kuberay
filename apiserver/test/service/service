@@ -1,0 +1,10 @@
+# list for a namespace
+curl 'localhost:8888/apis/v1/namespaces/default/services' \
+--header 'Content-Type: application/json'
+
+# list for all namespaces
+curl 'localhost:8888/apis/v1/services' \
+--header 'Content-Type: application/json'
+
+# Delete service
+curl -X DELETE localhost:8888/apis/v1/namespaces/default/services/test-v2

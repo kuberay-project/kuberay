@@ -1,0 +1,507 @@
+suite: Test ConfigMap
+
+templates:
+  - configmap.yaml
+
+release:
+  name: kuberay-operator
+  namespace: default
+
+tests:
+  - it: Should not create ConfigMap when configuration is not enabled
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should not create ConfigMap when configuration.enabled is false
+    set:
+      configuration:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should create ConfigMap when configuration is enabled
+    set:
+      configuration:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - containsDocument:
+          apiVersion: v1
+          kind: ConfigMap
+          name: kuberay-operator-config
+          namespace: default
+
+  - it: Should create ConfigMap with defaultContainerEnvs when set
+    set:
+      configuration:
+        enabled: true
+        defaultContainerEnvs:
+          - name: RAY_enable_open_telemetry
+            value: "true"
+    asserts:
+      - hasDocuments:
+          count: 1
+      - containsDocument:
+          apiVersion: v1
+          kind: ConfigMap
+          name: kuberay-operator-config
+          namespace: default
+
+  - it: Should include defaultContainerEnvs in Configuration
+    set:
+      configuration:
+        enabled: true
+        defaultContainerEnvs:
+          - name: RAY_enable_open_telemetry
+            value: "true"
+          - name: RAY_metric_cardinality_level
+            value: "recommended"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "apiVersion: config.ray.io/v1alpha1"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "kind: Configuration"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "defaultContainerEnvs:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "name: RAY_enable_open_telemetry"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'value: "true"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "name: RAY_metric_cardinality_level"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "value: recommended"
+
+  - it: Should create ConfigMap without defaultContainerEnvs when not set
+    set:
+      configuration:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "apiVersion: config.ray.io/v1alpha1"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "kind: Configuration"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "defaultContainerEnvs:"
+
+  - it: Should include defaultPodAnnotations in Configuration
+    set:
+      configuration:
+        enabled: true
+        defaultPodAnnotations:
+          monitoring.example.com/scrape: "true"
+          monitoring.example.com/port: "8080"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "defaultPodAnnotations:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "monitoring.example.com/scrape: \"true\""
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "monitoring.example.com/port: \"8080\""
+
+  - it: Should not include defaultPodAnnotations when not set
+    set:
+      configuration:
+        enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "defaultPodAnnotations:"
+
+  - it: Should include defaultPodLabels in Configuration
+    set:
+      configuration:
+        enabled: true
+        defaultPodLabels:
+          app.kubernetes.io/managed-by: kuberay
+          team: platform
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "defaultPodLabels:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "app.kubernetes.io/managed-by: kuberay"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "team: platform"
+
+  - it: Should not include defaultPodLabels when not set
+    set:
+      configuration:
+        enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "defaultPodLabels:"
+
+  - it: Should include enableLeaderElection from values.leaderElectionEnabled
+    set:
+      configuration:
+        enabled: true
+      leaderElectionEnabled: false
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "enableLeaderElection: false"
+
+  - it: Should include enableMetrics from values.metrics.enabled
+    set:
+      configuration:
+        enabled: true
+      metrics:
+        enabled: false
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "enableMetrics: false"
+
+  - it: Should include reconcileConcurrency from values
+    set:
+      configuration:
+        enabled: true
+      reconcileConcurrency: 5
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "reconcileConcurrency: 5"
+
+  - it: Should include qps and burst from values.kubeClient
+    set:
+      configuration:
+        enabled: true
+      kubeClient:
+        qps: 200
+        burst: 400
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "qps: 200"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "burst: 400"
+
+  - it: Should include useKubernetesProxy from values
+    set:
+      configuration:
+        enabled: true
+      useKubernetesProxy: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "useKubernetesProxy: true"
+
+  - it: Should include watchNamespace from values
+    set:
+      configuration:
+        enabled: true
+      watchNamespace:
+        - namespace1
+        - namespace2
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'watchNamespace: "namespace1,namespace2"'
+
+  - it: Should include batchScheduler configuration
+    set:
+      configuration:
+        enabled: true
+      batchScheduler:
+        enabled: true
+        name: volcano
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "enableBatchScheduler: true"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'batchScheduler: "volcano"'
+
+  - it: Should include collectorImage from values
+    set:
+      configuration:
+        enabled: true
+      collectorImage: my-registry.io/kuberay/collector:v1.7.0
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'collectorImage: "my-registry.io/kuberay/collector:v1.7.0"'
+
+  - it: Should not include collectorImage when not set
+    set:
+      configuration:
+        enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "collectorImage:"
+
+  - it: Should include logging configuration
+    set:
+      configuration:
+        enabled: true
+      logging:
+        baseDir: /var/log
+        fileName: operator.log
+        stdoutEncoder: console
+        fileEncoder: json
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'logFile: "/var/log/operator.log"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'logStdoutEncoder: "console"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'logFileEncoder: "json"'
+
+  - it: Should include headSidecarContainers when set
+    set:
+      configuration:
+        enabled: true
+        headSidecarContainers:
+          - name: fluentbit
+            image: fluent/fluent-bit:1.9
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "headSidecarContainers:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "name: fluentbit"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "image: fluent/fluent-bit:1.9"
+
+  - it: Should include workerSidecarContainers when set
+    set:
+      configuration:
+        enabled: true
+        workerSidecarContainers:
+          - name: monitoring
+            image: prometheus/node-exporter:latest
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "workerSidecarContainers:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "name: monitoring"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "image: prometheus/node-exporter:latest"
+
+  - it: Should not include headSidecarContainers when not set
+    set:
+      configuration:
+        enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "headSidecarContainers:"
+
+  - it: Should not include workerSidecarContainers when not set
+    set:
+      configuration:
+        enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "workerSidecarContainers:"
+
+  - it: Should include all configurations from values when configuration.enabled is true
+    set:
+      configuration:
+        enabled: true
+        defaultContainerEnvs:
+          - name: RAY_TEST
+            value: "test"
+        defaultPodAnnotations:
+          monitoring.example.com/scrape: "true"
+        defaultPodLabels:
+          team: platform
+      leaderElectionEnabled: false
+      metrics:
+        enabled: false
+      reconcileConcurrency: 3
+      kubeClient:
+        qps: 150
+        burst: 300
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "enableLeaderElection: false"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "enableMetrics: false"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "reconcileConcurrency: 3"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "qps: 150"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "burst: 300"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "defaultContainerEnvs:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "name: RAY_TEST"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "defaultPodAnnotations:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "monitoring.example.com/scrape: \"true\""
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "defaultPodLabels:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "team: platform"
+
+  - it: Should include nodeEventForwarder configuration with default types when enabled
+    set:
+      configuration:
+        enabled: true
+      nodeEventForwarder:
+        enabled: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "nodeEventForwarder:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "enabled: true"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "types:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "- Warning"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "sources:"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "reasons:"
+
+  - it: Should include custom nodeEventForwarder sources, reasons, and types
+    set:
+      configuration:
+        enabled: true
+      nodeEventForwarder:
+        enabled: true
+        sources:
+          - node-problem-detector
+          - nvidia-gpu-device-plugin
+        reasons:
+          - XIDError
+          - KernelDeadlock
+        types:
+          - Warning
+          - Normal
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "nodeEventForwarder:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "enabled: true"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "sources:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "- node-problem-detector"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "- nvidia-gpu-device-plugin"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "reasons:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "- XIDError"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "- KernelDeadlock"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "types:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "- Warning"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "- Normal"
+
+  - it: Should not include nodeEventForwarder filters when nodeEventForwarder is disabled
+    set:
+      configuration:
+        enabled: true
+      nodeEventForwarder:
+        enabled: false
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "nodeEventForwarder:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "enabled: false"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "types:"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "sources:"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "reasons:"
+
+  - it: Should fail when nodeEventForwarder is enabled with singleNamespaceInstall
+    set:
+      configuration:
+        enabled: true
+      singleNamespaceInstall: true
+      nodeEventForwarder:
+        enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "nodeEventForwarder is not supported when singleNamespaceInstall is true because Node events are cluster-scoped and recorded in 'default' or 'kube-system', which requires permissions outside a single namespace."
+
+  - it: Should include allowedNodeLabels from values.configuration
+    set:
+      configuration:
+        enabled: true
+        allowedNodeLabels:
+          - topology.kubernetes.io/zone
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "allowedNodeLabels:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "- topology.kubernetes.io/zone"

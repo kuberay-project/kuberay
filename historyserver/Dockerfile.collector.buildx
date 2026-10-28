@@ -1,0 +1,9 @@
+FROM gcr.io/distroless/base-debian12:nonroot
+ARG TARGETARCH
+WORKDIR /
+COPY ./output/bin/collector-${TARGETARCH} /usr/local/bin/collector
+# Run collector as non-root (UID 1000) to match the standard ray user in official Ray containers
+# and avoid permission errors under the shared RAY_TMP_ROOT emptyDir volume while running non-root.
+USER 1000:1000
+
+ENTRYPOINT ["/usr/local/bin/collector"]

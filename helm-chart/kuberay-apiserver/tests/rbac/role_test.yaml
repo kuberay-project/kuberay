@@ -1,0 +1,35 @@
+suite: Test Role
+
+templates:
+  - rbac/role.yaml
+
+release:
+  name: kuberay-apiserver
+  namespace: kuberay-system
+
+tests:
+  - it: Should not create role if `rbacEnable` is `false`
+    set:
+      rbacEnable: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should not create role if `rbacEnable` is `true` and `singleNamespaceInstall` is `false`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should create role if both `rbacEnable` and `singleNamespaceInstall` are `true`
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: true
+    asserts:
+      - containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          name: kuberay-apiserver
+          namespace: kuberay-system

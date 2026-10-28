@@ -1,0 +1,26 @@
+{{- if .Values.route.enabled -}}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "kuberay-apiserver.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberay-apiserver.labels" . | nindent 4 }}
+  {{- with .Values.route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  subdomain: api-server-kuberay
+  to:
+    kind: Service
+    name: {{ include "kuberay-apiserver.fullname" . }}-service
+    weight: 100
+  port:
+    targetPort: http
+  {{- if .Values.route.tls }}
+  tls:
+    termination: edge
+  {{- end }}
+  wildcardPolicy: None
+{{- end }}

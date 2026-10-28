@@ -1,0 +1,63 @@
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: test-rayservice-deletion-delay
+spec:
+  rayClusterDeletionDelaySeconds: 10
+  serveConfigV2: |
+    proxy_location: EveryNode
+    applications:
+      - name: no_ops
+        route_prefix: /
+        import_path: microbenchmarks.no_ops:app_builder
+        args:
+          num_forwards: 0
+        runtime_env:
+          working_dir: https://github.com/ray-project/serve_workloads/archive/a9f184f4d9ddb7f9a578502ae106470f87a702ef.zip
+        deployments:
+          - name: NoOp
+            num_replicas: 2
+            max_replicas_per_node: 1
+            ray_actor_options:
+              num_cpus: 1
+  rayClusterConfig:
+    rayVersion: "2.52.0"
+    headGroupSpec:
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: rayproject/ray:2.52.0
+              resources:
+                requests:
+                  cpu: "300m"
+                  memory: "1G"
+                limits:
+                  memory: "2G"
+              ports:
+                - containerPort: 6379
+                  name: gcs-server
+                - containerPort: 8265
+                  name: dashboard
+                - containerPort: 10001
+                  name: client
+                - containerPort: 8000
+                  name: serve
+    workerGroupSpecs:
+      - replicas: 1
+        minReplicas: 1
+        maxReplicas: 1
+        groupName: small-group
+        rayStartParams:
+          num-cpus: "1"
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: rayproject/ray:2.52.0
+                resources:
+                  requests:
+                    cpu: "300m"
+                    memory: "1G"
+                  limits:
+                    memory: "1G"

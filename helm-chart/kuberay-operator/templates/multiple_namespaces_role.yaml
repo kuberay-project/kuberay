@@ -1,0 +1,13 @@
+{{- if and .Values.rbacEnable .Values.singleNamespaceInstall .Values.crNamespacedRbacEnable }}
+{{- $watchNamespaces := default (list .Release.Namespace) .Values.watchNamespace }}
+{{- range $namespace := $watchNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberay-operator.fullname" $ }}
+  namespace: {{ $namespace }}
+  labels: {{ include "kuberay-operator.labels" $ | nindent 4 }}
+{{ include "role.consistentRules" (dict "batchSchedulerEnabled" $.Values.batchScheduler.enabled "batchSchedulerName" $.Values.batchScheduler.name "kubernetesWASEnabled" (include "kuberay.kubernetesWASEnabled" $)) }}
+{{- end }}
+{{- end }}

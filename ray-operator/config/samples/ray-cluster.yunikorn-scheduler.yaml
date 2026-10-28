@@ -1,0 +1,42 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: test-yunikorn-0
+  labels:
+    ray.io/gang-scheduling-enabled: "true"
+    yunikorn.apache.org/app-id: test-yunikorn-0
+    yunikorn.apache.org/queue: root.test
+spec:
+  rayVersion: "2.52.0"
+  headGroupSpec:
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+  workerGroupSpecs:
+  - groupName: worker
+    replicas: 2
+    minReplicas: 2
+    maxReplicas: 2
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"

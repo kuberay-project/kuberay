@@ -1,0 +1,26 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "ray-operator"
+		},
+		{
+			"path": "apiserver"
+		},
+		{
+			"path": "kubectl-plugin"
+		},
+		{
+			"path": "historyserver"
+		},
+		{
+			"path": "proto"
+		},
+		{
+			"path": "dashboard"
+		},
+	],
+	"settings": {}
+}

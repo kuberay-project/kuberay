@@ -1,0 +1,151 @@
+---
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: test-rayservice
+spec:
+  excludeHeadPodFromServeSvc: true
+  serveConfigV2: |
+    applications:
+      - name: no_ops
+        route_prefix: /
+        import_path: microbenchmarks.no_ops:app_builder
+        args:
+          num_forwards: 0
+        runtime_env:
+          working_dir: https://github.com/ray-project/serve_workloads/archive/a9f184f4d9ddb7f9a578502ae106470f87a702ef.zip
+        deployments:
+          - name: NoOp
+            num_replicas: 1
+            ray_actor_options:
+              num_cpus: 1
+  rayClusterConfig:
+    rayVersion: "2.52.0"
+    gcsFaultToleranceOptions:
+      # In most cases, you don't need to set `externalStorageNamespace` because KubeRay will
+      # automatically set it to the UID of RayCluster. Only modify this annotation if you fully understand
+      # the behaviors of the Ray GCS FT and RayService to avoid misconfiguration.
+      # [Example]:
+      # externalStorageNamespace: "my-raycluster-storage"
+      redisAddress: "redis:6379"
+      redisPassword:
+        valueFrom:
+          secretKeyRef:
+            name: redis-password-secret
+            key: password
+    headGroupSpec:
+      rayStartParams:
+        num-cpus: "0"
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: rayproject/ray:2.52.0
+              env:
+                - name: RAY_gcs_rpc_server_reconnect_timeout_s
+                  value: "20"
+              resources:
+                requests:
+                  cpu: 300m
+                  memory: 1G
+                limits:
+                  memory: 2G
+    workerGroupSpecs:
+      - replicas: 1
+        minReplicas: 1
+        maxReplicas: 1
+        groupName: small-group
+        rayStartParams:
+          num-cpus: "1"
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: rayproject/ray:2.52.0
+                resources:
+                  requests:
+                    cpu: 300m
+                    memory: 1G
+                  limits:
+                    memory: 1G
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: redis-config
+  labels:
+    app: redis
+data:
+  redis.conf: |-
+    dir /data
+    port 6379
+    bind 0.0.0.0
+    appendonly yes
+    protected-mode no
+    requirepass 5241590000000000
+    pidfile /data/redis-6379.pid
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+  selector:
+    app: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.4.0
+          command:
+            - "sh"
+            - "-c"
+            - "redis-server /usr/local/etc/redis/redis.conf"
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: config
+              mountPath: /usr/local/etc/redis/redis.conf
+              subPath: redis.conf
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+      volumes:
+        - name: config
+          configMap:
+            name: redis-config
+---
+# Redis password
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-password-secret
+type: Opaque
+data:
+  # echo -n "5241590000000000" | base64
+  password: NTI0MTU5MDAwMDAwMDAwMA==

@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  labels:
+    release: prometheus
+  name: kuberay-cluster
+  namespace: prometheus-system  # ns where prometheus is deployed
+spec:
+  podMetricsEndpoints:
+    - port: metrics
+  namespaceSelector:
+    matchNames:
+      - default               # ns where Ray cluster is deployed
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kuberay

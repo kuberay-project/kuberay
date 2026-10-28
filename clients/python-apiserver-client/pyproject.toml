@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel", "setuptools_scm[toml]>=7.1.0"]
+build-backend = "setuptools.build_meta"
+[options]
+package_dir = ["src"]
+[project]
+name = "python_apiserver_client"
+version = "0.0.1"
+dependencies = [
+    "requests",
+    "kubernetes",
+]
+authors = [
+    { name="KubeRay project"},
+]
+description = "A Kuberay python client library to manage clusters based on the KubeRay API server"
+readme = {file = "README.md", content-type = "text/markdown"}
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: Apache License 2.0",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/ray-project/kuberay"

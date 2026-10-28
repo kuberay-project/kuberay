@@ -1,0 +1,65 @@
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: stable-diffusion
+spec:
+  serveConfigV2: |
+    applications:
+      - name: stable_diffusion
+        import_path: stable_diffusion.stable_diffusion:entrypoint
+        runtime_env:
+          working_dir: "https://github.com/ray-project/serve_config_examples/archive/b8af221bc0e5d6cc7daa0dd071295fd9e456e671.zip"
+          pip: ["diffusers==0.32.2", "transformers==4.48.2", "torch"]
+  rayClusterConfig:
+    rayVersion: "2.58.0" # Should match the Ray version in the image of the containers
+    ######################headGroupSpecs#################################
+    # Ray head pod template.
+    headGroupSpec:
+      rayStartParams: {}
+      # Pod template
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.58.0-py311-gpu
+            volumeMounts:
+            - mountPath: /tmp/ray
+              name: ray-logs
+            resources:
+              limits:
+                cpu: "2"
+                memory: "8Gi"
+              requests:
+                cpu: "2"
+                memory: "8Gi"
+          volumes:
+          - name: ray-logs
+            emptyDir: {}
+    workerGroupSpecs:
+    # The pod replicas in this group typed worker
+    - replicas: 1
+      minReplicas: 1
+      maxReplicas: 10
+      groupName: gpu-group
+      rayStartParams: {}
+      # Pod template
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.58.0-py311-gpu
+            resources:
+              limits:
+                cpu: "4"
+                memory: "16Gi"
+                nvidia.com/gpu: "1"
+              requests:
+                cpu: "3"
+                memory: "12Gi"
+                nvidia.com/gpu: "1"
+          # Please add the following taints to the GPU node.
+          tolerations:
+          - key: "ray.io/node-type"
+            operator: "Equal"
+            value: "worker"
+            effect: "NoSchedule"
