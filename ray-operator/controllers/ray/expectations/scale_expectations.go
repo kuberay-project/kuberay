@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -86,6 +87,15 @@ func (r *rayClusterScaleExpectationImpl) isPodScaled(ctx context.Context, rp *ra
 		if err := r.Get(ctx, types.NamespacedName{Name: rp.name, Namespace: rp.namespace}, pod); err != nil {
 			return errors.IsNotFound(err)
 		}
+		// Tolerating extreme case:
+		//   A Pod was requested to be deleted but is stuck (e.g. its node is NotReady, so the kubelet
+		//   cannot confirm termination, leaving the Pod with a deletionTimestamp that never clears).
+		//   Without a timeout this expectation stays unsatisfied forever, and because IsSatisfied
+		//   short-circuits, it freezes ALL scaling (both scale-up and scale-down) for the whole worker
+		//   group indefinitely. Once Kubernetes has marked the Pod for deletion, let the expectation
+		//   expire after a timeout so reconciliation can make progress instead of deadlocking.
+		return !pod.DeletionTimestamp.IsZero() &&
+			rp.recordTimestamp.Add(ExpectationsTimeout).Before(time.Now())
 	}
 	return false
 }
@@ -101,6 +111,12 @@ func (r *rayClusterScaleExpectationImpl) IsSatisfied(ctx context.Context, namesp
 		isPodSatisfied := r.isPodScaled(ctx, rp)
 
 		if !isPodSatisfied {
+			// Log which Pod and action is blocking the group so the cause is diagnosable from logs.
+			// Without this, callers only see "NotSatisfiedGroupExpectations" and cannot tell which
+			// Pod is stuck (e.g. a Pod requested for deletion that never terminates).
+			ctrl.LoggerFrom(ctx).Info("scale expectation not satisfied, blocking group reconcile",
+				"namespace", namespace, "rayCluster", rayClusterName, "group", group,
+				"pod", rp.name, "action", rp.action, "waitingFor", time.Since(rp.recordTimestamp).String())
 			return false
 		}
 
