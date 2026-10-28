@@ -4,866 +4,133 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ray History Server - Select Session</title>
-    <style>
-        /* Custom Reset and Variables */
-        :root {
-            --bg-color: #0e1117;
-            --card-bg: #14161e;
-            --header-bg: #1a1d27;
-            --hover-row-bg: rgba(25, 28, 38, 0.8);
-            --border-color: rgba(30, 41, 59, 0.8);
-            --border-color-light: rgba(30, 41, 59, 0.6);
-            --text-primary: #cbd5e1;
-            --text-white: #ffffff;
-            --text-muted: #94a3b8;
-            --blue-600: #2563eb;
-            --blue-500: #3b82f6;
-            --blue-600-shadow: rgba(37, 99, 235, 0.2);
-            --emerald-500: #10b981;
-            --emerald-600: #059669;
-            --emerald-600-shadow: rgba(5, 150, 105, 0.2);
-            --emerald-badge-bg: rgba(16, 185, 129, 0.1);
-            --emerald-badge-border: rgba(16, 185, 129, 0.2);
-            --amber-badge-bg: rgba(245, 158, 11, 0.1);
-            --amber-badge-text: #fbbf24;
-            --amber-badge-border: rgba(245, 158, 11, 0.2);
-            --indigo-badge-bg: rgba(99, 102, 241, 0.1);
-            --indigo-badge-text: #818cf8;
-            --indigo-badge-border: rgba(99, 102, 241, 0.2);
-            --red-badge-bg: rgba(239, 68, 68, 0.1);
-            --red-badge-text: #f87171;
-            --red-badge-border: rgba(239, 68, 68, 0.2);
-            --slate-800: #1e293b;
-            --slate-700: #334155;
-            --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
-        body {
-            background-color: var(--bg-color);
-            color: var(--text-primary);
-            font-family: var(--font-sans);
-            margin: 0;
-            min-height: 100vh;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-        }
-
-        .min-h-screen {
-            min-height: 100vh;
-        }
-
-        .flex {
-            display: flex;
-        }
-
-        .flex-col {
-            flex-direction: column;
-        }
-
-        .flex-1 {
-            flex: 1 1 0%;
-        }
-
-        .max-w-7xl {
-            max-width: 80rem;
-        }
-
-        .w-full {
-            width: 100%;
-        }
-
-        .mx-auto {
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        .px-6 {
-            padding-left: 1.5rem;
-            padding-right: 1.5rem;
-        }
-
-        .py-10 {
-            padding-top: 2.5rem;
-            padding-bottom: 2.5rem;
-        }
-
-        /* Header and Search Layout */
-        .header-wrapper {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-
-        @media (min-width: 768px) {
-            .header-wrapper {
-                flex-direction: row;
-                align-items: center;
-                justify-content: space-between;
-            }
-        }
-
-        .title-text {
-            font-size: 1.25rem;
-            font-weight: 700;
-            color: var(--text-white);
-            letter-spacing: -0.025em;
-            margin: 0;
-        }
-
-        .subtitle-text {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-top: 0.375rem;
-            margin-bottom: 0;
-        }
-
-        /* Search Input */
-        .search-wrapper {
-            position: relative;
-            width: 100%;
-        }
-
-        @media (min-width: 768px) {
-            .search-wrapper {
-                width: 20rem;
-            }
-        }
-
-        .search-icon {
-            position: absolute;
-            left: 0.875rem;
-            top: 0.75rem;
-            height: 1rem;
-            width: 1rem;
-            color: var(--text-muted);
-            pointer-events: none;
-        }
-
-        .search-input {
-            width: 100%;
-            padding-left: 2.5rem;
-            padding-right: 1rem;
-            padding-top: 0.625rem;
-            padding-bottom: 0.625rem;
-            background-color: #16181f;
-            border: 1px solid var(--border-color);
-            font-size: 0.75rem;
-            color: var(--text-white);
-            border-radius: 0.5rem;
-            outline: none;
-            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
-            transition: border-color 0.15s ease-in-out;
-        }
-
-        .search-input:focus {
-            border-color: var(--blue-500);
-        }
-
-        /* Alerts */
-        .alert-container {
-            padding: 1rem;
-            font-family: var(--font-mono);
-            font-size: 0.875rem;
-            color: var(--red-badge-text);
-            background-color: var(--red-badge-bg);
-            border: 1px solid var(--red-badge-border);
-            border-radius: 0.5rem;
-            margin-bottom: 1.5rem;
-        }
-
-        .hidden {
-            display: none !important;
-        }
-
-        /* Loading States */
-        .loading-wrapper {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding-top: 6rem;
-            padding-bottom: 6rem;
-            gap: 1rem;
-        }
-
-        .spinner {
-            animation: spin 1s linear infinite;
-            border-radius: 50%;
-            height: 2.5rem;
-            width: 2.5rem;
-            border: 2px solid var(--blue-500);
-            border-top-color: transparent;
-        }
-
-        .loading-text {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-            font-family: var(--font-mono);
-            letter-spacing: 0.05em;
-            margin: 0;
-        }
-
-        /* Table Container styling */
-        .table-container {
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 0.75rem;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-            overflow: hidden;
-        }
-
-        .overflow-x-auto {
-            overflow-x: auto;
-        }
-
-        table {
-            table-layout: fixed;
-            width: 100%;
-            text-align: left;
-            border-collapse: collapse;
-        }
-
-        thead tr {
-            background-color: var(--header-bg);
-            border-bottom: 1px solid var(--border-color);
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-muted);
-            font-weight: 600;
-        }
-
-        th {
-            padding-top: 1rem;
-            padding-bottom: 1rem;
-            padding-left: 1.5rem;
-            padding-right: 1.5rem;
-        }
-
-        .w-23 { width: 23%; }
-        .w-14 { width: 14%; }
-        .w-15 { width: 15%; }
-        .w-16 { width: 16%; }
-        .w-17 { width: 17%; }
-
-        tbody {
-            font-size: 0.75rem;
-        }
-
-        tbody tr {
-            border-bottom: 1px solid var(--border-color-light);
-            transition: background-color 0.15s ease-in-out, opacity 0.15s ease-in-out;
-        }
-
-        .hover-row:hover {
-            background-color: var(--hover-row-bg);
-        }
-
-        .opacity-70 {
-            opacity: 0.7;
-        }
-
-        td {
-            padding-top: 1rem;
-            padding-bottom: 1rem;
-            padding-left: 1.5rem;
-            padding-right: 1.5rem;
-        }
-
-        .break-words {
-            overflow-wrap: break-word;
-        }
-
-        /* Flex utilities for dynamic elements */
-        .flex-items-start {
-            display: flex;
-            align-items: flex-start;
-        }
-
-        .gap-1\.5 {
-            gap: 0.375rem;
-        }
-
-        .gap-2\.5 {
-            gap: 0.625rem;
-        }
-
-        .status-dot {
-            width: 0.5rem;
-            height: 0.5rem;
-            border-radius: 50%;
-            flex-shrink: 0;
-            margin-top: 0.375rem;
-        }
-
-        .dot-emerald { background-color: var(--emerald-500); }
-        .dot-blue { background-color: var(--blue-500); }
-
-        /* Badges */
-        .namespace-badge {
-            padding-left: 0.625rem;
-            padding-right: 0.625rem;
-            padding-top: 0.25rem;
-            padding-bottom: 0.25rem;
-            background-color: rgba(30, 41, 59, 0.8);
-            color: #cbd5e1;
-            border: 1px solid rgba(51, 65, 85, 0.6);
-            border-radius: 0.25rem;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-            display: inline-block;
-        }
-
-        .badge-emerald {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.375rem;
-            padding-left: 0.625rem;
-            padding-right: 0.625rem;
-            padding-top: 0.25rem;
-            padding-bottom: 0.25rem;
-            background-color: var(--emerald-badge-bg);
-            color: #34d399; /* emerald-400 */
-            border: 1px solid var(--emerald-badge-border);
-            border-radius: 9999px;
-        }
-
-        .badge-amber {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.375rem;
-            padding-left: 0.625rem;
-            padding-right: 0.625rem;
-            padding-top: 0.25rem;
-            padding-bottom: 0.25rem;
-            background-color: var(--amber-badge-bg);
-            color: var(--amber-badge-text);
-            border: 1px solid var(--amber-badge-border);
-            border-radius: 0.25rem;
-        }
-
-        .badge-indigo {
-            display: inline-block;
-            padding-left: 0.375rem;
-            padding-right: 0.375rem;
-            padding-top: 0.125rem;
-            padding-bottom: 0.125rem;
-            background-color: var(--indigo-badge-bg);
-            color: var(--indigo-badge-text);
-            border: 1px solid var(--indigo-badge-border);
-            border-radius: 0.25rem;
-            font-family: var(--font-mono);
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            flex-shrink: 0;
-            margin-top: 0.125rem;
-        }
-
-        .small-dot {
-            width: 0.375rem;
-            height: 0.375rem;
-            border-radius: 50%;
-            flex-shrink: 0;
-        }
-
-        .bg-emerald { background-color: var(--emerald-500); }
-        .bg-amber { background-color: #f59e0b; }
-
-        .owner-name {
-            font-weight: 500;
-            color: #cbd5e1;
-        }
-
-        /* Button & Action styling */
-        .text-right { text-align: right; }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.375rem;
-            padding-left: 0.75rem;
-            padding-right: 0.75rem;
-            padding-top: 0.5rem;
-            padding-bottom: 0.5rem;
-            color: var(--text-white);
-            font-size: 0.75rem;
-            font-weight: 700;
-            border-radius: 0.5rem;
-            border: none;
-            width: 100%;
-            max-width: 160px;
-            transition: background-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, transform 0.15s ease-in-out;
-        }
-
-        .btn-primary {
-            background-color: var(--blue-600);
-            box-shadow: 0 4px 6px -1px var(--blue-600-shadow), 0 2px 4px -2px var(--blue-600-shadow);
-            cursor: pointer;
-        }
-
-        .btn-primary:hover {
-            background-color: var(--blue-500);
-            transform: translateX(2px);
-        }
-
-        .btn-wait {
-            background-color: var(--emerald-600);
-            cursor: wait;
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-            box-shadow: 0 4px 6px -1px var(--emerald-600-shadow), 0 2px 4px -2px var(--emerald-600-shadow);
-        }
-
-        .btn-disabled {
-            background-color: #1e293b;
-            color: #64748b;
-            cursor: not-allowed;
-            border: 1px solid rgba(51, 65, 85, 0.4);
-            box-shadow: none;
-        }
-
-        .mini-spinner {
-            animation: spin 1s linear infinite;
-            border-radius: 50%;
-            height: 0.875rem;
-            width: 0.875rem;
-            border: 2px solid var(--text-white);
-            border-top-color: transparent;
-            flex-shrink: 0;
-        }
-
-        .arrow-icon {
-            width: 0.875rem;
-            height: 0.875rem;
-            flex-shrink: 0;
-        }
-
-        /* Links */
-        .cluster-name-link {
-            font-size: 0.875rem;
-            font-weight: 600;
-            transition: color 0.15s ease-in-out;
-        }
-
-        .clickable-link {
-            cursor: pointer;
-        }
-
-        .clickable-link:hover {
-            color: var(--blue-500);
-            text-decoration: underline;
-        }
-
-        .disabled-link {
-            color: var(--text-muted);
-            cursor: default;
-        }
-
-        /* Empty States */
-        .empty-state {
-            padding-top: 5rem;
-            padding-bottom: 5rem;
-            text-align: center;
-            color: var(--text-muted);
-        }
-
-        .empty-state-wrapper {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 0.75rem;
-        }
-
-        .empty-state-icon {
-            width: 3rem;
-            height: 3rem;
-            color: #475569;
-        }
-
-        .empty-state-title {
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: #e2e8f0;
-        }
-
-        .empty-state-subtitle {
-            font-size: 0.75rem;
-            color: #64748b;
-        }
-
-        /* Footer Section */
-        .footer-info {
-            background-color: #11131a;
-            padding-left: 1.5rem;
-            padding-right: 1.5rem;
-            padding-top: 0.75rem;
-            padding-bottom: 0.75rem;
-            border-top: 1px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            font-size: 0.75rem;
-            color: #64748b;
-        }
-
-        /* Font Helper Utilities */
-        .font-mono { font-family: var(--font-mono); }
-        .text-xs { font-size: 0.75rem; }
-        .font-medium { font-weight: 500; }
-        .text-white { color: var(--text-white); }
-        .text-slate-300 { color: #cbd5e1; }
-        .text-slate-400 { color: #94a3b8; }
-        .text-slate-500 { color: #64748b; }
-        .mt-1\.5 { margin-top: 0.375rem; }
-        .mb-8 { margin-bottom: 2rem; }
-        .items-start { display: flex; align-items: flex-start; }
-        .items-center { display: flex; align-items: center; }
-        .justify-center { justify-content: center; }
-        .whitespace-nowrap { white-space: nowrap; }
-
-        .animate-pulse {
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-
-        /* Keyframe Animations */
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        @keyframes pulse {
-            50% { opacity: .5; }
-        }
-    </style>
+    <link rel="stylesheet" href="/select_cluster/select_cluster.css">
+    <!-- Not deferred, so the theme is set before the page is drawn. -->
+    <script src="/select_cluster/select_cluster.js"></script>
 </head>
 <body>
-    <div class="min-h-screen flex flex-col">
-        <main class="flex-1 max-w-7xl w-full mx-auto px-6 py-10">
-            <!-- Error Alert Container -->
-            <div id="error-container" class="alert-container hidden"></div>
+    <!-- The Ray dashboard's nav bar without the page links, which need a selected session. -->
+    <nav class="nav-bar">
+        <svg class="nav-logo" viewBox="0 0 144.5 144.6" role="img" aria-label="Ray">
+            <linearGradient id="ray-logo-gradient" gradientUnits="userSpaceOnUse" x1="31.9659" y1="112.5396" x2="112.4544" y2="32.0512">
+                <stop offset="0.3" stop-color="#1976D2"/>
+                <stop offset="0.9" stop-color="#0091EA"/>
+            </linearGradient>
+            <path fill="url(#ray-logo-gradient)" d="M97.3,77.2c-3.8-1.1-6.2,0.9-8.3,5.1c-3.5,6.8-9.9,9.9-17.4,9.6S58,88.1,54.8,81.2c-1.4-3-3-4-6.3-4.1c-5.6-0.1-9.9,0.1-13.1,6.4c-3.8,7.6-13.6,10.2-21.8,7.6C5.2,88.4-0.4,80.5,0,71.7c0.1-8.4,5.7-15.8,13.8-18.2c8.4-2.6,17.5,0.7,22.3,8c1.3,1.9,1.3,5.2,3.6,5.6c3.9,0.6,8,0.2,12,0.2c1.8,0,1.9-1.6,2.4-2.8c3.5-7.8,9.7-11.8,18-11.9c8.2-0.1,14.4,3.9,17.8,11.4c1.3,2.8,2.9,3.6,5.7,3.3c1-0.1,2,0.1,3,0c2.8-0.5,6.4,1.7,8.1-2.7s-2.3-5.5-4.1-7.5c-5.1-5.7-10.9-10.8-16.1-16.3C84,38,81.9,37.1,78,38.3C66.7,42,56.2,35.7,53,24.1C50.3,14,57.3,2.8,67.7,0.5C78.4-2,89,4.7,91.5,15.3c0.1,0.3,0.1,0.5,0.2,0.8c0.7,3.4,0.7,6.9-0.8,9.8c-1.7,3.2-0.8,5,1.5,7.2c6.7,6.5,13.3,13,19.8,19.7c1.8,1.8,3,2.1,5.5,1.2c9.1-3.4,17.9-0.6,23.4,7c4.8,6.9,4.6,16.1-0.4,22.9c-5.4,7.2-14.2,9.9-23.1,6.5c-2.3-0.9-3.5-0.6-5.1,1.1c-6.7,6.9-13.6,13.7-20.5,20.4c-1.8,1.8-2.5,3.2-1.4,5.9c3.5,8.7,0.3,18.6-7.7,23.6c-7.9,5-18.2,3.8-24.8-2.9c-6.4-6.4-7.4-16.2-2.5-24.3c4.9-7.8,14.5-11,23.1-7.8c3,1.1,4.7,0.5,6.9-1.7C91.7,98.4,98,92.3,104.2,86c1.6-1.6,4.1-2.7,2.6-6.2c-1.4-3.3-3.8-2.5-6.2-2.6C99.8,77.2,98.9,77.2,97.3,77.2z M72.1,29.7c5.5,0.1,9.9-4.3,10-9.8c0-0.1,0-0.2,0-0.3C81.8,14,77,9.8,71.5,10.2c-5,0.3-9,4.2-9.3,9.2c-0.2,5.5,4,10.1,9.5,10.3C71.8,29.7,72,29.7,72.1,29.7z M72.3,62.3c-5.4-0.1-9.9,4.2-10.1,9.7c0,0.2,0,0.3,0,0.5c0.2,5.4,4.5,9.7,9.9,10c5.1,0.1,9.9-4.7,10.1-9.8c0.2-5.5-4-10-9.5-10.3C72.6,62.3,72.4,62.3,72.3,62.3z M115,72.5c0.1,5.4,4.5,9.7,9.8,9.9c5.6-0.2,10-4.8,10-10.4c-0.2-5.4-4.6-9.7-10-9.7c-5.3-0.1-9.8,4.2-9.9,9.5C115,72.1,115,72.3,115,72.5z M19.5,62.3c-5.4,0.1-9.8,4.4-10,9.8c-0.1,5.1,5.2,10.4,10.2,10.3c5.6-0.2,10-4.9,9.8-10.5c-0.1-5.4-4.5-9.7-9.9-9.6C19.6,62.3,19.5,62.3,19.5,62.3z M71.8,134.6c5.9,0.2,10.3-3.9,10.4-9.6c0.5-5.5-3.6-10.4-9.1-10.8c-5.5-0.5-10.4,3.6-10.8,9.1c0,0.5,0,0.9,0,1.4c-0.2,5.3,4,9.8,9.3,10C71.6,134.6,71.7,134.6,71.8,134.6z"/>
+        </svg>
+        <span class="nav-title">History Server</span>
+        <span class="nav-actions">
+            <button id="refresh" class="icon-button" type="button" aria-label="Refresh sessions" data-tooltip="Refresh sessions">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M5.46257 4.43262C7.21556 2.91688 9.5007 2 12 2C17.5228 2 22 6.47715 22 12C22 14.1361 21.3302 16.1158 20.1892 17.7406L17 12H20C20 7.58172 16.4183 4 12 4C9.84982 4 7.89777 4.84827 6.46023 6.22842L5.46257 4.43262ZM18.5374 19.5674C16.7844 21.0831 14.4993 22 12 22C6.47715 22 2 17.5228 2 12C2 9.86386 2.66979 7.88416 3.8108 6.25944L7 12H4C4 16.4183 7.58172 20 12 20C14.1502 20 16.1022 19.1517 17.5398 17.7716L18.5374 19.5674Z"/></svg>
+            </button>
+            <button id="theme-toggle" class="icon-button" type="button">
+                <svg class="icon icon-moon" viewBox="0 0 24 24"><path d="M10 7C10 10.866 13.134 14 17 14C18.9584 14 20.729 13.1957 21.9995 11.8995C22 11.933 22 11.9665 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C12.0335 2 12.067 2 12.1005 2.00049C10.8043 3.27098 10 5.04157 10 7ZM4 12C4 16.4183 7.58172 20 12 20C15.0583 20 17.7158 18.2839 19.062 15.7621C18.3945 15.9187 17.7035 16 17 16C12.0294 16 8 11.9706 8 7C8 6.29648 8.08133 5.60547 8.2379 4.938C5.71611 6.28423 4 8.9417 4 12Z"/></svg>
+                <svg class="icon icon-sun" viewBox="0 0 24 24"><path d="M12 18C8.68629 18 6 15.3137 6 12C6 8.68629 8.68629 6 12 6C15.3137 6 18 8.68629 18 12C18 15.3137 15.3137 18 12 18ZM12 16C14.2091 16 16 14.2091 16 12C16 9.79086 14.2091 8 12 8C9.79086 8 8 9.79086 8 12C8 14.2091 9.79086 16 12 16ZM11 1H13V4H11V1ZM11 20H13V23H11V20ZM3.51472 4.92893L4.92893 3.51472L7.05025 5.63604L5.63604 7.05025L3.51472 4.92893ZM16.9497 18.364L18.364 16.9497L20.4853 19.0711L19.0711 20.4853L16.9497 18.364ZM19.0711 3.51472L20.4853 4.92893L18.364 7.05025L16.9497 5.63604L19.0711 3.51472ZM5.63604 16.9497L7.05025 18.364L4.92893 20.4853L3.51472 19.0711L5.63604 16.9497ZM23 11V13H20V11H23ZM4 11V13H1V11H4Z"/></svg>
+            </button>
+            <a class="icon-button" href="https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/kuberay-history-server.html" target="_blank" rel="noopener noreferrer" aria-label="Docs" data-tooltip="Docs">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M3 18.5V5C3 3.34315 4.34315 2 6 2H20C20.5523 2 21 2.44772 21 3V21C21 21.5523 20.5523 22 20 22H6.5C4.567 22 3 20.433 3 18.5ZM19 20V17H6.5C5.67157 17 5 17.6716 5 18.5C5 19.3284 5.67157 20 6.5 20H19ZM10 4H6C5.44772 4 5 4.44772 5 5V15.3368C5.45463 15.1208 5.9632 15 6.5 15H19V4H17V12L13.5 10L10 12V4Z"/></svg>
+            </a>
+        </span>
+    </nav>
+    <!-- The row being opened may be on another page of the list. -->
+    <div id="entering" class="linear-progress" role="progressbar" aria-label="Opening the Ray dashboard" hidden>
+        <span class="linear-progress-bar"></span>
+        <span class="linear-progress-bar"></span>
+    </div>
 
-            <!-- Title and Top bar -->
-            <div class="header-wrapper">
-                <div>
-                    <h1 class="title-text">Ray History Server</h1>
-                    <p class="subtitle-text">Select a cluster session to replay and explore its historical Ray dashboard.</p>
+    <main>
+        <section class="card">
+            <h1 class="card-title">CLUSTER SESSIONS</h1>
+            <p class="text-secondary">Select a cluster session to replay and explore its historical Ray dashboard.</p>
+            <div class="toolbar">
+                <!-- An outlined text field with a floating label, like MUI's. -->
+                <div class="text-field">
+                    <input id="search" type="text" placeholder=" " autocomplete="off">
+                    <label for="search">Filter clusters or sessions</label>
+                    <fieldset aria-hidden="true"><legend><span>Filter clusters or sessions</span></legend></fieldset>
+                    <span class="adornment">
+                        <svg id="search-icon" class="icon" viewBox="0 0 24 24"><path d="M18.031 16.6168L22.3137 20.8995L20.8995 22.3137L16.6168 18.031C15.0769 19.263 13.124 20 11 20C6.032 20 2 15.968 2 11C2 6.032 6.032 2 11 2C15.968 2 20 6.032 20 11C20 13.124 19.263 15.0769 18.031 16.6168ZM16.0247 15.8748C17.2475 14.6146 18 12.8956 18 11C18 7.1325 14.8675 4 11 4C7.1325 4 4 7.1325 4 11C4 14.8675 7.1325 18 11 18C12.8956 18 14.6146 17.2475 15.8748 16.0247L16.0247 15.8748Z"/></svg>
+                        <button id="clear-search" class="icon-button small" type="button" aria-label="Clear filter" hidden>
+                            <svg class="icon" viewBox="0 0 24 24"><path d="M11.9997 10.5865L16.9495 5.63672L18.3637 7.05093L13.4139 12.0007L18.3637 16.9504L16.9495 18.3646L11.9997 13.4149L7.04996 18.3646L5.63574 16.9504L10.5855 12.0007L5.63574 7.05093L7.04996 5.63672L11.9997 10.5865Z"/></svg>
+                        </button>
+                    </span>
                 </div>
-                <!-- Search Box -->
-                <div class="search-wrapper">
-                    <svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                    <input
-                        id="search-input"
-                        type="text"
-                        placeholder="Filter clusters or sessions..."
-                        class="search-input"
-                    />
+                <!-- The initial state is in the markup too, so the first paint shows it without a transition. -->
+                <div class="toggle-group" role="group" aria-label="Session status">
+                    <button class="toggle" type="button" data-status="all" aria-pressed="true">All</button>
+                    <button class="toggle" type="button" data-status="live" aria-pressed="false">Live</button>
+                    <button class="toggle" type="button" data-status="ended" aria-pressed="false">Ended</button>
                 </div>
             </div>
 
-            <!-- Loading Spinner -->
-            <div id="loading-container" class="loading-wrapper">
-                <div class="spinner"></div>
-                <p class="loading-text">Scanning historical Ray sessions...</p>
+            <div id="loading" class="loading">
+                <svg class="spinner" viewBox="22 22 44 44" role="progressbar" aria-label="Loading sessions"><circle cx="44" cy="44" r="20.2" fill="none" stroke-width="3.6"/></svg>
             </div>
-
-            <!-- Table Container -->
-            <div id="table-container" class="table-container hidden">
-                <div class="overflow-x-auto">
+            <div id="load-error" class="alert" role="alert" hidden>
+                <svg class="alert-icon" viewBox="0 0 24 24"><path d="M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/></svg>
+                <span class="alert-message"></span>
+            </div>
+            <div id="sessions" hidden>
+                <div class="table-container">
                     <table>
                         <thead>
                             <tr>
-                                <th class="w-23">Cluster Name</th>
-                                <th class="w-14">Namespace</th>
-                                <th class="w-15">Session Status</th>
-                                <th class="w-15">Owner</th>
-                                <th class="w-16">Created At</th>
-                                <th class="w-17 text-right">Action</th>
+                                <th><button class="sort-label" type="button" data-sort="name">Cluster Name<svg class="sort-icon" viewBox="0 0 24 24"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg></button></th>
+                                <th><button class="sort-label" type="button" data-sort="namespace">Namespace<svg class="sort-icon" viewBox="0 0 24 24"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg></button></th>
+                                <th><button class="sort-label" type="button" data-sort="status">Session Status<svg class="sort-icon" viewBox="0 0 24 24"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg></button></th>
+                                <th><button class="sort-label" type="button" data-sort="owner">Owner<svg class="sort-icon" viewBox="0 0 24 24"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg></button></th>
+                                <th aria-sort="descending"><button class="sort-label" type="button" data-sort="createdAt">Created At<svg class="sort-icon" viewBox="0 0 24 24"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg></button></th>
                             </tr>
                         </thead>
-                        <tbody id="clusters-tbody">
-                            <!-- Populated dynamically -->
-                        </tbody>
+                        <tbody id="session-rows"></tbody>
                     </table>
                 </div>
-                <!-- Footer Info -->
-                <div class="footer-info">
-                    <span id="showing-text">Showing 0 of 0 available sessions</span>
-                    <span>KubeRay Cluster Selector API</span>
+                <div class="table-footer">
+                    <span id="showing" class="caption text-secondary"></span>
+                    <nav id="pagination" class="pagination" aria-label="pagination navigation"></nav>
                 </div>
             </div>
-        </main>
+        </section>
+    </main>
+
+    <div id="enter-error" class="snackbar" hidden>
+        <div class="alert filled" role="alert">
+            <svg class="alert-icon" viewBox="0 0 24 24"><path d="M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/></svg>
+            <span class="alert-message"></span>
+            <span class="alert-action">
+                <button id="close-enter-error" class="icon-button small" type="button" aria-label="Close">
+                    <svg class="icon" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                </button>
+            </span>
+        </div>
     </div>
+    <div id="tooltip" class="tooltip" hidden></div>
 
-    <script>
-        (function() {
-            let clusters = [];
-            let entering = null;
-
-            const errorContainer = document.getElementById('error-container');
-            const searchInput = document.getElementById('search-input');
-            const loadingContainer = document.getElementById('loading-container');
-            const tableContainer = document.getElementById('table-container');
-            const tbody = document.getElementById('clusters-tbody');
-            const showingText = document.getElementById('showing-text');
-
-            function showError(message) {
-                if (message) {
-                    errorContainer.textContent = message;
-                    errorContainer.classList.remove('hidden');
-                } else {
-                    errorContainer.classList.add('hidden');
-                }
-            }
-
-            function fetchClusters() {
-                showError(null);
-                loadingContainer.classList.remove('hidden');
-                tableContainer.classList.add('hidden');
-
-                fetch('/clusters')
-                    .then(res => {
-                        if (!res.ok) {
-                            throw new Error(`${res.status}: ${res.statusText || 'Error'}`);
-                        }
-                        return res.json();
-                    })
-                    .then(data => {
-                        clusters = data || [];
-                        renderTable();
-                        loadingContainer.classList.add('hidden');
-                        tableContainer.classList.remove('hidden');
-                    })
-                    .catch(err => {
-                        showError(err.message || "500: Internal Server Error");
-                        loadingContainer.classList.add('hidden');
-                    });
-            }
-
-            function enterCluster(namespace, name, session) {
-                if (entering) return; // In-flight lock
-                entering = `${namespace}/${name}/${session}`;
-                showError(null);
-                renderTable();
-
-                fetch(`/enter_cluster/${namespace}/raycluster/${name}/${session}`)
-                    .then(res => {
-                        if (!res.ok) {
-                            return res.text().then(body => {
-                                throw new Error(body.trim() || `${res.status}: ${res.statusText || 'Error'}`);
-                            });
-                        }
-                        return res.json();
-                    })
-                    .then(data => {
-                        if (data.result === 'success') {
-                            window.location.href = '/#/overview';
-                        } else {
-                            showError(data.message || "500: Error entering cluster session");
-                            entering = null;
-                            renderTable();
-                        }
-                    })
-                    .catch(err => {
-                        showError(err.message || "500: Communication Error");
-                        entering = null;
-                        renderTable();
-                    });
-            }
-
-            function renderTable() {
-                const query = searchInput.value.toLowerCase();
-                const filtered = clusters.filter(c => {
-                    return (c.name || '').toLowerCase().includes(query) ||
-                           (c.namespace || '').toLowerCase().includes(query) ||
-                           (c.sessionName || '').toLowerCase().includes(query) ||
-                           (c.ownerName || '').toLowerCase().includes(query);
-                });
-
-                tbody.replaceChildren();
-
-                if (filtered.length === 0) {
-                    const tr = document.createElement('tr');
-                    const td = document.createElement('td');
-                    td.setAttribute('colspan', '6');
-                    td.className = 'empty-state';
-
-                    const wrapper = document.createElement('div');
-                    wrapper.className = 'empty-state-wrapper';
-
-                    const svgString = '<svg class="empty-state-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>';
-                    const parser = new DOMParser();
-                    const svgDoc = parser.parseFromString(svgString, 'image/svg+xml');
-                    wrapper.appendChild(svgDoc.documentElement);
-
-                    const titleSpan = document.createElement('span');
-                    titleSpan.className = 'empty-state-title';
-                    titleSpan.textContent = 'No cluster sessions found';
-                    wrapper.appendChild(titleSpan);
-
-                    const subtitleSpan = document.createElement('span');
-                    subtitleSpan.className = 'empty-state-subtitle';
-                    subtitleSpan.textContent = `We couldn't find any session matching your query "${searchInput.value}".`;
-                    wrapper.appendChild(subtitleSpan);
-
-                    td.appendChild(wrapper);
-                    tr.appendChild(td);
-                    tbody.appendChild(tr);
-                } else {
-                    filtered.forEach(c => {
-                        const isLive = c.sessionName === 'live';
-                        const clusterId = `${c.namespace}/${c.name}/${c.sessionName}`;
-                        const isThisEntering = entering === clusterId;
-                        const isAnyEntering = Boolean(entering);
-
-                        const tr = document.createElement('tr');
-                        tr.className = isAnyEntering ? 'opacity-70' : 'hover-row';
-
-                        // Cluster Name
-                        const tdName = document.createElement('td');
-                        tdName.className = 'px-6 font-medium text-white break-words';
-                        const nameWrapper = document.createElement('div');
-                        nameWrapper.className = 'items-start gap-2.5';
-                        const dot = document.createElement('div');
-                        dot.className = `status-dot ${isLive ? 'dot-emerald animate-pulse' : 'dot-blue'}`;
-                        nameWrapper.appendChild(dot);
-                        const nameSpan = document.createElement('span');
-                        nameSpan.className = `cluster-name-link ${isAnyEntering ? 'disabled-link' : 'clickable-link'}`;
-                        nameSpan.textContent = c.name;
-                        if (!isAnyEntering) {
-                            nameSpan.onclick = () => enterCluster(c.namespace, c.name, c.sessionName);
-                        }
-                        nameWrapper.appendChild(nameSpan);
-                        tdName.appendChild(nameWrapper);
-                        tr.appendChild(tdName);
-
-                        // Namespace
-                        const tdNamespace = document.createElement('td');
-                        tdNamespace.className = 'px-6 font-mono text-xs break-words';
-                        const nsSpan = document.createElement('span');
-                        nsSpan.className = 'namespace-badge';
-                        nsSpan.textContent = c.namespace;
-                        tdNamespace.appendChild(nsSpan);
-                        tr.appendChild(tdNamespace);
-
-                        // Session Status
-                        const tdStatus = document.createElement('td');
-                        tdStatus.className = 'px-6 font-mono text-xs break-words';
-                        const statusBadge = document.createElement('span');
-                        statusBadge.className = isLive ? 'badge-emerald font-mono' : 'badge-amber font-mono';
-
-                        const smallDot = document.createElement('span');
-                        smallDot.className = isLive ? 'small-dot bg-emerald' : 'small-dot bg-amber';
-                        statusBadge.appendChild(smallDot);
-
-                        const textSpan = document.createElement('span');
-                        textSpan.textContent = isLive ? 'Live' : (c.sessionName || 'Replay');
-                        statusBadge.appendChild(textSpan);
-
-                        tdStatus.appendChild(statusBadge);
-                        tr.appendChild(tdStatus);
-
-                        // Owner
-                        const tdOwner = document.createElement('td');
-                        tdOwner.className = 'px-6 text-xs text-slate-300 break-words';
-                        if (c.ownerKind || c.ownerName) {
-                            const ownerWrapper = document.createElement('div');
-                            ownerWrapper.className = 'items-start gap-1.5 break-words';
-                            if (c.ownerKind) {
-                                const kindBadge = document.createElement('span');
-                                kindBadge.className = 'badge-indigo';
-                                kindBadge.textContent = c.ownerKind;
-                                ownerWrapper.appendChild(kindBadge);
-                            }
-                            const ownerNameSpan = document.createElement('span');
-                            ownerNameSpan.className = 'owner-name';
-                            ownerNameSpan.textContent = c.ownerName || '—';
-                            ownerWrapper.appendChild(ownerNameSpan);
-                            tdOwner.appendChild(ownerWrapper);
-                        } else {
-                            const dashSpan = document.createElement('span');
-                            dashSpan.className = 'text-slate-500';
-                            dashSpan.textContent = '—';
-                            tdOwner.appendChild(dashSpan);
-                        }
-                        tr.appendChild(tdOwner);
-
-                        // Created At
-                        const tdCreated = document.createElement('td');
-                        tdCreated.className = 'px-6 text-xs text-slate-400 font-mono break-words';
-                        tdCreated.textContent = c.createTime || '—';
-                        tr.appendChild(tdCreated);
-
-                        // Action
-                        const tdAction = document.createElement('td');
-                        tdAction.className = 'px-6 text-right';
-                        const btn = document.createElement('button');
-                        btn.disabled = isAnyEntering;
-
-                        if (isThisEntering) {
-                            btn.className = 'btn btn-wait';
-                            const wrapper = document.createElement('div');
-                            wrapper.className = 'flex items-center gap-1.5 justify-center w-full';
-
-                            const spinner = document.createElement('div');
-                            spinner.className = 'mini-spinner';
-                            wrapper.appendChild(spinner);
-
-                            const textSpan = document.createElement('span');
-                            textSpan.className = 'whitespace-nowrap';
-                            textSpan.textContent = 'Opening...';
-                            wrapper.appendChild(textSpan);
-
-                            btn.appendChild(wrapper);
-                        } else {
-                            btn.className = isAnyEntering ? 'btn btn-disabled' : 'btn btn-primary';
-                            const wrapper = document.createElement('div');
-                            wrapper.className = 'flex items-center gap-1.5 justify-center w-full';
-
-                            const textSpan = document.createElement('span');
-                            textSpan.className = 'whitespace-nowrap';
-                            textSpan.textContent = 'Open Dashboard';
-                            wrapper.appendChild(textSpan);
-
-                            const parser = new DOMParser();
-                            const svgDoc = parser.parseFromString('<svg class="arrow-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>', 'image/svg+xml');
-                            wrapper.appendChild(svgDoc.documentElement);
-
-                            btn.appendChild(wrapper);
-                            if (!isAnyEntering) {
-                                btn.onclick = () => enterCluster(c.namespace, c.name, c.sessionName);
-                            }
-                        }
-                        tdAction.appendChild(btn);
-                        tr.appendChild(tdAction);
-
-                        tbody.appendChild(tr);
-                    });
-                }
-
-                showingText.textContent = `Showing ${filtered.length} of ${clusters.length} available sessions`;
-            }
-
-            searchInput.oninput = () => renderTable();
-
-            window.addEventListener('pageshow', (event) => {
-                if (event.persisted || entering !== null) {
-                    entering = null;
-                    renderTable();
-                }
-            });
-
-            // Initial fetch
-            fetchClusters();
-        })();
-    </script>
+    <template id="session-row">
+        <tr class="session-row">
+            <td>
+                <span class="cluster-name">
+                    <a class="link"></a>
+                    <svg class="spinner small" viewBox="22 22 44 44" role="progressbar" hidden><circle cx="44" cy="44" r="20.2" fill="none" stroke-width="3.6"/></svg>
+                </span>
+            </td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+        </tr>
+    </template>
+    <template id="empty-row">
+        <tr>
+            <td class="empty" colspan="5">
+                <p class="empty-title"></p>
+                <p class="empty-detail text-secondary"></p>
+            </td>
+        </tr>
+    </template>
+    <template id="page-arrows">
+        <svg class="page-arrow" viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+        <svg class="page-arrow" viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+    </template>
 </body>
 </html>

@@ -1,7 +1,9 @@
 package historyserver
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -276,16 +278,48 @@ func routerHealthz(_ *ServerHandler) {
 	})
 }
 
+var selectClusterPage = newSelectClusterFile("text/html; charset=utf-8", html.ClusterSelectorHTML)
+
+// selectClusterFiles are the cluster selection page and the files it loads, by path.
+// {$} matches only the trailing slash, so a mistyped file path stays a 404.
+var selectClusterFiles = map[string]selectClusterFile{
+	"/select_cluster":                                     selectClusterPage,
+	"/select_cluster/{$}":                                 selectClusterPage,
+	"/select_cluster/select_cluster.css":                  newSelectClusterFile("text/css; charset=utf-8", html.ClusterSelectorCSS),
+	"/select_cluster/select_cluster.js":                   newSelectClusterFile("text/javascript; charset=utf-8", html.ClusterSelectorJS),
+	"/select_cluster/fonts/roboto-latin-400-normal.woff2": newSelectClusterFile("font/woff2", html.ClusterSelectorRoboto400),
+	"/select_cluster/fonts/roboto-latin-500-normal.woff2": newSelectClusterFile("font/woff2", html.ClusterSelectorRoboto500),
+}
+
+type selectClusterFile struct {
+	contentType string
+	body        []byte
+	// etag is the hash of body, so revalidating an unchanged file is a 304.
+	etag string
+}
+
+func newSelectClusterFile(contentType string, body []byte) selectClusterFile {
+	return selectClusterFile{contentType: contentType, body: body, etag: fmt.Sprintf(`"%x"`, sha256.Sum256(body))}
+}
+
+func (f selectClusterFile) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Debug, since one page view requests several of these files and each reload revalidates them.
+	logrus.Debugf("Received request: %s %s", r.Method, r.URL.String())
+	w.Header().Set("Content-Type", f.contentType)
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'")
+	// The file names carry no version, so revalidate to pick up an upgrade.
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("ETag", f.etag)
+	// ServeContent answers an If-None-Match with the ETag with 304 Not Modified.
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(f.body))
+}
+
 func routerSelectCluster(_ *ServerHandler) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		logrus.Infof("Serving cluster selector page: %s %s", r.Method, r.URL.String())
-		w.Header().Set("Content-Type", "text/html")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
-		w.Write(html.ClusterSelectorHTML)
+	for path, file := range selectClusterFiles {
+		http.Handle(path, file)
 	}
-	http.HandleFunc("/select_cluster", handler)
 }
 
 func routerLogical(s *ServerHandler) {
