@@ -121,7 +121,7 @@ func testClusterSessionKeyFor(sessionName string) string {
 // testSnapshot builds a minimal snapshot.
 func testSnapshot(clusterSessionKey string) *eventserver.SessionSnapshot {
 	return &eventserver.SessionSnapshot{
-		SessionKey: clusterSessionKey,
+		ClusterSessionKey: clusterSessionKey,
 	}
 }
 
@@ -336,8 +336,8 @@ func TestGetSnapshot_PutThenGet(t *testing.T) {
 	if !ok {
 		t.Fatal("GetSnapshot: ok=false")
 	}
-	if got.SessionKey != stored.SessionKey {
-		t.Fatalf("SessionKey: got %q, want %q", got.SessionKey, stored.SessionKey)
+	if got.ClusterSessionKey != stored.ClusterSessionKey {
+		t.Fatalf("ClusterSessionKey: got %q, want %q", got.ClusterSessionKey, stored.ClusterSessionKey)
 	}
 }
 
@@ -576,7 +576,7 @@ func TestCache_ByteBudgetKeepsOversizedSoleEntry(t *testing.T) {
 // TODO(jiangjiawei1103): Move to test data.
 func richSnapshot(clusterSessionKey string) *eventserver.SessionSnapshot {
 	return &eventserver.SessionSnapshot{
-		SessionKey: clusterSessionKey,
+		ClusterSessionKey: clusterSessionKey,
 		Tasks: []eventtypes.Task{
 			{
 				TaskID: "task-e2e-1111", TaskAttempt: 0, JobID: "job-e2e-aaaa",

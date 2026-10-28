@@ -12,7 +12,7 @@ import (
 // unmarshals back to an equal struct.
 func TestEmptyRoundtrip(t *testing.T) {
 	original := SessionSnapshot{
-		SessionKey: "raycluster-historyserver_default_session_2026-01-11_19-38-40",
+		ClusterSessionKey: "raycluster-historyserver_default_session_2026-01-11_19-38-40",
 	}
 
 	data, err := json.Marshal(original)
@@ -34,7 +34,7 @@ func TestEmptyRoundtrip(t *testing.T) {
 // verifies the snapshot survives a JSON roundtrip intact.
 func TestFullRoundtrip(t *testing.T) {
 	original := SessionSnapshot{
-		SessionKey: "raycluster-historyserver_default_session_2026-01-11_19-38-40",
+		ClusterSessionKey: "raycluster-historyserver_default_session_2026-01-11_19-38-40",
 		Tasks: []types.Task{
 			{TaskID: "task-1", TaskAttempt: 0, JobID: "job-1"},
 			{TaskID: "task-1", TaskAttempt: 1, JobID: "job-1"},
