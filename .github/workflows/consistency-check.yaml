@@ -155,3 +155,28 @@ jobs:
       - name: Check rbac configuration
         run: |
           pytest -s scripts/rbac_test.py
+
+  # Check consistency between CRD YAMLs and generated Python models.
+  python-api-models-consistency:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install generation dependencies
+        run: pip install -r scripts/requirements-python-models.txt
+
+      - name: Regenerate Python models
+        run: python scripts/generate_python_models.py
+
+      - name: Check for uncommitted changes
+        run: |
+          if ! git diff --exit-code clients/python-api/kuberay_api/models/; then
+            echo "::error::Generated Python models are out of date. Run 'python scripts/generate_python_models.py' and commit the result."
+            exit 1
+          fi
