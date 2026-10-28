@@ -152,5 +152,6 @@ func main() {
 	})
 
 	wg.Wait()
+	sessionLoader.Wait()
 	logrus.Info("Graceful shutdown complete")
 }

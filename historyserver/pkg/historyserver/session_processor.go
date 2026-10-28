@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/sirupsen/logrus"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,6 +30,10 @@ const (
 	// SessionStatusProcessed means events were ingested into EventHandler's
 	// in-memory state.
 	SessionStatusProcessed
+	// SessionStatusProcessedRunning is SessionStatusProcessed for a session whose
+	// RayCluster CR still exists, so its data may still grow. Only returned when
+	// the processor serves running clusters from storage.
+	SessionStatusProcessedRunning
 	// SessionStatusClusterStateUnknown means the cluster state could not be
 	// determined (e.g., transient API failure).
 	SessionStatusClusterStateUnknown
@@ -60,17 +65,22 @@ func NewSessionProcessor(reader storage.StorageReader, k8sClient client.Client, 
 
 // ProcessSession processes one session end-to-end.
 func (p *SessionProcessor) ProcessSession(ctx context.Context, session utils.ClusterInfo) (SessionStatus, *eventserver.SessionSnapshot, error) {
-	if !p.serveRunningClusters {
-		dead, err := p.isDead(ctx, session)
-		if err != nil {
-			if isCtxCanceled(err) {
-				return SessionStatusCanceled, nil, err
-			}
+	dead, err := p.IsDead(ctx, session)
+	if err != nil {
+		if isCtxCanceled(err) {
+			return SessionStatusCanceled, nil, err
+		}
+		if !p.serveRunningClusters {
 			return SessionStatusClusterStateUnknown, nil, fmt.Errorf("check cluster state for %s/%s: %w", session.Namespace, session.Name, err)
 		}
-		if !dead {
-			return SessionStatusLive, nil, nil
-		}
+		// Running clusters are also served from storage, so a failed Kubernetes API
+		// check should not fail the load. Treat the cluster as running so Revalidate
+		// checks it again later.
+		logrus.Warnf("Failed to check cluster state for %s/%s, serving it as running: %v", session.Namespace, session.Name, err)
+		dead = false
+	}
+	if !dead && !p.serveRunningClusters {
+		return SessionStatusLive, nil, nil
 	}
 
 	// Use per-call EventHandler so ingestion maps become GC-eligible once the snapshot is built.
@@ -82,13 +92,16 @@ func (p *SessionProcessor) ProcessSession(ctx context.Context, session utils.Clu
 		return SessionStatusEventsErr, nil, fmt.Errorf("process events for %s/%s: %w", session.Namespace, session.Name, err)
 	}
 
+	if !dead {
+		return SessionStatusProcessedRunning, h.BuildSnapshot(session), nil
+	}
 	return SessionStatusProcessed, h.BuildSnapshot(session), nil
 }
 
-// isDead determines if the RayCluster CR is absent.
+// IsDead determines if the RayCluster CR is absent.
 //
 // Known limit: An old session of a still-running RayCluster will be misclassified as live.
-func (p *SessionProcessor) isDead(ctx context.Context, session utils.ClusterInfo) (bool, error) {
+func (p *SessionProcessor) IsDead(ctx context.Context, session utils.ClusterInfo) (bool, error) {
 	rc := &rayv1.RayCluster{}
 	err := p.k8sClient.Get(ctx, k8stypes.NamespacedName{
 		Namespace: session.Namespace,

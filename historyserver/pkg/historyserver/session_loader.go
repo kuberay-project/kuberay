@@ -36,6 +36,13 @@ const (
 	//   - decoded copies: in-flight requests hold a decoded *SessionSnapshot outside the
 	//     budget; concurrent requests for one session share a single copy
 	DefaultSessionCacheMaxMemory = "2Gi"
+
+	// livenessCheckInterval throttles how often Revalidate asks Kubernetes
+	// whether the RayCluster behind a running-built snapshot is gone.
+	livenessCheckInterval = 30 * time.Second
+	// livenessCheckTimeout bounds Revalidate's Kubernetes GET. It stays below
+	// livenessCheckInterval so two checks never overlap.
+	livenessCheckTimeout = 10 * time.Second
 )
 
 // ParseSessionCacheMaxMemory converts a Kubernetes quantity into a
@@ -57,6 +64,7 @@ func ParseSessionCacheMaxMemory(s string) (int, error) {
 // processor is an interface to enable mocking SessionProcessor in tests.
 type processor interface {
 	ProcessSession(ctx context.Context, info utils.ClusterInfo) (SessionStatus, *eventserver.SessionSnapshot, error)
+	IsDead(ctx context.Context, info utils.ClusterInfo) (bool, error)
 }
 
 // cacheEntry holds the snapshot as JSON bytes plus a weak reference to its decoded form.
@@ -64,6 +72,20 @@ type cacheEntry struct {
 	encoded []byte
 	mu      sync.Mutex // one decode at a time per entry
 	decoded weak.Pointer[eventserver.SessionSnapshot]
+
+	// info is kept so Revalidate can reload the session in the background.
+	info utils.ClusterInfo
+	// needsRevalidation marks a snapshot taken while the RayCluster CR still existed,
+	// so the collector may upload more data. Revalidate reloads it once the cluster
+	// is gone and the reloaded entry has it unset, which ends revalidation.
+	needsRevalidation bool
+
+	// livenessMu guards lastLivenessCheck and seenDead.
+	livenessMu sync.Mutex
+	// lastLivenessCheck throttles Revalidate's Kubernetes GET.
+	lastLivenessCheck time.Time
+	// seenDead is set after one NotFound; a second consecutive one triggers the reload.
+	seenDead bool
 }
 
 // SessionLoader caches dead-session snapshots in a size-bounded LRU with optional
@@ -79,6 +101,8 @@ type SessionLoader struct {
 	sf             singleflight.Group
 	serverCtx      context.Context
 	processTimeout time.Duration
+	// wg tracks background reloads started by Revalidate.
+	wg sync.WaitGroup
 }
 
 // NewSessionLoader wires a SessionLoader.
@@ -121,14 +145,6 @@ func (s *SessionLoader) GetSnapshot(clusterSessionKey string) (*eventserver.Sess
 	return snap, true
 }
 
-// Invalidate drops a cached snapshot so the next LoadSession re-reads the
-// session from storage. Used to pick up data uploaded since the last load.
-func (s *SessionLoader) Invalidate(clusterSessionKey string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.cache.Remove(clusterSessionKey)
-}
-
 // renewTTL extends ExpiresAt for a cache hit.
 //
 // Must not re-insert after a concurrent byte eviction.
@@ -141,16 +157,91 @@ func (s *SessionLoader) renewTTL(clusterSessionKey string) {
 }
 
 // LoadSession blocks until a dead session is processed and cached or an
-// unrecoverable error is observed.
+// unrecoverable error is observed. Concurrent LoadSession and Reload calls for
+// the same session share one load.
 func (s *SessionLoader) LoadSession(ctx context.Context, info utils.ClusterInfo) (live bool, err error) {
+	return s.load(ctx, info, false)
+}
+
+// Reload is LoadSession that ignores any cached snapshot. The old snapshot keeps
+// serving until the new one replaces it, so readers never see a miss. Concurrent
+// LoadSession and Reload calls for the same session share one load, so calling
+// Reload while another load is in flight never processes the session twice.
+func (s *SessionLoader) Reload(ctx context.Context, info utils.ClusterInfo) (live bool, err error) {
+	return s.load(ctx, info, true)
+}
+
+// Revalidate refreshes a snapshot built while its RayCluster was running once
+// the cluster is gone, so users see the collector's final upload. It is called
+// on every dashboard request: it never blocks on the reload, and asks
+// Kubernetes at most once per livenessCheckInterval per entry.
+func (s *SessionLoader) Revalidate(ctx context.Context, clusterSessionKey string) {
+	// Peek: a liveness check must not count as a use for LRU ordering.
+	entry, ok := s.cache.Peek(clusterSessionKey)
+	if !ok || !entry.needsRevalidation {
+		return
+	}
+
+	entry.livenessMu.Lock()
+	due := time.Since(entry.lastLivenessCheck) >= livenessCheckInterval
+	if due {
+		entry.lastLivenessCheck = time.Now()
+	}
+	entry.livenessMu.Unlock()
+	if !due {
+		return
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, livenessCheckTimeout)
+	dead, err := s.processor.IsDead(checkCtx, entry.info)
+	cancel()
+	if err != nil {
+		// Keep seenDead value so a transient failure does not restart the grace period.
+		logrus.Warnf("Failed to check cluster state for session %q: %v", clusterSessionKey, err)
+		return
+	}
+
+	// Reload only on the second consecutive NotFound.
+	// By default, Kubernetes sends SIGKILL 30 seconds after a pod receives SIGTERM
+	// (terminationGracePeriodSeconds). Waiting another livenessCheckInterval (30s)
+	// lets the collector finish uploading to the object store (or be killed) before
+	// we reload, so we are unlikely to load partial data.
+	entry.livenessMu.Lock()
+	secondSighting := dead && entry.seenDead
+	entry.seenDead = dead
+	entry.livenessMu.Unlock()
+	if !secondSighting {
+		return
+	}
+
+	// Reload is singleflight, so concurrent calls join a single in-flight call.
+	// On failure the stale entry keeps seenDead set, so the next interval retries.
+	s.wg.Go(func() {
+		if _, err := s.Reload(s.serverCtx, entry.info); err != nil {
+			logrus.Warnf("Background reload of session %q failed, keeping stale snapshot: %v", clusterSessionKey, err)
+			return
+		}
+		logrus.Infof("Reloaded session %q after its RayCluster was deleted", clusterSessionKey)
+	})
+}
+
+// Wait blocks until background reloads finish. Call at shutdown after
+// canceling serverCtx.
+func (s *SessionLoader) Wait() {
+	s.wg.Wait()
+}
+
+func (s *SessionLoader) load(ctx context.Context, info utils.ClusterInfo, force bool) (live bool, err error) {
 	// Fast pre-flight: skip singleflight entirely if ctx is already dead.
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
 
 	clusterSessionKey := utils.BuildClusterSessionKey(info.Name, info.Namespace, info.SessionName)
-	if _, ok := s.cache.Get(clusterSessionKey); ok {
-		return false, nil
+	if !force {
+		if _, ok := s.cache.Get(clusterSessionKey); ok {
+			return false, nil
+		}
 	}
 
 	// TODO(jiangjiawei1103): No graceful drain on shutdown. When the pod receives
@@ -159,7 +250,7 @@ func (s *SessionLoader) LoadSession(ctx context.Context, info utils.ClusterInfo)
 	ch := s.sf.DoChan(clusterSessionKey, func() (any, error) {
 		loadCtx, cancel := context.WithTimeout(s.serverCtx, s.processTimeout)
 		defer cancel()
-		return s.doLoadSession(loadCtx, info, clusterSessionKey)
+		return s.doLoadSession(loadCtx, info, clusterSessionKey, force)
 	})
 
 	select {
@@ -179,11 +270,13 @@ func (s *SessionLoader) LoadSession(ctx context.Context, info utils.ClusterInfo)
 	}
 }
 
-// doLoadSession is the singleflight body invoked by LoadSession.
+// doLoadSession is the singleflight body invoked by load.
 // live is true when the cluster is still alive.
-func (s *SessionLoader) doLoadSession(ctx context.Context, info utils.ClusterInfo, clusterSessionKey string) (live bool, err error) {
-	if _, ok := s.cache.Get(clusterSessionKey); ok {
-		return false, nil
+func (s *SessionLoader) doLoadSession(ctx context.Context, info utils.ClusterInfo, clusterSessionKey string, force bool) (live bool, err error) {
+	if !force {
+		if _, ok := s.cache.Get(clusterSessionKey); ok {
+			return false, nil
+		}
 	}
 
 	status, snap, err := s.processor.ProcessSession(ctx, info)
@@ -192,11 +285,13 @@ func (s *SessionLoader) doLoadSession(ctx context.Context, info utils.ClusterInf
 	}
 
 	switch status {
-	case SessionStatusProcessed:
+	case SessionStatusProcessed, SessionStatusProcessedRunning:
 		if snap == nil {
 			return false, fmt.Errorf("unexpected nil snapshot for session status %v", status)
 		}
-		if err := s.putSnapshot(clusterSessionKey, snap); err != nil {
+		// A snapshot of a running cluster may still grow, so mark it for Revalidate on
+		// later requests. Otherwise the cluster is already gone and the snapshot is final.
+		if err := s.putSnapshot(clusterSessionKey, snap, info, status == SessionStatusProcessedRunning); err != nil {
 			return false, err
 		}
 		return false, nil
@@ -215,16 +310,25 @@ func (s *SessionLoader) doLoadSession(ctx context.Context, info utils.ClusterInf
 //
 // Use JSON, not gob since snapshots have map[string]any CustomFields and gob requires
 // registering concrete types and fails to round-trip the arbitrary nested values reliably.
-func (s *SessionLoader) putSnapshot(clusterSessionKey string, snap *eventserver.SessionSnapshot) error {
+func (s *SessionLoader) putSnapshot(clusterSessionKey string, snap *eventserver.SessionSnapshot, info utils.ClusterInfo, needsRevalidation bool) error {
 	encoded, err := json.Marshal(snap)
 	if err != nil {
 		logrus.Errorf("Failed to encode snapshot for session %q: %v", clusterSessionKey, err)
 		return fmt.Errorf("encode snapshot for session %q: %w", clusterSessionKey, err)
 	}
 
+	entry := &cacheEntry{
+		encoded:           encoded,
+		decoded:           weak.Make(snap),
+		info:              info,
+		needsRevalidation: needsRevalidation,
+		// ProcessSession just checked liveness, so the first Revalidate waits a full interval.
+		lastLivenessCheck: time.Now(),
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.cache.Add(clusterSessionKey, &cacheEntry{encoded: encoded, decoded: weak.Make(snap)})
+	s.cache.Add(clusterSessionKey, entry)
 	s.evictToByteBudget()
 	return nil
 }

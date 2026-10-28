@@ -341,10 +341,12 @@ func routerRayClusterSet(s *ServerHandler) {
 				return
 			}
 			// User add reload=true parameter to trigger snapshot refresh.
+			var live bool
 			if r1.QueryParameter("reload") == "true" {
-				s.sessionLoader.Invalidate(utils.BuildClusterSessionKey(resolvedName, namespace, resolvedSession))
+				live, err = s.sessionLoader.Reload(r1.Request.Context(), resolvedClusterInfo)
+			} else {
+				live, err = s.sessionLoader.LoadSession(r1.Request.Context(), resolvedClusterInfo)
 			}
-			live, err := s.sessionLoader.LoadSession(r1.Request.Context(), resolvedClusterInfo)
 			if err != nil {
 				logrus.Errorf("Failed to load session %s/%s/%s: %v", namespace, resolvedName, resolvedSession, err)
 				r2.WriteErrorString(http.StatusInternalServerError, err.Error())
@@ -2048,6 +2050,10 @@ func (s *ServerHandler) CookieHandle(req *restful.Request, resp *restful.Respons
 	if ownerName.Value != "" && !fs.ValidPath(ownerName.Value) {
 		resp.WriteHeaderAndEntity(http.StatusBadRequest, fmt.Sprintf("invalid cookie values: path traversal not allowed (owner_name=%s)", ownerName.Value))
 		return
+	}
+
+	if sessionName.Value != "live" {
+		s.sessionLoader.Revalidate(req.Request.Context(), utils.BuildClusterSessionKey(clusterName.Value, clusterNamespace.Value, sessionName.Value))
 	}
 
 	if sessionName.Value == "live" && !s.enableLiveClusters {
