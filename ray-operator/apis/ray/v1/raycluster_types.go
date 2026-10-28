@@ -758,6 +758,7 @@ type RayClusterConditionType string
 // Custom Reason for RayClusterCondition
 const (
 	AllPodRunningAndReadyFirstTime = "AllPodRunningAndReadyFirstTime"
+	AutoscalingMinReplicasReady    = "AutoscalingMinReplicasReady"
 	RayClusterPodsProvisioning     = "RayClusterPodsProvisioning"
 	HeadPodNotFound                = "HeadPodNotFound"
 	HeadPodRunningAndReady         = "HeadPodRunningAndReady"
@@ -767,7 +768,8 @@ const (
 )
 
 const (
-	// RayClusterProvisioned indicates whether all Ray Pods are ready for the first time.
+	// RayClusterProvisioned indicates whether a RayCluster is operational for the first time.
+	// For autoscaling clusters, the head Pod and each active worker group's minimum replicas must be ready.
 	// After RayClusterProvisioned is set to true for the first time, it will not change anymore.
 	RayClusterProvisioned RayClusterConditionType = "RayClusterProvisioned"
 	// HeadPodReady indicates whether RayCluster's head Pod is ready for requests.
