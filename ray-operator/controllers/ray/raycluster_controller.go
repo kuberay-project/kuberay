@@ -2025,6 +2025,10 @@ func (r *RayClusterReconciler) calculateStatus(ctx context.Context, instance *ra
 	newInstance.Status.MinWorkerReplicas = utils.CalculateMinReplicas(newInstance)
 	newInstance.Status.MaxWorkerReplicas = utils.CalculateMaxReplicas(newInstance)
 
+	if statusConditionGateEnabled {
+		r.reconcileOrphanedWorkerGroupCondition(instance, newInstance, runtimePods.Items)
+	}
+
 	totalResources := utils.CalculateDesiredResources(newInstance)
 	newInstance.Status.DesiredCPU = totalResources[corev1.ResourceCPU]
 	newInstance.Status.DesiredMemory = totalResources[corev1.ResourceMemory]
@@ -2155,6 +2159,77 @@ func (r *RayClusterReconciler) calculateStatus(ctx context.Context, instance *ra
 	}
 
 	return newInstance, nil
+}
+
+// reconcileOrphanedWorkerGroupCondition surfaces worker Pods whose ray.io/group label no longer maps to a
+// worker group in spec.workerGroupSpecs. reconcilePods only iterates groups still present in the spec, so
+// removing a workerGroupSpecs entry leaves its Pods unreconciled and can stall the head autoscaler (#1739).
+// This only reports the condition and emits an Event; it never deletes or mutates the orphaned Pods.
+func (r *RayClusterReconciler) reconcileOrphanedWorkerGroupCondition(instance, newInstance *rayv1.RayCluster, pods []corev1.Pod) {
+	orphanedGroups, orphanedPodCount := detectOrphanedWorkerGroups(newInstance, pods)
+	if len(orphanedGroups) == 0 {
+		meta.RemoveStatusCondition(&newInstance.Status.Conditions, string(rayv1.RayClusterOrphanedWorkerGroup))
+		return
+	}
+
+	message := fmt.Sprintf("Worker group(s) [%s] were removed from spec.workerGroupSpecs but still have %d Pod(s); "+
+		"the controller cannot reconcile them. Restore the group name(s) in the spec, or delete the Pods manually.",
+		strings.Join(orphanedGroups, ", "), orphanedPodCount)
+
+	// Emit the Event only on transition into the orphaned state to avoid emitting on every reconcile.
+	if !meta.IsStatusConditionTrue(instance.Status.Conditions, string(rayv1.RayClusterOrphanedWorkerGroup)) {
+		r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.OrphanedWorkerGroupPodsDetected), string(utils.ReconcileAction),
+			"RayCluster %s/%s: %s", instance.Namespace, instance.Name, message)
+	}
+
+	meta.SetStatusCondition(&newInstance.Status.Conditions, metav1.Condition{
+		Type:    string(rayv1.RayClusterOrphanedWorkerGroup),
+		Status:  metav1.ConditionTrue,
+		Reason:  rayv1.OrphanedWorkerGroupPodsFound,
+		Message: message,
+	})
+}
+
+// detectOrphanedWorkerGroups returns the sorted names of worker groups that still have Pods but are no longer
+// present in spec.workerGroupSpecs, together with the total number of such orphaned Pods. Pods that are already
+// being deleted are ignored.
+func detectOrphanedWorkerGroups(instance *rayv1.RayCluster, pods []corev1.Pod) ([]string, int) {
+	specGroups := make(map[string]struct{}, len(instance.Spec.WorkerGroupSpecs))
+	for _, worker := range instance.Spec.WorkerGroupSpecs {
+		specGroups[worker.GroupName] = struct{}{}
+	}
+
+	orphanedCounts := make(map[string]int)
+	for i := range pods {
+		pod := &pods[i]
+		if pod.DeletionTimestamp != nil {
+			continue
+		}
+		if pod.Labels[utils.RayNodeTypeLabelKey] != string(rayv1.WorkerNode) {
+			continue
+		}
+		group, ok := pod.Labels[utils.RayNodeGroupLabelKey]
+		if !ok {
+			continue
+		}
+		if _, present := specGroups[group]; present {
+			continue
+		}
+		orphanedCounts[group]++
+	}
+
+	if len(orphanedCounts) == 0 {
+		return nil, 0
+	}
+
+	groups := make([]string, 0, len(orphanedCounts))
+	total := 0
+	for group, count := range orphanedCounts {
+		groups = append(groups, group)
+		total += count
+	}
+	slices.Sort(groups)
+	return groups, total
 }
 
 func (r *RayClusterReconciler) getHeadServiceIPAndName(ctx context.Context, instance *rayv1.RayCluster) (string, string, error) {

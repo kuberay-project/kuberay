@@ -1725,6 +1725,139 @@ func TestCalculateStatus(t *testing.T) {
 	assert.True(t, meta.IsStatusConditionPresentAndEqual(newInstance.Status.Conditions, string(rayv1.RayClusterReplicaFailure), metav1.ConditionTrue))
 }
 
+func TestDetectOrphanedWorkerGroups(t *testing.T) {
+	makePod := func(name, group, nodeType string, deleting bool) corev1.Pod {
+		pod := corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespaceStr,
+				Labels: map[string]string{
+					utils.RayNodeTypeLabelKey:  nodeType,
+					utils.RayNodeGroupLabelKey: group,
+				},
+			},
+		}
+		if deleting {
+			now := metav1.Now()
+			pod.DeletionTimestamp = &now
+			pod.Finalizers = []string{"ray.io/test"}
+		}
+		return pod
+	}
+
+	instance := &rayv1.RayCluster{
+		Spec: rayv1.RayClusterSpec{
+			WorkerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "group1"}},
+		},
+	}
+
+	tests := []struct {
+		name         string
+		pods         []corev1.Pod
+		wantGroups   []string
+		wantPodCount int
+	}{
+		{
+			name: "head and in-spec worker pods are not orphaned",
+			pods: []corev1.Pod{
+				makePod("head", utils.RayNodeHeadGroupLabelValue, string(rayv1.HeadNode), false),
+				makePod("w1", "group1", string(rayv1.WorkerNode), false),
+			},
+		},
+		{
+			name: "pods from removed groups are orphaned",
+			pods: []corev1.Pod{
+				makePod("w1", "group1", string(rayv1.WorkerNode), false),
+				makePod("orphan1", "removed", string(rayv1.WorkerNode), false),
+				makePod("orphan2", "removed", string(rayv1.WorkerNode), false),
+				makePod("orphan3", "removed-2", string(rayv1.WorkerNode), false),
+			},
+			wantGroups:   []string{"removed", "removed-2"},
+			wantPodCount: 3,
+		},
+		{
+			name: "terminating orphaned pods are ignored",
+			pods: []corev1.Pod{makePod("orphan1", "removed", string(rayv1.WorkerNode), true)},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			groups, count := detectOrphanedWorkerGroups(instance, tc.pods)
+			assert.Equal(t, tc.wantGroups, groups)
+			assert.Equal(t, tc.wantPodCount, count)
+		})
+	}
+}
+
+func TestReconcileOrphanedWorkerGroupCondition(t *testing.T) {
+	newWorkerPod := func(name, group string) corev1.Pod {
+		return corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespaceStr,
+				Labels: map[string]string{
+					utils.RayNodeTypeLabelKey:  string(rayv1.WorkerNode),
+					utils.RayNodeGroupLabelKey: group,
+				},
+			},
+		}
+	}
+	newCluster := func() *rayv1.RayCluster {
+		return &rayv1.RayCluster{
+			ObjectMeta: metav1.ObjectMeta{Name: instanceName, Namespace: namespaceStr},
+			Spec:       rayv1.RayClusterSpec{WorkerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "group1"}}},
+		}
+	}
+
+	t.Run("sets condition and emits event once on transition", func(t *testing.T) {
+		recorder := events.NewFakeRecorder(10)
+		r := &RayClusterReconciler{Recorder: recorder}
+		instance := newCluster()
+		newInstance := instance.DeepCopy()
+		pods := []corev1.Pod{newWorkerPod("orphan1", "removed")}
+
+		r.reconcileOrphanedWorkerGroupCondition(instance, newInstance, pods)
+
+		cond := meta.FindStatusCondition(newInstance.Status.Conditions, string(rayv1.RayClusterOrphanedWorkerGroup))
+		require.NotNil(t, cond)
+		assert.Equal(t, metav1.ConditionTrue, cond.Status)
+		assert.Equal(t, rayv1.OrphanedWorkerGroupPodsFound, cond.Reason)
+		assert.Contains(t, cond.Message, "removed")
+
+		select {
+		case event := <-recorder.Events:
+			assert.Contains(t, event, string(utils.OrphanedWorkerGroupPodsDetected))
+		default:
+			t.Fatal("expected an orphaned worker group event, got none")
+		}
+
+		// The condition is already true, so a subsequent reconcile must not emit a duplicate event.
+		instance.Status.Conditions = newInstance.Status.Conditions
+		r.reconcileOrphanedWorkerGroupCondition(instance, newInstance, pods)
+		select {
+		case event := <-recorder.Events:
+			t.Fatalf("expected no repeat event, got %q", event)
+		default:
+		}
+	})
+
+	t.Run("clears condition when no orphaned pods remain", func(t *testing.T) {
+		recorder := events.NewFakeRecorder(10)
+		r := &RayClusterReconciler{Recorder: recorder}
+		instance := newCluster()
+		meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+			Type:   string(rayv1.RayClusterOrphanedWorkerGroup),
+			Status: metav1.ConditionTrue,
+			Reason: rayv1.OrphanedWorkerGroupPodsFound,
+		})
+		newInstance := instance.DeepCopy()
+
+		r.reconcileOrphanedWorkerGroupCondition(instance, newInstance, []corev1.Pod{newWorkerPod("w1", "group1")})
+		assert.Nil(t, meta.FindStatusCondition(newInstance.Status.Conditions, string(rayv1.RayClusterOrphanedWorkerGroup)))
+	})
+}
+
 // TestCalculateStatusWithoutDesiredReplicas tests that the cluster CR should not be marked as Ready if
 // DesiredWorkerReplicas > 0 and DesiredWorkerReplicas != ReadyWorkerReplicas
 func TestCalculateStatusWithoutDesiredReplicas(t *testing.T) {
