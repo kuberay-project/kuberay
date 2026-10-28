@@ -9,17 +9,17 @@ package v1
 // Two mutually exclusive styles are supported:
 //
 // - Legacy: provide both onSuccess and onFailure (deprecated; removal planned for 1.6.0). May be combined with shutdownAfterJobFinishes and (optionally) global TTLSecondsAfterFinished.
-// - Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds instead).
+// - Rules: provide deletionRules (non-empty list) with per-rule condition.ttlSeconds. Rules cannot be combined with legacy fields. With shutdownAfterJobFinishes=true, only DeleteSelf rules are allowed; TTLSecondsAfterFinished controls cluster cleanup independently.
 //
 // Semantics:
 // - A non-empty deletionRules selects rules mode; empty lists are treated as unset.
 // - Legacy requires both onSuccess and onFailure; specifying only one is invalid.
-// - Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true; therefore it cannot be used with rules mode or with legacy alone (no shutdown).
+// - Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true. When combined with rules, each DeleteSelf TTL must be greater than or equal to TTLSecondsAfterFinished.
 // - Feature gate RayJobDeletionPolicy must be enabled when this block is present.
 //
 // Validation:
 // - CRD XValidations prevent mixing legacy fields with deletionRules and enforce legacy completeness.
-// - Controller logic enforces rules vs shutdown exclusivity and TTL constraints.
+// - Controller logic enforces shutdown-compatible policies and TTL constraints.
 // - onSuccess/onFailure are deprecated; migration to deletionRules is encouraged.
 type DeletionStrategyApplyConfiguration struct {
 	// OnSuccess is the deletion policy for a successful RayJob.

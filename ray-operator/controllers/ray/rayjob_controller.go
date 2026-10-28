@@ -1424,8 +1424,23 @@ func (r *RayJobReconciler) handleDeletionRules(ctx context.Context, rayJob *rayv
 	var overdueRules []rayv1.DeletionRule
 	var nextRequeueTime *time.Time
 
+	rules := rayJob.Spec.DeletionStrategy.DeletionRules
+	if rayJob.Spec.ShutdownAfterJobFinishes {
+		// Schedule cluster shutdown together with the DeleteSelf retention rules.
+		// This handler runs only in terminal deployment states, so shutdown must
+		// also apply when none of the user-provided retention conditions match.
+		// Build a separate slice to avoid modifying the RayJob spec.
+		rules = append([]rayv1.DeletionRule{{
+			Policy: rayv1.DeleteCluster,
+			Condition: rayv1.DeletionCondition{
+				JobDeploymentStatus: ptr.To(rayJob.Status.JobDeploymentStatus),
+				TTLSeconds:          rayJob.Spec.TTLSecondsAfterFinished,
+			},
+		}}, rules...)
+	}
+
 	// Categorize all applicable and incomplete rules into "overdue" or "pending".
-	for _, rule := range rayJob.Spec.DeletionStrategy.DeletionRules {
+	for _, rule := range rules {
 		// Skip rules that don't match the current job status or job deployment status.
 		if !isDeletionRuleMatched(rule, rayJob) {
 			continue

@@ -849,10 +849,8 @@ func validateDeletionConfiguration(rayJob *rayv1.RayJob) error {
 	legacyConfigured := rayJob.Spec.DeletionStrategy.OnSuccess != nil || rayJob.Spec.DeletionStrategy.OnFailure != nil
 	rulesConfigured := len(rayJob.Spec.DeletionStrategy.DeletionRules) > 0
 
-	// Mutual exclusivity: rules mode forbids shutdown & legacy. (TTL+rules is implicitly invalid because TTL requires shutdown.)
-	if rulesConfigured && rayJob.Spec.ShutdownAfterJobFinishes {
-		return fmt.Errorf("The RayJob spec is invalid: spec.shutdownAfterJobFinishes and spec.deletionStrategy.deletionRules are mutually exclusive")
-	}
+	// Rules and legacy policies remain mutually exclusive. Rules may supplement
+	// standard cluster shutdown with independent RayJob retention.
 	if rulesConfigured && legacyConfigured {
 		return fmt.Errorf("The RayJob spec is invalid: Cannot use both legacy onSuccess/onFailure fields and deletionRules simultaneously")
 	}
@@ -894,6 +892,16 @@ func validateDeletionRules(rayJob *rayv1.RayJob) error {
 		}
 
 		// Contextual validations based on spec.
+		if rayJob.Spec.ShutdownAfterJobFinishes {
+			if rule.Policy != rayv1.DeleteSelf {
+				errs = append(errs, fmt.Errorf("deletionRules[%d]: only DeleteSelf is supported when shutdownAfterJobFinishes is true", i))
+				continue
+			}
+			if rule.Condition.TTLSeconds < rayJob.Spec.TTLSecondsAfterFinished {
+				errs = append(errs, fmt.Errorf("deletionRules[%d]: DeleteSelf TTLSeconds must be greater than or equal to ttlSecondsAfterFinished", i))
+				continue
+			}
+		}
 		if isClusterSelectorMode && (rule.Policy == rayv1.DeleteCluster || rule.Policy == rayv1.DeleteWorkers) {
 			errs = append(errs, fmt.Errorf("deletionRules[%d]: DeletionPolicyType '%s' not supported when ClusterSelector is set", i, rule.Policy))
 			continue

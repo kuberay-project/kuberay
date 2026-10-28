@@ -238,17 +238,17 @@ DeletionStrategy configures automated cleanup after the RayJob reaches a termina
 Two mutually exclusive styles are supported:
 
   - Legacy: provide both onSuccess and onFailure (deprecated; removal planned for 1.6.0). May be combined with shutdownAfterJobFinishes and (optionally) global TTLSecondsAfterFinished.
-  - Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds instead).
+  - Rules: provide deletionRules (non-empty list) with per-rule condition.ttlSeconds. Rules cannot be combined with legacy fields. With shutdownAfterJobFinishes=true, only DeleteSelf rules are allowed; TTLSecondsAfterFinished controls cluster cleanup independently.
 
 Semantics:
   - A non-empty deletionRules selects rules mode; empty lists are treated as unset.
   - Legacy requires both onSuccess and onFailure; specifying only one is invalid.
-  - Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true; therefore it cannot be used with rules mode or with legacy alone (no shutdown).
+  - Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true. When combined with rules, each DeleteSelf TTL must be greater than or equal to TTLSecondsAfterFinished.
   - Feature gate RayJobDeletionPolicy must be enabled when this block is present.
 
 Validation:
   - CRD XValidations prevent mixing legacy fields with deletionRules and enforce legacy completeness.
-  - Controller logic enforces rules vs shutdown exclusivity and TTL constraints.
+  - Controller logic enforces shutdown-compatible policies and TTL constraints.
   - onSuccess/onFailure are deprecated; migration to deletionRules is encouraged.
 
 
@@ -777,7 +777,7 @@ _Appears in:_
 | `clusterSelector` _object (keys:string, values:string)_ | clusterSelector is used to select running rayclusters by labels |  |  |
 | `submitterConfig` _[SubmitterConfig](#submitterconfig)_ | Configurations of submitter k8s job. |  |  |
 | `managedBy` _string_ | ManagedBy is an optional configuration for the controller or entity that manages a RayJob.<br />The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.<br />The kuberay-operator reconciles a RayJob which doesn't have this field at all or<br />the field value is the reserved string 'ray.io/kuberay-operator',<br />but delegates reconciling the RayJob with 'kueue.x-k8s.io/multikueue' to the Kueue.<br />The field is immutable. |  |  |
-| `deletionStrategy` _[DeletionStrategy](#deletionstrategy)_ | DeletionStrategy automates post-completion cleanup.<br />Choose one style or omit:<br />  - Legacy: both onSuccess & onFailure (deprecated; may combine with shutdownAfterJobFinishes and TTLSecondsAfterFinished).<br />  - Rules: deletionRules (non-empty) — incompatible with shutdownAfterJobFinishes, legacy fields, and global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds).<br />Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true.<br />Feature gate RayJobDeletionPolicy must be enabled when this field is set. |  |  |
+| `deletionStrategy` _[DeletionStrategy](#deletionstrategy)_ | DeletionStrategy automates post-completion cleanup.<br />Choose one style or omit:<br />  - Legacy: both onSuccess & onFailure (deprecated; may combine with shutdownAfterJobFinishes and TTLSecondsAfterFinished).<br />  - Rules: deletionRules (non-empty) with per-rule condition.ttlSeconds; incompatible with legacy fields.<br />With shutdownAfterJobFinishes=true, only DeleteSelf rules are allowed, with TTLs >= TTLSecondsAfterFinished.<br />The RayCluster is deleted after TTLSecondsAfterFinished, independently of RayJob retention.<br />Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true.<br />Feature gate RayJobDeletionPolicy must be enabled when this field is set. |  |  |
 | `entrypoint` _string_ | Entrypoint represents the command to start execution. |  |  |
 | `runtimeEnvYAML` _string_ | RuntimeEnvYAML represents the runtime environment configuration<br />provided as a multi-line YAML string. |  |  |
 | `jobId` _string_ | If jobId is not set, a new jobId will be auto-generated. |  |  |

@@ -1960,7 +1960,7 @@ func TestValidateRayJobSpecWithFeatureGate(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "deletionRules and ShutdownAfterJobFinishes both set",
+			name: "DeleteSelf rules supplement ShutdownAfterJobFinishes",
 			spec: rayv1.RayJobSpec{
 				ShutdownAfterJobFinishes: true,
 				DeletionStrategy: &rayv1.DeletionStrategy{
@@ -1976,7 +1976,7 @@ func TestValidateRayJobSpecWithFeatureGate(t *testing.T) {
 				},
 				RayClusterSpec: createBasicRayClusterSpec(),
 			},
-			expectError: true,
+			expectError: false,
 		},
 		{
 			name: "deletionRules and legacy onSuccess both set",
