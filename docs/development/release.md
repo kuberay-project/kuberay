@@ -78,20 +78,13 @@ See the next section for more details on each step.
 
 ### Step 2: Update KubeRay Version References
 
-On the release branch (`release-1.4` in this example), update all references to the KubeRay version number (e.g., `1.4.0`).
+On the release branch (`release-1.4` in this example), update all references to the KubeRay version number (e.g., `1.4.0`, or `1.4.0-rc.0` for a release candidate).
 
-Update the version in the following files:
-
-* `helm-chart/kuberay-apiserver/Chart.yaml` (chart version)
-* `helm-chart/kuberay-apiserver/values.yaml` (image tag)
-* `helm-chart/kuberay-operator/Chart.yaml` (chart version)
-* `helm-chart/kuberay-operator/values.yaml` (image tag)
-* `helm-chart/ray-cluster/Chart.yaml` (chart version)
-* `ray-operator/config/default/kustomization.yaml` (image tag)
-* `ray-operator/controllers/ray/utils/constant.go` (`KUBERAY_VERSION` constant)
+The [`bump-helm-charts`](../../.agents/skills/bump-helm-charts/SKILL.md) agent skill lists every file to update and the version format each one takes.
+Run it with a coding agent (for example, `/bump-helm-charts 1.4.0` in Claude Code), or make the edits it lists by hand.
 
 Open a PR to the release branch with these changes.
-Refer to a previous version bump PR for guidance, like [PR #3071](https://github.com/ray-project/kuberay/pull/3071/files).
+Refer to a previous version bump PR for guidance, like [PR #5318](https://github.com/ray-project/kuberay/pull/5318/files).
 
 ---
 
