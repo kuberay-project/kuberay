@@ -75,6 +75,9 @@ const (
 	JobDeploymentStatusTransitionGracePeriodExceeded JobFailedReason = "JobDeploymentStatusTransitionGracePeriodExceeded"
 	JobStatusCheckTimeoutExceeded                    JobFailedReason = "JobStatusCheckTimeoutExceeded"
 	ValidationFailed                                 JobFailedReason = "ValidationFailed"
+	// ResourceReservationTimeout indicates the RayJob failed because the batch
+	// scheduler (e.g. YuniKorn hard-gang) timed out reserving resources for the gang.
+	ResourceReservationTimeout JobFailedReason = "ResourceReservationTimeout"
 )
 
 type JobSubmissionMode string

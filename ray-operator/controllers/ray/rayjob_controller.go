@@ -213,6 +213,16 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 
 		// Check the current status of RayCluster before submitting.
 		if clientURL := rayJobInstance.Status.DashboardURL; clientURL == "" {
+			if utils.IsRayClusterResourceReservationTimeout(rayClusterInstance.Status) {
+				logger.Info("RayCluster batch scheduler gang reservation failed terminally; marking RayJob Failed.",
+					"RayCluster", rayClusterInstance.Name, "Reason", rayClusterInstance.Status.Reason)
+				rayJobInstance.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusFailed
+				rayJobInstance.Status.Reason = rayv1.ResourceReservationTimeout
+				rayJobInstance.Status.Message = "RayCluster gang scheduling failed with ResourceReservationTimeout; Pod recreation against the terminated batch-scheduler application was stopped"
+				rayJobInstance.Status.RayClusterStatus = rayClusterInstance.Status
+				break
+			}
+
 			if rayClusterInstance.Status.State != rayv1.Ready {
 				logger.Info("Wait for the RayCluster.Status.State to be ready before submitting the job.", "RayCluster", rayClusterInstance.Name, "State", rayClusterInstance.Status.State)
 				// The nonready RayCluster status should be reflected in the RayJob's status.

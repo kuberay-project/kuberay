@@ -1016,6 +1016,24 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			return err
 		}
 	}
+	// Do not recreate Pods after a terminal batch-scheduler gang reservation failure.
+	// Status.Reason is set by calculateStatus when ResourceReservationTimeout Pods are observed;
+	// also short-circuit when such Pods are still present so WorkersToDelete cannot remove them
+	// and trigger recreation against a dead applicationId (#5301).
+	if utils.IsRayClusterResourceReservationTimeout(instance.Status) {
+		logger.Info("reconcilePods: skipping pod create/delete because batch scheduler gang reservation failed terminally",
+			"reason", instance.Status.Reason)
+		return nil
+	}
+	allPods := corev1.PodList{}
+	if err := r.List(ctx, &allPods, common.RayClusterAllPodsAssociationOptions(instance).ToListOptions()...); err != nil {
+		return err
+	}
+	if utils.HasResourceReservationTimeoutPods(allPods) {
+		logger.Info("reconcilePods: ResourceReservationTimeout Pods observed; skipping pod create/delete to avoid looping against a terminated batch-scheduler application")
+		return nil
+	}
+
 	// Reconcile head Pod
 	if !r.rayClusterScaleExpectation.IsSatisfied(ctx, instance.Namespace, instance.Name, expectations.HeadGroup) {
 		logger.Info("reconcilePods", "Expectation", "NotSatisfiedHeadExpectations, reconcile head later")
@@ -1528,6 +1546,10 @@ func shouldDeletePod(pod corev1.Pod, nodeType rayv1.RayNodeType) (bool, string) 
 	// Based on the logic of the change of the status of the K8S pod, the following judgment is made.
 	// https://github.com/kubernetes/kubernetes/blob/3361895612dac57044d5dacc029d2ace1865479c/pkg/kubelet/kubelet_pods.go#L1556
 
+	// ResourceReservationTimeout Pods are not handled here: reconcilePods early-returns
+	// when HasResourceReservationTimeoutPods / IsRayClusterResourceReservationTimeout is
+	// true, so shouldDeletePod is never reached for those Pods. See #5301 / #5305.
+
 	// If the Pod's status is `Failed` or `Succeeded`, the Pod will not restart and we can safely delete it.
 	if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
 		reason := fmt.Sprintf(
@@ -2031,7 +2053,27 @@ func (r *RayClusterReconciler) calculateStatus(ctx context.Context, instance *ra
 	newInstance.Status.DesiredGPU = sumGPUs(totalResources)
 	newInstance.Status.DesiredTPU = totalResources[corev1.ResourceName("google.com/tpu")]
 
-	if reconcileErr == nil && len(runtimePods.Items) == int(newInstance.Status.DesiredWorkerReplicas)+1 { // workers + 1 head
+	// Detect terminal batch-scheduler gang reservation failure (e.g. YuniKorn hard-gang
+	// ResourceReservationTimeout). Surface it on the RayCluster so RayJob can fail instead
+	// of looping Pod recreation against a dead applicationId (#5301).
+	hasResourceReservationTimeout := utils.HasResourceReservationTimeoutPods(runtimePods)
+	if hasResourceReservationTimeout || utils.IsRayClusterResourceReservationTimeout(newInstance.Status) {
+		if newInstance.Status.Reason != utils.ResourceReservationTimeoutReason {
+			r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.BatchSchedulingFailed), string(utils.UpdateAction),
+				"Batch scheduler gang reservation failed with ResourceReservationTimeout for RayCluster %s/%s; stopping Pod recreation",
+				instance.Namespace, instance.Name)
+		}
+		newInstance.Status.State = rayv1.Failed
+		newInstance.Status.Reason = utils.ResourceReservationTimeoutReason
+		if statusConditionGateEnabled {
+			meta.SetStatusCondition(&newInstance.Status.Conditions, metav1.Condition{
+				Type:    string(rayv1.RayClusterBatchSchedulingFailed),
+				Status:  metav1.ConditionTrue,
+				Reason:  string(rayv1.ResourceReservationTimeout),
+				Message: "Batch scheduler failed the gang reservation with ResourceReservationTimeout; Pod recreation is stopped",
+			})
+		}
+	} else if reconcileErr == nil && len(runtimePods.Items) == int(newInstance.Status.DesiredWorkerReplicas)+1 { // workers + 1 head
 		if utils.CheckAllPodsRunning(ctx, runtimePods) {
 			newInstance.Status.State = rayv1.Ready
 			newInstance.Status.Reason = ""

@@ -2394,6 +2394,7 @@ func Test_ShouldDeletePod(t *testing.T) {
 		name            string
 		restartPolicy   corev1.RestartPolicy
 		phase           corev1.PodPhase
+		reason          string
 		containerStatus []corev1.ContainerStatus
 		shouldDelete    bool
 	}{
@@ -2494,6 +2495,7 @@ func Test_ShouldDeletePod(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			pod.Spec.RestartPolicy = testCase.restartPolicy
 			pod.Status.Phase = testCase.phase
+			pod.Status.Reason = testCase.reason
 			pod.Status.ContainerStatuses = testCase.containerStatus
 
 			shouldDelete, _ := shouldDeletePod(pod, rayv1.HeadNode)
@@ -2503,6 +2505,123 @@ func Test_ShouldDeletePod(t *testing.T) {
 			)
 		})
 	}
+}
+
+func TestReconcilePods_ResourceReservationTimeout(t *testing.T) {
+	setupTest(t)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+
+	// Head + workers already failed by YuniKorn hard-gang ResourceReservationTimeout.
+	headPod := testPods[0].(*corev1.Pod).DeepCopy()
+	headPod.Status.Phase = corev1.PodFailed
+	headPod.Status.Reason = utils.ResourceReservationTimeoutReason
+
+	workerPods := make([]runtime.Object, 0, expectReplicaNum)
+	for i := 1; i <= int(expectReplicaNum); i++ {
+		pod := testPods[i].(*corev1.Pod).DeepCopy()
+		pod.Status.Phase = corev1.PodFailed
+		pod.Status.Reason = utils.ResourceReservationTimeoutReason
+		workerPods = append(workerPods, pod)
+	}
+
+	runtimeObjects := append([]runtime.Object{headPod}, workerPods...)
+	cluster := testRayCluster.DeepCopy()
+	cluster.Spec.WorkerGroupSpecs[0].ScaleStrategy.WorkersToDelete = nil
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(newScheme).
+		WithRuntimeObjects(runtimeObjects...).
+		WithStatusSubresource(cluster).
+		Build()
+	ctx := context.Background()
+
+	reconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   &events.FakeRecorder{},
+		Scheme:                     newScheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}
+
+	// First reconcile must not delete the ResourceReservationTimeout Pods.
+	err := reconciler.reconcilePods(ctx, cluster)
+	require.NoError(t, err)
+
+	podList := corev1.PodList{}
+	err = fakeClient.List(ctx, &podList, client.InNamespace(namespaceStr))
+	require.NoError(t, err)
+	assert.Len(t, podList.Items, int(expectReplicaNum)+1, "ResourceReservationTimeout Pods must not be deleted")
+	for _, pod := range podList.Items {
+		assert.Equal(t, corev1.PodFailed, pod.Status.Phase)
+		assert.Equal(t, utils.ResourceReservationTimeoutReason, pod.Status.Reason)
+	}
+
+	// Second reconcile still must not recreate (would target a dead applicationId).
+	err = reconciler.reconcilePods(ctx, cluster)
+	require.NoError(t, err)
+	err = fakeClient.List(ctx, &podList, client.InNamespace(namespaceStr))
+	require.NoError(t, err)
+	assert.Len(t, podList.Items, int(expectReplicaNum)+1)
+
+	// Once Status.Reason is set, reconcilePods should no-op even if Pods disappear.
+	cluster.Status.Reason = utils.ResourceReservationTimeoutReason
+	cluster.Status.State = rayv1.Failed
+	for i := range podList.Items {
+		require.NoError(t, fakeClient.Delete(ctx, &podList.Items[i]))
+	}
+	err = reconciler.reconcilePods(ctx, cluster)
+	require.NoError(t, err)
+	err = fakeClient.List(ctx, &podList, client.InNamespace(namespaceStr))
+	require.NoError(t, err)
+	assert.Empty(t, podList.Items, "must not recreate Pods after terminal gang reservation failure")
+}
+
+func TestCalculateStatus_ResourceReservationTimeout(t *testing.T) {
+	setupTest(t)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+
+	headPod := testPods[0].(*corev1.Pod).DeepCopy()
+	headPod.Status.Phase = corev1.PodFailed
+	headPod.Status.Reason = utils.ResourceReservationTimeoutReason
+
+	worker := testPods[1].(*corev1.Pod).DeepCopy()
+	worker.Status.Phase = corev1.PodFailed
+	worker.Status.Reason = utils.ResourceReservationTimeoutReason
+
+	headService, err := common.BuildServiceForHeadPod(context.Background(), *testRayCluster, nil, nil)
+	require.NoError(t, err)
+	headService.Spec.ClusterIP = "1.2.3.4"
+
+	cluster := testRayCluster.DeepCopy()
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(newScheme).
+		WithRuntimeObjects(headPod, worker, headService).
+		WithStatusSubresource(cluster).
+		Build()
+	ctx := context.Background()
+
+	features.SetFeatureGateDuringTest(t, features.RayClusterStatusConditions, true)
+
+	reconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   &events.FakeRecorder{},
+		Scheme:                     newScheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}
+
+	newInstance, err := reconciler.calculateStatus(ctx, cluster, nil)
+	require.NoError(t, err)
+	assert.Equal(t, rayv1.Failed, newInstance.Status.State)
+	assert.Equal(t, utils.ResourceReservationTimeoutReason, newInstance.Status.Reason)
+	assert.True(t, meta.IsStatusConditionPresentAndEqual(
+		newInstance.Status.Conditions,
+		string(rayv1.RayClusterBatchSchedulingFailed),
+		metav1.ConditionTrue,
+	))
 }
 
 func Test_RedisCleanupFeatureFlag(t *testing.T) {

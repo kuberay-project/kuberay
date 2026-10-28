@@ -1290,3 +1290,21 @@ func NodeLabelKey(fieldPath string) (string, error) {
 	}
 	return m[1], nil
 }
+
+// IsResourceReservationTimeoutPod reports whether the Pod was failed by a batch
+// scheduler with Reason ResourceReservationTimeout (YuniKorn hard-gang timeout).
+func IsResourceReservationTimeoutPod(pod corev1.Pod) bool {
+	return pod.Status.Phase == corev1.PodFailed && pod.Status.Reason == ResourceReservationTimeoutReason
+}
+
+// HasResourceReservationTimeoutPods reports whether any Pod in the list failed
+// with Reason ResourceReservationTimeout.
+func HasResourceReservationTimeoutPods(pods corev1.PodList) bool {
+	return slices.ContainsFunc(pods.Items, IsResourceReservationTimeoutPod)
+}
+
+// IsRayClusterResourceReservationTimeout reports whether the RayCluster status
+// Reason is ResourceReservationTimeout (YuniKorn hard-gang timeout).
+func IsRayClusterResourceReservationTimeout(status rayv1.RayClusterStatus) bool {
+	return status.Reason == ResourceReservationTimeoutReason
+}
