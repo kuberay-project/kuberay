@@ -1,6 +1,6 @@
 # RayCluster
 
-![Version: 1.1.0](https://img.shields.io/badge/Version-1.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
+![Version: 1.2.0](https://img.shields.io/badge/Version-1.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
 
 A Helm chart for deploying the RayCluster with the kuberay operator.
 
@@ -173,3 +173,7 @@ helm uninstall raycluster
 | additionalWorkerGroups.smallGroup.topologySpreadConstraints | list | `[]` |  |
 | additionalWorkerGroups.smallGroup.rayStartParams | object | `{}` |  |
 | service.type | string | `"ClusterIP"` |  |
+| podDisruptionBudget.enabled | bool | `false` | Whether to create a PodDisruptionBudget for the RayCluster. |
+| podDisruptionBudget.minAvailable | int | `1` | Minimum number of pods that must remain available during a voluntary disruption. An absolute number or a percentage (e.g. "50%"). Mutually exclusive with maxUnavailable; when both are set, minAvailable takes precedence. |
+| podDisruptionBudget.maxUnavailable | string | `""` | Maximum number of pods that can be unavailable during a voluntary disruption. An absolute number or a percentage (e.g. "50%"). Set minAvailable to null to use this instead. |
+| podDisruptionBudget.selectorLabels | object | `{}` | Extra labels to merge into the PDB selector. By default the PDB selects every pod of this RayCluster through the operator-managed `ray.io/cluster` label. |
