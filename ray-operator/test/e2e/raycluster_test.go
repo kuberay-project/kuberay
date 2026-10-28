@@ -184,21 +184,18 @@ func TestRayClusterScalingDown(t *testing.T) {
 	rayCluster, err = test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), rayClusterAC, TestApplyOptions)
 	g.Expect(err).NotTo(HaveOccurred(), "Failed to scale down RayCluster")
 
-	time.Sleep(5 * time.Second)
+	// Wait until the scale-down marks exactly one worker pod for deletion.
+	g.Eventually(WorkerPods(test, rayCluster), TestTimeoutShort).Should(
+		ConsistOf(
+			HaveField("DeletionTimestamp", BeNil()),
+			HaveField("DeletionTimestamp", Not(BeNil())),
+		),
+		"Should have only one worker pod having deletionTimestamp",
+	)
 
 	headPod, err = GetHeadPod(test, rayCluster)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(headPod.DeletionTimestamp).To(BeNil(), "Head pod should not have deletionTimestamp")
-
-	workerPods, err = GetWorkerPods(test, rayCluster)
-	g.Expect(err).NotTo(HaveOccurred())
-	deletingCount := 0
-	for _, pod := range workerPods {
-		if pod.DeletionTimestamp != nil {
-			deletingCount++
-		}
-	}
-	g.Expect(deletingCount).To(Equal(1), "Should have only one worker pod having deletionTimestamp")
 
 	LogWithTimestamp(test.T(), "Removing finalizers from pods")
 	for _, pod := range allPods {

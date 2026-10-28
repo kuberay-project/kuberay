@@ -1,0 +1,58 @@
+{{- /*
+The node event forwarder lists and watches Kubernetes Events involving Nodes.
+Per Kubernetes API validation, Events involving cluster-scoped objects like Nodes
+(where involvedObject.namespace is empty) are strictly recorded in either the "default"
+or "kube-system" namespace.
+Because watching these events requires permissions in "default" and "kube-system",
+node event forwarding is only supported in cluster-scoped installations and is not
+supported when singleNamespaceInstall is true.
+This template creates dedicated Roles and RoleBindings in "default" and "kube-system",
+enforcing least privilege by avoiding cluster-wide event watching permissions.
+*/ -}}
+{{- $nodeEventForwarderConfigEnabled := false -}}
+{{- if and (hasKey .Values "nodeEventForwarder") (hasKey .Values.nodeEventForwarder "enabled") -}}
+  {{- $nodeEventForwarderConfigEnabled = .Values.nodeEventForwarder.enabled -}}
+{{- end -}}
+{{- $featureGateEnabled := false -}}
+{{- range .Values.featureGates -}}
+  {{- if eq .name "RayNodeEventForwarder" -}}
+    {{- $featureGateEnabled = .enabled -}}
+  {{- end -}}
+{{- end -}}
+{{- if and .Values.rbacEnable (not .Values.singleNamespaceInstall) $nodeEventForwarderConfigEnabled $featureGateEnabled }}
+{{- range $ns := list "default" "kube-system" }}
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kuberay-operator.nodeEventForwarderRole.name" $ }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kuberay-operator.labels" $ | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - get
+  - list
+  - watch
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kuberay-operator.nodeEventForwarderRoleBinding.name" $ }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kuberay-operator.labels" $ | nindent 4 }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kuberay-operator.serviceAccount.name" $ }}
+  namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberay-operator.nodeEventForwarderRole.name" $ }}
+{{- end }}
+{{- end }}

@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
@@ -135,7 +137,7 @@ func TestValidateRayClusterSpecGcsFaultToleranceOptions(t *testing.T) {
 		},
 		{
 			name:                     "ray.io/ft-enabled is not set and GcsFaultToleranceOptions is set",
-			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{},
+			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{RedisAddress: "redis:6379"},
 			expectError:              false,
 		},
 		{
@@ -199,14 +201,86 @@ func TestValidateRayClusterSpecGcsFaultToleranceOptions(t *testing.T) {
 			annotations: map[string]string{
 				RayExternalStorageNSAnnotationKey: "myns",
 			},
-			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{},
+			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{RedisAddress: "redis:6379"},
 			expectError:              true,
 			errorMessage:             errorMessageExternalStorageNamespaceConflict,
+		},
+		{
+			name:                     "redis backend rejects empty RedisAddress",
+			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{Backend: rayv1.GcsFTBackendRedis},
+			expectError:              true,
+			errorMessage:             "GcsFaultToleranceOptions.RedisAddress must be set when backend is 'redis'",
+		},
+		{
+			name: "redis backend rejects rocksdb-only storage field",
+			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+				Backend: rayv1.GcsFTBackendRedis,
+				Storage: &rayv1.GcsEmbeddedStorage{Size: new(resource.MustParse("1Gi"))},
+			},
+			expectError:  true,
+			errorMessage: "cannot set GcsFaultToleranceOptions.Storage when backend is 'redis' - it only applies to the 'rocksdb' backend",
+		},
+		// rocksdb backend rules.
+		{
+			name:                     "rocksdb backend is valid with no redis fields",
+			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{Backend: rayv1.GcsFTBackendRocksDB},
+			expectError:              false,
+		},
+		{
+			name: "rocksdb backend with operator-managed storage is valid",
+			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+				Backend: rayv1.GcsFTBackendRocksDB,
+				Storage: &rayv1.GcsEmbeddedStorage{Size: new(resource.MustParse("2Gi"))},
+			},
+			expectError: false,
+		},
+		{
+			name: "rocksdb backend rejects RedisAddress",
+			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+				Backend:      rayv1.GcsFTBackendRocksDB,
+				RedisAddress: "redis:6379",
+			},
+			expectError:  true,
+			errorMessage: "cannot set GcsFaultToleranceOptions.RedisAddress when backend is 'rocksdb'",
+		},
+		{
+			name: "rocksdb backend rejects ExternalStorageNamespace",
+			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+				Backend:                  rayv1.GcsFTBackendRocksDB,
+				ExternalStorageNamespace: "ns",
+			},
+			expectError:  true,
+			errorMessage: "cannot set GcsFaultToleranceOptions.ExternalStorageNamespace when backend is 'rocksdb'",
+		},
+		{
+			name: "rocksdb backend rejects claimName combined with size",
+			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+				Backend: rayv1.GcsFTBackendRocksDB,
+				Storage: &rayv1.GcsEmbeddedStorage{
+					ClaimName: "my-pvc",
+					Size:      new(resource.MustParse("1Gi")),
+				},
+			},
+			expectError:  true,
+			errorMessage: "GcsFaultToleranceOptions.Storage.ClaimName is mutually exclusive with size, storageClassName, and accessModes",
+		},
+		{
+			name: "rocksdb backend rejects user-set RAY_gcs_storage env",
+			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+				Backend: rayv1.GcsFTBackendRocksDB,
+			},
+			envVars: []corev1.EnvVar{
+				{Name: RAY_GCS_STORAGE, Value: "rocksdb"},
+			},
+			expectError: true,
+			errorMessage: fmt.Sprintf("cannot set `%s` or `%s` env var in head Pod when the embedded GCS FT backend is used - these are managed by KubeRay",
+				RAY_GCS_STORAGE, RAY_GCS_STORAGE_PATH),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.GCSFaultToleranceEmbeddedStorage, true)
 			err := ValidateRayClusterSpec(&rayv1.RayClusterSpec{
 				GcsFaultToleranceOptions: tt.gcsFaultToleranceOptions,
 				HeadGroupSpec: rayv1.HeadGroupSpec{
@@ -217,6 +291,152 @@ func TestValidateRayClusterSpecGcsFaultToleranceOptions(t *testing.T) {
 			if tt.expectError {
 				require.Error(t, err)
 				assert.EqualError(t, err, tt.errorMessage)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestValidateRayClusterSpecEmbeddedGCSFeatureGate verifies the embedded RocksDB
+// backend is rejected unless the GCSFaultToleranceEmbeddedStorage feature gate is
+// enabled.
+func TestValidateRayClusterSpecEmbeddedGCSFeatureGate(t *testing.T) {
+	spec := &rayv1.RayClusterSpec{
+		GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{Backend: rayv1.GcsFTBackendRocksDB},
+		HeadGroupSpec: rayv1.HeadGroupSpec{
+			Template: podTemplateSpec(nil, nil),
+		},
+	}
+
+	features.SetFeatureGateDuringTest(t, features.GCSFaultToleranceEmbeddedStorage, false)
+	err := ValidateRayClusterSpec(spec, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires the GCSFaultToleranceEmbeddedStorage feature gate")
+
+	features.SetFeatureGateDuringTest(t, features.GCSFaultToleranceEmbeddedStorage, true)
+	require.NoError(t, ValidateRayClusterSpec(spec, nil))
+}
+
+func TestValidateGcsActivePassiveHead(t *testing.T) {
+	enabled := true
+	disabled := false
+
+	tests := []struct {
+		options      *rayv1.GcsFaultToleranceOptions
+		name         string
+		errorMessage string
+		gateEnabled  bool
+		expectError  bool
+	}{
+		{
+			name:        "activePassiveHeadOptions not set",
+			options:     &rayv1.GcsFaultToleranceOptions{RedisAddress: "redis:6379"},
+			gateEnabled: true,
+		},
+		{
+			name: "disabled",
+			options: &rayv1.GcsFaultToleranceOptions{
+				ActivePassiveHeadOptions: &rayv1.ActivePassiveHeadOptions{Enabled: &disabled},
+			},
+			gateEnabled: true,
+		},
+		{
+			name: "feature gate disabled",
+			options: &rayv1.GcsFaultToleranceOptions{
+				RedisAddress:             "redis:6379",
+				ActivePassiveHeadOptions: &rayv1.ActivePassiveHeadOptions{Enabled: &enabled},
+			},
+			gateEnabled:  false,
+			expectError:  true,
+			errorMessage: "activePassiveHeadOptions requires the GCSFaultToleranceActivePassiveHead feature gate to be enabled",
+		},
+		{
+			name: "rocksdb backend not supported",
+			options: &rayv1.GcsFaultToleranceOptions{
+				Backend:                  rayv1.GcsFTBackendRocksDB,
+				ActivePassiveHeadOptions: &rayv1.ActivePassiveHeadOptions{Enabled: &enabled},
+			},
+			gateEnabled:  true,
+			expectError:  true,
+			errorMessage: "activePassiveHeadOptions is only supported with the 'redis' backend",
+		},
+		{
+			name: "valid",
+			options: &rayv1.GcsFaultToleranceOptions{
+				RedisAddress:             "redis:6379",
+				ActivePassiveHeadOptions: &rayv1.ActivePassiveHeadOptions{Enabled: &enabled},
+			},
+			gateEnabled: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.GCSFaultToleranceActivePassiveHead, tt.gateEnabled)
+			err := validateGcsActivePassiveHead(tt.options)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.EqualError(t, err, tt.errorMessage)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateGcsFaultToleranceEmbeddedReservedVolume(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.GCSFaultToleranceEmbeddedStorage, true)
+	// The operator reserves the "gcs-storage" volume name and the /data/gcs
+	// mount path for the embedded backend. A user-supplied head volume, volume
+	// mount by that name, or mount at that path must be rejected, otherwise
+	// configureEmbeddedFT would append a duplicate and the head Pod would fail.
+	newSpec := func(mounts []corev1.VolumeMount, volumes []corev1.Volume) *rayv1.RayClusterSpec {
+		return &rayv1.RayClusterSpec{
+			GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{Backend: rayv1.GcsFTBackendRocksDB},
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{VolumeMounts: mounts}},
+						Volumes:    volumes,
+					},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name        string
+		spec        *rayv1.RayClusterSpec
+		expectError bool
+	}{
+		{
+			name:        "no reserved volume is valid",
+			spec:        newSpec(nil, nil),
+			expectError: false,
+		},
+		{
+			name:        "reserved mount path is rejected",
+			spec:        newSpec([]corev1.VolumeMount{{Name: "user-vol", MountPath: GCSStorageMountPath}}, nil),
+			expectError: true,
+		},
+		{
+			name:        "reserved volume mount name is rejected",
+			spec:        newSpec([]corev1.VolumeMount{{Name: GCSStorageVolumeName, MountPath: "/somewhere/else"}}, nil),
+			expectError: true,
+		},
+		{
+			name:        "reserved volume name is rejected",
+			spec:        newSpec(nil, []corev1.Volume{{Name: GCSStorageVolumeName}}),
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateRayClusterSpec(tt.spec, nil)
+			if tt.expectError {
+				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 			}
@@ -254,6 +474,7 @@ func TestValidateRayClusterSpecRedisPassword(t *testing.T) {
 		{
 			name: "GcsFaultToleranceOptions.RedisPassword is set",
 			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+				RedisAddress: "redis:6379",
 				RedisPassword: &rayv1.RedisCredential{
 					Value: "password",
 				},
@@ -316,6 +537,7 @@ func TestValidateRayClusterSpecRedisUsername(t *testing.T) {
 		{
 			name: "GcsFaultToleranceOptions.RedisUsername is set",
 			gcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+				RedisAddress: "redis:6379",
 				RedisUsername: &rayv1.RedisCredential{
 					Value: "username",
 				},
@@ -624,6 +846,49 @@ func TestValidateRayClusterSpecAutoscaler(t *testing.T) {
 			},
 			expectedErr: "restartPolicy for head Pod should be Never or unset when using autoscaler V2",
 		},
+		"should not return error if autoscaler v1 is enabled and a worker group has a restartPolicy other than Never or unset (warning only)": {
+			spec: rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV1),
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: podTemplateSpec(nil, nil),
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "worker-group-1",
+						Template:  podTemplateSpec(nil, ptr.To(corev1.RestartPolicyNever)),
+					},
+					{
+						GroupName: "worker-group-2",
+						Template:  podTemplateSpec(nil, ptr.To(corev1.RestartPolicyAlways)),
+					},
+				},
+			},
+			// No error expected; this is now a warning surfaced.
+		},
+		"should not return error if autoscaler v1 is enabled and all worker groups have restartPolicy Never or unset": {
+			spec: rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV1),
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: podTemplateSpec(nil, nil),
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "worker-group-1",
+						Template:  podTemplateSpec(nil, nil),
+					},
+					{
+						GroupName: "worker-group-2",
+						Template:  podTemplateSpec(nil, ptr.To(corev1.RestartPolicyNever)),
+					},
+				},
+			},
+		},
 		"should return error if autoscaler v2 is enabled and a worker group has a restartPolicy other than Never or unset": {
 			spec: rayv1.RayClusterSpec{
 				EnableInTreeAutoscaling: new(true),
@@ -686,7 +951,8 @@ func TestValidateRayClusterSpecAutoscaler(t *testing.T) {
 			expectedErr: fmt.Sprintf(
 				"autoscalerOptions.env must not contain %s: "+
 					"it is managed by KubeRay and injected automatically into the autoscaler container",
-				KUBERAY_GEN_AUTOSCALER_START_CMD),
+				KUBERAY_GEN_AUTOSCALER_START_CMD,
+			),
 		},
 		fmt.Sprintf("should return error if %s is set in autoscalerOptions.env even when autoscalerOptions.args is absent", KUBERAY_GEN_AUTOSCALER_START_CMD): {
 			spec: rayv1.RayClusterSpec{
@@ -708,7 +974,8 @@ func TestValidateRayClusterSpecAutoscaler(t *testing.T) {
 			expectedErr: fmt.Sprintf(
 				"autoscalerOptions.env must not contain %s: "+
 					"it is managed by KubeRay and injected automatically into the autoscaler container",
-				KUBERAY_GEN_AUTOSCALER_START_CMD),
+				KUBERAY_GEN_AUTOSCALER_START_CMD,
+			),
 		},
 	}
 
@@ -720,6 +987,264 @@ func TestValidateRayClusterSpecAutoscaler(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			err := ValidateRayClusterSpec(&tc.spec, map[string]string{})
+			if tc.expectedErr != "" {
+				require.Error(t, err)
+				require.EqualError(t, err, tc.expectedErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestValidateRayClusterSpecAutoscaler_FlexibleRestartPolicy tests that when Ray version is
+// 2.56.0 or later, non-Never RestartPolicy values are accepted for head and worker pods
+// even when autoscaler V2 is active.
+func TestValidateRayClusterSpecAutoscaler_FlexibleRestartPolicy(t *testing.T) {
+	tests := map[string]struct {
+		expectedErr string
+		spec        rayv1.RayClusterSpec
+	}{
+		"should not return error if Ray >= 2.56.0 and head Pod has a non-Never restartPolicy": {
+			spec: rayv1.RayClusterSpec{
+				RayVersion:              "2.56.0",
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: podTemplateSpec(nil, ptr.To(corev1.RestartPolicyAlways)),
+				},
+			},
+		},
+		"should not return error if Ray >= 2.56.0 and a worker group has a non-Never restartPolicy": {
+			spec: rayv1.RayClusterSpec{
+				RayVersion:              "2.56.0",
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: podTemplateSpec(nil, ptr.To(corev1.RestartPolicyAlways)),
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "worker-group-1",
+						Template:  podTemplateSpec(nil, ptr.To(corev1.RestartPolicyOnFailure)),
+					},
+					{
+						GroupName: "worker-group-2",
+						Template:  podTemplateSpec(nil, ptr.To(corev1.RestartPolicyAlways)),
+					},
+				},
+			},
+		},
+		"should not return error if Ray >= 2.56.0 and restartPolicy is unset": {
+			spec: rayv1.RayClusterSpec{
+				RayVersion:              "2.56.0",
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: podTemplateSpec(nil, nil),
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "worker-group-1",
+						Template:  podTemplateSpec(nil, nil),
+					},
+				},
+			},
+		},
+		"should return error if Ray < 2.56.0 and head Pod has a non-Never restartPolicy": {
+			spec: rayv1.RayClusterSpec{
+				RayVersion:              "2.55.0",
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: podTemplateSpec(nil, ptr.To(corev1.RestartPolicyAlways)),
+				},
+			},
+			expectedErr: "restartPolicy for head Pod should be Never or unset when using autoscaler V2",
+		},
+		"should return error if Ray version is not specified and head Pod has a non-Never restartPolicy": {
+			spec: rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: podTemplateSpec(nil, ptr.To(corev1.RestartPolicyAlways)),
+				},
+			},
+			expectedErr: "restartPolicy for head Pod should be Never or unset when using autoscaler V2",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateRayClusterSpec(&tc.spec, map[string]string{})
+			if tc.expectedErr != "" {
+				require.Error(t, err)
+				require.EqualError(t, err, tc.expectedErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateRayClusterSpec_IdleTerminationOptions(t *testing.T) {
+	createSpec := func() rayv1.RayClusterSpec {
+		return rayv1.RayClusterSpec{
+			EnableInTreeAutoscaling: new(true),
+			RayVersion:              "2.60.0",
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: podTemplateSpec(nil, nil),
+			},
+		}
+	}
+
+	tests := map[string]struct {
+		expectedErr string
+		spec        rayv1.RayClusterSpec
+	}{
+		"Valid: idleTerminationOptions.timeoutSeconds with explicit v2": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+		"Valid: idleTerminationOptions.timeoutSeconds with v2 enabled via env var": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.HeadGroupSpec.Template = podTemplateSpec([]corev1.EnvVar{
+					{Name: RAY_ENABLE_AUTOSCALER_V2, Value: "1"},
+				}, nil)
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+		"Valid: zero idleTerminationOptions.timeoutSeconds": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](0),
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+		"Invalid: negative idleTerminationOptions.timeoutSeconds": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](-1),
+				}
+				return s
+			}(),
+			expectedErr: "idleTerminationOptions.timeoutSeconds must be non-negative, got -1",
+		},
+		"Invalid: idleTerminationOptions.timeoutSeconds without autoscaling": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.EnableInTreeAutoscaling = new(false)
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return s
+			}(),
+			expectedErr: "idleTerminationOptions requires enableInTreeAutoscaling to be true",
+		},
+		"Invalid: autoscaler v2 not enabled": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return s
+			}(),
+			expectedErr: "idleTerminationOptions requires autoscaler v2. Please set .spec.autoscalerOptions.version to 'v2'",
+		},
+		"Invalid: idleTerminationOptions.timeoutSeconds with autoscaler v1": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV1),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return s
+			}(),
+			expectedErr: "idleTerminationOptions requires autoscaler v2. Please set .spec.autoscalerOptions.version to 'v2'",
+		},
+		"Invalid: idleTerminationOptions.timeoutSeconds with Ray version below minimum": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.RayVersion = "2.59.0"
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return s
+			}(),
+			expectedErr: "idleTerminationOptions requires Ray version 2.60.0 or later, got 2.59.0",
+		},
+		"Valid: idleTerminationOptions.policy=Delete": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+					Policy:         ptr.To(rayv1.IdleTerminationPolicyDelete),
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+		"Valid: idleTerminationOptions.policy=Suspend": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+					Policy:         ptr.To(rayv1.IdleTerminationPolicySuspend),
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateRayClusterSpec(&tc.spec, nil)
 			if tc.expectedErr != "" {
 				require.Error(t, err)
 				require.EqualError(t, err, tc.expectedErr)
@@ -1061,6 +1586,20 @@ func TestValidateRayJobSpec(t *testing.T) {
 				RayClusterSpec:           createBasicRayClusterSpec(),
 			},
 			expectError: false,
+		},
+		{
+			name: "RayJob does not support idleTerminationOptions",
+			spec: func() rayv1.RayJobSpec {
+				clusterSpec := createBasicRayClusterSpec()
+				clusterSpec.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return rayv1.RayJobSpec{
+					ShutdownAfterJobFinishes: true,
+					RayClusterSpec:           clusterSpec,
+				}
+			}(),
+			expectError: true,
 		},
 		{
 			name: "the ClusterSelector mode doesn't support the suspend operation",
@@ -1760,6 +2299,17 @@ func TestValidateRayServiceSpec(t *testing.T) {
 			},
 			expectError: true,
 		},
+		{
+			name: "RayService does not support idleTerminationOptions",
+			spec: rayv1.RayServiceSpec{
+				RayClusterSpec: rayv1.RayClusterSpec{
+					IdleTerminationOptions: &rayv1.IdleTerminationOptions{
+						TimeoutSeconds: ptr.To[int32](600),
+					},
+				},
+			},
+			expectError: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1858,6 +2408,7 @@ func TestValidateClusterUpgradeOptions(t *testing.T) {
 		intervalSeconds   *int32
 		name              string
 		gatewayClassName  string
+		gatewayRef        *rayv1.GatewayReference
 		spec              rayv1.RayServiceSpec
 		enableAutoscaling bool
 		expectError       bool
@@ -1921,19 +2472,20 @@ func TestValidateClusterUpgradeOptions(t *testing.T) {
 			expectError:       true,
 		},
 		{
-			name:              "missing GatewayClassName",
+			name:              "valid GatewayRef instead of GatewayClassName",
 			maxSurgePercent:   new(int32(50)),
 			stepSizePercent:   new(int32(50)),
 			intervalSeconds:   new(int32(10)),
+			gatewayRef:        &rayv1.GatewayReference{Name: "shared-gw", Namespace: "gateways"},
 			enableAutoscaling: true,
-			expectError:       true,
+			expectError:       false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var upgradeStrategy *rayv1.RayServiceUpgradeStrategy
-			if tt.maxSurgePercent != nil || tt.stepSizePercent != nil || tt.intervalSeconds != nil || tt.gatewayClassName != "" {
+			if tt.maxSurgePercent != nil || tt.stepSizePercent != nil || tt.intervalSeconds != nil || tt.gatewayClassName != "" || tt.gatewayRef != nil {
 				upgradeStrategy = &rayv1.RayServiceUpgradeStrategy{
 					Type: ptr.To(rayv1.RayServiceNewClusterWithIncrementalUpgrade),
 					ClusterUpgradeOptions: &rayv1.ClusterUpgradeOptions{
@@ -1941,6 +2493,7 @@ func TestValidateClusterUpgradeOptions(t *testing.T) {
 						StepSizePercent:  tt.stepSizePercent,
 						IntervalSeconds:  tt.intervalSeconds,
 						GatewayClassName: tt.gatewayClassName,
+						GatewayRef:       tt.gatewayRef,
 					},
 				}
 			} else if tt.expectError {
@@ -2198,6 +2751,202 @@ func TestValidateRayClusterSpec_IdleTimeoutSeconds(t *testing.T) {
 	}
 }
 
+func TestValidateRayClusterSpec_Priority(t *testing.T) {
+	// Util function to create a RayCluster spec.
+	createSpec := func() rayv1.RayClusterSpec {
+		return rayv1.RayClusterSpec{
+			RayVersion:              "2.56.0",
+			EnableInTreeAutoscaling: new(true),
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: podTemplateSpec(nil, nil),
+			},
+		}
+	}
+
+	tests := map[string]struct {
+		expectedErr string
+		spec        rayv1.RayClusterSpec
+	}{
+		"Valid: Worker group with priority and v2 spec field": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "worker-group-1",
+						Template:    podTemplateSpec(nil, nil),
+						Priority:    new(int32(1)),
+						MinReplicas: new(int32(0)),
+						MaxReplicas: new(int32(10)),
+					},
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+		"Valid: Worker group with priority and v2 env var": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.HeadGroupSpec.Template = podTemplateSpec([]corev1.EnvVar{
+					{Name: RAY_ENABLE_AUTOSCALER_V2, Value: "1"},
+				}, nil)
+				s.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "worker-group-1",
+						Template:    podTemplateSpec(nil, nil),
+						Priority:    new(int32(1)),
+						MinReplicas: new(int32(0)),
+						MaxReplicas: new(int32(10)),
+					},
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+		"Valid: Worker group with zero priority and v2 disabled": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "worker-group-1",
+						Template:    podTemplateSpec(nil, nil),
+						Priority:    new(int32(0)),
+						MinReplicas: new(int32(0)),
+						MaxReplicas: new(int32(10)),
+					},
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+		"Valid: Worker group without priority and v2 disabled": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "worker-group-1",
+						Template:    podTemplateSpec(nil, nil),
+						Priority:    nil,
+						MinReplicas: new(int32(0)),
+						MaxReplicas: new(int32(10)),
+					},
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+		"Invalid: Worker group priority without v2": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "worker-group-1",
+						Template:    podTemplateSpec(nil, nil),
+						Priority:    new(int32(1)),
+						MinReplicas: new(int32(0)),
+						MaxReplicas: new(int32(10)),
+					},
+				}
+				return s
+			}(),
+			expectedErr: "worker group worker-group-1: priority is set to 1, but autoscaler v2 is not enabled. Priority is only supported with autoscaler v2 enabled",
+		},
+		"Invalid: Worker group priority with invalid env var": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.HeadGroupSpec.Template = podTemplateSpec([]corev1.EnvVar{
+					{Name: RAY_ENABLE_AUTOSCALER_V2, Value: "false"},
+				}, nil)
+				s.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "worker-group-1",
+						Template:    podTemplateSpec(nil, nil),
+						Priority:    new(int32(2)),
+						MinReplicas: new(int32(0)),
+						MaxReplicas: new(int32(10)),
+					},
+				}
+				return s
+			}(),
+			expectedErr: "worker group worker-group-1: priority is set to 2, but autoscaler v2 is not enabled. Priority is only supported with autoscaler v2 enabled",
+		},
+		"Invalid: Worker group priority with empty Ray version": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.RayVersion = ""
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "worker-group-1",
+						Template:    podTemplateSpec(nil, nil),
+						Priority:    new(int32(1)),
+						MinReplicas: new(int32(0)),
+						MaxReplicas: new(int32(10)),
+					},
+				}
+				return s
+			}(),
+			expectedErr: "worker group worker-group-1: priority is set, but RayVersion was not specified. Ray version 2.56.0 or later is required",
+		},
+		"Invalid: Worker group priority with invalid Ray version": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.RayVersion = "invalid"
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "worker-group-1",
+						Template:    podTemplateSpec(nil, nil),
+						Priority:    new(int32(1)),
+						MinReplicas: new(int32(0)),
+						MaxReplicas: new(int32(10)),
+					},
+				}
+				return s
+			}(),
+			expectedErr: "worker group worker-group-1: priority is set, but RayVersion format is invalid: invalid, could not parse \"invalid\" as version",
+		},
+		"Invalid: Worker group priority with Ray version below 2.56.0": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.RayVersion = "2.55.0"
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "worker-group-1",
+						Template:    podTemplateSpec(nil, nil),
+						Priority:    new(int32(1)),
+						MinReplicas: new(int32(0)),
+						MaxReplicas: new(int32(10)),
+					},
+				}
+				return s
+			}(),
+			expectedErr: "worker group worker-group-1: priority is set, but minimum Ray version is 2.56.0, got 2.55.0",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateRayClusterSpec(&tc.spec, nil)
+			if tc.expectedErr != "" {
+				require.Error(t, err)
+				require.EqualError(t, err, tc.expectedErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidateRayCronJobSpec(t *testing.T) {
 	tests := []struct {
 		cronJob     *rayv1.RayCronJob
@@ -2223,7 +2972,7 @@ func TestValidateRayCronJobSpec(t *testing.T) {
 										Containers: []corev1.Container{
 											{
 												Name:  "ray-head",
-												Image: "rayproject/ray:2.9.0",
+												Image: "rayproject/ray:2.52.0",
 											},
 										},
 									},
@@ -2253,7 +3002,7 @@ func TestValidateRayCronJobSpec(t *testing.T) {
 										Containers: []corev1.Container{
 											{
 												Name:  "ray-head",
-												Image: "rayproject/ray:2.9.0",
+												Image: "rayproject/ray:2.52.0",
 											},
 										},
 									},
@@ -2307,6 +3056,162 @@ func TestValidateRayCronJobSpec(t *testing.T) {
 			},
 			expectError: true,
 			errorMsg:    "invalid RayJob template",
+		},
+		{
+			name: "Valid schedule with valid timezone",
+			cronJob: &rayv1.RayCronJob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cronjob",
+					Namespace: "default",
+				},
+				Spec: rayv1.RayCronJobSpec{
+					Schedule: "0 9 * * *",
+					TimeZone: new("Asia/Taipei"),
+					JobTemplate: rayv1.RayJobSpec{
+						Entrypoint: "python test.py",
+						RayClusterSpec: &rayv1.RayClusterSpec{
+							HeadGroupSpec: rayv1.HeadGroupSpec{
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:  "ray-head",
+												Image: "rayproject/ray:2.52.0",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "Valid schedule with UTC timezone",
+			cronJob: &rayv1.RayCronJob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cronjob",
+					Namespace: "default",
+				},
+				Spec: rayv1.RayCronJobSpec{
+					Schedule: "0 0 * * *",
+					TimeZone: new("UTC"),
+					JobTemplate: rayv1.RayJobSpec{
+						Entrypoint: "python test.py",
+						RayClusterSpec: &rayv1.RayClusterSpec{
+							HeadGroupSpec: rayv1.HeadGroupSpec{
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:  "ray-head",
+												Image: "rayproject/ray:2.52.0",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "Invalid timezone",
+			cronJob: &rayv1.RayCronJob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cronjob",
+					Namespace: "default",
+				},
+				Spec: rayv1.RayCronJobSpec{
+					Schedule: "*/5 * * * *",
+					TimeZone: new("Invalid/Zone"),
+					JobTemplate: rayv1.RayJobSpec{
+						Entrypoint: "python test.py",
+						RayClusterSpec: &rayv1.RayClusterSpec{
+							HeadGroupSpec: rayv1.HeadGroupSpec{
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:  "ray-head",
+												Image: "rayproject/ray:2.52.0",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "invalid time zone",
+		},
+		{
+			name: "Schedule with TZ= prefix is rejected",
+			cronJob: &rayv1.RayCronJob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cronjob",
+					Namespace: "default",
+				},
+				Spec: rayv1.RayCronJobSpec{
+					Schedule: "TZ=UTC */5 * * * *",
+					JobTemplate: rayv1.RayJobSpec{
+						Entrypoint: "python test.py",
+						RayClusterSpec: &rayv1.RayClusterSpec{
+							HeadGroupSpec: rayv1.HeadGroupSpec{
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:  "ray-head",
+												Image: "rayproject/ray:2.52.0",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "cannot use TZ or CRON_TZ in schedule",
+		},
+		{
+			name: "Schedule with CRON_TZ= prefix is rejected",
+			cronJob: &rayv1.RayCronJob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cronjob",
+					Namespace: "default",
+				},
+				Spec: rayv1.RayCronJobSpec{
+					Schedule: "CRON_TZ=UTC */5 * * * *",
+					JobTemplate: rayv1.RayJobSpec{
+						Entrypoint: "python test.py",
+						RayClusterSpec: &rayv1.RayClusterSpec{
+							HeadGroupSpec: rayv1.HeadGroupSpec{
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:  "ray-head",
+												Image: "rayproject/ray:2.52.0",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "cannot use TZ or CRON_TZ in schedule",
 		},
 		{
 			name: "RayCronJob name too long",
@@ -2686,4 +3591,740 @@ func TestValidateRayClusterSpec_Auth(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateNetworkPolicy(t *testing.T) {
+	tests := []struct {
+		ni               *rayv1.NetworkPolicyConfig
+		name             string
+		errorMsg         string
+		workerGroupSpecs []rayv1.WorkerGroupSpec
+		expectError      bool
+	}{
+		{
+			name: "DenyAllEgress with head IngressRules set returns error",
+			ni: &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAllEgress),
+				Head: &rayv1.NetworkPolicyRules{
+					IngressRules: []networkingv1.NetworkPolicyIngressRule{{}},
+				},
+			},
+			expectError: true,
+			errorMsg:    `networkPolicy.head.ingressRules cannot be set when mode is "DenyAllEgress" (ingress is not restricted)`,
+		},
+		{
+			name: "DenyAllEgress with worker IngressRules set returns error",
+			ni: &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAllEgress),
+				Worker: &rayv1.NetworkPolicyRules{
+					IngressRules: []networkingv1.NetworkPolicyIngressRule{{}},
+				},
+			},
+			expectError: true,
+			errorMsg:    `networkPolicy.worker.ingressRules cannot be set when mode is "DenyAllEgress" (ingress is not restricted)`,
+		},
+		{
+			name: "DenyAllIngress with head EgressRules set returns error",
+			ni: &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAllIngress),
+				Head: &rayv1.NetworkPolicyRules{
+					EgressRules: []networkingv1.NetworkPolicyEgressRule{{}},
+				},
+			},
+			expectError: true,
+			errorMsg:    `networkPolicy.head.egressRules cannot be set when mode is "DenyAllIngress" (egress is not restricted)`,
+		},
+		{
+			name: "DenyAllIngress with worker EgressRules set returns error",
+			ni: &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAllIngress),
+				Worker: &rayv1.NetworkPolicyRules{
+					EgressRules: []networkingv1.NetworkPolicyEgressRule{{}},
+				},
+			},
+			expectError: true,
+			errorMsg:    `networkPolicy.worker.egressRules cannot be set when mode is "DenyAllIngress" (egress is not restricted)`,
+		},
+		{
+			name: "DenyAll with both head and worker rules is valid",
+			ni: &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAll),
+				Head: &rayv1.NetworkPolicyRules{
+					IngressRules: []networkingv1.NetworkPolicyIngressRule{{}},
+					EgressRules:  []networkingv1.NetworkPolicyEgressRule{{}},
+				},
+				Worker: &rayv1.NetworkPolicyRules{
+					IngressRules: []networkingv1.NetworkPolicyIngressRule{{}},
+					EgressRules:  []networkingv1.NetworkPolicyEgressRule{{}},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "DenyAllEgress with worker group IngressRules set returns error",
+			ni: &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAllEgress),
+				WorkerGroups: []rayv1.WorkerGroupNetworkPolicyRules{
+					{
+						GroupName: "small-group",
+						NetworkPolicyRules: rayv1.NetworkPolicyRules{
+							IngressRules: []networkingv1.NetworkPolicyIngressRule{{}},
+						},
+					},
+				},
+			},
+			workerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "small-group"}},
+			expectError:      true,
+			errorMsg:         `networkPolicy.workerGroups["small-group"].ingressRules cannot be set when mode is "DenyAllEgress" (ingress is not restricted)`,
+		},
+		{
+			name: "DenyAllIngress with worker group EgressRules set returns error",
+			ni: &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAllIngress),
+				WorkerGroups: []rayv1.WorkerGroupNetworkPolicyRules{
+					{
+						GroupName: "small-group",
+						NetworkPolicyRules: rayv1.NetworkPolicyRules{
+							EgressRules: []networkingv1.NetworkPolicyEgressRule{{}},
+						},
+					},
+				},
+			},
+			workerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "small-group"}},
+			expectError:      true,
+			errorMsg:         `networkPolicy.workerGroups["small-group"].egressRules cannot be set when mode is "DenyAllIngress" (egress is not restricted)`,
+		},
+		{
+			name: "worker group entry not matching any workerGroupSpecs returns error",
+			ni: &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAll),
+				WorkerGroups: []rayv1.WorkerGroupNetworkPolicyRules{
+					{
+						GroupName: "samll-group",
+						NetworkPolicyRules: rayv1.NetworkPolicyRules{
+							IngressRules: []networkingv1.NetworkPolicyIngressRule{{}},
+						},
+					},
+				},
+			},
+			workerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "small-group"}},
+			expectError:      true,
+			errorMsg:         `networkPolicy.workerGroups["samll-group"] does not match any group name in workerGroupSpecs`,
+		},
+		{
+			name: "worker group entry matching workerGroupSpecs is valid",
+			ni: &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAll),
+				WorkerGroups: []rayv1.WorkerGroupNetworkPolicyRules{
+					{
+						GroupName: "small-group",
+						NetworkPolicyRules: rayv1.NetworkPolicyRules{
+							IngressRules: []networkingv1.NetworkPolicyIngressRule{{}},
+							EgressRules:  []networkingv1.NetworkPolicyEgressRule{{}},
+						},
+					},
+				},
+			},
+			workerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "small-group"}},
+			expectError:      false,
+		},
+		{
+			name: "worker group name that is not a valid DNS1123 label returns error",
+			ni: &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAll),
+			},
+			workerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "GPU-Group"}},
+			expectError:      true,
+			errorMsg:         `worker group name "GPU-Group" must be a valid DNS1123 label when networkPolicy is enabled`,
+		},
+		{
+			name:        "nil NetworkPolicy is valid",
+			ni:          nil,
+			expectError: false,
+		},
+		{
+			name: "mode only with no head or worker rules is valid",
+			ni: &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAll),
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := &rayv1.RayClusterSpec{NetworkPolicy: tt.ni, WorkerGroupSpecs: tt.workerGroupSpecs}
+			err := validateNetworkPolicy(spec)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateRayClusterSpec_NetworkPolicyRequiresFeatureGate(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterNetworkPolicy, false)
+	cluster := &rayv1.RayCluster{
+		Spec: rayv1.RayClusterSpec{
+			NetworkPolicy: &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAll),
+			},
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: podTemplateSpec(nil, nil),
+			},
+			WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+				{
+					GroupName:   "worker-group",
+					Template:    podTemplateSpec(nil, nil),
+					MinReplicas: new(int32(1)),
+					MaxReplicas: new(int32(1)),
+				},
+			},
+		},
+	}
+	err := ValidateRayClusterSpec(&cluster.Spec, cluster.Annotations)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "RayClusterNetworkPolicy")
+}
+
+func TestValidateTLSOptions(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
+	baseSpec := func() rayv1.RayClusterSpec {
+		return rayv1.RayClusterSpec{
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ray-head", Image: "rayproject/ray:latest"}},
+					},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		modify      func(*rayv1.RayClusterSpec)
+		name        string
+		errorMsg    string
+		expectError bool
+	}{
+		{
+			name: "TLS disabled, no options - valid",
+			modify: func(_ *rayv1.RayClusterSpec) {
+			},
+		},
+		{
+			name: "TLS enabled, no options (auto-generate) - valid",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+			},
+		},
+		{
+			name: "tlsOptions set but enabled is false - valid (disables TLS)",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(false)}
+			},
+		},
+		{
+			name: "RAY_USE_TLS in head container - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.HeadGroupSpec.Template.Spec.Containers[0].Env = []corev1.EnvVar{{Name: "RAY_USE_TLS", Value: "1"}}
+			},
+			expectError: true,
+			errorMsg:    "cannot set RAY_USE_TLS",
+		},
+		{
+			name: "RAY_TLS_SERVER_CERT in head container - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.HeadGroupSpec.Template.Spec.Containers[0].Env = []corev1.EnvVar{{Name: "RAY_TLS_SERVER_CERT", Value: "/x"}}
+			},
+			expectError: true,
+			errorMsg:    "cannot set RAY_TLS_SERVER_CERT",
+		},
+		{
+			name: "RAY_TLS_SERVER_KEY in worker container - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{{
+					GroupName: "wg",
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name:  "ray-worker",
+								Image: "rayproject/ray:latest",
+								Env:   []corev1.EnvVar{{Name: "RAY_TLS_SERVER_KEY", Value: "/x"}},
+							}},
+						},
+					},
+				}}
+			},
+			expectError: true,
+			errorMsg:    "cannot set RAY_TLS_SERVER_KEY",
+		},
+		{
+			name: "RAY_TLS_CA_CERT in worker container - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{{
+					GroupName: "wg",
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name:  "ray-worker",
+								Image: "rayproject/ray:latest",
+								Env:   []corev1.EnvVar{{Name: "RAY_TLS_CA_CERT", Value: "/x"}},
+							}},
+						},
+					},
+				}}
+			},
+			expectError: true,
+			errorMsg:    "cannot set RAY_TLS_CA_CERT",
+		},
+		{
+			name: "conflicting TLS volume name in head container - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.HeadGroupSpec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+					{Name: RayTLSVolumeName, MountPath: "/some/path"},
+				}
+			},
+			expectError: true,
+			errorMsg:    "cannot use volume mount named",
+		},
+		{
+			name: "conflicting TLS mount path in head container - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.HeadGroupSpec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+					{Name: "custom-tls", MountPath: RayTLSCertMountPath},
+				}
+			},
+			expectError: true,
+			errorMsg:    "cannot use volume mount at path",
+		},
+		{
+			name: "conflicting TLS volume name in worker container - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{{
+					GroupName: "wg",
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name:  "ray-worker",
+								Image: "rayproject/ray:latest",
+								VolumeMounts: []corev1.VolumeMount{
+									{Name: RayTLSVolumeName, MountPath: "/some/path"},
+								},
+							}},
+						},
+					},
+				}}
+			},
+			expectError: true,
+			errorMsg:    "cannot use volume mount named",
+		},
+		{
+			name: "non-conflicting volume mount in head container - valid",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.HeadGroupSpec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+					{Name: "user-volume", MountPath: "/user/path"},
+				}
+			},
+			expectError: false,
+		},
+		{
+			name: "conflicting TLS volume name in autoscalerOptions - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					VolumeMounts: []corev1.VolumeMount{
+						{Name: RayTLSVolumeName, MountPath: "/some/path"},
+					},
+				}
+			},
+			expectError: true,
+			errorMsg:    "cannot use volume mount named",
+		},
+		{
+			name: "conflicting TLS mount path in autoscalerOptions - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					VolumeMounts: []corev1.VolumeMount{
+						{Name: "custom-tls", MountPath: RayTLSCertMountPath},
+					},
+				}
+			},
+			expectError: true,
+			errorMsg:    "cannot use volume mount at path",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := baseSpec()
+			tt.modify(&spec)
+			err := validateTLSOptions(&spec)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateRayClusterSpec_TLSOptionsRequiresFeatureGate(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, false)
+	cluster := &rayv1.RayCluster{
+		Spec: rayv1.RayClusterSpec{
+			TLSOptions: &rayv1.TLSOptions{Enabled: new(true)},
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: podTemplateSpec(nil, nil),
+			},
+		},
+	}
+	err := ValidateRayClusterSpec(&cluster.Spec, cluster.Annotations)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "RayClusterMTLS")
+}
+
+func TestValidateRayClusterSpec_HistoryServerRequiresFeatureGate(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterHistoryServer, false)
+	cluster := &rayv1.RayCluster{
+		Spec: rayv1.RayClusterSpec{
+			HistoryServerOptions: &rayv1.HistoryServerOptions{
+				CollectorOptions: &rayv1.CollectorOptions{
+					Image: new("quay.io/kuberay/collector:latest"),
+					Env: []corev1.EnvVar{
+						{Name: "STORAGE_BACKEND", Value: "GCS"},
+						{Name: "GCS_BUCKET", Value: "my-bucket"},
+					},
+				},
+			},
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: podTemplateSpec(nil, nil),
+			},
+			WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+				{
+					GroupName:   "worker-group",
+					Template:    podTemplateSpec(nil, nil),
+					MinReplicas: new(int32(1)),
+					MaxReplicas: new(int32(1)),
+				},
+			},
+		},
+	}
+	err := ValidateRayClusterSpec(&cluster.Spec, cluster.Annotations)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "RayClusterHistoryServer feature gate is not enabled")
+}
+
+func TestValidateCollectorOptions(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterHistoryServer, true)
+
+	tests := []struct {
+		name         string
+		collector    *rayv1.CollectorOptions
+		headSpec     *rayv1.HeadGroupSpec
+		workerSpecs  []rayv1.WorkerGroupSpec
+		expectError  bool
+		errorMessage string
+	}{
+		{
+			name:         "nil collector options",
+			collector:    nil,
+			expectError:  true,
+			errorMessage: "historyServerOptions.collectorOptions must be set",
+		},
+		{
+			name: "missing STORAGE_BACKEND",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+			},
+			expectError:  true,
+			errorMessage: "STORAGE_BACKEND environment variable must be set with a literal string value in historyServerOptions.collectorOptions.env",
+		},
+		{
+			name: "valid GCS",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "GCS"},
+					{Name: "GCS_BUCKET", Value: "my-bucket"},
+				},
+			},
+		},
+		{
+			name: "valid GCS with ValueFrom secret",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "GCS"},
+					{
+						Name: "GCS_BUCKET",
+						ValueFrom: &corev1.EnvVarSource{
+							SecretKeyRef: &corev1.SecretKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{Name: "my-gcs-secret"},
+								Key:                  "bucket",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "missing GCS_BUCKET",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "GCS"},
+				},
+			},
+			expectError:  true,
+			errorMessage: "GCS_BUCKET environment variable must be set when STORAGE_BACKEND is GCS",
+		},
+		{
+			name: "valid S3 with all fields",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "S3"},
+					{Name: "S3_BUCKET", Value: "my-bucket"},
+					{Name: "S3_ENDPOINT", Value: "s3.us-west-2.amazonaws.com"},
+					{Name: "S3_REGION", Value: "us-west-2"},
+				},
+			},
+		},
+		{
+			name: "missing S3_REGION",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "S3"},
+					{Name: "S3_BUCKET", Value: "my-bucket"},
+					{Name: "S3_ENDPOINT", Value: "s3.us-west-2.amazonaws.com"},
+				},
+			},
+			expectError:  true,
+			errorMessage: "S3_REGION environment variable must be set when STORAGE_BACKEND is S3",
+		},
+		{
+			name: "valid AZUREBLOB with connection string mode",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "AZUREBLOB"},
+					{Name: "AZURE_STORAGE_AUTH_MODE", Value: "connection_string"},
+					{Name: "AZURE_STORAGE_CONNECTION_STRING", Value: "connection-string"},
+				},
+			},
+		},
+		{
+			name: "valid AZUREBLOB with workload identity mode",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "AZUREBLOB"},
+					{Name: "AZURE_STORAGE_AUTH_MODE", Value: "workload_identity"},
+					{Name: "AZURE_STORAGE_ACCOUNT_URL", Value: "https://myaccount.blob.core.windows.net"},
+				},
+			},
+		},
+		{
+			name: "missing connection string in connection_string auth mode",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "AZUREBLOB"},
+					{Name: "AZURE_STORAGE_AUTH_MODE", Value: "connection_string"},
+				},
+			},
+			expectError:  true,
+			errorMessage: "AZURE_STORAGE_CONNECTION_STRING environment variable must be set when STORAGE_BACKEND is AZUREBLOB and AZURE_STORAGE_AUTH_MODE is connection_string",
+		},
+		{
+			name: "missing credentials in auto-detect auth mode",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "AZUREBLOB"},
+				},
+			},
+			expectError:  true,
+			errorMessage: "either AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_ACCOUNT_URL environment variable must be set when STORAGE_BACKEND is AZUREBLOB",
+		},
+		{
+			name: "valid ALIYUNOSS",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "ALIYUNOSS"},
+					{Name: "OSS_BUCKET", Value: "my-bucket"},
+					{Name: "OSS_ENDPOINT", Value: "oss-cn-hangzhou.aliyuncs.com"},
+					{Name: "OSS_REGION", Value: "cn-hangzhou"},
+				},
+			},
+		},
+		{
+			name: "missing OSS_REGION",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "ALIYUNOSS"},
+					{Name: "OSS_BUCKET", Value: "my-bucket"},
+					{Name: "OSS_ENDPOINT", Value: "oss-cn-hangzhou.aliyuncs.com"},
+				},
+			},
+			expectError:  true,
+			errorMessage: "OSS_REGION environment variable must be set when STORAGE_BACKEND is ALIYUNOSS",
+		},
+		{
+			name: "unknown storage backend (skips validation)",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "CUSTOM_BACKEND"},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "manually defined ray-history-collector container in head template",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "GCS"},
+					{Name: "GCS_BUCKET", Value: "my-bucket"},
+				},
+			},
+			headSpec: &rayv1.HeadGroupSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: CollectorContainerName, Image: "user-image"},
+						},
+					},
+				},
+			},
+			expectError:  true,
+			errorMessage: fmt.Sprintf("head pod template must not define a container with name '%s' when history server collector options are enabled", CollectorContainerName),
+		},
+		{
+			name: "manually defined ray-history-collector container in worker template",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "GCS"},
+					{Name: "GCS_BUCKET", Value: "my-bucket"},
+				},
+			},
+			workerSpecs: []rayv1.WorkerGroupSpec{
+				{
+					GroupName:   "group-1",
+					MinReplicas: new(int32(1)),
+					MaxReplicas: new(int32(1)),
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: CollectorContainerName, Image: "user-image"},
+							},
+						},
+					},
+				},
+			},
+			expectError:  true,
+			errorMessage: fmt.Sprintf("worker group group-1 pod template must not define a container with name '%s' when history server collector options are enabled", CollectorContainerName),
+		},
+		{
+			name: "manually defined POD_IP in collector env",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "GCS"},
+					{Name: "GCS_BUCKET", Value: "my-bucket"},
+					{Name: "POD_IP", Value: "10.244.0.5"},
+				},
+			},
+			expectError:  true,
+			errorMessage: "historyServerOptions.collectorOptions.env must not contain POD_IP: it is managed by KubeRay and injected automatically into the collector container",
+		},
+		{
+			name: "manually defined EVENTS_PORT in collector env",
+			collector: &rayv1.CollectorOptions{
+				Image: new("quay.io/kuberay/collector:latest"),
+				Env: []corev1.EnvVar{
+					{Name: "STORAGE_BACKEND", Value: "GCS"},
+					{Name: "GCS_BUCKET", Value: "my-bucket"},
+					{Name: "EVENTS_PORT", Value: "9000"},
+				},
+			},
+			expectError:  true,
+			errorMessage: "historyServerOptions.collectorOptions.env must not contain EVENTS_PORT: it is managed by KubeRay and injected automatically into the collector container",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var headGroupSpec rayv1.HeadGroupSpec
+			if tt.headSpec != nil {
+				headGroupSpec = *tt.headSpec
+			} else {
+				headGroupSpec = rayv1.HeadGroupSpec{
+					Template: podTemplateSpec(nil, nil),
+				}
+			}
+
+			cluster := &rayv1.RayCluster{
+				Spec: rayv1.RayClusterSpec{
+					HistoryServerOptions: &rayv1.HistoryServerOptions{
+						CollectorOptions: tt.collector,
+					},
+					HeadGroupSpec:    headGroupSpec,
+					WorkerGroupSpecs: tt.workerSpecs,
+				},
+			}
+			err := ValidateRayClusterSpec(&cluster.Spec, cluster.Annotations)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.EqualError(t, err, tt.errorMessage)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestValidateRayClusterSpec_LabelRefs checks the webhook and Ray version requirements of a group with labelRefs
+func TestValidateRayClusterSpec_LabelRefs(t *testing.T) {
+	spec := createBasicRayClusterSpec()
+	spec.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{{
+		GroupName:   "test",
+		MinReplicas: new(int32(1)),
+		MaxReplicas: new(int32(1)),
+		Template:    corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-worker"}}}},
+		LabelRefs:   []rayv1.LabelRef{{ValueFrom: rayv1.LabelRefSource{NodeRef: rayv1.NodeFieldRef{FieldPath: "metadata.labels['topology.kubernetes.io/zone']"}}}},
+	}}
+
+	t.Setenv("ENABLE_WEBHOOKS", "")
+	require.ErrorContains(t, ValidateRayClusterSpec(spec, nil), "requires the NodeLabelDelivery feature gate")
+
+	features.SetFeatureGateDuringTest(t, features.NodeLabelDelivery, true)
+	require.ErrorContains(t, ValidateRayClusterSpec(spec, nil), "requires the KubeRay operator to run with ENABLE_WEBHOOKS=true")
+
+	t.Setenv("ENABLE_WEBHOOKS", "true")
+	spec.RayVersion = ""
+	require.ErrorContains(t, ValidateRayClusterSpec(spec, nil), "is unset or invalid")
+	spec.RayVersion = "2.44.0"
+	require.ErrorContains(t, ValidateRayClusterSpec(spec, nil), "minimum Ray version is 2.45.0")
+	spec.RayVersion = "2.45.0"
+	require.NoError(t, ValidateRayClusterSpec(spec, nil))
 }

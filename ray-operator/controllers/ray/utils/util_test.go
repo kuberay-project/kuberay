@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1295,6 +1296,31 @@ func createRayClusterTemplate(
 	return cluster
 }
 
+func TestCalculatePodResourceDoesNotMutateInput(t *testing.T) {
+	podSpec := corev1.PodSpec{
+		Containers: []corev1.Container{
+			{
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("200Mi"),
+					},
+				},
+			},
+		},
+	}
+	wantRequests := podSpec.Containers[0].Resources.Requests.DeepCopy()
+
+	got := CalculatePodResource(podSpec)
+
+	assert.Equal(t, "1", got.Cpu().String())
+	assert.Equal(t, "200Mi", got.Memory().String())
+	assert.Equal(t, wantRequests, podSpec.Containers[0].Resources.Requests)
+}
+
 func TestCalculateResources(t *testing.T) {
 	headStruct := struct {
 		cpu    string
@@ -1432,6 +1458,72 @@ func TestCalculateResources(t *testing.T) {
 				},
 				minResources: corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("100Mi"),
+				},
+			},
+		},
+		{
+			name: "Head pod with suspended worker group with min replicas",
+			cluster: createRayClusterTemplate(headStruct, []struct {
+				replicas    *int32
+				minReplicas *int32
+				suspend     *bool
+				cpu         string
+				memory      string
+				numOfHosts  int32
+			}{
+				{
+					numOfHosts:  1,
+					replicas:    ptr.To[int32](3),
+					minReplicas: ptr.To[int32](2),
+					cpu:         "4",
+					memory:      "200Mi",
+					suspend:     new(true),
+				},
+			}),
+			expected: struct {
+				desiredResources corev1.ResourceList
+				minResources     corev1.ResourceList
+			}{
+				desiredResources: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("100Mi"),
+				},
+				minResources: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("100Mi"),
+				},
+			},
+		},
+		{
+			name: "Head pod with worker group having max possible replicas",
+			cluster: createRayClusterTemplate(headStruct, []struct {
+				replicas    *int32
+				minReplicas *int32
+				suspend     *bool
+				cpu         string
+				memory      string
+				numOfHosts  int32
+			}{
+				{
+					numOfHosts:  1,
+					replicas:    ptr.To[int32](2147483647),
+					minReplicas: ptr.To[int32](2147483647),
+					cpu:         "1",
+					memory:      "0",
+					suspend:     nil,
+				},
+			}),
+			expected: struct {
+				desiredResources corev1.ResourceList
+				minResources     corev1.ResourceList
+			}{
+				desiredResources: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("2147483648"),
+					corev1.ResourceMemory: resource.MustParse("100Mi"),
+				},
+				minResources: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("2147483648"),
 					corev1.ResourceMemory: resource.MustParse("100Mi"),
 				},
 			},
@@ -1992,6 +2084,72 @@ func TestIsHTTPRouteEqual(t *testing.T) {
 			expected: false,
 		},
 		{
+			name: "Different ParentRef SectionName",
+			existing: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", SectionName: ptr.To(gwv1.SectionName("http"))},
+						},
+					},
+				},
+			},
+			desired: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", SectionName: ptr.To(gwv1.SectionName("https"))},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Different ParentRef Port",
+			existing: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", Port: ptr.To(gwv1.PortNumber(80))},
+						},
+					},
+				},
+			},
+			desired: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", Port: ptr.To(gwv1.PortNumber(443))},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Equal ParentRef SectionName and Port",
+			existing: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", SectionName: ptr.To(gwv1.SectionName("http")), Port: ptr.To(gwv1.PortNumber(80))},
+						},
+					},
+				},
+			},
+			desired: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", SectionName: ptr.To(gwv1.SectionName("http")), Port: ptr.To(gwv1.PortNumber(80))},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
 			name: "Different Hostnames",
 			existing: &gwv1.HTTPRoute{
 				Spec: gwv1.HTTPRouteSpec{
@@ -2308,5 +2466,121 @@ func TestIsGatewayEqual(t *testing.T) {
 			result := IsGatewayEqual(tt.existing, tt.desired)
 			assert.Equal(t, tt.expected, result)
 		})
+	}
+}
+
+func TestIsJobFinished(t *testing.T) {
+	makeJob := func(conditions ...batchv1.JobCondition) *batchv1.Job {
+		return &batchv1.Job{Status: batchv1.JobStatus{Conditions: conditions}}
+	}
+	cond := func(t batchv1.JobConditionType, s corev1.ConditionStatus) batchv1.JobCondition {
+		return batchv1.JobCondition{Type: t, Status: s}
+	}
+
+	tests := []struct {
+		name         string
+		job          *batchv1.Job
+		wantType     batchv1.JobConditionType
+		wantFinished bool
+	}{
+		{
+			name:         "no conditions",
+			job:          makeJob(),
+			wantFinished: false,
+		},
+		{
+			name:         "complete",
+			job:          makeJob(cond(batchv1.JobComplete, corev1.ConditionTrue)),
+			wantType:     batchv1.JobComplete,
+			wantFinished: true,
+		},
+		{
+			name:         "failed",
+			job:          makeJob(cond(batchv1.JobFailed, corev1.ConditionTrue)),
+			wantType:     batchv1.JobFailed,
+			wantFinished: true,
+		},
+		{
+			name:         "failure target only (activeDeadlineSeconds window before Failed appears)",
+			job:          makeJob(cond(batchv1.JobFailureTarget, corev1.ConditionTrue)),
+			wantType:     batchv1.JobFailed,
+			wantFinished: true,
+		},
+		{
+			name:         "failure target false status is not finished",
+			job:          makeJob(cond(batchv1.JobFailureTarget, corev1.ConditionFalse)),
+			wantFinished: false,
+		},
+		{
+			name: "failure target then failed",
+			job: makeJob(
+				cond(batchv1.JobFailureTarget, corev1.ConditionTrue),
+				cond(batchv1.JobFailed, corev1.ConditionTrue),
+			),
+			wantType:     batchv1.JobFailed,
+			wantFinished: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotType, gotFinished := IsJobFinished(tt.job)
+			assert.Equal(t, tt.wantFinished, gotFinished)
+			if tt.wantFinished {
+				assert.Equal(t, tt.wantType, gotType)
+			}
+		})
+	}
+}
+
+func TestGetGcsFaultToleranceBackend(t *testing.T) {
+	assert.Equal(t, rayv1.GcsFTBackendRedis, GetGcsFaultToleranceBackend(nil))
+	assert.Equal(t, rayv1.GcsFTBackendRedis, GetGcsFaultToleranceBackend(&rayv1.GcsFaultToleranceOptions{}))
+	assert.Equal(t, rayv1.GcsFTBackendRedis, GetGcsFaultToleranceBackend(&rayv1.GcsFaultToleranceOptions{Backend: rayv1.GcsFTBackendRedis}))
+	assert.Equal(t, rayv1.GcsFTBackendRocksDB, GetGcsFaultToleranceBackend(&rayv1.GcsFaultToleranceOptions{Backend: rayv1.GcsFTBackendRocksDB}))
+}
+
+func TestIsGCSFaultToleranceEmbedded(t *testing.T) {
+	assert.False(t, IsGCSFaultToleranceEmbedded(nil))
+	assert.False(t, IsGCSFaultToleranceEmbedded(&rayv1.GcsFaultToleranceOptions{}))
+	assert.False(t, IsGCSFaultToleranceEmbedded(&rayv1.GcsFaultToleranceOptions{Backend: rayv1.GcsFTBackendRedis}))
+	assert.True(t, IsGCSFaultToleranceEmbedded(&rayv1.GcsFaultToleranceOptions{Backend: rayv1.GcsFTBackendRocksDB}))
+}
+
+func TestSupportsFlexibleRestartPolicy(t *testing.T) {
+	// Empty / unspecified version → original behavior (restrict to Never).
+	assert.False(t, SupportsFlexibleRestartPolicy(""))
+	// Invalid version string → treated as unsupported.
+	assert.False(t, SupportsFlexibleRestartPolicy("not-a-version"))
+	// Below the minimum → restrict to Never.
+	assert.False(t, SupportsFlexibleRestartPolicy("2.55.0"))
+	assert.False(t, SupportsFlexibleRestartPolicy("2.55.9"))
+	// Exactly the minimum → flexible policy allowed.
+	assert.True(t, SupportsFlexibleRestartPolicy("2.56.0"))
+	// Above the minimum → flexible policy allowed.
+	assert.True(t, SupportsFlexibleRestartPolicy("2.57.0"))
+	assert.True(t, SupportsFlexibleRestartPolicy("3.0.0"))
+}
+
+func TestGetGCSStoragePVCName(t *testing.T) {
+	instance := &rayv1.RayCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-cluster"},
+		Spec: rayv1.RayClusterSpec{
+			GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{Backend: rayv1.GcsFTBackendRocksDB},
+		},
+	}
+	assert.Equal(t, "my-cluster-gcs-pvc", GetGCSStoragePVCName(instance))
+
+	instance.Spec.GcsFaultToleranceOptions.Storage = &rayv1.GcsEmbeddedStorage{ClaimName: "byo-pvc"}
+	assert.Equal(t, "byo-pvc", GetGCSStoragePVCName(instance))
+}
+
+func TestNodeLabelKey(t *testing.T) {
+	key, err := NodeLabelKey("metadata.labels['topology.kubernetes.io/zone']")
+	require.NoError(t, err)
+	assert.Equal(t, "topology.kubernetes.io/zone", key)
+	for _, bad := range []string{"", "metadata.labels", "metadata.labels[\"zone\"]", "metadata.annotations['zone']", "spec.providerID"} {
+		_, err := NodeLabelKey(bad)
+		require.ErrorContains(t, err, "only metadata.labels['<key>'] is supported", bad)
 	}
 }

@@ -1,0 +1,78 @@
+suite: Test ServiceMonitor
+
+templates:
+  - servicemonitor.yaml
+
+release:
+  name: kuberay-operator
+  namespace: kuberay-system
+
+tests:
+  - it: Should not create ServiceMonitor by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should not create ServiceMonitor if `metrics.serviceMonitor.enabled` is `false`
+    set:
+      metrics:
+        serviceMonitor:
+          enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should create ServiceMonitor if `metrics.serviceMonitor.enabled` is `true`
+    set:
+      metrics:
+        serviceMonitor:
+          enabled: true
+    asserts:
+      - containsDocument:
+          apiVersion: monitoring.coreos.com/v1
+          kind: ServiceMonitor
+          name: kuberay-operator
+          namespace: kuberay-system
+
+  - it: Should not render `metadata.labels` when no `additionalLabels` are set
+    set:
+      metrics:
+        serviceMonitor:
+          enabled: true
+    asserts:
+      - notExists:
+          path: metadata.labels
+
+  - it: Should render `metadata.labels` from `metrics.serviceMonitor.additionalLabels`
+    set:
+      metrics:
+        serviceMonitor:
+          enabled: true
+          additionalLabels:
+            release: prometheus
+    asserts:
+      - equal:
+          path: metadata.labels
+          value:
+            release: prometheus
+
+  - it: Should default the namespace to the release namespace
+    set:
+      metrics:
+        serviceMonitor:
+          enabled: true
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: kuberay-system
+
+  - it: Should use `metrics.serviceMonitor.namespace` when set
+    set:
+      metrics:
+        serviceMonitor:
+          enabled: true
+          namespace: monitoring
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: monitoring

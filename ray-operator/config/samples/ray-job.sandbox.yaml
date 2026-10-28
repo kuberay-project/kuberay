@@ -1,0 +1,107 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob-sandbox
+spec:
+  entrypoint: |
+    python3 -c "
+    import ray
+    from ray.experimental import sandbox
+
+    ray.init()
+
+    sb = sandbox.create(
+        image='python:3.12-slim',
+        workdir='/workspace',
+        cpu=1.0,
+        memory='1Gi',
+    )
+
+    script = '''
+    import platform
+    import sys
+
+    print('=== Hello from inside Ray Sandbox! ===')
+    print(f'Python Version : {sys.version}')
+    print(f'Platform       : {platform.platform()}')
+    '''
+    ray.get(sb.write_file.remote('/workspace/main.py', script))
+
+    result = ray.get(sb.exec.remote('python3 /workspace/main.py'))
+    print(f'Exit code: {result.exit_code}')
+    print('Sandbox output:')
+    print(result.stdout)
+
+    ray.get(sb.delete.remote())
+    print('RayJob completed successfully!')
+    "
+  shutdownAfterJobFinishes: true
+  ttlSecondsAfterFinished: 600
+  rayClusterSpec:
+    rayVersion: '2.58.0'
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: '0.0.0.0'
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.58.0-py312
+            imagePullPolicy: IfNotPresent
+            securityContext:
+              seccompProfile:
+                type: Unconfined
+              appArmorProfile:
+                type: Unconfined
+            lifecycle:
+              postStart:
+                exec:
+                  command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    ARCH=$(uname -m)
+                    sudo wget -O /usr/local/bin/runsc "https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}/runsc"
+                    sudo chmod +x /usr/local/bin/runsc
+            resources:
+              limits:
+                cpu: "4"
+                memory: "8Gi"
+              requests:
+                cpu: "2"
+                memory: "4Gi"
+    workerGroupSpecs:
+    - groupName: worker-group
+      replicas: 2
+      minReplicas: 1
+      maxReplicas: 5
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.58.0-py312
+            imagePullPolicy: IfNotPresent
+            securityContext:
+              seccompProfile:
+                type: Unconfined
+              appArmorProfile:
+                type: Unconfined
+            # A simple postStart hook to install gVisor
+            # In production, runsc should be included in the image
+            lifecycle:
+              postStart:
+                exec:
+                  command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    ARCH=$(uname -m)
+                    sudo wget -O /usr/local/bin/runsc "https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}/runsc"
+                    sudo chmod +x /usr/local/bin/runsc
+            resources:
+              limits:
+                memory: "12Gi"
+              requests:
+                cpu: "4"
+                memory: "12Gi"

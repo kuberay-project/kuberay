@@ -27,17 +27,9 @@ func TestRayServiceSuspendDuringIncrementalUpgrade(t *testing.T) {
 	interval := new(int32(20))
 	maxSurge := new(int32(30))
 
-	rayService, httpRoute, _ := bootstrapIncrementalRayService(
+	rayService, httpRoute, gatewayHost := bootstrapIncrementalRayService(
 		test, g, namespace.Name, rayServiceName, stepSize, interval, maxSurge, defaultIncrementalUpgradeServeConfigV2)
 	gatewayName := fmt.Sprintf("%s-gateway", rayServiceName)
-	// Curl through the backing Istio Service's cluster DNS rather than the
-	// LoadBalancer-assigned external IP. The DNS handle is stable across
-	// Gateway recreation (Istio names the backing Deployment + Service
-	// `<gateway-name>-istio` in the Gateway's namespace), so the assertions
-	// after Spec.Suspend cycles through don't need to re-resolve a possibly-
-	// new external IP. The traffic still flows through the Gateway envoy
-	// pods and exercises the HTTPRoute / weighted-backend routing.
-	gatewayHost := fmt.Sprintf("%s-istio.%s.svc.cluster.local", gatewayName, namespace.Name)
 
 	// Sanity-check that the service is wired up through the Gateway before
 	// touching Spec.Suspend.
@@ -49,7 +41,8 @@ func TestRayServiceSuspendDuringIncrementalUpgrade(t *testing.T) {
 	// Trigger an incremental upgrade so both active and pending RayClusters
 	// exist when Spec.Suspend kicks in.
 	LogWithTimestamp(test.T(), "Triggering incremental upgrade so both active and pending clusters exist before suspend")
-	g.Eventually(incrementalUpgrade(test, namespace.Name, rayServiceName), TestTimeoutShort).Should(Succeed())
+	g.Expect(triggerIncrementalUpgrade(test, namespace.Name, rayServiceName, stepSize, interval, maxSurge, defaultIncrementalUpgradeServeConfigV2,
+		withWorkerCPURequest("500m"), withUpgradedServeConfig())).To(Succeed())
 	g.Eventually(RayService(test, rayService.Namespace, rayService.Name), TestTimeoutMedium).
 		Should(WithTransform(IsRayServiceUpgrading, BeTrue()))
 
@@ -68,11 +61,8 @@ func TestRayServiceSuspendDuringIncrementalUpgrade(t *testing.T) {
 	}, TestTimeoutMedium).Should(Succeed())
 
 	LogWithTimestamp(test.T(), "Setting Spec.Suspend=true while incremental upgrade is in progress")
-	rayService, err = GetRayService(test, namespace.Name, rayServiceName)
-	g.Expect(err).NotTo(HaveOccurred())
-	rayService.Spec.Suspend = true
-	_, err = test.Client().Ray().RayV1().RayServices(namespace.Name).Update(test.Ctx(), rayService, metav1.UpdateOptions{})
-	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(triggerIncrementalUpgrade(test, namespace.Name, rayServiceName, stepSize, interval, maxSurge, defaultIncrementalUpgradeServeConfigV2,
+		withWorkerCPURequest("500m"), withUpgradedServeConfig(), withSuspend(true))).To(Succeed())
 
 	LogWithTimestamp(test.T(), "Waiting for the Suspended condition to be True")
 	g.Eventually(RayService(test, rayService.Namespace, rayService.Name), TestTimeoutMedium).
@@ -100,11 +90,8 @@ func TestRayServiceSuspendDuringIncrementalUpgrade(t *testing.T) {
 	}, TestTimeoutMedium).Should(Succeed())
 
 	LogWithTimestamp(test.T(), "Setting Spec.Suspend=false; the controller must recreate Gateway, HTTPRoute, RayCluster, and Services")
-	rayService, err = GetRayService(test, namespace.Name, rayServiceName)
-	g.Expect(err).NotTo(HaveOccurred())
-	rayService.Spec.Suspend = false
-	_, err = test.Client().Ray().RayV1().RayServices(namespace.Name).Update(test.Ctx(), rayService, metav1.UpdateOptions{})
-	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(triggerIncrementalUpgrade(test, namespace.Name, rayServiceName, stepSize, interval, maxSurge, defaultIncrementalUpgradeServeConfigV2,
+		withWorkerCPURequest("500m"), withUpgradedServeConfig(), withSuspend(false))).To(Succeed())
 
 	g.Eventually(RayService(test, rayService.Namespace, rayService.Name), TestTimeoutMedium).
 		Should(WithTransform(IsRayServiceReady, BeTrue()))
@@ -114,9 +101,8 @@ func TestRayServiceSuspendDuringIncrementalUpgrade(t *testing.T) {
 	// Gateway and HTTPRoute must come back, and the resumed Gateway must
 	// serve traffic again so we know the network path is fully restored
 	// rather than just the K8s objects re-existing.
-	LogWithTimestamp(test.T(), "Waiting for Gateway %s/%s to be ready again", namespace.Name, gatewayName)
-	g.Eventually(Gateway(test, namespace.Name, gatewayName), TestTimeoutMedium).
-		Should(WithTransform(utils.IsGatewayReady, BeTrue()))
+	setGatewayServiceType(test, g, namespace.Name, gatewayName)
+	waitForGatewayReady(test, g, namespace.Name, gatewayName)
 
 	LogWithTimestamp(test.T(), "Waiting for HTTPRoute %s/%s to be ready again", namespace.Name, httpRoute.Name)
 	g.Eventually(func() (bool, error) {

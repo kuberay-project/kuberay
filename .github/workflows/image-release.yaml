@@ -102,6 +102,8 @@ jobs:
       working-directory: ./ray-operator
     name: Release Operator Docker Images
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
 
     - name: Error if not a tag
@@ -323,6 +325,95 @@ jobs:
         platforms: linux/amd64,linux/arm64
         context: ${{env.working-directory}}
         file: ${{env.working-directory}}/Dockerfile.submitter.buildx
+        push: ${{env.PUSH}}
+        provenance: false
+        tags: |
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ steps.vars.outputs.sha_short }}
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ env.tag }}
+
+  release_historyserver_collector_image:
+    env:
+      working-directory: ./historyserver
+    name: Release History Server and Collector Docker Images
+    runs-on: ubuntu-22.04
+    steps:
+
+    - name: Error if not a tag
+      uses: actions/github-script@v9
+      if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+      with:
+        script: core.setFailed('This action can only be run on tags')
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: v1.26
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Extract tag
+      id: tag
+      run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+    - name: Get revision SHA
+      id: vars
+      run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+    - name: Get dependencies
+      run: go mod download
+      working-directory: ${{env.working-directory}}
+
+    - name: Build
+      run: make build
+      working-directory: ${{env.working-directory}}
+
+    - name: Test
+      run: make test
+      working-directory: ${{env.working-directory}}
+
+    - name: Log in to Quay.io
+      uses: docker/login-action@v4
+      with:
+        registry: quay.io
+        username: ${{ secrets.QUAY_USERNAME }}
+        password: ${{ secrets.QUAY_ROBOT_TOKEN }}
+
+    - name: Build multi-arch binaries for historyserver and collector
+      run: make build-multi-arch
+      working-directory: ${{env.working-directory}}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Build MultiArch Image for History Server
+      uses: docker/build-push-action@v7
+      env:
+        PUSH: true
+        REPO_ORG: kuberay
+        REPO_NAME: historyserver
+      with:
+        platforms: linux/amd64,linux/arm64
+        context: ${{env.working-directory}}
+        file: ${{env.working-directory}}/Dockerfile.historyserver.buildx
+        push: ${{env.PUSH}}
+        provenance: false
+        tags: |
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ steps.vars.outputs.sha_short }}
+          quay.io/${{env.REPO_ORG}}/${{env.REPO_NAME}}:${{ env.tag }}
+
+    - name: Build MultiArch Image for Historyserver Collector
+      uses: docker/build-push-action@v7
+      env:
+        PUSH: true
+        REPO_ORG: kuberay
+        REPO_NAME: collector
+      with:
+        platforms: linux/amd64,linux/arm64
+        context: ${{env.working-directory}}
+        file: ${{env.working-directory}}/Dockerfile.collector.buildx
         push: ${{env.PUSH}}
         provenance: false
         tags: |

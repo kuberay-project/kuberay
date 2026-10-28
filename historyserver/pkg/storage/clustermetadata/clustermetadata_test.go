@@ -9,16 +9,16 @@ import (
 
 func TestDecodePath(t *testing.T) {
 	tests := []struct {
-		name        string
-		filePath    string
-		rootDir     string
-		expectErr   bool
-		expected    utils.ClusterInfo
+		name      string
+		filePath  string
+		rootDir   string
+		expectErr bool
+		expected  utils.ClusterInfo
 	}{
 		{
-			name:        "valid hierarchical path job",
-			filePath:    "cluster-metadata/rayjob/defaultns_myrayjob_mycluster3/session_2024-05-15_10-30-55_123456",
-			expectErr:   false,
+			name:      "valid hierarchical path job",
+			filePath:  "cluster-metadata/rayjob/defaultns_myrayjob_mycluster3/session_2024-05-15_10-30-55_123456",
+			expectErr: false,
 			expected: utils.ClusterInfo{
 				Namespace:       "defaultns",
 				OwnerKind:       "rayjob",
@@ -30,9 +30,9 @@ func TestDecodePath(t *testing.T) {
 			},
 		},
 		{
-			name:        "valid hierarchical path standalone",
-			filePath:    "cluster-metadata/raycluster/defaultns_mycluster1/session_2024-05-15_10-30-55_123456",
-			expectErr:   false,
+			name:      "valid hierarchical path standalone",
+			filePath:  "cluster-metadata/raycluster/defaultns_mycluster1/session_2024-05-15_10-30-55_123456",
+			expectErr: false,
 			expected: utils.ClusterInfo{
 				Namespace:       "defaultns",
 				Name:            "mycluster1",
@@ -42,45 +42,50 @@ func TestDecodePath(t *testing.T) {
 			},
 		},
 		{
-			name:        "invalid path prefix",
-			filePath:    "wrong-prefix/rayjob/defaultns_myrayjob_mycluster3/session_2024-05-15_10-30-55_123456",
-			expectErr:   true,
+			name:      "invalid path prefix",
+			filePath:  "wrong-prefix/rayjob/defaultns_myrayjob_mycluster3/session_2024-05-15_10-30-55_123456",
+			expectErr: true,
 		},
 		{
-			name:        "invalid path prefix with custom rootDir",
-			filePath:    "cluster-metadata/rayjob/defaultns_myrayjob_mycluster3/session_2024-05-15_10-30-55_123456",
-			rootDir:     "custom-root",
-			expectErr:   true,
+			name:      "invalid path prefix with custom rootDir",
+			filePath:  "cluster-metadata/rayjob/defaultns_myrayjob_mycluster3/session_2024-05-15_10-30-55_123456",
+			rootDir:   "custom-root",
+			expectErr: true,
 		},
 		{
-			name:        "invalid path structure - missing session",
-			filePath:    "cluster-metadata/rayjob/defaultns_myrayjob_mycluster3",
-			expectErr:   true,
+			name:      "invalid path structure - missing session",
+			filePath:  "cluster-metadata/rayjob/defaultns_myrayjob_mycluster3",
+			expectErr: true,
 		},
 		{
-			name:        "invalid path structure - too many parts",
-			filePath:    "cluster-metadata/rayjob/defaultns_myrayjob_mycluster3/session/extra",
-			expectErr:   true,
+			name:      "invalid path structure - too many parts",
+			filePath:  "cluster-metadata/rayjob/defaultns_myrayjob_mycluster3/session/extra",
+			expectErr: true,
 		},
 		{
-			name:        "invalid metadir segment - only one part",
-			filePath:    "cluster-metadata/raycluster/defaultns/session_2024-05-15_10-30-55_123456",
-			expectErr:   true,
+			name:      "invalid metadir segment - only one part",
+			filePath:  "cluster-metadata/raycluster/defaultns/session_2024-05-15_10-30-55_123456",
+			expectErr: true,
 		},
 		{
-			name:        "invalid metadir segment with owner - too few parts",
-			filePath:    "cluster-metadata/rayjob/defaultns/session_2024-05-15_10-30-55_123456",
-			expectErr:   true,
+			name:      "invalid metadir segment with owner - too few parts",
+			filePath:  "cluster-metadata/rayjob/defaultns/session_2024-05-15_10-30-55_123456",
+			expectErr: true,
 		},
 		{
-			name:        "session id with bad timestamp pattern",
-			filePath:    "cluster-metadata/raycluster/defaultns_mycluster/session_not-a-real-timestamp",
-			expectErr:   true,
+			name:      "session id with bad timestamp pattern",
+			filePath:  "cluster-metadata/raycluster/defaultns_mycluster/session_not-a-real-timestamp",
+			expectErr: true,
 		},
 		{
-			name:            "valid owner kind - mixed case",
-			filePath:        "cluster-metadata/rayservice/defaultns_myservice_mycluster3/session_2024-05-15_10-30-55_123456",
-			expectErr:       false,
+			name:      "invalid decode - raycluster with 3 meta parts",
+			filePath:  "cluster-metadata/raycluster/defaultns_myservice_mycluster3/session_2024-05-15_10-30-55_123456",
+			expectErr: true,
+		},
+		{
+			name:      "valid owner kind - mixed case",
+			filePath:  "cluster-metadata/RaYSerVice/defaultns_myservice_mycluster3/session_2024-05-15_10-30-55_123456",
+			expectErr: false,
 			expected: utils.ClusterInfo{
 				Namespace:       "defaultns",
 				OwnerKind:       "rayservice",
@@ -90,11 +95,6 @@ func TestDecodePath(t *testing.T) {
 				CreateTimeStamp: time.Date(2024, time.May, 15, 10, 30, 55, 123456000, time.UTC).Unix(),
 				CreateTime:      "2024-05-15T10:30:55Z",
 			},
-		},
-		{
-			name:      "invalid decode - raycluster with 3 meta parts",
-			filePath:  "cluster-metadata/raycluster/defaultns_myservice_mycluster3/session_2024-05-15_10-30-55_123456",
-			expectErr: true,
 		},
 		{
 			name:      "unsupported owner kind",
@@ -206,6 +206,13 @@ func TestEncodePath(t *testing.T) {
 			rootDir:   "",
 			sessionID: "session-789",
 			want:      "cluster-metadata/raycluster/ns_cluster/session-789",
+		},
+		{
+			name:      "job with owner kind details in inconsistent case",
+			info:      utils.ClusterInfo{OwnerKind: "RaYjOb", OwnerName: "job1", Namespace: "ns", Name: "cluster"},
+			rootDir:   "",
+			sessionID: "session-456",
+			want:      "cluster-metadata/rayjob/ns_job1_cluster/session-456",
 		},
 	}
 

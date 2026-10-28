@@ -1,8 +1,10 @@
 package support
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"time"
 
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
@@ -174,6 +176,51 @@ func GetWorkerPods(t Test, rayCluster *rayv1.RayCluster) ([]corev1.Pod, error) {
 		return nil, err
 	}
 	return pods.Items, err
+}
+
+// RateLimitedReplicas verifies that the initial scale-up batch size does not exceed limit.
+// We pass an action closure (such as triggering autoscaling via detached actors) to execute
+// concurrently while a background goroutine monitors the RayCluster.
+func RateLimitedReplicas(t Test, rayCluster *rayv1.RayCluster, limit int32, action func()) bool {
+	// The number of new launches must be less than or equal to the size of the RayCluster.
+	// The minimum number of pending launches is 5 regardless of RayCluster size and upscaling_speed.
+	initialReplicasChan := make(chan int32, 1)
+	ctx, cancel := context.WithCancel(t.Ctx())
+	defer cancel()
+
+	go func() {
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cluster, err := GetRayCluster(t, rayCluster.Namespace, rayCluster.Name)
+				if err == nil {
+					replicas := GetRayClusterWorkerGroupReplicaSum(cluster)
+					if replicas > 0 {
+						select {
+						case initialReplicasChan <- replicas:
+						default:
+						}
+						return
+					}
+				}
+			}
+		}
+	}()
+
+	if action != nil {
+		action()
+	}
+
+	select {
+	case initialScale := <-initialReplicasChan:
+		return initialScale <= limit
+	case <-time.After(TestTimeoutMedium):
+		return false
+	}
 }
 
 func GetAllPods(t Test, rayCluster *rayv1.RayCluster) ([]corev1.Pod, error) {

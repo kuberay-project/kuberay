@@ -812,3 +812,28 @@ namespace-2   pod-2   1     5            3/3        1      1      1      1Gi    
 		})
 	}
 }
+
+func TestCalculatePodResourceDoesNotMutateInput(t *testing.T) {
+	podSpec := corev1.PodSpec{
+		Containers: []corev1.Container{
+			{
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("200Mi"),
+					},
+				},
+			},
+		},
+	}
+	wantRequests := podSpec.Containers[0].Resources.Requests.DeepCopy()
+
+	got := calculatePodResource(podSpec)
+
+	assert.Equal(t, "1", got.Cpu().String())
+	assert.Equal(t, "200Mi", got.Memory().String())
+	assert.Equal(t, wantRequests, podSpec.Containers[0].Resources.Requests)
+}

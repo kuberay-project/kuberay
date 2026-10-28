@@ -16,6 +16,12 @@ type RayClusterSpecApplyConfiguration struct {
 	// Suspend indicates whether a RayCluster should be suspended.
 	// A suspended RayCluster will have head pods and worker pods deleted.
 	Suspend *bool `json:"suspend,omitempty"`
+	// IdleSuspend indicates whether a RayCluster should be suspended due to idleness.
+	// An idle-suspended RayCluster will have head pods and worker pods deleted.
+	IdleSuspend *bool `json:"idleSuspend,omitempty"`
+	// IdleTerminationOptions specifies optional configuration for terminating an idle RayCluster.
+	// A RayCluster is considered idle when no Ray driver is connected.
+	IdleTerminationOptions *IdleTerminationOptionsApplyConfiguration `json:"idleTerminationOptions,omitempty"`
 	// ManagedBy is an optional configuration for the controller or entity that manages a RayCluster.
 	// The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.
 	// The kuberay-operator reconciles a RayCluster which doesn't have this field at all or
@@ -30,6 +36,20 @@ type RayClusterSpecApplyConfiguration struct {
 	EnableInTreeAutoscaling *bool `json:"enableInTreeAutoscaling,omitempty"`
 	// GcsFaultToleranceOptions for enabling GCS FT
 	GcsFaultToleranceOptions *GcsFaultToleranceOptionsApplyConfiguration `json:"gcsFaultToleranceOptions,omitempty"`
+	// HistoryServerOptions used for history server related configuration
+	HistoryServerOptions *HistoryServerOptionsApplyConfiguration `json:"historyServerOptions,omitempty"`
+	// NetworkPolicy specifies optional configuration for network isolation.
+	// When set, separate NetworkPolicies are created for head and worker pods.
+	// The reconciler always permits intra-cluster pod-to-pod traffic.
+	// Note: under DenyAll/DenyAllEgress, DNS egress is not added
+	// automatically; since Ray pods reach the head via its service FQDN, you must
+	// allow DNS egress via Head/Worker EgressRules or the cluster will fail to start.
+	NetworkPolicy *NetworkPolicyConfigApplyConfiguration `json:"networkPolicy,omitempty"`
+	// TLSOptions specifies optional TLS encryption settings for the RayCluster.
+	// If omitted or Enabled is false, TLS is disabled. When Enabled is true,
+	// the operator enables mTLS using cert-manager to provision and manage certificates.
+	// Requires the RayClusterMTLS feature gate on the operator.
+	TLSOptions *TLSOptionsApplyConfiguration `json:"tlsOptions,omitempty"`
 	// HeadGroupSpec is the spec for the head pod
 	HeadGroupSpec *HeadGroupSpecApplyConfiguration `json:"headGroupSpec,omitempty"`
 	// RayVersion is used to determine the command for the Kubernetes Job managed by RayJob
@@ -65,6 +85,22 @@ func (b *RayClusterSpecApplyConfiguration) WithAuthOptions(value *AuthOptionsApp
 // If called multiple times, the Suspend field is set to the value of the last call.
 func (b *RayClusterSpecApplyConfiguration) WithSuspend(value bool) *RayClusterSpecApplyConfiguration {
 	b.Suspend = &value
+	return b
+}
+
+// WithIdleSuspend sets the IdleSuspend field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the IdleSuspend field is set to the value of the last call.
+func (b *RayClusterSpecApplyConfiguration) WithIdleSuspend(value bool) *RayClusterSpecApplyConfiguration {
+	b.IdleSuspend = &value
+	return b
+}
+
+// WithIdleTerminationOptions sets the IdleTerminationOptions field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the IdleTerminationOptions field is set to the value of the last call.
+func (b *RayClusterSpecApplyConfiguration) WithIdleTerminationOptions(value *IdleTerminationOptionsApplyConfiguration) *RayClusterSpecApplyConfiguration {
+	b.IdleTerminationOptions = value
 	return b
 }
 
@@ -111,6 +147,30 @@ func (b *RayClusterSpecApplyConfiguration) WithEnableInTreeAutoscaling(value boo
 // If called multiple times, the GcsFaultToleranceOptions field is set to the value of the last call.
 func (b *RayClusterSpecApplyConfiguration) WithGcsFaultToleranceOptions(value *GcsFaultToleranceOptionsApplyConfiguration) *RayClusterSpecApplyConfiguration {
 	b.GcsFaultToleranceOptions = value
+	return b
+}
+
+// WithHistoryServerOptions sets the HistoryServerOptions field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the HistoryServerOptions field is set to the value of the last call.
+func (b *RayClusterSpecApplyConfiguration) WithHistoryServerOptions(value *HistoryServerOptionsApplyConfiguration) *RayClusterSpecApplyConfiguration {
+	b.HistoryServerOptions = value
+	return b
+}
+
+// WithNetworkPolicy sets the NetworkPolicy field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the NetworkPolicy field is set to the value of the last call.
+func (b *RayClusterSpecApplyConfiguration) WithNetworkPolicy(value *NetworkPolicyConfigApplyConfiguration) *RayClusterSpecApplyConfiguration {
+	b.NetworkPolicy = value
+	return b
+}
+
+// WithTLSOptions sets the TLSOptions field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the TLSOptions field is set to the value of the last call.
+func (b *RayClusterSpecApplyConfiguration) WithTLSOptions(value *TLSOptionsApplyConfiguration) *RayClusterSpecApplyConfiguration {
+	b.TLSOptions = value
 	return b
 }
 

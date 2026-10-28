@@ -17,6 +17,26 @@ Package v1 contains API Schema definitions for the ray v1 API group
 
 
 
+#### ActivePassiveHeadOptions
+
+
+
+ActivePassiveHeadOptions configures active-passive head high availability for
+the GCS via leader election.
+
+
+
+_Appears in:_
+- [GcsFaultToleranceOptions](#gcsfaulttoleranceoptions)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `enabled` _boolean_ | Enabled turns on active-passive head HA for the RayCluster. When true, KubeRay<br />provisions a standby head Pod. Defaults to false. |  |  |
+| `leaseDurationSeconds` _integer_ | LeaseDurationSeconds is the duration that non-leader candidates wait before forcing leadership acquisition. | 15 | Minimum: 1 <br /> |
+| `renewDeadlineSeconds` _integer_ | RenewDeadlineSeconds is the acting leader's bounded deadline for executing consecutive renewal sequences. | 10 | Minimum: 1 <br /> |
+| `retryPeriodSeconds` _integer_ | RetryPeriodSeconds is the duration clients wait between sequential resource acquisition attempts. | 2 | Minimum: 1 <br /> |
+
+
 #### AuthMode
 
 _Underlying type:_ _string_
@@ -113,7 +133,27 @@ _Appears in:_
 | `maxSurgePercent` _integer_ | The capacity of serve requests the upgraded cluster should scale to handle each interval.<br />Defaults to 100%. | 100 |  |
 | `stepSizePercent` _integer_ | The percentage of traffic to switch to the upgraded RayCluster at a set interval after scaling by MaxSurgePercent.<br />StepSizePercent must be less than or equal to MaxSurgePercent. |  |  |
 | `intervalSeconds` _integer_ | The interval in seconds between transferring StepSize traffic from the old to new RayCluster. |  |  |
-| `gatewayClassName` _string_ | The name of the Gateway Class installed by the Kubernetes Cluster admin. |  |  |
+| `gatewayClassName` _string_ | The name of the Gateway Class installed by the Kubernetes Cluster admin.<br />Exactly one of GatewayClassName or GatewayRef must be set. |  |  |
+| `gatewayRef` _[GatewayReference](#gatewayreference)_ | GatewayRef attaches the HTTPRoute to an existing Gateway instead of creating one per RayService.<br />The referenced Gateway must allow HTTPRoutes from the RayService's namespace.<br />Exactly one of GatewayClassName or GatewayRef must be set. |  |  |
+
+
+#### CollectorOptions
+
+
+
+CollectorOptions defines settings for the history server collector sidecar.
+
+
+
+_Appears in:_
+- [HistoryServerOptions](#historyserveroptions)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `image` _string_ | Image is the collector container image to be used (e.g. quay.io/kuberay/collector:v1.7.0). |  |  |
+| `imagePullPolicy` _[PullPolicy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#pullpolicy-v1-core)_ | ImagePullPolicy is the pull policy for the collector image. |  |  |
+| `resources` _[ResourceRequirements](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcerequirements-v1-core)_ | Resources specifies computing resource requirements. |  |  |
+| `env` _[EnvVar](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#envvar-v1-core) array_ | Env allows injecting custom environment variables into the collector container. |  |  |
 
 
 #### DeletionCondition
@@ -194,6 +234,10 @@ _Appears in:_
 
 
 DeletionStrategy configures automated cleanup after the RayJob reaches a terminal state.
+Two mutually exclusive styles are supported:
+
+  - Legacy: provide both onSuccess and onFailure (deprecated; removal planned for 1.6.0). May be combined with shutdownAfterJobFinishes and (optionally) global TTLSecondsAfterFinished.
+  - Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds instead).
 
 Semantics:
   - The deletionRules list is the primary mechanism for cleanup; it must be non-empty when this block is present.
@@ -220,6 +264,91 @@ _Appears in:_
 
 
 
+#### GCSStorageDeletionPolicy
+
+_Underlying type:_ _string_
+
+GCSStorageDeletionPolicy specifies what happens to the operator-managed GCS
+storage PVC when the owning RayCluster is deleted.
+
+_Validation:_
+- Enum: [DeleteWithCluster Retain]
+
+_Appears in:_
+- [GcsEmbeddedStorage](#gcsembeddedstorage)
+
+| Field | Description |
+| --- | --- |
+| `DeleteWithCluster` | DeleteWithClusterGCSStorageDeletionPolicy (the default) makes the<br />operator-managed PVC a child of the RayCluster via an ownerReference, so it<br />(and its RocksDB data) is garbage-collected together with the cluster.<br /> |
+| `Retain` | RetainGCSStorageDeletionPolicy keeps the operator-managed PVC (and its data)<br />after the owning RayCluster is deleted: the operator omits the ownerReference<br />so the PVC outlives the cluster. Recover the GCS state by pointing a new<br />cluster's ClaimName at the retained PVC.<br /> |
+
+
+#### GatewayReference
+
+
+
+GatewayReference identifies the existing Gateway and listener the RayService's
+HTTPRoute attaches to. It becomes the HTTPRoute's parentRef. KubeRay never creates,
+updates, or deletes the referenced Gateway; it must already exist and must allow
+HTTPRoutes from the RayService's namespace.
+
+
+
+_Appears in:_
+- [ClusterUpgradeOptions](#clusterupgradeoptions)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name of the existing Gateway. Must be a valid Gateway resource name<br />(an RFC 1123 subdomain). |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
+| `namespace` _string_ | Namespace of the existing Gateway. Defaults to the RayService's namespace when omitted.<br />Must be a valid namespace name (an RFC 1123 label). |  | MaxLength: 63 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$` <br /> |
+| `sectionName` _string_ | SectionName is the name of a listener on the referenced Gateway to attach the<br />HTTPRoute to. When omitted, the HTTPRoute attaches to every listener on the<br />Gateway that accepts it. Useful for a shared Gateway with multiple listeners.<br />Must be a valid Gateway API SectionName (an RFC 1123 subdomain). |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
+| `port` _integer_ | Port is the network port of the referenced Gateway's listener to attach the<br />HTTPRoute to. When both SectionName and Port are set, the selected listener<br />must match both. When omitted, listener selection is not constrained by port. |  | Maximum: 65535 <br />Minimum: 1 <br /> |
+
+
+#### GcsEmbeddedStorage
+
+
+
+GcsEmbeddedStorage configures the PVC backing the embedded RocksDB store.
+
+RocksDB tolerates only a single writer at a time. The operator mounts the
+volume on the head Pod but does not itself enforce mutual exclusion, so when a
+volume can be attached to more than one Pod concurrently (see AccessModes) the
+caller is responsible for ensuring only one Ray head writes to it at a time.
+
+
+
+_Appears in:_
+- [GcsFaultToleranceOptions](#gcsfaulttoleranceoptions)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `claimName` _string_ | ClaimName is the name of an existing, user-provided PersistentVolumeClaim to<br />use as the RocksDB store ("bring your own" PVC). When set, the operator<br />consumes that PVC as-is: it does not create, delete, resize, or set<br />ownerReferences on it -- the user owns its entire lifecycle. Mutually<br />exclusive with Size/StorageClassName/AccessModes (those configure an<br />operator-managed PVC, which is used instead when ClaimName is empty).<br />This is the supported path for persisting GCS state across a RayService<br />zero-downtime upgrade: point every RayService generation at the same claim.<br />(An operator-managed PVC is keyed by and owned by the RayCluster, so it is<br />not reused across upgrades.) Because the old and new head Pods overlap during<br />a zero-downtime upgrade, the claim must permit concurrent attach<br />(ReadWriteMany) with externally-coordinated single-writer semantics, or an<br />active-passive handoff where only one Pod attaches at once. |  |  |
+| `size` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#quantity-resource-api)_ | Size of the operator-managed PVC (e.g. "1Gi"). Ignored when ClaimName is set.<br />Defaults to 1Gi. The operator-managed PVC is created once and not<br />reconfigured in place; to change size/class/accessModes, delete the PVC (or<br />switch to ClaimName). A warning event is emitted if this diverges from the<br />live PVC. |  |  |
+| `storageClassName` _string_ | StorageClassName for the operator-managed PVC. Uses the cluster default<br />StorageClass when omitted. Ignored when ClaimName is set. |  |  |
+| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#persistentvolumeaccessmode-v1-core) array_ | AccessModes for the operator-managed PVC. Defaults to [ReadWriteOnce].<br />Ignored when ClaimName is set.<br />ReadWriteOnce is the sane default for a standalone RayCluster (one head Pod<br />attaches at a time). ReadWriteMany is a valid choice when you need the volume<br />attached to multiple Pods concurrently (e.g. to overlap the old and new head<br />during a RayService upgrade); RocksDB still requires that only one of them<br />writes at a time, which you must coordinate externally. |  |  |
+| `subPath` _string_ | SubPath mounts a subdirectory of the volume instead of its root. |  |  |
+| `deletionPolicy` _[GCSStorageDeletionPolicy](#gcsstoragedeletionpolicy)_ | DeletionPolicy controls the lifecycle of the operator-managed PVC relative to<br />the owning RayCluster. Defaults to DeleteWithCluster. Ignored when ClaimName<br />is set (the operator never owns a bring-your-own PVC, so it is never deleted<br />or retained by the operator).<br />Recovery after Retain: a PVC left behind by a Retain delete can be recovered<br />either by pointing a new cluster's ClaimName at it, or by recreating a<br />RayCluster with the same name on the operator-managed path -- the operator<br />adopts the existing \{cluster\}-gcs-pvc and reuses its RocksDB state. To start<br />from a fresh store instead, delete the leftover PVC first. |  | Enum: [DeleteWithCluster Retain] <br /> |
+
+
+#### GcsFaultToleranceBackend
+
+_Underlying type:_ _string_
+
+GcsFaultToleranceBackend selects the GCS fault tolerance persistence backend.
+
+_Validation:_
+- Enum: [redis rocksdb]
+
+_Appears in:_
+- [GcsFaultToleranceOptions](#gcsfaulttoleranceoptions)
+
+| Field | Description |
+| --- | --- |
+| `redis` | GcsFTBackendRedis persists GCS metadata in an external Redis service.<br /> |
+| `rocksdb` | GcsFTBackendRocksDB persists GCS metadata in an embedded RocksDB store on a<br />persistent volume mounted on the head Pod.<br /> |
+
+
 #### GcsFaultToleranceOptions
 
 
@@ -233,10 +362,13 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `backend` _[GcsFaultToleranceBackend](#gcsfaulttolerancebackend)_ | Backend selects the GCS FT persistence backend. Defaults to "redis" for<br />backward compatibility. Immutable: the backend cannot be switched on an<br />existing RayCluster (doing so would swap the entire GCS store and head-Pod<br />wiring, losing fault-tolerance state). |  | Enum: [redis rocksdb] <br /> |
 | `redisUsername` _[RedisCredential](#rediscredential)_ |  |  |  |
 | `redisPassword` _[RedisCredential](#rediscredential)_ |  |  |  |
 | `externalStorageNamespace` _string_ |  |  |  |
-| `redisAddress` _string_ |  |  |  |
+| `redisAddress` _string_ | RedisAddress is the address of the external Redis service. Required when<br />Backend is "redis"; must be empty for "rocksdb". |  |  |
+| `storage` _[GcsEmbeddedStorage](#gcsembeddedstorage)_ | Storage configures the persistent volume backing the embedded RocksDB<br />store. Only used when Backend is "rocksdb". |  |  |
+| `activePassiveHeadOptions` _[ActivePassiveHeadOptions](#activepassiveheadoptions)_ | ActivePassiveHeadOptions configures active-passive high availability for the GCS.<br />It is only supported with the "redis" backend, not with "rocksdb". |  |  |
 
 
 #### HeadGroupSpec
@@ -255,10 +387,100 @@ _Appears in:_
 | `template` _[PodTemplateSpec](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#podtemplatespec-v1-core)_ | Template is the exact pod template used in K8s deployments, statefulsets, etc. |  |  |
 | `headService` _[Service](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#service-v1-core)_ | HeadService is the Kubernetes service of the head pod. |  |  |
 | `enableIngress` _boolean_ | EnableIngress indicates whether operator should create ingress object for head service or not. |  |  |
+| `ingressOptions` _[IngressOptions](#ingressoptions)_ | IngressOptions specifies optional ingress configuration for the head service. |  |  |
 | `resources` _object (keys:string, values:string)_ | Resources specifies the resource quantities for the head group.<br />These values override the resources passed to `rayStartParams` for the group, but<br />have no effect on the resources set at the K8s Pod container level. |  |  |
 | `labels` _object (keys:string, values:string)_ | Labels specifies the Ray node labels for the head group.<br />These labels will also be added to the Pods of this head group and override the `--labels`<br />argument passed to `rayStartParams`. |  |  |
 | `rayStartParams` _object (keys:string, values:string)_ | RayStartParams are the params of the start command: node-manager-port, object-store-memory, ... |  |  |
 | `serviceType` _[ServiceType](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#servicetype-v1-core)_ | ServiceType is Kubernetes service type of the head service. it will be used by the workers to connect to the head pod |  |  |
+
+
+#### HistoryServerOptions
+
+
+
+HistoryServerOptions used for history server related configuration
+
+
+
+_Appears in:_
+- [RayClusterSpec](#rayclusterspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `collectorOptions` _[CollectorOptions](#collectoroptions)_ | CollectorOptions used for collector sidecar configuration |  |  |
+
+
+#### IdleTerminationOptions
+
+
+
+
+
+
+
+_Appears in:_
+- [RayClusterSpec](#rayclusterspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `timeoutSeconds` _integer_ | TimeoutSeconds denotes the number of seconds to wait before the v2 autoscaler terminates an idle RayCluster. |  |  |
+| `policy` _[IdleTerminationPolicy](#idleterminationpolicy)_ | Policy is the action taken once the RayCluster has been idle for TimeoutSeconds. | Suspend | Enum: [Delete Suspend] <br /> |
+
+
+#### IdleTerminationPolicy
+
+_Underlying type:_ _string_
+
+
+
+_Validation:_
+- Enum: [Delete Suspend]
+
+_Appears in:_
+- [IdleTerminationOptions](#idleterminationoptions)
+
+| Field | Description |
+| --- | --- |
+| `Suspend` |  |
+| `Delete` |  |
+
+
+#### IngressOptions
+
+
+
+IngressOptions defines the host, path, and TLS configuration for the ingress generated for the head group.
+
+
+
+_Appears in:_
+- [HeadGroupSpec](#headgroupspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `host` _string_ | Host is the fully-qualified domain name used to route external traffic to the<br />Ray head dashboard. When unset, the generated ingress rule matches any host. |  |  |
+| `path` _string_ | Path is the HTTP path that routes to the Ray head dashboard.<br />When unset, the operator defaults it to "/", which routes all traffic on the<br />host to the dashboard. |  |  |
+| `pathType` _[IngressPathType](#ingresspathtype)_ | PathType is the path matching mode applied to Path.<br />When unset, the operator defaults it to "Prefix", which works out of the box<br />without a rewrite-target annotation or controller-specific regex support. |  | Enum: [Exact Prefix ImplementationSpecific] <br /> |
+| `tls` _[IngressTLS](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#ingresstls-v1-networking) array_ | TLS configures TLS termination for the generated ingress. |  |  |
+
+
+#### IngressPathType
+
+_Underlying type:_ _string_
+
+
+
+_Validation:_
+- Enum: [Exact Prefix ImplementationSpecific]
+
+_Appears in:_
+- [IngressOptions](#ingressoptions)
+
+| Field | Description |
+| --- | --- |
+| `Exact` |  |
+| `Prefix` |  |
+| `ImplementationSpecific` |  |
 
 
 
@@ -280,6 +502,114 @@ _Appears in:_
 | `HTTPMode` |  |
 | `InteractiveMode` |  |
 | `SidecarMode` |  |
+
+
+#### LabelRef
+
+
+
+LabelRef maps a node label to a Ray node label.
+
+
+
+_Appears in:_
+- [WorkerGroupSpec](#workergroupspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the Ray label key the value is delivered under. If empty, defaults to the node label key in fieldPath.<br />Must not be a key in the same group's workerGroupSpecs[].labels. |  | MaxLength: 317 <br /> |
+| `valueFrom` _[LabelRefSource](#labelrefsource)_ | ValueFrom selects the node value to deliver. |  |  |
+
+
+#### LabelRefSource
+
+
+
+LabelRefSource selects where a LabelRef value comes from.
+
+
+
+_Appears in:_
+- [LabelRef](#labelref)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[NodeFieldRef](#nodefieldref)_ | NodeRef selects a field of the node the pod is bound to. |  |  |
+
+
+#### NetworkPolicyConfig
+
+
+
+NetworkPolicyConfig defines network isolation settings for Ray cluster.
+All modes permit intra-cluster pod-to-pod traffic.
+DNS egress is not included automatically; see NetworkPolicyRules.EgressRules
+for why it must be added under DenyAll/DenyAllEgress.
+
+
+
+_Appears in:_
+- [RayClusterSpec](#rayclusterspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `mode` _[NetworkPolicyMode](#networkpolicymode)_ | Mode controls the security level. All modes permit intra-cluster pod-to-pod<br />traffic (DNS egress excluded, see EgressRules).<br />- "DenyAll": Denies all Ingress and Egress.<br />- "DenyAllIngress": Denies all Ingress.<br />- "DenyAllEgress": Denies all Egress. | DenyAll | Enum: [DenyAll DenyAllIngress DenyAllEgress] <br /> |
+| `head` _[NetworkPolicyRules](#networkpolicyrules)_ | Head specifies custom NetworkPolicy rules applied only to the head pod's policy.<br />The base head policy always allows intra-cluster traffic and (for K8sJobMode<br />RayJob-owned clusters) the submitter pod. Rules here are appended to those<br />base rules. Platforms that need operator dashboard access should add it here<br />(e.g. via a mutating webhook). |  |  |
+| `worker` _[NetworkPolicyRules](#networkpolicyrules)_ | Worker specifies custom NetworkPolicy rules applied only to worker pods' policy.<br />The base worker policy always allows intra-cluster traffic.<br />Rules here are appended to that base rule.<br />Acts as the default for all worker groups; see WorkerGroups for per-group overrides. |  |  |
+| `workerGroups` _[WorkerGroupNetworkPolicyRules](#workergroupnetworkpolicyrules) array_ | WorkerGroups specifies per-worker-group NetworkPolicy rules, keyed by group name.<br />If an entry exists for a worker group, it replaces (not merges with) Worker for<br />that group. Worker groups without an entry fall back to Worker. |  |  |
+
+
+#### NetworkPolicyMode
+
+_Underlying type:_ _string_
+
+NetworkPolicyMode is the type for network isolation mode constants.
+
+_Validation:_
+- Enum: [DenyAll DenyAllIngress DenyAllEgress]
+
+_Appears in:_
+- [NetworkPolicyConfig](#networkpolicyconfig)
+
+| Field | Description |
+| --- | --- |
+| `DenyAll` | NetworkPolicyDenyAll denies all ingress and egress traffic.<br /> |
+| `DenyAllIngress` | NetworkPolicyDenyAllIngress denies all ingress traffic.<br /> |
+| `DenyAllEgress` | NetworkPolicyDenyAllEgress denies all egress traffic.<br /> |
+
+
+#### NetworkPolicyRules
+
+
+
+NetworkPolicyRules defines custom ingress and egress rules for a NetworkPolicy.
+
+
+
+_Appears in:_
+- [NetworkPolicyConfig](#networkpolicyconfig)
+- [WorkerGroupNetworkPolicyRules](#workergroupnetworkpolicyrules)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `ingressRules` _[NetworkPolicyIngressRule](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#networkpolicyingressrule-v1-networking) array_ | IngressRules specifies custom ingress rules appended to the base policy.<br />Only meaningful when the mode includes ingress denial (DenyAll or DenyAllIngress). |  |  |
+| `egressRules` _[NetworkPolicyEgressRule](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#networkpolicyegressrule-v1-networking) array_ | EgressRules specifies custom egress rules appended to the base policy.<br />Only meaningful when the mode includes egress denial (DenyAll or DenyAllEgress).<br />DNS egress is NOT added automatically: under DenyAll/DenyAllEgress you MUST<br />add a DNS rule here (e.g. to kube-system pods labeled k8s-app=kube-dns on<br />port 53), because Ray workers reach the head via its service FQDN and cannot<br />resolve it without DNS. See the network-policy-deny-all sample. |  |  |
+
+
+#### NodeFieldRef
+
+
+
+NodeFieldRef selects a field of the node in downward API syntax.
+
+
+
+_Appears in:_
+- [LabelRefSource](#labelrefsource)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `fieldPath` _string_ | FieldPath is the node field to read; only metadata.labels['<key>'] is supported in this version.<br />The key must be in the operator's allowedNodeLabels. |  | MinLength: 1 <br /> |
 
 
 #### RayCluster
@@ -320,11 +650,16 @@ _Appears in:_
 | `upgradeStrategy` _[RayClusterUpgradeStrategy](#rayclusterupgradestrategy)_ | UpgradeStrategy defines the scaling policy used when upgrading the RayCluster |  |  |
 | `authOptions` _[AuthOptions](#authoptions)_ | AuthOptions specifies the authentication options for the RayCluster. |  |  |
 | `suspend` _boolean_ | Suspend indicates whether a RayCluster should be suspended.<br />A suspended RayCluster will have head pods and worker pods deleted. |  |  |
+| `idleSuspend` _boolean_ | IdleSuspend indicates whether a RayCluster should be suspended due to idleness.<br />An idle-suspended RayCluster will have head pods and worker pods deleted. |  |  |
+| `idleTerminationOptions` _[IdleTerminationOptions](#idleterminationoptions)_ | IdleTerminationOptions specifies optional configuration for terminating an idle RayCluster.<br />A RayCluster is considered idle when no Ray driver is connected. |  |  |
 | `managedBy` _string_ | ManagedBy is an optional configuration for the controller or entity that manages a RayCluster.<br />The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.<br />The kuberay-operator reconciles a RayCluster which doesn't have this field at all or<br />the field value is the reserved string 'ray.io/kuberay-operator',<br />but delegates reconciling the RayCluster with 'kueue.x-k8s.io/multikueue' to the Kueue.<br />The field is immutable. |  |  |
 | `autoscalerOptions` _[AutoscalerOptions](#autoscaleroptions)_ | AutoscalerOptions specifies optional configuration for the Ray autoscaler. |  |  |
 | `headServiceAnnotations` _object (keys:string, values:string)_ |  |  |  |
 | `enableInTreeAutoscaling` _boolean_ | EnableInTreeAutoscaling indicates whether operator should create in tree autoscaling configs |  |  |
 | `gcsFaultToleranceOptions` _[GcsFaultToleranceOptions](#gcsfaulttoleranceoptions)_ | GcsFaultToleranceOptions for enabling GCS FT |  |  |
+| `historyServerOptions` _[HistoryServerOptions](#historyserveroptions)_ | HistoryServerOptions used for history server related configuration |  |  |
+| `networkPolicy` _[NetworkPolicyConfig](#networkpolicyconfig)_ | NetworkPolicy specifies optional configuration for network isolation.<br />When set, separate NetworkPolicies are created for head and worker pods.<br />The reconciler always permits intra-cluster pod-to-pod traffic.<br />Note: under DenyAll/DenyAllEgress, DNS egress is not added<br />automatically; since Ray pods reach the head via its service FQDN, you must<br />allow DNS egress via Head/Worker EgressRules or the cluster will fail to start. |  |  |
+| `tlsOptions` _[TLSOptions](#tlsoptions)_ | TLSOptions specifies optional TLS encryption settings for the RayCluster.<br />If omitted or Enabled is false, TLS is disabled. When Enabled is true,<br />the operator enables mTLS using cert-manager to provision and manage certificates.<br />Requires the RayClusterMTLS feature gate on the operator. |  |  |
 | `headGroupSpec` _[HeadGroupSpec](#headgroupspec)_ | HeadGroupSpec is the spec for the head pod |  |  |
 | `rayVersion` _string_ | RayVersion is used to determine the command for the Kubernetes Job managed by RayJob |  |  |
 | `workerGroupSpecs` _[WorkerGroupSpec](#workergroupspec) array_ | WorkerGroupSpecs are the specs for the worker pods |  |  |
@@ -397,6 +732,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `jobTemplate` _[RayJobSpec](#rayjobspec)_ | JobTemplate defines the job spec that will be created by cron scheduling |  |  |
 | `schedule` _string_ | Schedule is the cron schedule string |  |  |
+| `timeZone` _string_ | TimeZone is the time zone name for the given schedule. If not specified, default to the local time zone of the<br />KubeRay operator. Empty string is not allowed.<br />The bundled version of the time zone database is used. |  | MinLength: 1 <br /> |
 | `suspend` _boolean_ | Suspend tells the controller to suspend the scheduling, it does not apply to<br />scheduled RayJob. |  |  |
 
 
@@ -559,11 +895,30 @@ _Appears in:_
 | `value` _string_ |  |  |  |
 
 
+#### ScaleGate
+
+
+
+ScaleGate marks a worker group as not currently scalable. Type is the merge
+key, so a gate is added and removed by exactly one controller. This API is
+intended to be consistent with PodCondition:
+https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.37/#podcondition-v1-core
+
+
+
+_Appears in:_
+- [ScaleStrategy](#scalestrategy)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `type` _string_ | Type uniquely identifies this gate and its owner, for example<br />"example.com/gate-name". |  |  |
+
+
 #### ScaleStrategy
 
 
 
-ScaleStrategy to remove workers
+ScaleStrategy controls scaling of a worker group.
 
 
 
@@ -573,6 +928,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `workersToDelete` _string array_ | WorkersToDelete workers to be deleted |  |  |
+| `scaleGate` _[ScaleGate](#scalegate) array_ | ScaleGate is a signal written by an external controller to indicate that<br />this worker group cannot currently be scaled up. KubeRay preserves the<br />field across reconciles but never reads or writes it; the Ray Autoscaler<br />consumes it and falls back to another worker group while it is non-empty.<br />Each gate is keyed by its type. A writer must add or remove only its own<br />gates via Server-Side Apply under a distinct field manager; replacing the<br />list wholesale, or using read-modify-write Update, drops gates owned by<br />others. |  |  |
 
 
 #### SubmitterConfig
@@ -591,6 +947,26 @@ _Appears in:_
 | `backoffLimit` _integer_ | BackoffLimit of the submitter. In K8sJobMode, this is the K8s Job backoffLimit.<br />In SidecarMode with SidecarSubmitterRestart enabled, this is the maximum container restart count. |  |  |
 
 
+#### TLSOptions
+
+
+
+TLSOptions configures TLS encryption for the RayCluster.
+When TLSOptions is nil or Enabled is nil/false, TLS is disabled.
+When Enabled is true, the operator uses cert-manager to automatically
+provision a full PKI (self-signed CA, head and worker leaf certificates)
+and keeps certificates up to date as pod IPs change during autoscaling.
+
+
+
+_Appears in:_
+- [RayClusterSpec](#rayclusterspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `enabled` _boolean_ | Enabled controls whether mTLS is active for this RayCluster.<br />Defaults to false when omitted. Set to true to enable mTLS. |  |  |
+
+
 #### UpscalingMode
 
 _Underlying type:_ _string_
@@ -603,6 +979,24 @@ _Validation:_
 _Appears in:_
 - [AutoscalerOptions](#autoscaleroptions)
 
+
+
+#### WorkerGroupNetworkPolicyRules
+
+
+
+WorkerGroupNetworkPolicyRules is NetworkPolicyRules bound to one worker group.
+
+
+
+_Appears in:_
+- [NetworkPolicyConfig](#networkpolicyconfig)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `groupName` _string_ | GroupName matches WorkerGroupSpec.GroupName. |  | Required: \{\} <br /> |
+| `ingressRules` _[NetworkPolicyIngressRule](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#networkpolicyingressrule-v1-networking) array_ | IngressRules specifies custom ingress rules appended to the base policy.<br />Only meaningful when the mode includes ingress denial (DenyAll or DenyAllIngress). |  |  |
+| `egressRules` _[NetworkPolicyEgressRule](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#networkpolicyegressrule-v1-networking) array_ | EgressRules specifies custom egress rules appended to the base policy.<br />Only meaningful when the mode includes egress denial (DenyAll or DenyAllEgress).<br />DNS egress is NOT added automatically: under DenyAll/DenyAllEgress you MUST<br />add a DNS rule here (e.g. to kube-system pods labeled k8s-app=kube-dns on<br />port 53), because Ray workers reach the head via its service FQDN and cannot<br />resolve it without DNS. See the network-policy-deny-all sample. |  |  |
 
 
 #### WorkerGroupSpec
@@ -624,12 +1018,14 @@ _Appears in:_
 | `minReplicas` _integer_ | MinReplicas denotes the minimum number of desired Pods for this worker group. | 0 |  |
 | `maxReplicas` _integer_ | MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32. | 2147483647 |  |
 | `idleTimeoutSeconds` _integer_ | IdleTimeoutSeconds denotes the number of seconds to wait before the v2 autoscaler terminates an idle worker pod of this type.<br />This value is only used with the Ray Autoscaler enabled and defaults to the value set by the AutoscalingConfig if not specified for this worker group. |  |  |
+| `priority` _integer_ | Priority influences which worker group the autoscaler prefers when multiple<br />groups can satisfy the same resource demand. Higher priority groups are<br />preferred for scale-up. Only honored by Ray Autoscaler v2 (Ray >= 2.56). | 0 |  |
 | `resources` _object (keys:string, values:string)_ | Resources specifies the resource quantities for this worker group.<br />These values override the resources passed to `rayStartParams` for the group, but<br />have no effect on the resources set at the K8s Pod container level. |  |  |
 | `labels` _object (keys:string, values:string)_ | Labels specifies the Ray node labels for this worker group.<br />These labels will also be added to the Pods of this worker group and override the `--labels`<br />argument passed to `rayStartParams`. |  |  |
 | `rayStartParams` _object (keys:string, values:string)_ | RayStartParams are the params of the start command: address, object-store-memory, ... |  |  |
 | `template` _[PodTemplateSpec](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#podtemplatespec-v1-core)_ | Template is a pod template for the worker |  |  |
-| `scaleStrategy` _[ScaleStrategy](#scalestrategy)_ | ScaleStrategy defines which pods to remove |  |  |
+| `scaleStrategy` _[ScaleStrategy](#scalestrategy)_ | ScaleStrategy controls scaling of this worker group: which pods to remove,<br />and whether the group can currently be scaled up. |  |  |
 | `numOfHosts` _integer_ | NumOfHosts denotes the number of hosts to create per replica. The default value is 1. | 1 |  |
+| `labelRefs` _[LabelRef](#labelref) array_ | LabelRefs delivers labels of the node each worker pod is bound to as Ray node labels.<br />This enables Ray scheduling based on node attributes, such as topology placement (e.g., rack, zone, or topology domain).<br />Only allowlisted node labels can be delivered. Every referenced label must exist on the node or pod startup fails.<br />Empty means no labels are delivered.<br />Requires the `NodeLabelDelivery` feature gate and `ENABLE_WEBHOOKS` enabled on the operator, and Ray 2.45.0 or later (`--labels-file`). |  |  |
 
 
 
@@ -637,6 +1033,10 @@ _Appears in:_
 
 
 Package v1alpha1 contains API Schema definitions for the ray v1alpha1 API group
+
+Deprecated: ray.io/v1alpha1 is served for backward compatibility only, is
+frozen at its December 2023 feature set, and will be unavailable in KubeRay
+1.9. Use github.com/ray-project/kuberay/ray-operator/apis/ray/v1 instead.
 
 ### Resource Types
 - [RayCluster](#raycluster)
@@ -697,6 +1097,11 @@ _Appears in:_
 
 RayCluster is the Schema for the RayClusters API
 
+Deprecated: ray.io/v1alpha1 is deprecated. It is served for backward
+compatibility only, is frozen at its December 2023 feature set, and will be
+unavailable in KubeRay 1.9. Use ray.io/v1, the storage version, for all new
+and existing RayClusters.
+
 
 
 
@@ -738,6 +1143,11 @@ _Appears in:_
 
 
 RayJob is the Schema for the rayjobs API
+
+Deprecated: ray.io/v1alpha1 is deprecated. It is served for backward
+compatibility only, is frozen at its December 2023 feature set, and will be
+unavailable in KubeRay 1.9. Use ray.io/v1, the storage version, for all new
+and existing RayJobs.
 
 
 
@@ -786,6 +1196,11 @@ _Appears in:_
 
 
 RayService is the Schema for the rayservices API
+
+Deprecated: ray.io/v1alpha1 is deprecated. It is served for backward
+compatibility only, is frozen at its December 2023 feature set, and will be
+unavailable in KubeRay 1.9. Use ray.io/v1, the storage version, for all new
+and existing RayServices.
 
 
 

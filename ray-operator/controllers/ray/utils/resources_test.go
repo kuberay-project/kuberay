@@ -42,6 +42,16 @@ func TestIsGPUResourceKey(t *testing.T) {
 			resourceKey: "memory",
 			expected:    false,
 		},
+		{
+			name:        "huawei Ascend910B",
+			resourceKey: "huawei.com/Ascend910B",
+			expected:    false,
+		},
+		{
+			name:        "huawei npu",
+			resourceKey: "huawei.com/npu",
+			expected:    false,
+		},
 	}
 
 	for _, tt := range tests {

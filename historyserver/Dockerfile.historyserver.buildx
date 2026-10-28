@@ -1,0 +1,7 @@
+FROM gcr.io/distroless/base-debian12:nonroot
+ARG TARGETARCH
+WORKDIR /
+COPY ./output/bin/historyserver-${TARGETARCH} /usr/local/bin/historyserver
+USER 65532:65532
+
+ENTRYPOINT ["/usr/local/bin/historyserver"]

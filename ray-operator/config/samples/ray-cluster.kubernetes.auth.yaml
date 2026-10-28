@@ -3,7 +3,7 @@ kind: RayCluster
 metadata:
   name: ray-cluster-with-k8s-auth
 spec:
-  rayVersion: '2.55.0'
+  rayVersion: '2.57.0'
   authOptions:
     mode: 'token'
     enableK8sTokenAuth: true
@@ -15,8 +15,7 @@ spec:
         containers:
         - name: ray-head
           imagePullPolicy: Always
-          # TODO: update to rayproject/ray:2.55.0 once released
-          image: rayproject/ray:nightly
+          image: rayproject/ray:2.57.0
           resources:
             limits:
               cpu: "4"
@@ -43,8 +42,7 @@ spec:
         containers:
         - name: ray-worker
           imagePullPolicy: Always
-          # TODO: update to rayproject/ray:2.55.0 once released
-          image: rayproject/ray:nightly
+          image: rayproject/ray:2.57.0
           resources:
             limits:
               cpu: "4"

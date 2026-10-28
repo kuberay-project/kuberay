@@ -19,7 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/lru"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -139,7 +139,7 @@ func TestIsHeadPodRunningAndReady(t *testing.T) {
 	// Initialize RayService reconciler.
 	r := &RayServiceReconciler{
 		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Scheme:   scheme.Scheme,
 	}
 
@@ -220,7 +220,7 @@ func TestReconcileServices_UpdateService(t *testing.T) {
 	// Initialize RayCluster reconciler.
 	r := &RayServiceReconciler{
 		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Scheme:   scheme.Scheme,
 	}
 
@@ -304,7 +304,7 @@ func TestFetchHeadServiceURL(t *testing.T) {
 	ctx := context.TODO()
 	r := RayServiceReconciler{
 		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Scheme:   scheme.Scheme,
 	}
 
@@ -473,7 +473,7 @@ func TestReconcileRayCluster_CreatePendingCluster(t *testing.T) {
 	r := RayServiceReconciler{
 		Client:   fakeClient,
 		Scheme:   newScheme,
-		Recorder: record.NewFakeRecorder(1),
+		Recorder: events.NewFakeRecorder(1),
 	}
 
 	activeRayCluster, pendingRayCluster, err := r.reconcileRayCluster(ctx, &rayService)
@@ -550,7 +550,7 @@ func TestReconcileRayCluster_UpdateActiveCluster(t *testing.T) {
 			r := RayServiceReconciler{
 				Client:   fakeClient,
 				Scheme:   newScheme,
-				Recorder: record.NewFakeRecorder(1),
+				Recorder: events.NewFakeRecorder(1),
 			}
 
 			activeCluster, pendingCluster, err := r.reconcileRayCluster(ctx, service)
@@ -609,7 +609,7 @@ func TestReconcileRayCluster_UpdatePendingCluster(t *testing.T) {
 	r := RayServiceReconciler{
 		Client:   fakeClient,
 		Scheme:   newScheme,
-		Recorder: record.NewFakeRecorder(1),
+		Recorder: events.NewFakeRecorder(1),
 	}
 
 	activeCluster, pendingCluster, err := r.reconcileRayCluster(ctx, service)
@@ -703,7 +703,7 @@ func TestLabelHeadPodForServeStatus(t *testing.T) {
 			// Initialize RayService reconciler.
 			r := &RayServiceReconciler{
 				Client:   fakeClient,
-				Recorder: &record.FakeRecorder{},
+				Recorder: &events.FakeRecorder{},
 				Scheme:   newScheme,
 				httpProxyClientFunc: func(_, _, _ string, _ int) utils.RayHttpProxyClientInterface {
 					return fakeRayHttpProxyClient
@@ -906,7 +906,7 @@ func TestCalculateConditions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).Build()
-			fakeRecorder := record.NewFakeRecorder(10)
+			fakeRecorder := events.NewFakeRecorder(10)
 
 			r := &RayServiceReconciler{
 				Client:   fakeClient,
@@ -1388,7 +1388,7 @@ func TestRayClusterDeletionDelaySeconds(t *testing.T) {
 			r := RayServiceReconciler{
 				Client:                       fakeClient,
 				Scheme:                       newScheme,
-				Recorder:                     record.NewFakeRecorder(1),
+				Recorder:                     events.NewFakeRecorder(1),
 				RayClusterDeletionTimestamps: cmap.New[time.Time](),
 			}
 
@@ -1532,6 +1532,175 @@ func TestCreateGateway(t *testing.T) {
 	}
 }
 
+// When GatewayRef is set, reconcileGateway must NOT create a per-RayService
+// Gateway. If the referenced (shared) Gateway exists it reconciles cleanly; if it
+// is missing it records an event and returns without creating anything.
+func TestReconcileGatewayWithGatewayRef(t *testing.T) {
+	ctx := context.TODO()
+	rsNamespace := "test-ns"
+	gwNamespace := "gateways"
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = gwv1.Install(newScheme)
+
+	makeRS := func() *rayv1.RayService {
+		rs := makeIncrementalUpgradeRayService(true, "", new(int32(50)), new(int32(10)), new(int32(80)), &metav1.Time{Time: time.Now()})
+		rs.Namespace = rsNamespace
+		rs.Spec.UpgradeStrategy.ClusterUpgradeOptions.GatewayRef = &rayv1.GatewayReference{
+			Name:      "shared-gateway",
+			Namespace: gwNamespace,
+		}
+		return rs
+	}
+	perServiceGatewayName := types.NamespacedName{Name: "incremental-ray-service-gateway", Namespace: rsNamespace}
+
+	t.Run("referenced Gateway exists: reconcile succeeds, no per-service Gateway created", func(t *testing.T) {
+		rayService := makeRS()
+		sharedGateway := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "shared-gateway", Namespace: gwNamespace}}
+		fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).
+			WithRuntimeObjects(sharedGateway, rayService).Build()
+		reconciler := &RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: events.NewFakeRecorder(10)}
+
+		require.NoError(t, reconciler.reconcileGateway(ctx, rayService))
+
+		err := fakeClient.Get(ctx, perServiceGatewayName, &gwv1.Gateway{})
+		assert.True(t, errors.IsNotFound(err), "KubeRay must not create a per-RayService Gateway when GatewayRef is set")
+	})
+
+	t.Run("referenced Gateway missing: no error, records event, creates nothing", func(t *testing.T) {
+		rayService := makeRS()
+		fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(rayService).Build()
+		reconciler := &RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: events.NewFakeRecorder(10)}
+
+		require.NoError(t, reconciler.reconcileGateway(ctx, rayService))
+
+		err := fakeClient.Get(ctx, perServiceGatewayName, &gwv1.Gateway{})
+		assert.True(t, errors.IsNotFound(err), "no Gateway should be created when the referenced Gateway is missing")
+	})
+
+	t.Run("referenced Gateway spec is left unchanged", func(t *testing.T) {
+		rayService := makeRS()
+		// A shared Gateway with its own class and multiple listeners, none of which
+		// match what KubeRay would configure on a Gateway it creates itself.
+		sharedGateway := &gwv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Name: "shared-gateway", Namespace: gwNamespace},
+			Spec: gwv1.GatewaySpec{
+				GatewayClassName: gwv1.ObjectName("contour"),
+				Listeners: []gwv1.Listener{
+					{Name: "http", Protocol: gwv1.HTTPProtocolType, Port: 80},
+					{Name: "https", Protocol: gwv1.HTTPSProtocolType, Port: 443},
+				},
+			},
+		}
+		wantSpec := *sharedGateway.Spec.DeepCopy()
+		fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).
+			WithRuntimeObjects(sharedGateway, rayService).Build()
+		reconciler := &RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: events.NewFakeRecorder(10)}
+
+		require.NoError(t, reconciler.reconcileGateway(ctx, rayService))
+
+		got := &gwv1.Gateway{}
+		require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: sharedGateway.Name, Namespace: gwNamespace}, got))
+		assert.Equal(t, wantSpec, got.Spec, "reconcileGateway must not modify the referenced Gateway's spec")
+	})
+}
+
+// Suspending a RayService that attaches to a shared Gateway via GatewayRef
+// must NOT delete that shared Gateway (KubeRay does not own it — deleting it
+// would break ingress for every other RayService on it). It must still delete
+// the KubeRay-created per-RayService Gateway when this RayService controls it
+// (e.g. left behind after switching from gatewayClassName to gatewayRef), but
+// never a same-named Gateway it does not control. The KubeRay-owned HTTPRoute
+// in the RayService namespace must always be deleted.
+func TestDeleteRayServiceOwnedResourcesPreservesExistingGateway(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayServiceIncrementalUpgrade, true)
+
+	ctx := context.TODO()
+	rsNamespace := "test-ns"
+	gwNamespace := "gateways"
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+	_ = gwv1.Install(newScheme)
+
+	makeObjects := func(controlled bool) (*rayv1.RayService, *gwv1.Gateway, *gwv1.Gateway, *gwv1.HTTPRoute) {
+		sharedGateway := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "shared-gateway", Namespace: gwNamespace}}
+		rayService := &rayv1.RayService{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice", Namespace: rsNamespace, UID: "rs-uid"},
+			Spec: rayv1.RayServiceSpec{
+				UpgradeStrategy: &rayv1.RayServiceUpgradeStrategy{
+					Type: ptr.To(rayv1.RayServiceNewClusterWithIncrementalUpgrade),
+					ClusterUpgradeOptions: &rayv1.ClusterUpgradeOptions{
+						StepSizePercent: new(int32(10)),
+						IntervalSeconds: new(int32(30)),
+						GatewayRef: &rayv1.GatewayReference{
+							Name:      sharedGateway.Name,
+							Namespace: sharedGateway.Namespace,
+						},
+					},
+				},
+			},
+		}
+		// Per-RayService Gateway left behind after switching this RayService from
+		// gatewayClassName to gatewayRef.
+		ownedGateway := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{
+			Name:      rayService.Name + "-gateway",
+			Namespace: rsNamespace,
+		}}
+		if controlled {
+			ownedGateway.OwnerReferences = []metav1.OwnerReference{{
+				APIVersion: rayv1.SchemeGroupVersion.String(),
+				Kind:       "RayService",
+				Name:       rayService.Name,
+				UID:        rayService.UID,
+				Controller: new(true),
+			}}
+		}
+		httpRoute := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{
+			Name:      rayService.Name + "-httproute",
+			Namespace: rsNamespace,
+		}}
+		return rayService, sharedGateway, ownedGateway, httpRoute
+	}
+
+	run := func(t *testing.T, controlled bool) (client.Client, *rayv1.RayService, *gwv1.Gateway, *gwv1.Gateway, *gwv1.HTTPRoute) {
+		rayService, sharedGateway, ownedGateway, httpRoute := makeObjects(controlled)
+		fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).
+			WithRuntimeObjects(sharedGateway, ownedGateway, httpRoute, rayService).Build()
+		reconciler := &RayServiceReconciler{
+			Client:   fakeClient,
+			Scheme:   newScheme,
+			Recorder: events.NewFakeRecorder(10),
+		}
+		_, err := reconciler.deleteRayServiceOwnedResources(ctx, rayService)
+		require.NoError(t, err)
+
+		// The shared Gateway must still exist in both cases.
+		err = fakeClient.Get(ctx, types.NamespacedName{Name: sharedGateway.Name, Namespace: gwNamespace}, &gwv1.Gateway{})
+		require.NoError(t, err, "shared Gateway must NOT be deleted on suspend when GatewayRef is set")
+
+		// The KubeRay-owned HTTPRoute must be deleted in both cases.
+		err = fakeClient.Get(ctx, types.NamespacedName{Name: httpRoute.Name, Namespace: rsNamespace}, &gwv1.HTTPRoute{})
+		assert.True(t, errors.IsNotFound(err), "HTTPRoute should be deleted on suspend, got err=%v", err)
+
+		return fakeClient, rayService, sharedGateway, ownedGateway, httpRoute
+	}
+
+	t.Run("Gateway controlled by the RayService is deleted", func(t *testing.T) {
+		fakeClient, _, _, ownedGateway, _ := run(t, true)
+		err := fakeClient.Get(ctx, types.NamespacedName{Name: ownedGateway.Name, Namespace: rsNamespace}, &gwv1.Gateway{})
+		assert.True(t, errors.IsNotFound(err), "KubeRay-created Gateway should be deleted on suspend even when GatewayRef is set, got err=%v", err)
+	})
+
+	t.Run("same-named Gateway not controlled by the RayService is preserved", func(t *testing.T) {
+		fakeClient, _, _, ownedGateway, _ := run(t, false)
+		err := fakeClient.Get(ctx, types.NamespacedName{Name: ownedGateway.Name, Namespace: rsNamespace}, &gwv1.Gateway{})
+		require.NoError(t, err, "a Gateway the RayService does not control must NOT be deleted on suspend")
+	})
+}
+
 func TestCreateHTTPRoute(t *testing.T) {
 	ctx := context.TODO()
 	namespace := "test-ns"
@@ -1657,7 +1826,7 @@ func TestCreateHTTPRoute(t *testing.T) {
 			reconciler := RayServiceReconciler{
 				Client:   fakeClient,
 				Scheme:   newScheme,
-				Recorder: record.NewFakeRecorder(1),
+				Recorder: events.NewFakeRecorder(1),
 			}
 
 			route, err := reconciler.createHTTPRoute(ctx, rayService, tt.isPendingClusterReady)
@@ -1672,8 +1841,19 @@ func TestCreateHTTPRoute(t *testing.T) {
 				assert.Equal(t, "test-rayservice-httproute", route.Name)
 				assert.Equal(t, "test-ns", route.Namespace)
 
+				// Default (KubeRay-created) Gateway: ParentRef pins no listener, the
+				// route matches all hosts and the "/" catch-all path (prior behavior).
+				require.Len(t, route.Spec.ParentRefs, 1)
+				assert.Nil(t, route.Spec.ParentRefs[0].SectionName)
+				assert.Nil(t, route.Spec.ParentRefs[0].Port)
+				assert.Empty(t, route.Spec.Hostnames)
+
 				require.Len(t, route.Spec.Rules, 1)
 				rule := route.Spec.Rules[0]
+				require.Len(t, rule.Matches, 1)
+				require.NotNil(t, rule.Matches[0].Path)
+				require.NotNil(t, rule.Matches[0].Path.Value)
+				assert.Equal(t, "/", *rule.Matches[0].Path.Value)
 
 				require.GreaterOrEqual(t, len(rule.BackendRefs), 1)
 				assert.Equal(t, gwv1.ObjectName(activeServeService.Name), rule.BackendRefs[0].BackendRef.Name)
@@ -1688,6 +1868,91 @@ func TestCreateHTTPRoute(t *testing.T) {
 			}
 		})
 	}
+}
+
+// When GatewayRef references a shared Gateway in another namespace, the
+// HTTPRoute's ParentRef must target that Gateway, while the HTTPRoute itself and
+// its backendRefs stay in the RayService's namespace (so owner-ref GC works and
+// the Serve services resolve).
+func TestCreateHTTPRouteWithGatewayRef(t *testing.T) {
+	ctx := context.TODO()
+	rsNamespace := "test-ns"
+	gwNamespace := "gateways"
+	stepSize := int32(10)
+	interval := int32(30)
+
+	activeCluster := &rayv1.RayCluster{ObjectMeta: metav1.ObjectMeta{Name: "rayservice-active", Namespace: rsNamespace}}
+	// Shared Gateway lives in a different namespace from the RayService.
+	sharedGateway := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "shared-gateway", Namespace: gwNamespace}}
+	activeServeService := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: utils.GenerateServeServiceName(activeCluster.Name), Namespace: rsNamespace}}
+
+	rayService := &rayv1.RayService{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice", Namespace: rsNamespace},
+		Spec: rayv1.RayServiceSpec{
+			UpgradeStrategy: &rayv1.RayServiceUpgradeStrategy{
+				Type: ptr.To(rayv1.RayServiceNewClusterWithIncrementalUpgrade),
+				ClusterUpgradeOptions: &rayv1.ClusterUpgradeOptions{
+					StepSizePercent: &stepSize,
+					IntervalSeconds: &interval,
+					GatewayRef: &rayv1.GatewayReference{
+						Name:        sharedGateway.Name,
+						Namespace:   sharedGateway.Namespace,
+						SectionName: "http",
+						Port:        new(int32(80)),
+					},
+				},
+			},
+		},
+		Status: rayv1.RayServiceStatuses{
+			ActiveServiceStatus: rayv1.RayServiceStatus{
+				RayClusterName:       activeCluster.Name,
+				TrafficRoutedPercent: new(int32(100)),
+				TargetCapacity:       new(int32(100)),
+			},
+		},
+	}
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+	_ = gwv1.Install(newScheme)
+	fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).
+		WithRuntimeObjects(activeCluster, sharedGateway, activeServeService, rayService).Build()
+
+	reconciler := RayServiceReconciler{
+		Client:   fakeClient,
+		Scheme:   newScheme,
+		Recorder: events.NewFakeRecorder(1),
+	}
+
+	route, err := reconciler.createHTTPRoute(ctx, rayService, false)
+	require.NoError(t, err)
+	require.NotNil(t, route)
+
+	// HTTPRoute lives in the RayService namespace.
+	assert.Equal(t, "test-rayservice-httproute", route.Name)
+	assert.Equal(t, rsNamespace, route.Namespace)
+
+	// ParentRef targets the shared Gateway in its own namespace, pinned to the
+	// requested listener (SectionName) and Port.
+	require.Len(t, route.Spec.ParentRefs, 1)
+	parentRef := route.Spec.ParentRefs[0]
+	assert.Equal(t, gwv1.ObjectName(sharedGateway.Name), parentRef.Name)
+	require.NotNil(t, parentRef.Namespace)
+	assert.Equal(t, gwv1.Namespace(gwNamespace), *parentRef.Namespace)
+	require.NotNil(t, parentRef.SectionName)
+	assert.Equal(t, gwv1.SectionName("http"), *parentRef.SectionName)
+	require.NotNil(t, parentRef.Port)
+	assert.Equal(t, gwv1.PortNumber(80), *parentRef.Port)
+
+	require.Len(t, route.Spec.Rules, 1)
+
+	// Backend service references use the RayService namespace, not the Gateway's.
+	require.GreaterOrEqual(t, len(route.Spec.Rules[0].BackendRefs), 1)
+	backend := route.Spec.Rules[0].BackendRefs[0].BackendRef
+	assert.Equal(t, gwv1.ObjectName(activeServeService.Name), backend.Name)
+	require.NotNil(t, backend.Namespace)
+	assert.Equal(t, gwv1.Namespace(rsNamespace), *backend.Namespace)
 }
 
 func TestReconcileHTTPRoute(t *testing.T) {
@@ -1815,7 +2080,7 @@ func TestReconcileHTTPRoute(t *testing.T) {
 			}
 
 			fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(runtimeObjects...).Build()
-			reconciler := RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: record.NewFakeRecorder(10)}
+			reconciler := RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: events.NewFakeRecorder(10)}
 
 			reconciledRoute, err := reconciler.reconcileHTTPRoute(ctx, rayService, tt.isPendingClusterReady)
 			require.NoError(t, err)
@@ -1892,7 +2157,7 @@ func TestReconcileGateway(t *testing.T) {
 			reconciler := RayServiceReconciler{
 				Client:   fakeClient,
 				Scheme:   newScheme,
-				Recorder: record.NewFakeRecorder(10),
+				Recorder: events.NewFakeRecorder(10),
 			}
 
 			err := reconciler.reconcileGateway(ctx, rayService)
@@ -2153,7 +2418,7 @@ func TestCheckIfNeedTargetCapacityUpdate(t *testing.T) {
 			ctx := context.TODO()
 			r := RayServiceReconciler{
 				Client:   fakeClient,
-				Recorder: &record.FakeRecorder{},
+				Recorder: &events.FakeRecorder{},
 				Scheme:   scheme.Scheme,
 			}
 			rayService := &rayv1.RayService{
@@ -2259,7 +2524,7 @@ func TestReconcilePerClusterServeService(t *testing.T) {
 			reconciler := RayServiceReconciler{
 				Client:   fakeClient,
 				Scheme:   newScheme,
-				Recorder: record.NewFakeRecorder(1),
+				Recorder: events.NewFakeRecorder(1),
 			}
 
 			err := reconciler.reconcilePerClusterServeService(ctx, rayService, tt.rayCluster)
@@ -2524,7 +2789,7 @@ func TestMarkFailedIfInitializingTimedOut(t *testing.T) {
 
 			ctx := context.TODO()
 			fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).Build()
-			fakeRecorder := record.NewFakeRecorder(10)
+			fakeRecorder := events.NewFakeRecorder(10)
 
 			r := &RayServiceReconciler{
 				Client:   fakeClient,
@@ -2568,6 +2833,95 @@ func TestMarkFailedIfInitializingTimedOut(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandleSuspendResumeResetsReadyToInitializing verifies that resuming a
+// RayService from the Suspended state resets the RayServiceReady condition
+// back to Reason=Initializing with a fresh LastTransitionTime, so that
+// markFailedOnInitializingTimeout can fire on the resumed attempt.
+func TestHandleSuspendResumeResetsReadyToInitializing(t *testing.T) {
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+
+	// Stale timestamp from the suspend transition. If the resume path does
+	// not refresh LastTransitionTime on RayServiceReady, the
+	// initializing-timeout check will compare against this old time and
+	// either fire instantly or never re-arm correctly.
+	suspendTime := metav1.NewTime(time.Now().Add(-1 * time.Hour))
+
+	rs := &rayv1.RayService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-rayservice",
+			Namespace: "default",
+		},
+		Spec: rayv1.RayServiceSpec{
+			Suspend: false,
+		},
+		Status: rayv1.RayServiceStatuses{
+			Conditions: []metav1.Condition{
+				{
+					Type:               string(rayv1.RayServiceSuspended),
+					Status:             metav1.ConditionTrue,
+					Reason:             string(rayv1.SuspendComplete),
+					LastTransitionTime: suspendTime,
+				},
+				{
+					Type:               string(rayv1.RayServiceSuspending),
+					Status:             metav1.ConditionFalse,
+					Reason:             string(rayv1.SuspendComplete),
+					LastTransitionTime: suspendTime,
+				},
+				{
+					Type:               string(rayv1.RayServiceReady),
+					Status:             metav1.ConditionFalse,
+					Reason:             string(rayv1.SuspendComplete),
+					LastTransitionTime: suspendTime,
+				},
+				{
+					Type:               string(rayv1.UpgradeInProgress),
+					Status:             metav1.ConditionFalse,
+					Reason:             string(rayv1.SuspendComplete),
+					LastTransitionTime: suspendTime,
+				},
+				{
+					Type:               string(rayv1.RollbackInProgress),
+					Status:             metav1.ConditionFalse,
+					Reason:             string(rayv1.SuspendComplete),
+					LastTransitionTime: suspendTime,
+				},
+			},
+		},
+	}
+
+	ctx := context.TODO()
+	fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).Build()
+	r := &RayServiceReconciler{
+		Client:   fakeClient,
+		Scheme:   scheme.Scheme,
+		Recorder: events.NewFakeRecorder(10),
+	}
+
+	_, err := r.handleSuspend(ctx, rs)
+	require.NoError(t, err)
+
+	readyCond := meta.FindStatusCondition(rs.Status.Conditions, string(rayv1.RayServiceReady))
+	require.NotNil(t, readyCond, "RayServiceReady condition must exist after resume")
+
+	assert.Equal(t, string(rayv1.RayServiceInitializing), readyCond.Reason,
+		"RayServiceReady reason must be Initializing on resume; otherwise initializing-timeout will not fire")
+
+	assert.WithinDuration(t, time.Now(), readyCond.LastTransitionTime.Time, 5*time.Second,
+		"RayServiceReady LastTransitionTime must reset on resume; otherwise initializing-timeout will use the stale suspend timestamp")
+
+	upgradeCond := meta.FindStatusCondition(rs.Status.Conditions, string(rayv1.UpgradeInProgress))
+	require.NotNil(t, upgradeCond, "UpgradeInProgress condition must exist after resume")
+
+	assert.Equal(t, string(rayv1.RayServiceInitializing), upgradeCond.Reason,
+		"UpgradeInProgress reason must be Initializing on resume; otherwise calculateConditions may set it to NoActiveCluster")
+
+	assert.WithinDuration(t, time.Now(), upgradeCond.LastTransitionTime.Time, 5*time.Second,
+		"UpgradeInProgress LastTransitionTime must reset on resume")
 }
 
 func Test_RayServiceReconcileManagedBy(t *testing.T) {
@@ -2647,7 +3001,7 @@ func Test_RayServiceReconcileManagedBy(t *testing.T) {
 
 			testRayServiceReconciler := &RayServiceReconciler{
 				Client:                       fakeClient,
-				Recorder:                     &record.FakeRecorder{},
+				Recorder:                     &events.FakeRecorder{},
 				Scheme:                       newScheme,
 				ServeConfigs:                 lru.New(utils.ServeConfigLRUSize),
 				RayClusterDeletionTimestamps: cmap.New[time.Time](),
@@ -2688,6 +3042,9 @@ func TestReconcileRollbackState(t *testing.T) {
 	updatedSpec := baseSpec.DeepCopy()
 	updatedSpec.RayVersion = "2.50.0"
 
+	thirdSpec := baseSpec.DeepCopy()
+	thirdSpec.RayVersion = "2.56.0"
+
 	baseHash, err := utils.GenerateHashWithoutReplicasAndWorkersToDelete(baseSpec)
 	require.NoError(t, err)
 
@@ -2704,32 +3061,51 @@ func TestReconcileRollbackState(t *testing.T) {
 	tests := []struct {
 		name                 string
 		rayServiceSpec       rayv1.RayClusterSpec
+		pendingHashOverride  string
 		isRollbackInProgress bool
 		expectRollbackStatus bool
 	}{
 		{
 			name:                 "Normal RayService upgrade, goal matches pending",
 			rayServiceSpec:       *updatedSpec,
+			pendingHashOverride:  updatedHash,
 			isRollbackInProgress: false,
 			expectRollbackStatus: false,
 		},
 		{
 			name:                 "RayService Spec changed, initiate rollback",
 			rayServiceSpec:       baseSpec,
+			pendingHashOverride:  updatedHash,
 			isRollbackInProgress: false,
 			expectRollbackStatus: true,
 		},
 		{
 			name:                 "Rollback in progress, continues rolling back",
 			rayServiceSpec:       baseSpec,
+			pendingHashOverride:  updatedHash,
 			isRollbackInProgress: true,
 			expectRollbackStatus: true,
 		},
 		{
 			name:                 "Rollback canceled, user updated spec back to pending",
 			rayServiceSpec:       *updatedSpec,
+			pendingHashOverride:  updatedHash,
 			isRollbackInProgress: true,
 			expectRollbackStatus: false,
+		},
+		{
+			name:                 "Third-spec scenario: Goal updated to third spec mid-upgrade",
+			rayServiceSpec:       *thirdSpec,
+			pendingHashOverride:  updatedHash,
+			isRollbackInProgress: false,
+			expectRollbackStatus: true,
+		},
+		{
+			name:                 "Fast rollback: Goal matches active, but pending already updated to match active",
+			rayServiceSpec:       baseSpec,
+			pendingHashOverride:  baseHash,
+			isRollbackInProgress: false,
+			expectRollbackStatus: true,
 		},
 	}
 
@@ -2746,18 +3122,27 @@ func TestReconcileRollbackState(t *testing.T) {
 			}
 
 			if tt.isRollbackInProgress {
-				setCondition(rayService, rayv1.RollbackInProgress, metav1.ConditionTrue, rayv1.TargetClusterChanged, "rolling back")
+				setCondition(rayService, rayv1.RollbackInProgress, metav1.ConditionTrue, rayv1.DesiredClusterSpecChanged, "rolling back")
 			}
+
+			testPendingCluster := pendingCluster.DeepCopy()
+			testPendingCluster.Annotations[utils.HashWithoutReplicasAndWorkersToDeleteKey] = tt.pendingHashOverride
 
 			reconciler := RayServiceReconciler{
-				Recorder: record.NewFakeRecorder(1),
+				Recorder: events.NewFakeRecorder(1),
 			}
 
-			err := reconciler.reconcileRollbackState(ctx, rayService, activeCluster, pendingCluster)
+			err := reconciler.reconcileRollbackState(ctx, rayService, activeCluster, testPendingCluster)
 			require.NoError(t, err)
 
 			isCurrentlyRollingBack := meta.IsStatusConditionTrue(rayService.Status.Conditions, string(rayv1.RollbackInProgress))
 			assert.Equal(t, tt.expectRollbackStatus, isCurrentlyRollingBack)
+
+			if tt.expectRollbackStatus && !tt.isRollbackInProgress {
+				cond := meta.FindStatusCondition(rayService.Status.Conditions, string(rayv1.RollbackInProgress))
+				require.NotNil(t, cond)
+				assert.Equal(t, string(rayv1.DesiredClusterSpecChanged), cond.Reason)
+			}
 		})
 	}
 }
@@ -2935,7 +3320,7 @@ func TestReconcileServe_SkipConfigUpdateDuringRollback(t *testing.T) {
 
 			reconciler := &RayServiceReconciler{
 				Client:   fakeClient,
-				Recorder: &record.FakeRecorder{},
+				Recorder: &events.FakeRecorder{},
 				dashboardClientFunc: func(_ *rayv1.RayCluster, _ string) (dashboardclient.RayDashboardClientInterface, error) {
 					return fakeDashboardClient, nil
 				},
@@ -2961,10 +3346,10 @@ func TestReconcileServe_SkipConfigUpdateDuringRollback(t *testing.T) {
 			}
 
 			if tt.isRollback {
-				setCondition(rayService, rayv1.RollbackInProgress, metav1.ConditionTrue, rayv1.TargetClusterChanged, "rolling back")
-				setCondition(rayService, rayv1.UpgradeInProgress, metav1.ConditionTrue, rayv1.TargetClusterChanged, "upgrade still in progress during rollback")
+				setCondition(rayService, rayv1.RollbackInProgress, metav1.ConditionTrue, rayv1.DesiredClusterSpecChanged, "rolling back")
+				setCondition(rayService, rayv1.UpgradeInProgress, metav1.ConditionTrue, rayv1.DesiredClusterSpecChanged, "upgrade still in progress during rollback")
 			} else {
-				setCondition(rayService, rayv1.UpgradeInProgress, metav1.ConditionTrue, rayv1.TargetClusterChanged, "upgrading")
+				setCondition(rayService, rayv1.UpgradeInProgress, metav1.ConditionTrue, rayv1.DesiredClusterSpecChanged, "upgrading")
 			}
 
 			// Run reconcileServe
@@ -3015,7 +3400,7 @@ func TestRayServiceFinalizer(t *testing.T) {
 			rayService: &rayv1.RayService{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice", Namespace: namespace},
 				Spec: rayv1.RayServiceSpec{
-					ManagedBy: ptr.To("kueue.x-k8s.io/multikueue"),
+					ManagedBy: new("kueue.x-k8s.io/multikueue"),
 				},
 			},
 			validate: func(t *testing.T, fakeClient client.Client, namespacedName types.NamespacedName) {
@@ -3087,7 +3472,7 @@ func TestRayServiceFinalizer(t *testing.T) {
 
 			reconciler := &RayServiceReconciler{
 				Client:                       fakeClient,
-				Recorder:                     &record.FakeRecorder{},
+				Recorder:                     &events.FakeRecorder{},
 				Scheme:                       newScheme,
 				ServeConfigs:                 lru.New(10),
 				RayClusterDeletionTimestamps: cmap.New[time.Time](),
@@ -3101,4 +3486,57 @@ func TestRayServiceFinalizer(t *testing.T) {
 			tt.validate(t, fakeClient, namespacedName)
 		})
 	}
+}
+
+func TestHandleSuspendObservedGeneration(t *testing.T) {
+	ctx := context.Background()
+	reconciler := &RayServiceReconciler{}
+
+	t.Run("entering Suspending bumps observedGeneration on conditions", func(t *testing.T) {
+		rayService := &rayv1.RayService{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "rayservice",
+				Namespace:  "default",
+				Generation: 5,
+			},
+			Spec: rayv1.RayServiceSpec{Suspend: true},
+			Status: rayv1.RayServiceStatuses{
+				ObservedGeneration: 2,
+			},
+		}
+
+		_, err := reconciler.handleSuspend(ctx, rayService)
+		require.NoError(t, err)
+		assert.Equal(t, int64(5), rayService.Status.ObservedGeneration)
+
+		suspending := meta.FindStatusCondition(rayService.Status.Conditions, string(rayv1.RayServiceSuspending))
+		require.NotNil(t, suspending)
+		assert.Equal(t, metav1.ConditionTrue, suspending.Status)
+		assert.Equal(t, int64(5), suspending.ObservedGeneration)
+	})
+
+	t.Run("idle Suspended does not bump observedGeneration", func(t *testing.T) {
+		rayService := &rayv1.RayService{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "rayservice",
+				Namespace:  "default",
+				Generation: 9,
+			},
+			Spec: rayv1.RayServiceSpec{Suspend: true},
+			Status: rayv1.RayServiceStatuses{
+				ObservedGeneration: 4,
+				Conditions: []metav1.Condition{
+					{
+						Type:   string(rayv1.RayServiceSuspended),
+						Status: metav1.ConditionTrue,
+						Reason: string(rayv1.SuspendComplete),
+					},
+				},
+			},
+		}
+
+		_, err := reconciler.handleSuspend(ctx, rayService)
+		require.NoError(t, err)
+		assert.Equal(t, int64(4), rayService.Status.ObservedGeneration)
+	})
 }

@@ -3,9 +3,12 @@ package session
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -151,6 +154,11 @@ func (options *SessionOptions) Complete(cmd *cobra.Command, args []string) error
 }
 
 func (options *SessionOptions) Run(ctx context.Context, factory cmdutil.Factory) error {
+	// Cancel on SIGINT/SIGTERM so the port-forward child is torn down along with
+	// the session rather than being reparented to init.
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	k8sClient, err := client.NewClient(factory)
 	if err != nil {
 		return fmt.Errorf("failed to create client: %w", err)
@@ -204,8 +212,19 @@ func (options *SessionOptions) Run(ctx context.Context, factory cmdutil.Factory)
 			if err = portforwardCmd.Run(); err == nil {
 				return
 			}
+
+			// The session was terminated: exec.CommandContext has already killed
+			// the port-forward child, so stop trying to reconnect.
+			if ctx.Err() != nil {
+				return
+			}
+
 			fmt.Printf("failed to port-forward: %v. Retrying in %v ...\n\n", err, reconnectDelay)
-			time.Sleep(reconnectDelay)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(reconnectDelay):
+			}
 		}
 	})
 

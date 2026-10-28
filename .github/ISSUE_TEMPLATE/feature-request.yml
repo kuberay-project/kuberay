@@ -19,6 +19,24 @@ body:
             I had searched in the [issues](https://github.com/ray-project/kuberay/issues) and found no similar
             feature requirement.
           required: true
+
+  - type: dropdown
+    attributes:
+      label: KubeRay Component
+      description: |
+        Which component is this feature request for?
+      multiple: true
+      options:
+        - "ray-operator"
+        - "apiserver"
+        - "kubectl-plugin"
+        - "dashboard"
+        - "ci"
+        - "historyserver"
+        - "Others"
+    validations:
+      required: false
+
   - type: textarea
     attributes:
       label: Description

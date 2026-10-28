@@ -1,9 +1,10 @@
 package e2e
 
 import (
+	"compress/gzip"
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
+	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 	. "github.com/ray-project/kuberay/historyserver/test/support"
 	. "github.com/ray-project/kuberay/ray-operator/test/support"
@@ -59,11 +61,10 @@ func testAzureBlobUploadOnGracefulShutdown(test Test, g *WithT, namespace *corev
 
 	_ = ApplyRayJobAndWaitForCompletion(test, g, namespace, rayCluster)
 
-	clusterNameID := fmt.Sprintf("%s_%s", rayCluster.Name, namespace.Name)
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
-	sessionPrefix := fmt.Sprintf("log/%s/%s/", clusterNameID, sessionID)
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID))
 
 	err := test.Client().Ray().RayV1().
 		RayClusters(rayCluster.Namespace).
@@ -85,11 +86,10 @@ func testAzureBlobSeparatesFilesBySession(test Test, g *WithT, namespace *corev1
 
 	_ = ApplyRayJobAndWaitForCompletion(test, g, namespace, rayCluster)
 
-	clusterNameID := fmt.Sprintf("%s_%s", rayCluster.Name, namespace.Name)
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
-	sessionPrefix := fmt.Sprintf("log/%s/%s/", clusterNameID, sessionID)
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID))
 
 	killContainerAndWaitForRestart(test, g, HeadPod(test, rayCluster), "ray-head")
 	killContainerAndWaitForRestart(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
@@ -109,8 +109,7 @@ func testAzureBlobResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 
 	dummySessionID := fmt.Sprintf("test-recovery-session-%s", namespace.Name)
 	dummyNodeID := fmt.Sprintf("head-node-%s", namespace.Name)
-	clusterNameID := fmt.Sprintf("%s_%s", rayCluster.Name, namespace.Name)
-	sessionPrefix := fmt.Sprintf("log/%s/%s/", clusterNameID, dummySessionID)
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, dummySessionID))
 
 	headPod, err := GetHeadPod(test, rayCluster)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -144,9 +143,9 @@ func testAzureBlobResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 		gg.Expect(cs.Ready).To(BeTrue())
 	}, TestTimeoutMedium).Should(Succeed())
 
-	LogWithTimestamp(test.T(), "Verifying file2.log was uploaded to Azure Blob (idempotency check)")
+	LogWithTimestamp(test.T(), "Verifying file2.log was uploaded to Azure Blob as a chunk (idempotency check)")
 	g.Eventually(func(gg Gomega) {
-		logsPrefix := sessionPrefix + "logs/"
+		logsPrefix := sessionPrefix
 		containerClient := azureClient.ServiceClient().NewContainerClient(AzureContainerName)
 		pager := containerClient.NewListBlobsFlatPager(&azblob.ListBlobsFlatOptions{
 			Prefix: &logsPrefix,
@@ -165,9 +164,11 @@ func testAzureBlobResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 		}
 		LogWithTimestamp(test.T(), "Found uploaded objects: %v", uploadedKeys)
 
+		// Append-only logs are uploaded by chunk, so file2.log lands under
+		// "file2.log.chunks/<offset>" rather than as a whole object.
 		hasFile2 := false
 		for _, key := range uploadedKeys {
-			if strings.HasSuffix(key, "file2.log") {
+			if strings.Contains(key, "/file2.log"+clusterlogs.ChunkDirSuffix+"/") {
 				hasFile2 = true
 				break
 			}
@@ -203,8 +204,8 @@ func testAzureBlobResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 func verifyAzureBlobSessionDirs(test Test, g *WithT, azureClient *azblob.Client, sessionPrefix string, headNodeID string, workerNodeID string) {
 	containerClient := azureClient.ServiceClient().NewContainerClient(AzureContainerName)
 
-	headLogDirPrefix := fmt.Sprintf("%slogs/%s", sessionPrefix, headNodeID)
-	workerLogDirPrefix := fmt.Sprintf("%slogs/%s", sessionPrefix, workerNodeID)
+	headLogDirPrefix := fmt.Sprintf("%s%s/logs", sessionPrefix, headNodeID)
+	workerLogDirPrefix := fmt.Sprintf("%s%s/logs", sessionPrefix, workerNodeID)
 
 	LogWithTimestamp(test.T(), "Verifying raylet.out, gcs_server.out, and monitor.out exist in head log directory %s", headLogDirPrefix)
 	for _, fileName := range []string{"raylet.out", "gcs_server.out", "monitor.out"} {
@@ -216,29 +217,10 @@ func verifyAzureBlobSessionDirs(test Test, g *WithT, azureClient *azblob.Client,
 
 	LogWithTimestamp(test.T(), "Verifying all %d event types are covered, except for EVENT_TYPE_UNSPECIFIED: %v", len(types.AllEventTypes)-1, types.AllEventTypes)
 	g.Eventually(func(gg Gomega) {
-		var uploadedEvents []rayEvent
-
-		nodeEventsPrefix := sessionPrefix + "node_events/"
-		nodeEvents, err := loadRayEventsFromAzureBlob(containerClient, nodeEventsPrefix)
+		events, err := loadRayEventsFromAzureBlob(containerClient, sessionPrefix)
 		gg.Expect(err).NotTo(HaveOccurred())
-		uploadedEvents = append(uploadedEvents, nodeEvents...)
-		LogWithTimestamp(test.T(), "Loaded %d events from node_events", len(nodeEvents))
 
-		jobEventsPrefix := sessionPrefix + "job_events/"
-		jobDirs, err := listAzureBlobDirectories(containerClient, jobEventsPrefix)
-		gg.Expect(err).NotTo(HaveOccurred())
-		gg.Expect(jobDirs).NotTo(BeEmpty())
-		LogWithTimestamp(test.T(), "Found %d job directories: %v", len(jobDirs), jobDirs)
-
-		for _, jobDir := range jobDirs {
-			jobDirPrefix := jobEventsPrefix + jobDir + "/"
-			jobEvents, err := loadRayEventsFromAzureBlob(containerClient, jobDirPrefix)
-			gg.Expect(err).NotTo(HaveOccurred())
-			uploadedEvents = append(uploadedEvents, jobEvents...)
-			LogWithTimestamp(test.T(), "Loaded %d events from job_events/%s", len(jobEvents), jobDir)
-		}
-
-		assertAllEventTypesCovered(test, gg, uploadedEvents)
+		assertAllEventTypesCovered(test, gg, events)
 	}, TestTimeoutMedium).Should(Succeed())
 }
 
@@ -282,7 +264,7 @@ func loadRayEventsFromAzureBlob(containerClient *container.Client, prefix string
 		}
 
 		for _, blob := range resp.Segment.BlobItems {
-			if blob.Name == nil || strings.HasSuffix(*blob.Name, "/") {
+			if blob.Name == nil || strings.HasSuffix(*blob.Name, "/") || (!strings.Contains(*blob.Name, "/node_events/") && !strings.Contains(*blob.Name, "/job_events/")) {
 				continue
 			}
 
@@ -292,8 +274,22 @@ func loadRayEventsFromAzureBlob(containerClient *container.Client, prefix string
 				return nil, fmt.Errorf("failed to download blob %s: %w", *blob.Name, err)
 			}
 
-			var fileEvents []rayEvent
-			decodeErr := json.NewDecoder(downloadResp.Body).Decode(&fileEvents)
+			var reader io.Reader = downloadResp.Body
+			var gzReader *gzip.Reader
+			if strings.HasSuffix(*blob.Name, ".gz") {
+				var err error
+				gzReader, err = gzip.NewReader(downloadResp.Body)
+				if err != nil {
+					downloadResp.Body.Close()
+					return nil, fmt.Errorf("failed to create gzip reader for %s: %w", *blob.Name, err)
+				}
+				reader = gzReader
+			}
+
+			fileEvents, decodeErr := decodeJSONLEvents(reader)
+			if gzReader != nil {
+				gzReader.Close()
+			}
 			downloadResp.Body.Close()
 
 			if decodeErr != nil {
@@ -313,8 +309,26 @@ func assertAzureBlobFileExist(test Test, g *WithT, containerClient *container.Cl
 	LogWithTimestamp(test.T(), "Verifying file %s exists", fileKey)
 	g.Eventually(func(gg Gomega) {
 		blobClient := containerClient.NewBlobClient(fileKey)
-		_, err := blobClient.GetProperties(context.Background(), nil)
-		gg.Expect(err).NotTo(HaveOccurred())
-		LogWithTimestamp(test.T(), "Verified file %s exists", fileKey)
+		if _, err := blobClient.GetProperties(context.Background(), nil); err == nil {
+			LogWithTimestamp(test.T(), "Verified file %s exists", fileKey)
+			return
+		}
+		// Append-only logs are stored as chunks under "<fileName>.chunks/".
+		chunkPrefix := fileKey + clusterlogs.ChunkDirSuffix + "/"
+		pager := containerClient.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{Prefix: &chunkPrefix})
+		// The collector writes a "<file>.chunks/" directory marker before the
+		// first chunk; only count real chunk blobs.
+		found := 0
+		for pager.More() {
+			page, err := pager.NextPage(context.Background())
+			gg.Expect(err).NotTo(HaveOccurred())
+			for _, blob := range page.Segment.BlobItems {
+				if blob.Name != nil && !strings.HasSuffix(*blob.Name, "/") {
+					found++
+				}
+			}
+		}
+		gg.Expect(found).NotTo(BeZero(), "neither %s nor any chunk under %s exists", fileKey, chunkPrefix)
+		LogWithTimestamp(test.T(), "Verified file %s exists as %d chunk(s)", fileKey, found)
 	}, TestTimeoutMedium).Should(Succeed(), "Failed to verify file %s exists", fileKey)
 }

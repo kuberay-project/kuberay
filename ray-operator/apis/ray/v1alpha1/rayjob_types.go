@@ -102,10 +102,16 @@ type RayJobStatus struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:deprecatedversion:warning="ray.io/v1alpha1 RayJob is deprecated; use ray.io/v1 RayJob. v1alpha1 receives no new fields and will be unavailable in KubeRay 1.9."
 // +kubebuilder:resource:categories=all
 // +kubebuilder:subresource:status
 // +genclient
 // RayJob is the Schema for the rayjobs API
+//
+// Deprecated: ray.io/v1alpha1 is deprecated. It is served for backward
+// compatibility only, is frozen at its December 2023 feature set, and will be
+// unavailable in KubeRay 1.9. Use ray.io/v1, the storage version, for all new
+// and existing RayJobs.
 type RayJob struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

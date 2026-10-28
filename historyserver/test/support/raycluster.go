@@ -5,41 +5,68 @@ import (
 	"strings"
 
 	. "github.com/onsi/gomega"
-	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	. "github.com/ray-project/kuberay/ray-operator/test/support"
 )
 
-const RayClusterManifestPath = "../../config/raycluster.yaml"
+const (
+	RayClusterManifestPath = "../testdata/raycluster.yaml"
+
+	// RayVersionForTokenAuth is the minimum rayVersion the operator accepts for token auth.
+	RayVersionForTokenAuth = "2.52.0"
+)
 
 // ApplyRayClusterWithCollectorWithEnvs deploys a Ray cluster with the collector sidecar into the test namespace,
 // adding the specified environment variables to the head pod.
 func ApplyRayClusterWithCollectorWithEnvs(test Test, g *WithT, namespace *corev1.Namespace, envs map[string]string) *rayv1.RayCluster {
+	return applyRayClusterWithCollector(test, g, namespace, func(rayCluster *rayv1.RayCluster) {
+		headContainer := &rayCluster.Spec.HeadGroupSpec.Template.Spec.Containers[utils.RayContainerIndex]
+		if len(headContainer.Env) == 0 {
+			headContainer.Env = []corev1.EnvVar{}
+		}
+
+		for key, value := range envs {
+			env := corev1.EnvVar{
+				Name:  key,
+				Value: value,
+			}
+			headContainer.Env = append(headContainer.Env, env)
+		}
+	})
+}
+
+// ApplyRayClusterWithCollectorTokenAuth deploys a Ray cluster whose Dashboard requires token
+// authentication, and wires the collector sidecars to the auth token.
+func ApplyRayClusterWithCollectorTokenAuth(test Test, g *WithT, namespace *corev1.Namespace) *rayv1.RayCluster {
+	return applyRayClusterWithCollector(test, g, namespace, func(rayCluster *rayv1.RayCluster) {
+		rayCluster.Spec.RayVersion = RayVersionForTokenAuth
+		rayCluster.Spec.AuthOptions = &rayv1.AuthOptions{Mode: rayv1.AuthModeToken}
+
+		// reconcileAuthSecret generates this Secret when authOptions.secretName is unset.
+		secretName := utils.CheckName(rayCluster.Name)
+		injectCollectorAuthToken(rayCluster.Spec.HeadGroupSpec.Template.Spec.Containers, secretName)
+		for wg := range rayCluster.Spec.WorkerGroupSpecs {
+			injectCollectorAuthToken(rayCluster.Spec.WorkerGroupSpecs[wg].Template.Spec.Containers, secretName)
+		}
+	})
+}
+
+func applyRayClusterWithCollector(test Test, g *WithT, namespace *corev1.Namespace, mutate func(*rayv1.RayCluster)) *rayv1.RayCluster {
 	rayClusterFromYaml := DeserializeRayClusterYAML(test, RayClusterManifestPath)
 	rayClusterFromYaml.Namespace = namespace.Name
 
-	headContainer := &rayClusterFromYaml.Spec.HeadGroupSpec.Template.Spec.Containers[rayutils.RayContainerIndex]
-	if len(headContainer.Env) == 0 {
-		headContainer.Env = []corev1.EnvVar{}
-	}
-
-	for key, value := range envs {
-		env := corev1.EnvVar{
-			Name:  key,
-			Value: value,
-		}
-		headContainer.Env = append(headContainer.Env, env)
-	}
+	mutate(rayClusterFromYaml)
 
 	// Inject namespace name as the ray-cluster-namespace for head group collector
-	injectCollectorRayClusterNamespace(rayClusterFromYaml.Spec.HeadGroupSpec.Template.Spec.Containers, namespace.Name)
+	injectCollectorRayClusterNamespaceAndEnvVar(rayClusterFromYaml.Spec.HeadGroupSpec.Template.Spec.Containers, rayClusterFromYaml.Name, namespace.Name)
 
 	// Inject namespace name as the ray-cluster-namespace for worker group collectors
 	for wg := range rayClusterFromYaml.Spec.WorkerGroupSpecs {
-		injectCollectorRayClusterNamespace(rayClusterFromYaml.Spec.WorkerGroupSpecs[wg].Template.Spec.Containers, namespace.Name)
+		injectCollectorRayClusterNamespaceAndEnvVar(rayClusterFromYaml.Spec.WorkerGroupSpecs[wg].Template.Spec.Containers, rayClusterFromYaml.Name, namespace.Name)
 	}
 
 	rayCluster, err := test.Client().Ray().RayV1().
@@ -59,16 +86,55 @@ func ApplyRayClusterWithCollectorWithEnvs(test Test, g *WithT, namespace *corev1
 	return rayCluster
 }
 
-// injectCollectorRayClusterNamespace injects the ray-cluster-namespace argument into all collector containers.
-func injectCollectorRayClusterNamespace(containers []corev1.Container, rayClusterNamespace string) {
+// injectCollectorRayClusterNamespaceAndEnvVar injects the ray-cluster-namespace and required environment variables (RAY_CLUSTER_NAMESPACE, POD_IP, FQ_RAY_IP) into all collector containers.
+func injectCollectorRayClusterNamespaceAndEnvVar(containers []corev1.Container, rayClusterName string, rayClusterNamespace string) {
+	fqdnRayIP := fmt.Sprintf("%s-head-svc.%s.svc.cluster.local", rayClusterName, rayClusterNamespace)
 	for i := range containers {
 		if containers[i].Name == "collector" {
-			containers[i].Command = append(
-				containers[i].Command,
-				fmt.Sprintf("--ray-cluster-namespace=%s", rayClusterNamespace),
-			)
+			if containers[i].Env == nil {
+				containers[i].Env = []corev1.EnvVar{}
+			}
+			setOrAppendEnv(&containers[i], "RAY_CLUSTER_NAMESPACE", rayClusterNamespace, nil)
+			setOrAppendEnv(&containers[i], "POD_IP", "", &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: "status.podIP",
+				},
+			})
+			setOrAppendEnv(&containers[i], "FQ_RAY_IP", fqdnRayIP, nil)
 		}
 	}
+}
+
+// injectCollectorAuthToken points every collector sidecar at the auth token in the given Secret.
+func injectCollectorAuthToken(containers []corev1.Container, secretName string) {
+	for i := range containers {
+		if containers[i].Name != "collector" {
+			continue
+		}
+		setOrAppendEnv(&containers[i], utils.RAY_AUTH_TOKEN_ENV_VAR, "", &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				Key:                  utils.RAY_AUTH_TOKEN_SECRET_KEY,
+			},
+		})
+	}
+}
+
+// setOrAppendEnv updates an environment variable in-place if it already exists (e.g., from static YAML manifests)
+// or appends a new entry if missing. This prevents duplicate environment variable entries in the pod spec.
+func setOrAppendEnv(container *corev1.Container, name string, val string, valFrom *corev1.EnvVarSource) {
+	for i := range container.Env {
+		if container.Env[i].Name == name {
+			container.Env[i].Value = val
+			container.Env[i].ValueFrom = valFrom
+			return
+		}
+	}
+	container.Env = append(container.Env, corev1.EnvVar{
+		Name:      name,
+		Value:     val,
+		ValueFrom: valFrom,
+	})
 }
 
 // GetSessionIDFromHeadPod retrieves the sessionID from the Ray head pod by reading the symlink
@@ -95,39 +161,14 @@ fi`
 	return sessionID
 }
 
-// GetNodeIDFromHeadPod retrieves the nodeID from the Ray head pod by reading /tmp/ray/raylet_node_id.
-func GetNodeIDFromHeadPod(test Test, g *WithT, rayCluster *rayv1.RayCluster) string {
-	headPod, err := GetHeadPod(test, rayCluster)
-	g.Expect(err).NotTo(HaveOccurred())
-
-	getNodeIDCmd := `ray_tmp_root="${RAY_TMP_ROOT:-/tmp/ray}"
-if [ -f "${ray_tmp_root}/raylet_node_id" ]; then
-  cat "${ray_tmp_root}/raylet_node_id"
-else
-  echo "raylet_node_id not found"
-  exit 1
-fi`
-	output, _ := ExecPodCmd(test, headPod, "ray-head", []string{"sh", "-c", getNodeIDCmd})
-
-	nodeID := strings.TrimSpace(output.String())
-	LogWithTimestamp(test.T(), "Retrieved nodeID: %s", nodeID)
-	g.Expect(nodeID).NotTo(BeEmpty(), "nodeID should not be empty")
-
-	return nodeID
-}
-
-// GetNodeIDFromPod retrieves the nodeID from the Ray head or worker pod by reading /tmp/ray/raylet_node_id.
+// GetNodeIDFromPod retrieves the nodeID from the Ray head or worker pod by extracting
+// the --node_id argument from the active raylet process command line.
 func GetNodeIDFromPod(test Test, g *WithT, getPod func() (*corev1.Pod, error), containerName string) string {
 	pod, err := getPod()
 	g.Expect(err).NotTo(HaveOccurred())
 
-	getNodeIDCmd := `ray_tmp_root="${RAY_TMP_ROOT:-/tmp/ray}"
-if [ -f "${ray_tmp_root}/raylet_node_id" ]; then
-  cat "${ray_tmp_root}/raylet_node_id"
-else
-  echo "raylet_node_id not found"
-  exit 1
-fi`
+	// Extract node_id from raylet process arguments as history server retrieves node_id programmatically via HTTP API.
+	getNodeIDCmd := `ps -ef | grep raylet | grep -v grep | sed -n 's/.*--node_id=\([^ ]*\).*/\1/p'`
 	output, _ := ExecPodCmd(test, pod, containerName, []string{"sh", "-c", getNodeIDCmd})
 
 	// Parse output to extract the nodeID.

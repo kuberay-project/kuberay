@@ -9,6 +9,7 @@ kind: Kustomization
 
 resources:
   - ../../default
+  - event_forwarder_rbac.yaml
 
 patches:
   - path: deployment-override.yaml

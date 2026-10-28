@@ -1,0 +1,183 @@
+# Sample RayCluster with the collector sidecar writing to Alibaba Cloud OSS.
+#
+# Prerequisites (on ACK):
+#   1. Enable RRSA (RAM Roles for Service Accounts) on the ACK cluster and create a
+#      RAM role whose trust policy allows the cluster's OIDC provider.
+#   2. Grant the RAM role read/write access to the OSS bucket.
+#   3. Install the ack-pod-identity-webhook, annotate the ServiceAccount below with
+#      the RAM role, and keep the `pod-identity.alibabacloud.com/injection` pod label
+#      so the ALIBABA_CLOUD_* credential env vars are injected automatically.
+#      (Alternatively, set ALIBABA_CLOUD_ROLE_ARN, ALIBABA_CLOUD_OIDC_PROVIDER_ARN,
+#      and ALIBABA_CLOUD_OIDC_TOKEN_FILE on the collector containers yourself.)
+#
+# Apply with envsubst to substitute environment variables:
+#   envsubst < historyserver/config/raycluster-aliyunoss.yaml | kubectl apply -f -
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  labels:
+    ray.io/cluster: raycluster-historyserver-aliyunoss
+  name: raycluster-historyserver-aliyunoss
+spec:
+  rayVersion: "2.58.0"
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: 0.0.0.0
+      num-cpus: "0"
+    serviceType: ClusterIP
+    template:
+      metadata:
+        labels:
+          test: raycluster-historyserver-aliyunoss
+          # Lets the ack-pod-identity-webhook inject the RRSA credential env vars.
+          pod-identity.alibabacloud.com/injection: "on"
+      spec:
+        serviceAccountName: historyserver-aliyunoss
+        containers:
+        - env:
+          - name: RAY_TMP_ROOT
+            value: &rayTmpRoot /tmp/ray
+          - name: RAY_enable_ray_event
+            value: "true"
+          - name: RAY_enable_core_worker_ray_event_to_aggregator
+            value: "true"
+          - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EVENTS_EXPORT_ADDR
+            value: "http://localhost:8084/v1/events"
+          - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES
+            value: "ALL"
+          image: rayproject/ray:2.58.0
+          imagePullPolicy: IfNotPresent
+          name: ray-head
+          resources:
+            limits:
+              cpu: "5"
+              memory: 10G
+            requests:
+              cpu: "50m"
+              memory: 1G
+          volumeMounts:
+          - name: historyserver
+            mountPath: *rayTmpRoot
+        - name: collector
+          image: ${COLLECTOR_IMAGE}
+          imagePullPolicy: IfNotPresent
+          env:
+          - name: RAY_CLUSTER_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.labels['ray.io/cluster']
+          - name: RAY_CLUSTER_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: FQ_RAY_IP
+            value: $(RAY_CLUSTER_NAME)-head-svc.$(RAY_CLUSTER_NAMESPACE).svc.cluster.local
+          - name: RAY_TMP_ROOT
+            value: *rayTmpRoot
+          # Region such as cn-hangzhou.
+          - name: OSS_REGION
+            value: "${OSS_REGION}"
+          - name: OSS_BUCKET
+            value: "${OSS_BUCKET}"
+          # Endpoint such as oss-cn-hangzhou-internal.aliyuncs.com.
+          - name: OSS_ENDPOINT
+            value: "${OSS_ENDPOINT}"
+          - name: RAY_ROLE
+            value: "Head"
+          - name: STORAGE_BACKEND
+            value: "aliyunoss"
+          volumeMounts:
+          - name: historyserver
+            mountPath: *rayTmpRoot
+        volumes:
+        - name: historyserver
+          emptyDir: {}
+  workerGroupSpecs:
+  - groupName: cpu
+    maxReplicas: 1000
+    minReplicas: 1
+    numOfHosts: 1
+    rayStartParams: {}
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          test: raycluster-historyserver-aliyunoss
+          # Lets the ack-pod-identity-webhook inject the RRSA credential env vars.
+          pod-identity.alibabacloud.com/injection: "on"
+      spec:
+        serviceAccountName: historyserver-aliyunoss
+        containers:
+        - env:
+          - name: RAY_TMP_ROOT
+            value: *rayTmpRoot
+          - name: RAY_enable_ray_event
+            value: "true"
+          - name: RAY_enable_core_worker_ray_event_to_aggregator
+            value: "true"
+          - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EVENTS_EXPORT_ADDR
+            value: "http://localhost:8084/v1/events"
+          - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES
+            value: "ALL"
+          image: rayproject/ray:2.58.0
+          imagePullPolicy: IfNotPresent
+          name: ray-worker
+          resources:
+            limits:
+              cpu: "2"
+              memory: 2G
+            requests:
+              cpu: "50m"
+              memory: 1G
+          volumeMounts:
+          - name: historyserver
+            mountPath: *rayTmpRoot
+        - name: collector
+          image: ${COLLECTOR_IMAGE}
+          imagePullPolicy: IfNotPresent
+          env:
+          - name: RAY_CLUSTER_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.labels['ray.io/cluster']
+          - name: RAY_CLUSTER_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: FQ_RAY_IP
+            value: $(RAY_CLUSTER_NAME)-head-svc.$(RAY_CLUSTER_NAMESPACE).svc.cluster.local
+          - name: RAY_TMP_ROOT
+            value: *rayTmpRoot
+          - name: OSS_REGION
+            value: "${OSS_REGION}"
+          - name: OSS_BUCKET
+            value: "${OSS_BUCKET}"
+          - name: OSS_ENDPOINT
+            value: "${OSS_ENDPOINT}"
+          - name: RAY_ROLE
+            value: "Worker"
+          - name: STORAGE_BACKEND
+            value: "aliyunoss"
+          volumeMounts:
+          - name: historyserver
+            mountPath: *rayTmpRoot
+        volumes:
+        - name: historyserver
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: historyserver-aliyunoss
+  annotations:
+    # Replace with the RAM role created for RRSA; the ack-pod-identity-webhook uses
+    # this to inject ALIBABA_CLOUD_* credential env vars into labeled pods.
+    pod-identity.alibabacloud.com/role-name: "${RAM_ROLE_NAME}"

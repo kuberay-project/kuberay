@@ -5,10 +5,20 @@ package v1
 // ScaleStrategyApplyConfiguration represents a declarative configuration of the ScaleStrategy type for use
 // with apply.
 //
-// ScaleStrategy to remove workers
+// ScaleStrategy controls scaling of a worker group.
 type ScaleStrategyApplyConfiguration struct {
 	// WorkersToDelete workers to be deleted
 	WorkersToDelete []string `json:"workersToDelete,omitempty"`
+	// ScaleGate is a signal written by an external controller to indicate that
+	// this worker group cannot currently be scaled up. KubeRay preserves the
+	// field across reconciles but never reads or writes it; the Ray Autoscaler
+	// consumes it and falls back to another worker group while it is non-empty.
+	//
+	// Each gate is keyed by its type. A writer must add or remove only its own
+	// gates via Server-Side Apply under a distinct field manager; replacing the
+	// list wholesale, or using read-modify-write Update, drops gates owned by
+	// others.
+	ScaleGate []ScaleGateApplyConfiguration `json:"scaleGate,omitempty"`
 }
 
 // ScaleStrategyApplyConfiguration constructs a declarative configuration of the ScaleStrategy type for use with
@@ -23,6 +33,19 @@ func ScaleStrategy() *ScaleStrategyApplyConfiguration {
 func (b *ScaleStrategyApplyConfiguration) WithWorkersToDelete(values ...string) *ScaleStrategyApplyConfiguration {
 	for i := range values {
 		b.WorkersToDelete = append(b.WorkersToDelete, values[i])
+	}
+	return b
+}
+
+// WithScaleGate adds the given value to the ScaleGate field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the ScaleGate field.
+func (b *ScaleStrategyApplyConfiguration) WithScaleGate(values ...*ScaleGateApplyConfiguration) *ScaleStrategyApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithScaleGate")
+		}
+		b.ScaleGate = append(b.ScaleGate, *values[i])
 	}
 	return b
 }

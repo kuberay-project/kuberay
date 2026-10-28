@@ -8,13 +8,13 @@ package types
 //   - "M": Metadata event (e.g., process_name, thread_name)
 //   - "X": Complete event (duration events with start and end times)
 type ChromeTraceEvent struct {
-	Category  string                 `json:"cat,omitempty"`
-	Name      string                 `json:"name"`
-	PID       int                    `json:"pid"`
-	TID       *int                   `json:"tid"`
-	Timestamp *float64               `json:"ts,omitempty"`  // microseconds
-	Duration  *float64               `json:"dur,omitempty"` // microseconds
-	Color     string                 `json:"cname,omitempty"`
-	Args      map[string]interface{} `json:"args"`
-	Phase     string                 `json:"ph"` // Event phase: "M" (metadata) or "X" (complete)
+	Category  string         `json:"cat,omitempty"`
+	Name      string         `json:"name"`
+	PID       int            `json:"pid"`
+	TID       *int           `json:"tid"`
+	Timestamp *float64       `json:"ts,omitempty"`  // microseconds
+	Duration  *float64       `json:"dur,omitempty"` // microseconds
+	Color     string         `json:"cname,omitempty"`
+	Args      map[string]any `json:"args"`
+	Phase     string         `json:"ph"` // Event phase: "M" (metadata) or "X" (complete)
 }

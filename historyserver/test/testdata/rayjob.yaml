@@ -1,0 +1,86 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob
+spec:
+  entrypoint: |
+    python -c "
+    import ray
+    import time
+    from ray.util.placement_group import placement_group
+    ray.init()
+
+    # --- Scenario 1: Root-level NORMAL_TASK with same-worker log boundaries ---
+    @ray.remote(num_cpus=1)
+    def my_task(x):
+        print(f'Processing {x}', flush=True)
+        return x * 2
+
+    # --- Scenario 2: Nested tasks (parent spawns child) ---
+    # Tests lineage tree depth > 1: child_task is nested under parent_task.
+    @ray.remote(num_cpus=0.1)
+    def parent_task():
+        result = ray.get(child_task.remote())
+        return result
+
+    @ray.remote(num_cpus=0.1)
+    def child_task():
+        print('Child task', flush=True)
+        return 42
+
+    # --- Scenario 3: Multiple same-name tasks ---
+    # Tests GROUP merging in lineage: 3 calls to the same function
+    # are merged into a single GROUP node.
+    @ray.remote(num_cpus=0.1)
+    def repeated_task(x):
+        return x
+
+    # --- Scenario 4: Actor (creation + method calls) ---
+    @ray.remote(num_cpus=0.1)
+    class Counter:
+        def __init__(self):
+            self.count = 0
+
+        def increment(self):
+            self.count += 1
+            return self.count
+
+        def get_count(self):
+            return self.count
+
+    # Execute all scenarios:
+    ray.get(my_task.options(name='task_log_before').remote(0))
+    task_result = ray.get(my_task.remote(1))
+    print(f'Task result: {task_result}')
+
+    ray.get(my_task.options(name='task_log_noise').remote(2))
+
+    nested_result = ray.get(parent_task.remote())
+    print(f'Nested result: {nested_result}')
+
+    refs = [repeated_task.remote(i) for i in range(3)]
+    results = ray.get(refs)
+    print(f'Repeated results: {results}')
+
+    counter = Counter.remote()
+    for i in range(2):
+        count = ray.get(counter.increment.remote())
+        print(f'Counter: {count}')
+    final_count = ray.get(counter.get_count.remote())
+    print(f'Final count: {final_count}')
+
+    print(f'Cluster resources: {ray.cluster_resources()}')
+
+    # Create a detached placement group so it persists after the job exits.
+    # This ensures the collector captures non-empty data when polling /api/v0/placement_groups.
+    pg = placement_group([{'CPU': 0.5}], strategy='SPREAD', lifetime='detached', name='test_pg')
+    ray.get(pg.ready())
+    print(f'Placement group created: {pg.bundle_specs}')
+
+    # For now, events on the worker nodes aren't sent to the collector when calling ray.shutdown().
+    # As a workaround, we explicitly wait for 5 seconds to ensure events are sent.
+    time.sleep(5)
+    "
+  # Select the existing Ray cluster running the collector.
+  clusterSelector:
+    ray.io/cluster: raycluster-historyserver

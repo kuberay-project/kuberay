@@ -1,0 +1,71 @@
+# This example demonstrates how to use the history server sidecar injection feature.
+# The collector is automatically injected into head and worker pods to stream Ray logs and events.
+#
+# Note: History Server feature is currently in Alpha status. To use this feature, enable the
+# RayClusterHistoryServer feature gate on the KubeRay operator:
+#   - Operator CLI flag: --feature-gates=RayClusterHistoryServer=true
+#   - Helm value: featureGates.RayClusterHistoryServer=true
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-historyserver
+spec:
+  rayVersion: "2.52.0"
+  historyServerOptions:
+    collectorOptions:
+      # Optional collector image. Defaults to the image configured on the operator
+      # (--collector-image flag or Helm value collectorImage), which itself defaults
+      # to the collector image matching the operator version.
+      # image: quay.io/kuberay/collector:nightly
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+      env:
+      - name: STORAGE_BACKEND
+        value: "GCS"
+      - name: GCS_BUCKET
+        value: "my-gcs-bucket"
+  headGroupSpec:
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "5Gi"
+          ports:
+          - containerPort: 6379
+            name: gcs-server
+          - containerPort: 8265 # Ray dashboard
+            name: dashboard
+          - containerPort: 10001
+            name: client
+  workerGroupSpecs:
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 5
+    groupName: workergroup
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"

@@ -20,7 +20,32 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/common"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
+
+// legacyVolcanoClient simulates an API server using a pre-v1.14 Volcano CRD,
+// whose structural schema prunes the unknown spec.subGroupPolicy field.
+type legacyVolcanoClient struct {
+	client.Client
+}
+
+func (c *legacyVolcanoClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	if podGroup, ok := obj.(*volcanoschedulingv1beta1.PodGroup); ok {
+		legacyPodGroup := podGroup.DeepCopy()
+		legacyPodGroup.Spec.SubGroupPolicy = nil
+		return c.Client.Create(ctx, legacyPodGroup, opts...)
+	}
+	return c.Client.Create(ctx, obj, opts...)
+}
+
+func (c *legacyVolcanoClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	if podGroup, ok := obj.(*volcanoschedulingv1beta1.PodGroup); ok {
+		legacyPodGroup := podGroup.DeepCopy()
+		legacyPodGroup.Spec.SubGroupPolicy = nil
+		return c.Client.Update(ctx, legacyPodGroup, opts...)
+	}
+	return c.Client.Update(ctx, obj, opts...)
+}
 
 func createTestRayCluster(numOfHosts int32) rayv1.RayCluster {
 	headSpec := corev1.PodSpec{
@@ -73,6 +98,7 @@ func createTestRayCluster(numOfHosts int32) rayv1.RayCluster {
 			},
 			WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 				{
+					GroupName: "small-group",
 					Template: corev1.PodTemplateSpec{
 						Spec: workerSpec,
 					},
@@ -141,6 +167,7 @@ func createTestRayJob(numOfHosts int32) rayv1.RayJob {
 				},
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
+						GroupName: "small-group",
 						Template: corev1.PodTemplateSpec{
 							Spec: workerSpec,
 						},
@@ -162,7 +189,7 @@ func TestCreatePodGroupForRayCluster(t *testing.T) {
 
 	minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 	totalResource := utils.CalculateDesiredResources(&cluster)
-	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource)
+	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, calculateSubGroupPolicy(&cluster, &cluster.Spec))
 	require.NoError(t, err)
 
 	a.Equal(cluster.Namespace, pg.Namespace)
@@ -178,6 +205,12 @@ func TestCreatePodGroupForRayCluster(t *testing.T) {
 
 	// 2 GPUs total
 	a.Equal("2", pg.Spec.MinResources.Name("nvidia.com/gpu", resource.BinarySI).String())
+
+	require.Len(t, pg.Spec.SubGroupPolicy, 2)
+	a.Equal(utils.RayNodeHeadGroupLabelValue, pg.Spec.SubGroupPolicy[0].Name)
+	a.Equal("small-group", pg.Spec.SubGroupPolicy[1].Name)
+	a.Equal(int32(1), ptr.Deref(pg.Spec.SubGroupPolicy[1].SubGroupSize, int32(0)))
+	a.Equal(int32(2), ptr.Deref(pg.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
 }
 
 func TestCreatePodGroupForRayCluster_NumOfHosts2(t *testing.T) {
@@ -187,7 +220,7 @@ func TestCreatePodGroupForRayCluster_NumOfHosts2(t *testing.T) {
 
 	minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 	totalResource := utils.CalculateDesiredResources(&cluster)
-	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource)
+	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, calculateSubGroupPolicy(&cluster, &cluster.Spec))
 	require.NoError(t, err)
 
 	a.Equal(cluster.Namespace, pg.Namespace)
@@ -207,6 +240,12 @@ func TestCreatePodGroupForRayCluster_NumOfHosts2(t *testing.T) {
 	// 2 GPUs * 2 (num of hosts) total
 	// 2 GPUs * 2 = 4 GPUs
 	a.Equal("4", pg.Spec.MinResources.Name("nvidia.com/gpu", resource.BinarySI).String())
+
+	require.Len(t, pg.Spec.SubGroupPolicy, 2)
+	a.Equal("small-group", pg.Spec.SubGroupPolicy[1].Name)
+	a.Equal(int32(2), ptr.Deref(pg.Spec.SubGroupPolicy[1].SubGroupSize, int32(0)))
+	a.Equal(int32(2), ptr.Deref(pg.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
+	a.Equal([]string{utils.RayWorkerReplicaNameKey}, pg.Spec.SubGroupPolicy[1].MatchLabelKeys)
 }
 
 func createTestRayClusterWithLabels(labels map[string]string) rayv1.RayCluster {
@@ -229,7 +268,7 @@ func TestCreatePodGroup_NetworkTopologyBothLabels(t *testing.T) {
 
 	minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 	totalResource := utils.CalculateDesiredResources(&cluster)
-	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource)
+	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, calculateSubGroupPolicy(&cluster, &cluster.Spec))
 	require.NoError(t, err)
 
 	a.Equal(cluster.Namespace, pg.Namespace)
@@ -248,7 +287,7 @@ func TestCreatePodGroup_NetworkTopologyOnlyModeLabel(t *testing.T) {
 
 	minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 	totalResource := utils.CalculateDesiredResources(&cluster)
-	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource)
+	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, calculateSubGroupPolicy(&cluster, &cluster.Spec))
 	require.NoError(t, err)
 
 	a.Equal(cluster.Namespace, pg.Namespace)
@@ -268,7 +307,7 @@ func TestCreatePodGroup_NetworkTopologyHighestTierAllowedNotInt(t *testing.T) {
 
 	minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 	totalResource := utils.CalculateDesiredResources(&cluster)
-	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource)
+	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, calculateSubGroupPolicy(&cluster, &cluster.Spec))
 
 	require.Error(t, err)
 	a.Contains(err.Error(), "failed to convert "+NetworkTopologyHighestTierAllowedLabelKey+" label to int")
@@ -306,6 +345,9 @@ func TestCreatePodGroupForRayJob(t *testing.T) {
 		a.Equal("test-priority", pg.Spec.PriorityClassName)
 		a.Len(pg.OwnerReferences, 1)
 		a.Equal("RayJob", pg.OwnerReferences[0].Kind)
+		require.Len(t, pg.Spec.SubGroupPolicy, 2)
+		a.Equal(utils.RayNodeHeadGroupLabelValue, pg.Spec.SubGroupPolicy[0].Name)
+		a.Equal("small-group", pg.Spec.SubGroupPolicy[1].Name)
 	})
 
 	t.Run("K8sJobMode includes submitter pod resources", func(_ *testing.T) {
@@ -503,6 +545,181 @@ func TestCalculatePodGroupParams(t *testing.T) {
 	})
 }
 
+func TestCalculateSubGroupPolicy(t *testing.T) {
+	t.Run("autoscaling uses each active worker group's minimum logical replicas", func(t *testing.T) {
+		cluster := createTestRayCluster(1)
+		cluster.Spec.EnableInTreeAutoscaling = new(true)
+		cluster.Spec.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+			{
+				GroupName:   "cpu-group",
+				Replicas:    ptr.To[int32](10),
+				MinReplicas: ptr.To[int32](4),
+				MaxReplicas: ptr.To[int32](10),
+				NumOfHosts:  1,
+			},
+			{
+				GroupName:   "gpu-group",
+				Replicas:    ptr.To[int32](4),
+				MinReplicas: ptr.To[int32](4),
+				MaxReplicas: ptr.To[int32](4),
+				NumOfHosts:  2,
+			},
+			{
+				GroupName:   "suspended-group",
+				Replicas:    ptr.To[int32](2),
+				MinReplicas: ptr.To[int32](2),
+				MaxReplicas: ptr.To[int32](2),
+				NumOfHosts:  1,
+				Suspend:     new(true),
+			},
+			{
+				GroupName:   "zero-minimum-group",
+				Replicas:    ptr.To[int32](2),
+				MinReplicas: ptr.To[int32](0),
+				MaxReplicas: ptr.To[int32](2),
+				NumOfHosts:  2,
+			},
+		}
+
+		policies := calculateSubGroupPolicy(&cluster, &cluster.Spec)
+		scheduler := &VolcanoBatchScheduler{}
+		minMember, _ := scheduler.calculatePodGroupParams(&cluster.Spec)
+
+		assert.Equal(t, int32(13), minMember)
+		require.Len(t, policies, 4)
+		assert.Equal(t, utils.RayNodeHeadGroupLabelValue, policies[0].Name)
+		assert.Equal(t, int32(1), ptr.Deref(policies[0].SubGroupSize, int32(0)))
+		assert.Equal(t, int32(1), ptr.Deref(policies[0].MinSubGroups, int32(0)))
+		assert.Equal(t, map[string]string{utils.RayNodeGroupLabelKey: utils.RayNodeHeadGroupLabelValue}, policies[0].LabelSelector.MatchLabels)
+		assert.Equal(t, []string{utils.RayNodeGroupLabelKey}, policies[0].MatchLabelKeys)
+
+		assert.Equal(t, "cpu-group", policies[1].Name)
+		assert.Equal(t, int32(1), ptr.Deref(policies[1].SubGroupSize, int32(0)))
+		assert.Equal(t, int32(4), ptr.Deref(policies[1].MinSubGroups, int32(0)))
+		assert.Equal(t, map[string]string{utils.RayNodeGroupLabelKey: "cpu-group"}, policies[1].LabelSelector.MatchLabels)
+		assert.Equal(t, []string{utils.RayWorkerReplicaIndexKey}, policies[1].MatchLabelKeys)
+
+		assert.Equal(t, "gpu-group", policies[2].Name)
+		assert.Equal(t, int32(2), ptr.Deref(policies[2].SubGroupSize, int32(0)))
+		assert.Equal(t, int32(4), ptr.Deref(policies[2].MinSubGroups, int32(0)))
+		assert.Equal(t, map[string]string{utils.RayNodeGroupLabelKey: "gpu-group"}, policies[2].LabelSelector.MatchLabels)
+		assert.Equal(t, []string{utils.RayWorkerReplicaNameKey}, policies[2].MatchLabelKeys)
+
+		assert.Equal(t, "zero-minimum-group", policies[3].Name)
+		assert.Equal(t, int32(2), ptr.Deref(policies[3].SubGroupSize, int32(0)))
+		assert.Equal(t, int32(0), ptr.Deref(policies[3].MinSubGroups, int32(-1)))
+		assert.Equal(t, []string{utils.RayWorkerReplicaNameKey}, policies[3].MatchLabelKeys)
+	})
+
+	t.Run("non-autoscaling uses effective desired logical replicas", func(t *testing.T) {
+		cluster := createTestRayCluster(1)
+		cluster.Spec.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+			{
+				GroupName:   "clamped-to-min",
+				Replicas:    ptr.To[int32](1),
+				MinReplicas: ptr.To[int32](2),
+				MaxReplicas: ptr.To[int32](8),
+				NumOfHosts:  2,
+			},
+			{
+				GroupName:   "clamped-to-max",
+				Replicas:    ptr.To[int32](10),
+				MinReplicas: ptr.To[int32](2),
+				MaxReplicas: ptr.To[int32](8),
+				NumOfHosts:  1,
+			},
+		}
+
+		policies := calculateSubGroupPolicy(&cluster, &cluster.Spec)
+
+		require.Len(t, policies, 3)
+		assert.Equal(t, "clamped-to-min", policies[1].Name)
+		assert.Equal(t, int32(2), ptr.Deref(policies[1].SubGroupSize, int32(0)))
+		assert.Equal(t, int32(2), ptr.Deref(policies[1].MinSubGroups, int32(0)))
+		assert.Equal(t, "clamped-to-max", policies[2].Name)
+		assert.Equal(t, int32(1), ptr.Deref(policies[2].SubGroupSize, int32(0)))
+		assert.Equal(t, int32(8), ptr.Deref(policies[2].MinSubGroups, int32(0)))
+	})
+
+	t.Run("multi-host indexing feature gate disabled omits subgroup policy", func(t *testing.T) {
+		features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, false)
+		cluster := createTestRayCluster(2)
+
+		assert.Nil(t, calculateSubGroupPolicy(&cluster, &cluster.Spec))
+	})
+
+	t.Run("top-level network topology preserves legacy behavior", func(t *testing.T) {
+		cluster := createTestRayClusterWithLabels(map[string]string{
+			NetworkTopologyModeLabelKey: "soft",
+		})
+
+		assert.Nil(t, calculateSubGroupPolicy(&cluster, &cluster.Spec))
+	})
+}
+
+func TestSyncPodGroup_SubGroupPolicy(t *testing.T) {
+	ctx := context.Background()
+	cluster := createTestRayCluster(2)
+	cluster.Spec.WorkerGroupSpecs[0].GroupName = "gpu-group"
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(scheme))
+	require.NoError(t, volcanoschedulingv1beta1.AddToScheme(scheme))
+	fakeCli := fake.NewClientBuilder().WithScheme(scheme).Build()
+	scheduler := &VolcanoBatchScheduler{cli: fakeCli}
+
+	require.NoError(t, scheduler.handleRayCluster(ctx, &cluster))
+
+	podGroup := &volcanoschedulingv1beta1.PodGroup{}
+	podGroupKey := client.ObjectKey{Namespace: cluster.Namespace, Name: getAppPodGroupName(&cluster)}
+	require.NoError(t, fakeCli.Get(ctx, podGroupKey, podGroup))
+	require.Len(t, podGroup.Spec.SubGroupPolicy, 2)
+	assert.Equal(t, int32(2), ptr.Deref(podGroup.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
+
+	cluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](3)
+	require.NoError(t, scheduler.handleRayCluster(ctx, &cluster))
+	require.NoError(t, fakeCli.Get(ctx, podGroupKey, podGroup))
+	require.Len(t, podGroup.Spec.SubGroupPolicy, 2)
+	assert.Equal(t, int32(3), ptr.Deref(podGroup.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
+	assert.Equal(t, int32(2), ptr.Deref(podGroup.Spec.SubGroupPolicy[1].SubGroupSize, int32(0)))
+
+	minMember, totalResource := scheduler.calculatePodGroupParams(&cluster.Spec)
+	didUpdate, err := scheduler.syncPodGroup(ctx, &cluster, minMember, totalResource, calculateSubGroupPolicy(&cluster, &cluster.Spec))
+	require.NoError(t, err)
+	assert.False(t, didUpdate)
+}
+
+func TestSyncPodGroup_OlderVolcanoCRDPrunesSubGroupPolicy(t *testing.T) {
+	ctx := context.Background()
+	cluster := createTestRayCluster(2)
+	cluster.Spec.WorkerGroupSpecs[0].GroupName = "gpu-group"
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(scheme))
+	require.NoError(t, volcanoschedulingv1beta1.AddToScheme(scheme))
+	fakeCli := fake.NewClientBuilder().WithScheme(scheme).Build()
+	scheduler := &VolcanoBatchScheduler{cli: &legacyVolcanoClient{Client: fakeCli}}
+
+	// A pre-v1.14 CRD drops SubGroupPolicy but still accepts the PodGroup and
+	// preserves the existing global gang-scheduling fields.
+	require.NoError(t, scheduler.handleRayCluster(ctx, &cluster))
+
+	podGroup := &volcanoschedulingv1beta1.PodGroup{}
+	podGroupKey := client.ObjectKey{Namespace: cluster.Namespace, Name: getAppPodGroupName(&cluster)}
+	require.NoError(t, fakeCli.Get(ctx, podGroupKey, podGroup))
+	assert.Empty(t, podGroup.Spec.SubGroupPolicy)
+	assert.Equal(t, int32(5), podGroup.Spec.MinMember)
+	assert.Equal(t, "1280m", podGroup.Spec.MinResources.Cpu().String())
+
+	// Updates also continue to synchronize the legacy fields without failing.
+	cluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](3)
+	require.NoError(t, scheduler.handleRayCluster(ctx, &cluster))
+	require.NoError(t, fakeCli.Get(ctx, podGroupKey, podGroup))
+	assert.Empty(t, podGroup.Spec.SubGroupPolicy)
+	assert.Equal(t, int32(7), podGroup.Spec.MinMember)
+	assert.Equal(t, "1792m", podGroup.Spec.MinResources.Cpu().String())
+}
+
 func TestGetAppPodGroupName(t *testing.T) {
 	a := assert.New(t)
 
@@ -525,7 +742,7 @@ func TestCreatePodGroup_OwnerAnnotationsCopied(t *testing.T) {
 
 		minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 		totalResource := utils.CalculateDesiredResources(&cluster)
-		pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource)
+		pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, calculateSubGroupPolicy(&cluster, &cluster.Spec))
 		require.NoError(t, err)
 
 		a.NotNil(pg.Annotations)
@@ -543,7 +760,7 @@ func TestCreatePodGroup_OwnerAnnotationsCopied(t *testing.T) {
 
 		minMember := utils.CalculateDesiredReplicas(&rayv1.RayCluster{Spec: *rayJob.Spec.RayClusterSpec}) + 1
 		totalResource := utils.CalculateDesiredResources(&rayv1.RayCluster{Spec: *rayJob.Spec.RayClusterSpec})
-		pg, err := createPodGroup(&rayJob, getAppPodGroupName(&rayJob), minMember, totalResource)
+		pg, err := createPodGroup(&rayJob, getAppPodGroupName(&rayJob), minMember, totalResource, calculateSubGroupPolicy(&rayJob, rayJob.Spec.RayClusterSpec))
 		require.NoError(t, err)
 
 		a.NotNil(pg.Annotations)
@@ -558,7 +775,7 @@ func TestCreatePodGroup_OwnerAnnotationsCopied(t *testing.T) {
 
 		minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 		totalResource := utils.CalculateDesiredResources(&cluster)
-		pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource)
+		pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, calculateSubGroupPolicy(&cluster, &cluster.Spec))
 		require.NoError(t, err)
 
 		a.NotNil(pg.Annotations)
@@ -571,7 +788,7 @@ func TestCreatePodGroup_OwnerAnnotationsCopied(t *testing.T) {
 
 		minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 		totalResource := utils.CalculateDesiredResources(&cluster)
-		pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource)
+		pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, calculateSubGroupPolicy(&cluster, &cluster.Spec))
 		require.NoError(t, err)
 
 		a.NotNil(pg.Annotations)
@@ -740,6 +957,7 @@ func TestCleanupOnCompletion(t *testing.T) {
 		a.Equal(int32(0), retrievedPg.Spec.MinMember)
 		a.True(retrievedPg.Spec.MinResources.Cpu().IsZero())
 		a.True(retrievedPg.Spec.MinResources.Memory().IsZero())
+		a.Empty(retrievedPg.Spec.SubGroupPolicy)
 	})
 
 	t.Run("RayJob - RayCluster exists, recalculates PodGroup from live spec", func(t *testing.T) {
@@ -798,6 +1016,9 @@ func TestCleanupOnCompletion(t *testing.T) {
 		a.Equal("768m", retrievedPg.Spec.MinResources.Cpu().String())
 		// 256Mi * 3 (requests, not limits)
 		a.Equal("768Mi", retrievedPg.Spec.MinResources.Memory().String())
+		require.Len(retrievedPg.Spec.SubGroupPolicy, 2)
+		a.Equal("small-group", retrievedPg.Spec.SubGroupPolicy[1].Name)
+		a.Equal(int32(2), ptr.Deref(retrievedPg.Spec.SubGroupPolicy[1].MinSubGroups, int32(0)))
 	})
 
 	t.Run("RayJob - RayCluster exists, recalculates PodGroup with the submitter container", func(t *testing.T) {
@@ -927,6 +1148,8 @@ func TestCleanupOnCompletion(t *testing.T) {
 		a.Equal("256m", retrievedPg.Spec.MinResources.Cpu().String())
 		// 256Mi * 1 (requests, not limits)
 		a.Equal("256Mi", retrievedPg.Spec.MinResources.Memory().String())
+		require.Len(retrievedPg.Spec.SubGroupPolicy, 1)
+		a.Equal(utils.RayNodeHeadGroupLabelValue, retrievedPg.Spec.SubGroupPolicy[0].Name)
 	})
 
 	t.Run("RayJob - RayCluster being deleted, updates PodGroup with empty resources", func(t *testing.T) {

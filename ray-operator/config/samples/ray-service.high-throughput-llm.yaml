@@ -1,9 +1,11 @@
-# This sample Ray Service shows how to configure ray for high throughput with
-# LLM serving.
+# This sample Ray Service shows how to configure Ray Serve LLM for high
+# throughput serving.
 # This is enabled by the env vars
 #
 # - RAY_SERVE_ENABLE_HA_PROXY=1
 # - RAY_SERVE_THROUGHPUT_OPTIMIZED=1
+# - RAY_SERVE_LLM_ENABLE_DIRECT_STREAMING=1
+# - VLLM_USE_RAY_V2_EXECUTOR_BACKEND=1
 #
 # ...which should be set on both the head and workers.
 # This example uses L4s on GKE with Qwen 3.5 for illustrative purposes only.
@@ -27,7 +29,7 @@ spec:
               deployment_config:
                 num_replicas: 4
   rayClusterConfig:
-    rayVersion: 2.55.0
+    rayVersion: 2.56.0
     headGroupSpec:
       rayStartParams:
         dashboard-host: 0.0.0.0
@@ -36,7 +38,7 @@ spec:
         spec:
           containers:
           - name: ray-head
-            image: rayproject/ray-llm:2.55.0-py311-cu128
+            image: rayproject/ray-llm:2.56.0-py312-cu130
             resources:
               limits:
                 memory: 8Gi
@@ -59,6 +61,10 @@ spec:
               value: '1'
             - name: RAY_SERVE_THROUGHPUT_OPTIMIZED
               value: '1'
+            - name: RAY_SERVE_LLM_ENABLE_DIRECT_STREAMING
+              value: '1'
+            - name: VLLM_USE_RAY_V2_EXECUTOR_BACKEND
+              value: '1'
             - name: HUGGING_FACE_HUB_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -72,11 +78,15 @@ spec:
         spec:
           containers:
           - name: llm
-            image: rayproject/ray-llm:2.55.0-py311-cu128
+            image: rayproject/ray-llm:2.56.0-py312-cu130
             env:
             - name: RAY_SERVE_ENABLE_HA_PROXY
               value: '1'
             - name: RAY_SERVE_THROUGHPUT_OPTIMIZED
+              value: '1'
+            - name: RAY_SERVE_LLM_ENABLE_DIRECT_STREAMING
+              value: '1'
+            - name: VLLM_USE_RAY_V2_EXECUTOR_BACKEND
               value: '1'
             - name: HUGGING_FACE_HUB_TOKEN
               valueFrom:

@@ -117,6 +117,21 @@ configuration:
   #   value: "recommended"
   defaultContainerEnvs: []
 
+  # -- Default annotations to add to all Ray pod templates.
+  # User-specified annotations take precedence.
+  # Example:
+  # defaultPodAnnotations:
+  #   prometheus.io/scrape: "true"
+  #   prometheus.io/port: "8080"
+  defaultPodAnnotations: {}
+
+  # -- Default labels to add to all Ray pod templates.
+  # User-specified labels take precedence.
+  # Example:
+  # defaultPodLabels:
+  #   app.kubernetes.io/managed-by: kuberay
+  defaultPodLabels: {}
+
   # -- Sidecar containers to inject into every Ray head pod.
   # Example:
   # headSidecarContainers:
@@ -131,6 +146,22 @@ configuration:
   #   image: fluent/fluent-bit:1.9
   workerSidecarContainers: []
 
+  # -- Node label keys worker groups may deliver as Ray node labels through workerGroupSpecs[].labelRefs.
+  # Enforced by the validating webhooks, so it requires ENABLE_WEBHOOKS to be enabled. Empty disables delivery.
+  # Example:
+  # allowedNodeLabels:
+  # - nvidia.com/gpu.clique
+  # - topology.kubernetes.io/zone
+  allowedNodeLabels: []
+
+# Admission webhooks: validating webhooks for RayCluster, RayJob and RayService, and the pod mutating webhooks
+# that deliver node labels to Ray workers (workerGroupSpecs[].labelRefs, NodeLabelDelivery feature gate).
+webhooks:
+  # -- Deploy the admission webhooks. Currently requires cert-manager in the cluster for the serving certificate
+  # and CA injection. The webhook configurations are cluster-scoped, so the install fails with singleNamespaceInstall.
+  # The pod webhooks for node label delivery are registered only when the NodeLabelDelivery feature gate is enabled.
+  enabled: false
+
 featureGates:
 - name: RayClusterStatusConditions
   enabled: true
@@ -139,9 +170,42 @@ featureGates:
 - name: RayMultiHostIndexing
   enabled: true
 - name: RayServiceIncrementalUpgrade
-  enabled: false
+  enabled: true
 - name: RayCronJob
   enabled: false
+- name: RayClusterMTLS
+  enabled: false
+- name: RayClusterNetworkPolicy
+  enabled: false
+- name: RayClusterHistoryServer
+  enabled: false
+- name: RayNodeEventForwarder
+  enabled: false
+- name: NodeLabelDelivery
+  enabled: false
+
+# Configurations for KubeRay node event forwarder controller.
+# The controller forwards Kubernetes Node events to the corresponding RayCluster custom resources.
+# Ref: https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/k8s-events.html
+# Note: Node event forwarding is not supported when singleNamespaceInstall is true.
+nodeEventForwarder:
+  # -- Whether KubeRay operator should forward Kubernetes Node events to RayCluster custom resources. Note: not supported when singleNamespaceInstall is true.
+  enabled: false
+  # -- Only forward Node events emitted by these components, matched against both source.component and reportingController. Empty means all sources.
+  sources: []
+    # - node-problem-detector
+    # - nvidia-gpu-device-plugin
+  # -- Only forward Node events with these reasons, e.g. ["XIDError"]. Empty means all reasons.
+  reasons: []
+  # -- Only forward Node events with these types. Valid values are "Warning" and "Normal". Empty means all types.
+  # Note: Removing the "Warning" filter (or including "Normal") may result in a large number of noisy Normal Node events being forwarded.
+  types:
+    - Warning
+
+# -- Default image for the History Server collector sidecar. A RayCluster can override it with
+# `spec.historyServerOptions.collectorOptions.image`. If empty, defaults to
+# `quay.io/kuberay/collector` with the tag matching the operator version.
+collectorImage: ""
 
 # Configurations for KubeRay operator metrics.
 metrics:
@@ -154,8 +218,8 @@ metrics:
     interval: 30s
     # -- When true, honorLabels preserves the metric’s labels when they collide with the target’s labels.
     honorLabels: true
-    # -- Prometheus ServiceMonitor selector
-    selector: {}
+    # -- Additional labels to add to the ServiceMonitor's metadata.
+    additionalLabels: {}
       #  release: prometheus
     # -- Prometheus ServiceMonitor namespace
     namespace: ""  # "monitoring"
@@ -204,6 +268,7 @@ crNamespacedRbacEnable: true
 #   (Please note that this excludes the CRDs, which can only be installed at the cluster scope.)
 # - If "watchNamespace" is not set, the KubeRay operator will, by default, only listen
 #   to resource events within its own namespace.
+# - Node event forwarding (nodeEventForwarder.enabled) is not supported when singleNamespaceInstall is true.
 singleNamespaceInstall: false
 
 # The KubeRay operator will watch the custom resources in the namespaces listed in the "watchNamespace" parameter.
@@ -266,6 +331,10 @@ env:
 # this grace period seconds after JobStatus reaches a terminal state,
 # KubeRay will update JobDeploymentStatus directly.
 # - name: RAYJOB_DEPLOYMENT_STATUS_TRANSITION_GRACE_PERIOD_SECONDS
+#   value: "300"
+# If job status checks keep failing for longer than this timeout in seconds,
+# KubeRay will transition the RayJob's JobDeploymentStatus to Failed. Default is 300.
+# - name: RAYJOB_STATUS_CHECK_TIMEOUT_SECONDS
 #   value: "300"
 
 # -- Resource requests and limits for containers.

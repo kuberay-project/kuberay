@@ -8,6 +8,6 @@ metadata:
   name: {{ include "kuberay-operator.fullname" $ }}
   namespace: {{ $namespace }}
   labels: {{ include "kuberay-operator.labels" $ | nindent 4 }}
-{{ include "role.consistentRules" (dict "batchSchedulerEnabled" $.Values.batchScheduler.enabled) }}
+{{ include "role.consistentRules" (dict "batchSchedulerEnabled" $.Values.batchScheduler.enabled "batchSchedulerName" $.Values.batchScheduler.name "kubernetesWASEnabled" (include "kuberay.kubernetesWASEnabled" $)) }}
 {{- end }}
 {{- end }}

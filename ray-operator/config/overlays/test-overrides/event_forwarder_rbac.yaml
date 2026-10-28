@@ -1,0 +1,61 @@
+# Dedicated Roles and RoleBindings granting get/list/watch on core Events in "default"
+# and "kube-system" for e2e testing with --enable-node-event-forwarder=true.
+# Node events in Kubernetes are strictly recorded in either "default" or "kube-system".
+# Scoping these permissions avoids granting cluster-wide event read access in the base ClusterRole.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kuberay-operator-node-event-forwarder
+  namespace: default
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kuberay-operator-node-event-forwarder
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: kuberay-operator
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kuberay-operator-node-event-forwarder
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kuberay-operator-node-event-forwarder
+  namespace: kube-system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kuberay-operator-node-event-forwarder
+  namespace: kube-system
+subjects:
+- kind: ServiceAccount
+  name: kuberay-operator
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kuberay-operator-node-event-forwarder

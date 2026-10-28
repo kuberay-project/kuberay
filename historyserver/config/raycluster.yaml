@@ -4,8 +4,11 @@ metadata:
   labels:
     ray.io/cluster: raycluster-historyserver
   name: raycluster-historyserver
-  namespace: default
 spec:
+  # Enable Ray token authentication. Requires Ray 2.52.0+
+  # rayVersion: "2.58.0"
+  # authOptions:
+  #   mode: token
   headGroupSpec:
     rayStartParams:
       dashboard-host: 0.0.0.0
@@ -16,8 +19,6 @@ spec:
         labels:
           test: raycluster-historyserver
       spec:
-        imagePullSecrets:
-        affinity:
         containers:
         - env:
           - name: RAY_TMP_ROOT
@@ -28,43 +29,11 @@ spec:
             value: "true"
           - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EVENTS_EXPORT_ADDR
             value: "http://localhost:8084/v1/events"
-            # in ray 2.52.0, we need to set RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES
-            # in ray 2.53.0 (noy yet done). we need to set RAY_DASHBOARD_AGGREGATOR_AGENT_PUBLISHER_HTTP_ENDPOINT_EXPOSABLE_EVENT_TYPES
           - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES
-            value: "TASK_DEFINITION_EVENT,TASK_LIFECYCLE_EVENT,ACTOR_TASK_DEFINITION_EVENT,
-                    TASK_PROFILE_EVENT,DRIVER_JOB_DEFINITION_EVENT,DRIVER_JOB_LIFECYCLE_EVENT,
-                    ACTOR_DEFINITION_EVENT,ACTOR_LIFECYCLE_EVENT,NODE_DEFINITION_EVENT,NODE_LIFECYCLE_EVENT"
-          image: rayproject/ray:2.52.0
+            value: "ALL"
+          image: rayproject/ray:2.58.0
           imagePullPolicy: IfNotPresent
-          command:
-          - 'echo "=========================================="; [ -d "$RAY_TMP_ROOT/session_latest" ] && dest="$RAY_TMP_ROOT/prev-logs/$(basename $(readlink "$RAY_TMP_ROOT/session_latest"))/$(cat "$RAY_TMP_ROOT/raylet_node_id")" && echo "dst is $dest" && mkdir -p "$dest" && mv "$RAY_TMP_ROOT/session_latest/logs" "$dest/logs"; echo "========================================="'
-          securityContext:
-            allowPrivilegeEscalation: true
-            privileged: true
           name: ray-head
-          lifecycle:
-            postStart:
-              exec:
-                command:
-                - /bin/sh
-                - -lc
-                - --
-                - |
-                  GetNodeId(){
-                    while true;
-                    do
-                      nodeid=$(ps -ef | grep raylet | grep node_id | grep -v grep | grep -oP '(?<=--node_id=)[^ ]*')
-                      if [ -n "$nodeid" ]; then
-                        echo "$(date) raylet started: \"$(ps -ef | grep raylet | grep node_id | grep -v grep | grep -oP '(?<=--node_id=)[^ ]*')\" => ${nodeid}" >> "$RAY_TMP_ROOT/init.log"
-                        echo $nodeid > "$RAY_TMP_ROOT/raylet_node_id"
-                        break
-                      else
-                        echo "$(date) raylet not start >> $RAY_TMP_ROOT/init.log"
-                        sleep 1
-                      fi
-                    done
-                  }
-                  GetNodeId
           resources:
             limits:
               cpu: "5"
@@ -79,59 +48,71 @@ spec:
           image: collector:v0.1.0
           imagePullPolicy: IfNotPresent
           env:
+          - name: RAY_CLUSTER_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.labels['ray.io/cluster']
+          - name: RAY_CLUSTER_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: FQ_RAY_IP
+            value: $(RAY_CLUSTER_NAME)-head-svc.$(RAY_CLUSTER_NAMESPACE).svc.cluster.local
           - name: RAY_TMP_ROOT
             value: *rayTmpRoot
-          # RAY_DASHBOARD_ADDRESS is used by the head collector to fetch endpoints' results
-          # (e.g., /api/v0/cluster_metadata) from the Ray Dashboard running in the same pod.
-          # Only the head collector uses this; worker collectors do not need it.
-          # If your Ray Dashboard uses a non-default port (not 8265), update this value accordingly.
-          - name: RAY_DASHBOARD_ADDRESS
-            value: "http://localhost:8265"
-          # RAY_COLLECTOR_ADDITIONAL_ENDPOINTS is a comma-separated list of Ray Dashboard
-          # API endpoint paths that the head collector will periodically poll and store.
-          # Use this for endpoints whose data cannot be obtained via Ray events.
-          # You can add more endpoints, e.g., "/api/v0/placement_groups,/api/serve/applications/"
-          # Note: Only static endpoints (no dynamic path parameters like {job_id}) are supported.
-          - name: RAY_COLLECTOR_ADDITIONAL_ENDPOINTS
-            # Query params must match the Ray Dashboard frontend request exactly
-            # (see https://github.com/ray-project/ray/blob/cb9c80fee6a700efe61ea97987248ce82e3fa2e2/python/ray/dashboard/client/src/service/placementGroup.ts):
-            #   detail=1    — include bundles and stats fields required by PlacementGroupTable
-            #   limit=10000 — match the frontend's default limit to avoid truncation
-            value: "/api/v0/placement_groups?detail=1&limit=10000"
-          # RAY_COLLECTOR_POLL_INTERVAL controls how often the collector polls the additional
-          # endpoints above. Accepts Go duration format (e.g., "30s", "1m", "5m").
-          - name: RAY_COLLECTOR_POLL_INTERVAL
-            value: "30s"
+          # Optional; defaults to http://localhost:8265 (head only).
+          # - name: RAY_DASHBOARD_ADDRESS
+          #   value: "http://localhost:9265"
+          # Optional; defaults to 30s.
+          # - name: RAY_COLLECTOR_POLL_INTERVAL
+          #   value: "1m"
+          # Optional; defaults to 5m. Interval at which rotated Ray log backups and new
+          # active log content are uploaded. Shorter intervals produce more log chunks
+          # for the History Server to merge on read.
+          # - name: RAY_COLLECTOR_LOG_UPLOAD_INTERVAL
+          #   value: "1m"
+          # Optional extras on top of the built-in endpoints (Serve, placement groups, Ray Data).
+          # Paths must match the History Server replay request URI, query string included.
+          # For example, preserve Ray Train V2 run details for a future History Server view.
+          # Requires the Ray Train workload/driver (not the collector) to set
+          # RAY_TRAIN_V2_ENABLED=1 and RAY_TRAIN_ENABLE_STATE_TRACKING=1;
+          # verify this DeveloperAPI URI when changing Ray versions.
+          # - name: RAY_COLLECTOR_ADDITIONAL_ENDPOINTS
+          #   value: "/api/train/v2/runs/v1"
           - name: S3DISABLE_SSL
             value: "true"
           - name: AWS_ACCESS_KEY_ID
-            value: minioadmin
+            value: rustfsadmin
           - name: AWS_SECRET_ACCESS_KEY
-            value: minioadmin
+            value: rustfsadmin
           - name: AWS_SESSION_TOKEN
             value: ""
           - name: S3_BUCKET
             value: "ray-historyserver"
           - name: S3_ENDPOINT
-            value: "minio-service.minio-dev:9000"
+            value: "rustfs-service.rustfs-dev:9000"
           - name: S3_REGION
             value: "test"
           - name: S3FORCE_PATH_STYLE
             value: "true"
-          command:
-          - collector
-          - --role=Head
-          - --runtime-class-name=s3
-          - --ray-cluster-name=raycluster-historyserver
-          - --ray-root-dir=log
-          - --events-port=8084
+          - name: RAY_ROLE
+            value: "Head"
+          - name: STORAGE_BACKEND
+            value: "s3"
+          # Uncomment when the RayCluster sets `spec.authOptions.mode: token`; the collector
+          # needs the token to call the Dashboard.
+          # - name: RAY_AUTH_TOKEN
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: raycluster-historyserver  # defaults to the RayCluster name
+          #       key: auth_token
           volumeMounts:
           - name: historyserver
             mountPath: *rayTmpRoot
-        tolerations:
-        - key: ray
-          operator: Equal
-          value: cpu
         volumes:
         - name: historyserver
           emptyDir: {}
@@ -147,7 +128,6 @@ spec:
         labels:
           test: raycluster-historyserver
       spec:
-        imagePullSecrets:
         containers:
         - env:
           - name: RAY_TMP_ROOT
@@ -158,43 +138,11 @@ spec:
             value: "true"
           - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EVENTS_EXPORT_ADDR
             value: "http://localhost:8084/v1/events"
-            # in ray 2.52.0, we need to set RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES
-            # in ray 2.53.0 (not yet done). we need to set RAY_DASHBOARD_AGGREGATOR_AGENT_PUBLISHER_HTTP_ENDPOINT_EXPOSABLE_EVENT_TYPES
           - name: RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES
-            value: "TASK_DEFINITION_EVENT,TASK_LIFECYCLE_EVENT,ACTOR_TASK_DEFINITION_EVENT,
-                    TASK_PROFILE_EVENT,DRIVER_JOB_DEFINITION_EVENT,DRIVER_JOB_LIFECYCLE_EVENT,
-                    ACTOR_DEFINITION_EVENT,ACTOR_LIFECYCLE_EVENT,NODE_DEFINITION_EVENT,NODE_LIFECYCLE_EVENT"
-          image: rayproject/ray:2.52.0
-          command:
-          - 'echo "=========================================="; [ -d "$RAY_TMP_ROOT/session_latest" ] && dest="$RAY_TMP_ROOT/prev-logs/$(basename $(readlink "$RAY_TMP_ROOT/session_latest"))/$(cat "$RAY_TMP_ROOT/raylet_node_id")" && echo "dst is $dest" && mkdir -p "$dest" && mv "$RAY_TMP_ROOT/session_latest/logs" "$dest/logs"; echo "========================================="'
+            value: "ALL"
+          image: rayproject/ray:2.58.0
           imagePullPolicy: IfNotPresent
           name: ray-worker
-          securityContext:
-            allowPrivilegeEscalation: true
-            privileged: true
-          lifecycle:
-            postStart:
-              exec:
-                command:
-                - /bin/sh
-                - -lc
-                - --
-                - |
-                  GetNodeId(){
-                    while true;
-                    do
-                      nodeid=$(ps -ef | grep raylet | grep node_id | grep -v grep | grep -oP '(?<=--node_id=)[^ ]*')
-                      if [ -n "$nodeid" ]; then
-                        echo "$(date) raylet started: \"$(ps -ef | grep raylet | grep node_id | grep -v grep | grep -oP '(?<=--node_id=)[^ ]*')\" => ${nodeid}" >> "$RAY_TMP_ROOT/init.log"
-                        echo $nodeid > "$RAY_TMP_ROOT/raylet_node_id"
-                        break
-                      else
-                        echo "$(date) raylet not start >> $RAY_TMP_ROOT/init.log"
-                        sleep 1
-                      fi
-                    done
-                  }
-                  GetNodeId
           resources:
             limits:
               cpu: "2"
@@ -209,38 +157,52 @@ spec:
           image: collector:v0.1.0
           imagePullPolicy: IfNotPresent
           env:
+          - name: RAY_CLUSTER_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.labels['ray.io/cluster']
+          - name: RAY_CLUSTER_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: FQ_RAY_IP
+            value: $(RAY_CLUSTER_NAME)-head-svc.$(RAY_CLUSTER_NAMESPACE).svc.cluster.local
           - name: RAY_TMP_ROOT
             value: *rayTmpRoot
           - name: AWS_ACCESS_KEY_ID
-            value: minioadmin
+            value: rustfsadmin
           - name: AWS_SECRET_ACCESS_KEY
-            value: minioadmin
+            value: rustfsadmin
           - name: AWS_SESSION_TOKEN
             value: ""
           - name: S3_BUCKET
             value: "ray-historyserver"
           - name: S3_ENDPOINT
-            value: "minio-service.minio-dev:9000"
+            value: "rustfs-service.rustfs-dev:9000"
           - name: S3_REGION
             value: "test"
           - name: S3FORCE_PATH_STYLE
             value: "true"
           - name: S3DISABLE_SSL
             value: "true"
-          command:
-          - collector
-          - --role=Worker
-          - --runtime-class-name=s3
-          - --ray-cluster-name=raycluster-historyserver
-          - --ray-root-dir=log
-          - --events-port=8084
+          - name: RAY_ROLE
+            value: "Worker"
+          - name: STORAGE_BACKEND
+            value: "s3"
+          # Uncomment when the RayCluster sets `spec.authOptions.mode: token`; the collector
+          # needs the token to call the Dashboard.
+          # - name: RAY_AUTH_TOKEN
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: raycluster-historyserver  # defaults to the RayCluster name
+          #       key: auth_token
           volumeMounts:
           - name: historyserver
             mountPath: *rayTmpRoot
-        tolerations:
-        - key: ray
-          operator: Equal
-          value: cpu
         volumes:
         - name: historyserver
           emptyDir: {}

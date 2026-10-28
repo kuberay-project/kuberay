@@ -5,11 +5,13 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/testr"
+	"github.com/stretchr/testify/require"
 
 	kaischeduler "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/kai-scheduler"
 	schedulerPlugins "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/scheduler-plugins"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/volcano"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/yunikorn"
+	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
 func TestValidateBatchSchedulerConfig(t *testing.T) {
@@ -83,6 +85,16 @@ func TestValidateBatchSchedulerConfig(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "invalid option, batch-scheduler=kubernetes-was-v1alpha3 requires the KubernetesWAS feature gate",
+			args: args{
+				logger: testr.New(t),
+				config: Configuration{
+					BatchScheduler: "kubernetes-was-v1alpha3",
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name: "invalid option, invalid scheduler name",
 			args: args{
 				logger: testr.New(t),
@@ -124,4 +136,12 @@ func TestValidateBatchSchedulerConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateBatchSchedulerConfigKubernetesWAS(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KubernetesWAS, true)
+
+	require.NoError(t, ValidateBatchSchedulerConfig(testr.New(t), Configuration{}))
+	require.Error(t, ValidateBatchSchedulerConfig(testr.New(t), Configuration{BatchScheduler: volcano.GetPluginName()}))
+	require.Error(t, ValidateBatchSchedulerConfig(testr.New(t), Configuration{EnableBatchScheduler: true}))
 }

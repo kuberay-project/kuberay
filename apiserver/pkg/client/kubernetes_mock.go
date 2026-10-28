@@ -9,6 +9,7 @@ import (
 
 	gomock "github.com/golang/mock/gomock"
 	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	v10 "k8s.io/client-go/kubernetes/typed/events/v1"
 )
 
 // MockKubernetesClientInterface is a mock of KubernetesClientInterface interface.
@@ -49,10 +50,10 @@ func (mr *MockKubernetesClientInterfaceMockRecorder) ConfigMapClient(namespace i
 }
 
 // EventsClient mocks base method.
-func (m *MockKubernetesClientInterface) EventsClient(namespace string) v1.EventInterface {
+func (m *MockKubernetesClientInterface) EventsClient(namespace string) v10.EventInterface {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "EventsClient", namespace)
-	ret0, _ := ret[0].(v1.EventInterface)
+	ret0, _ := ret[0].(v10.EventInterface)
 	return ret0
 }
 

@@ -67,9 +67,10 @@ spec:
               resources:
                 limits:
                   cpu: "1"
-                  memory: "5Gi"
+                  memory: "2Gi"
                 requests:
                   cpu: "200m"
+                  memory: "2Gi"
               volumeMounts:
               - mountPath: /home/ray/samples
                 name: code-sample

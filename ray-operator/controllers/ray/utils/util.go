@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -162,6 +163,11 @@ func FindRayClusterSuspendStatus(instance *rayv1.RayCluster) rayv1.RayClusterCon
 		}
 	}
 	return ""
+}
+
+// IsRayClusterSuspendOrIdleSuspend returns true if either spec.Suspend=true or spec.IdleSuspend=true
+func IsRayClusterSuspendOrIdleSuspend(instance *rayv1.RayCluster) bool {
+	return instance.Spec.Suspend != nil && *instance.Spec.Suspend || instance.Spec.IdleSuspend != nil && *instance.Spec.IdleSuspend
 }
 
 // IsRunningAndReady returns true if pod is in the PodRunning Phase, if it has a condition of PodReady.
@@ -465,7 +471,7 @@ func CalculateReadyReplicas(pods corev1.PodList) int32 {
 func CalculateAvailableReplicas(pods corev1.PodList) int32 {
 	count := int32(0)
 	for _, pod := range pods.Items {
-		if val, ok := pod.Labels["ray.io/node-type"]; !ok || val != string(rayv1.WorkerNode) {
+		if val, ok := pod.Labels[RayNodeTypeLabelKey]; !ok || val != string(rayv1.WorkerNode) {
 			continue
 		}
 		if pod.Status.Phase == corev1.PodRunning {
@@ -485,10 +491,9 @@ func CalculateDesiredResources(cluster *rayv1.RayCluster) corev1.ResourceList {
 			continue
 		}
 		podResource := CalculatePodResource(nodeGroup.Template.Spec)
-		calculateReplicaResource(&podResource, nodeGroup.NumOfHosts)
-		for i := int32(0); i < *nodeGroup.Replicas; i++ {
-			desiredResourcesList = append(desiredResourcesList, podResource)
-		}
+		replicas := ptr.Deref(nodeGroup.Replicas, int32(0))
+		calculatePodResources(&podResource, int64(nodeGroup.NumOfHosts)*int64(replicas))
+		desiredResourcesList = append(desiredResourcesList, podResource)
 	}
 	return SumResourceList(desiredResourcesList)
 }
@@ -498,24 +503,25 @@ func CalculateMinResources(cluster *rayv1.RayCluster) corev1.ResourceList {
 	headPodResource := CalculatePodResource(cluster.Spec.HeadGroupSpec.Template.Spec)
 	minResourcesList = append(minResourcesList, headPodResource)
 	for _, nodeGroup := range cluster.Spec.WorkerGroupSpecs {
-		podResource := CalculatePodResource(nodeGroup.Template.Spec)
-		calculateReplicaResource(&podResource, nodeGroup.NumOfHosts)
-		minReplicas := ptr.Deref(nodeGroup.MinReplicas, int32(0))
-		for range minReplicas {
-			minResourcesList = append(minResourcesList, podResource)
+		if nodeGroup.Suspend != nil && *nodeGroup.Suspend {
+			continue
 		}
+		podResource := CalculatePodResource(nodeGroup.Template.Spec)
+		minReplicas := ptr.Deref(nodeGroup.MinReplicas, int32(0))
+		calculatePodResources(&podResource, int64(nodeGroup.NumOfHosts)*int64(minReplicas))
+		minResourcesList = append(minResourcesList, podResource)
 	}
 	return SumResourceList(minResourcesList)
 }
 
-// calculateReplicaResource adjusts the resource quantities in a given ResourceList
+// calculatePodResources adjusts the resource quantities in a given ResourceList
 // to account for the specified number of hosts. It multiplies each resource quantity
 // in the ResourceList by the number of hosts.
 //
 // Note: This function modifies the provided ResourceList in place.
-func calculateReplicaResource(podResource *corev1.ResourceList, numOfHosts int32) {
+func calculatePodResources(podResource *corev1.ResourceList, numPods int64) {
 	for name, quantity := range *podResource {
-		quantity.Mul(int64(numOfHosts))
+		quantity.Mul(numPods)
 		(*podResource)[name] = quantity
 	}
 }
@@ -525,7 +531,7 @@ func calculateReplicaResource(podResource *corev1.ResourceList, numOfHosts int32
 func CalculatePodResource(podSpec corev1.PodSpec) corev1.ResourceList {
 	podResource := corev1.ResourceList{}
 	for _, container := range podSpec.Containers {
-		containerResource := container.Resources.Requests
+		containerResource := container.Resources.Requests.DeepCopy()
 		if containerResource == nil {
 			containerResource = corev1.ResourceList{}
 		}
@@ -658,6 +664,9 @@ func GenerateHashWithoutReplicasAndWorkersToDelete(rayClusterSpec rayv1.RayClust
 		updatedRayClusterSpec.WorkerGroupSpecs[i].MaxReplicas = nil
 		updatedRayClusterSpec.WorkerGroupSpecs[i].MinReplicas = nil
 		updatedRayClusterSpec.WorkerGroupSpecs[i].ScaleStrategy.WorkersToDelete = nil
+		// External controllers like Kueue may set ScaleGate to signal quota exhaustion,
+		// which should not trigger a new RayCluster preparation.
+		updatedRayClusterSpec.WorkerGroupSpecs[i].ScaleStrategy.ScaleGate = nil
 		updatedRayClusterSpec.WorkerGroupSpecs[i].Template.Spec.Tolerations = nil
 		updatedRayClusterSpec.WorkerGroupSpecs[i].Template.Spec.SchedulingGates = nil
 	}
@@ -686,6 +695,11 @@ func IsJobFinished(j *batchv1.Job) (batchv1.JobConditionType, bool) {
 	for _, c := range j.Status.Conditions {
 		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
 			return c.Type, true
+		}
+		// FailureTarget appears ~tens-of-seconds before JobFailed when activeDeadlineSeconds
+		// is exceeded; treat it as a failed terminal state to avoid stalling the reconciler.
+		if c.Type == batchv1.JobFailureTarget && c.Status == corev1.ConditionTrue {
+			return batchv1.JobFailed, true
 		}
 	}
 	return "", false
@@ -762,6 +776,31 @@ func IsGCSFaultToleranceEnabled(spec *rayv1.RayClusterSpec, annotations map[stri
 	return (ok && strings.ToLower(v) == "true") || spec.GcsFaultToleranceOptions != nil
 }
 
+// GetGcsFaultToleranceBackend returns the configured GCS FT backend, defaulting to
+// redis when unset (for backward compatibility).
+func GetGcsFaultToleranceBackend(options *rayv1.GcsFaultToleranceOptions) rayv1.GcsFaultToleranceBackend {
+	if options == nil || options.Backend == "" {
+		return rayv1.GcsFTBackendRedis
+	}
+	return options.Backend
+}
+
+// IsGCSFaultToleranceEmbedded returns true when GCS FT uses the embedded RocksDB backend.
+func IsGCSFaultToleranceEmbedded(options *rayv1.GcsFaultToleranceOptions) bool {
+	return options != nil && GetGcsFaultToleranceBackend(options) == rayv1.GcsFTBackendRocksDB
+}
+
+// GetGCSStoragePVCName returns the name of the PVC backing the embedded RocksDB GCS
+// store. When the user brings their own claim via Storage.ClaimName, that name is
+// returned; otherwise the operator-managed name "{cluster}-gcs-pvc" is used.
+func GetGCSStoragePVCName(instance *rayv1.RayCluster) string {
+	options := instance.Spec.GcsFaultToleranceOptions
+	if options != nil && options.Storage != nil && options.Storage.ClaimName != "" {
+		return options.Storage.ClaimName
+	}
+	return instance.Name + GCSStoragePVCSuffix
+}
+
 // IsAuthEnabled returns whether Ray auth is enabled.
 func IsAuthEnabled(spec *rayv1.RayClusterSpec) bool {
 	return spec.AuthOptions != nil && spec.AuthOptions.Mode == rayv1.AuthModeToken
@@ -769,6 +808,66 @@ func IsAuthEnabled(spec *rayv1.RayClusterSpec) bool {
 
 func IsK8sAuthEnabled(authOptions *rayv1.AuthOptions) bool {
 	return authOptions != nil && authOptions.EnableK8sTokenAuth != nil && *authOptions.EnableK8sTokenAuth
+}
+
+// IsCollectorEnabled returns whether the operator manages the collector container of the
+// RayCluster: the RayClusterHistoryServer feature gate is on and the RayCluster opts in with
+// historyServerOptions.collectorOptions.
+func IsCollectorEnabled(spec *rayv1.RayClusterSpec) bool {
+	return features.Enabled(features.RayClusterHistoryServer) &&
+		spec.HistoryServerOptions != nil &&
+		spec.HistoryServerOptions.CollectorOptions != nil
+}
+
+// IsTLSEnabled returns whether TLS is enabled for the RayCluster.
+// TLS is enabled when the RayClusterMTLS feature gate is on, spec.TLSOptions is non-nil,
+// and spec.TLSOptions.Enabled is true.
+func IsTLSEnabled(spec *rayv1.RayClusterSpec) bool {
+	if !features.Enabled(features.RayClusterMTLS) {
+		return false
+	}
+	return spec != nil && spec.TLSOptions != nil && ptr.Deref(spec.TLSOptions.Enabled, false)
+}
+
+// GetCASecretName returns the cert-manager CA secret name with a UID-based suffix.
+// Format: {clusterName}-ca-secret-{first 8 chars of UID}
+// The UID suffix guarantees uniqueness per cluster instance. If a cluster is deleted
+// and recreated with the same name, it gets a new CA secret rather than reusing a
+// potentially stale one from a previous instance.
+func GetCASecretName(clusterName string, clusterUID types.UID) string {
+	uidSuffix := string(clusterUID)[:8]
+	return fmt.Sprintf("%s-%s-%s", clusterName, RayCASecretPrefix, uidSuffix)
+}
+
+// GetTLSSecretName returns the cert-manager generated TLS secret name for the given node type.
+func GetTLSSecretName(clusterName string, nodeType rayv1.RayNodeType) string {
+	if nodeType == rayv1.HeadNode {
+		return fmt.Sprintf("%s-%s", RayHeadSecretPrefix, clusterName)
+	}
+	return fmt.Sprintf("%s-%s", RayWorkerSecretPrefix, clusterName)
+}
+
+// GetTLSCertName returns the cert-manager Certificate name for the given node type.
+func GetTLSCertName(clusterName string, nodeType rayv1.RayNodeType) string {
+	if nodeType == rayv1.HeadNode {
+		return fmt.Sprintf("%s-%s", RayHeadCertPrefix, clusterName)
+	}
+	return fmt.Sprintf("%s-%s", RayWorkerCertPrefix, clusterName)
+}
+
+// GetSelfSignedIssuerName returns the self-signed Issuer name for the given cluster.
+func GetSelfSignedIssuerName(clusterName string) string {
+	return fmt.Sprintf("%s-%s", RaySelfSignedIssuerPrefix, clusterName)
+}
+
+// GetCACertName returns the CA Certificate name for the given cluster.
+func GetCACertName(clusterName string) string {
+	return fmt.Sprintf("%s-%s", RayCACertificatePrefix, clusterName)
+}
+
+// GetCAIssuerName returns the CA Issuer name for the given cluster.
+func GetCAIssuerName(clusterName string) string {
+	return fmt.Sprintf("%s-%s", RayCAIssuerPrefix, clusterName)
 }
 
 // GetRayClusterNameFromService returns the name of the RayCluster that the service points to
@@ -837,7 +936,7 @@ func IsIncrementalUpgradeEnabled(spec *rayv1.RayServiceSpec) bool {
 	if !features.Enabled(features.RayServiceIncrementalUpgrade) {
 		return false
 	}
-	return spec != nil && spec.UpgradeStrategy != nil &&
+	return spec != nil && spec.UpgradeStrategy != nil && spec.UpgradeStrategy.Type != nil &&
 		*spec.UpgradeStrategy.Type == rayv1.RayServiceNewClusterWithIncrementalUpgrade
 }
 
@@ -1083,7 +1182,9 @@ func IsHTTPRouteEqual(existing, desired *gwv1.HTTPRoute) bool {
 		dRef := desired.Spec.ParentRefs[i]
 
 		if string(eRef.Name) != string(dRef.Name) ||
-			string(ptr.Deref(eRef.Namespace, "")) != string(ptr.Deref(dRef.Namespace, "")) {
+			string(ptr.Deref(eRef.Namespace, "")) != string(ptr.Deref(dRef.Namespace, "")) ||
+			string(ptr.Deref(eRef.SectionName, "")) != string(ptr.Deref(dRef.SectionName, "")) ||
+			ptr.Deref(eRef.Port, 0) != ptr.Deref(dRef.Port, 0) {
 			return false
 		}
 	}
@@ -1131,6 +1232,24 @@ func IsHTTPRouteEqual(existing, desired *gwv1.HTTPRoute) bool {
 	return true
 }
 
+// SupportsFlexibleRestartPolicy returns true when the Ray version is 2.56.0 or later,
+// meaning the RestartPolicy for head and worker pods is no longer forced to Never
+// when autoscaler V2 is active.
+// If the version is unspecified or below 2.56.0 the original behavior (restrict to Never) applies.
+// https://github.com/ray-project/ray/pull/63764 fixes the issue we ran into here and is merged into Ray 2.56.0,
+// even though that PR was not intended to address this issue.
+func SupportsFlexibleRestartPolicy(rayVersion string) bool {
+	if rayVersion == "" {
+		return false
+	}
+	v, err := utilversion.ParseGeneric(rayVersion)
+	if err != nil {
+		return false
+	}
+	minVersion := utilversion.MustParseGeneric("2.56.0")
+	return v.AtLeast(minVersion)
+}
+
 // IsGatewayEqual checks if the existing Gateway matches the desired Gateway.
 // This check only compares the fields explicitly managed by the RayService controller.
 // If the controller starts managing additional Gateway fields in the future,
@@ -1159,4 +1278,15 @@ func IsGatewayEqual(existing, desired *gwv1.Gateway) bool {
 		}
 	}
 	return true
+}
+
+var nodeLabelFieldPath = regexp.MustCompile(`^metadata\.labels\['([^']+)'\]$`)
+
+// NodeLabelKey returns the node label key a labelRef fieldPath selects. Only metadata.labels['<key>'] is supported
+func NodeLabelKey(fieldPath string) (string, error) {
+	m := nodeLabelFieldPath.FindStringSubmatch(fieldPath)
+	if m == nil {
+		return "", fmt.Errorf("unsupported fieldPath %q, only metadata.labels['<key>'] is supported", fieldPath)
+	}
+	return m[1], nil
 }

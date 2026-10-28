@@ -1,25 +1,27 @@
 package e2e
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-
 	"github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
+	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 	. "github.com/ray-project/kuberay/historyserver/test/support"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	. "github.com/ray-project/kuberay/ray-operator/test/support"
 )
 
@@ -30,13 +32,29 @@ type rayEvent struct {
 	EventType string `json:"eventType"`
 }
 
+// decodeJSONLEvents decodes an event JSONL file the collector uploaded, one
+// JSON object per line.
+func decodeJSONLEvents(r io.Reader) ([]rayEvent, error) {
+	var events []rayEvent
+	dec := json.NewDecoder(r)
+	for {
+		var evt rayEvent
+		if err := dec.Decode(&evt); err == io.EOF {
+			return events, nil
+		} else if err != nil {
+			return nil, err
+		}
+		events = append(events, evt)
+	}
+}
+
 func TestCollector(t *testing.T) {
 	// Share a single S3 client among subtests.
 	s3Client := EnsureS3Client(t)
 
 	tests := []struct {
 		name     string
-		testFunc func(Test, *WithT, *corev1.Namespace, *s3.S3)
+		testFunc func(Test, *WithT, *corev1.Namespace, *S3TestClient)
 	}{
 		{
 			name:     "Happy path: Logs and events should be uploaded to S3 on deletion",
@@ -61,6 +79,18 @@ func TestCollector(t *testing.T) {
 		{
 			name:     "Timezone: collector should fetch and store timezone endpoint data once on startup",
 			testFunc: testCollectorStoresTimezone,
+		},
+		{
+			name:     "Serve applications: collector should poll and store a converged Serve snapshot",
+			testFunc: testCollectorStoresServeApplications,
+		},
+		{
+			name:     "Ray Data datasets: collector should store per-job datasets only for the job that used Ray Data",
+			testFunc: testCollectorStoresDataDatasets,
+		},
+		{
+			name:     "Token auth: collector should authenticate against the Ray Dashboard instead of crash-looping",
+			testFunc: testCollectorWithTokenAuth,
 		},
 	}
 
@@ -88,26 +118,24 @@ func TestCollector(t *testing.T) {
 //   - job_events: Trigger EventCollector.flushEvents, which calls ec.flushJobEventsForHour to process in-memory job events
 //
 // 5. Verify logs, node_events, and job_events are successfully uploaded to S3. Expected S3 path structure:
-//   - {S3BucketName}/log/{clusterName}_{clusterNamespace}/{sessionID}/logs/...
-//   - {S3BucketName}/log/{clusterName}_{clusterNamespace}/{sessionID}/node_events/...
-//   - {S3BucketName}/log/{clusterName}_{clusterNamespace}/{sessionID}/job_events/AgAAAA==/...
-//   - {S3BucketName}/log/{clusterName}_{clusterNamespace}/{sessionID}/job_events/AQAAAA==/...
+//   - {S3BucketName}/log/cluster-history/raycluster/{clusterNamespace}/{clusterName}/{sessionID}/{nodeID}/logs/...
+//   - {S3BucketName}/log/cluster-history/raycluster/{clusterNamespace}/{clusterName}/{sessionID}/{nodeID}/node_events/...
+//   - {S3BucketName}/log/cluster-history/raycluster/{clusterNamespace}/{clusterName}/{sessionID}/{nodeID}/job_events/...
 //
 // For detailed verification logic, please refer to verifyS3SessionDirs.
 //
 // 6. Delete S3 bucket to ensure test isolation
-func testCollectorUploadOnGracefulShutdown(test Test, g *WithT, namespace *corev1.Namespace, s3Client *s3.S3) {
+func testCollectorUploadOnGracefulShutdown(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) {
 	rayCluster := PrepareTestEnv(test, g, namespace, s3Client)
 
 	// Submit a Ray job to the existing cluster.
 	_ = ApplyRayJobAndWaitForCompletion(test, g, namespace, rayCluster)
 
 	// Define variables for constructing S3 object prefix.
-	clusterNameID := fmt.Sprintf("%s_%s", rayCluster.Name, rayCluster.Namespace)
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
-	sessionPrefix := fmt.Sprintf("log/%s/%s/", clusterNameID, sessionID)
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID))
 
 	// Delete the Ray cluster to trigger log uploading and event flushing on deletion.
 	err := test.Client().Ray().RayV1().
@@ -144,17 +172,16 @@ func testCollectorUploadOnGracefulShutdown(test Test, g *WithT, namespace *corev
 //   - {S3BucketName}/log/{clusterName}_{clusterNamespace}/{sessionID}/node_events/...
 //
 // 7. Delete S3 bucket to ensure test isolation
-func testCollectorSeparatesFilesBySession(test Test, g *WithT, namespace *corev1.Namespace, s3Client *s3.S3) {
+func testCollectorSeparatesFilesBySession(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) {
 	rayCluster := PrepareTestEnv(test, g, namespace, s3Client)
 
 	// Submit a Ray job to the existing cluster.
 	_ = ApplyRayJobAndWaitForCompletion(test, g, namespace, rayCluster)
 
-	clusterNameID := fmt.Sprintf("%s_%s", rayCluster.Name, rayCluster.Namespace)
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
-	sessionPrefix := fmt.Sprintf("log/%s/%s/", clusterNameID, sessionID)
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID))
 
 	// NOTE: We use `kill 1` to simulate Kubernetes OOMKilled behavior.
 	// Before Kubernetes 1.28 (cgroups v1), if one process in a multi-process container exceeded its memory limit,
@@ -187,7 +214,7 @@ func testCollectorSeparatesFilesBySession(test Test, g *WithT, namespace *corev1
 // 5. Verify S3 uploads: recovered log objects exist under log/{clusterName}_{clusterNamespace}/{sessionID}/logs/ and have content.
 // 6. Verify local state: the node directory is present under persist-complete-logs and removed from prev-logs.
 // 7. Clean up the S3 bucket to ensure test isolation.
-func testCollectorResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1.Namespace, s3Client *s3.S3) {
+func testCollectorResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) {
 	rayCluster := PrepareTestEnv(test, g, namespace, s3Client)
 
 	// Directory variables for easier maintenance
@@ -197,8 +224,7 @@ func testCollectorResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 	// Use namespace name to ensure test isolation (avoid conflicts from previous test runs)
 	dummySessionID := fmt.Sprintf("test-recovery-session-%s", namespace.Name)
 	dummyNodeID := fmt.Sprintf("head-node-%s", namespace.Name)
-	clusterNameID := fmt.Sprintf("%s_%s", rayCluster.Name, rayCluster.Namespace)
-	sessionPrefix := fmt.Sprintf("log/%s/%s/", clusterNameID, dummySessionID)
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, dummySessionID))
 
 	// Inject "leftover" logs BEFORE killing collector.
 	// This ensures files exist when collector restarts and performs its initial scan.
@@ -240,27 +266,19 @@ func testCollectorResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 	// Verify that file2.log was actually uploaded to S3.
 	// file1.log should NOT be uploaded because it was already marked as "completed" in persist-complete-logs.
 	// file2.log should be uploaded because it was in prev-logs (pending upload).
-	LogWithTimestamp(test.T(), "Verifying file2.log was uploaded to S3 (idempotency check)")
+	LogWithTimestamp(test.T(), "Verifying file2.log was uploaded to S3 as a chunk (idempotency check)")
 	g.Eventually(func(gg Gomega) {
 		// List all objects under the session logs prefix
-		logsPrefix := sessionPrefix + "logs/"
-		objects, err := s3Client.ListObjectsV2(&s3.ListObjectsV2Input{
-			Bucket: aws.String(S3BucketName),
-			Prefix: aws.String(logsPrefix),
-		})
+		uploadedKeys, err := s3Client.ListObjectKeys(S3BucketName, sessionPrefix)
 		gg.Expect(err).NotTo(HaveOccurred())
-
-		// Collect all uploaded file keys
-		var uploadedKeys []string
-		for _, obj := range objects.Contents {
-			uploadedKeys = append(uploadedKeys, aws.StringValue(obj.Key))
-		}
 		LogWithTimestamp(test.T(), "Found uploaded objects: %v", uploadedKeys)
 
 		// Verify file2.log exists in S3 (it was in prev-logs, so it should be uploaded)
+		// Append-only logs are uploaded by chunk, so file2.log lands under
+		// "file2.log.chunks/<offset>" rather than as a whole object.
 		hasFile2 := false
 		for _, key := range uploadedKeys {
-			if strings.HasSuffix(key, "file2.log") {
+			if strings.Contains(key, "/file2.log"+clusterlogs.ChunkDirSuffix+"/") {
 				hasFile2 = true
 				break
 			}
@@ -321,38 +339,31 @@ func verifySessionDirectoriesExist(test Test, g *WithT, rayCluster *rayv1.RayClu
 // 3. Wait for the cluster metadata file to appear in S3 at {sessionName}/fetched_endpoints/restful__api__v0__cluster_metadata
 // 4. Read the file and verify it contains valid JSON with the expected schema
 // 5. Delete S3 bucket to ensure test isolation
-func testCollectorStoresClusterMetadata(test Test, g *WithT, namespace *corev1.Namespace, s3Client *s3.S3) {
+func testCollectorStoresClusterMetadata(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) {
 	rayCluster := PrepareTestEnv(test, g, namespace, s3Client)
 
-	clusterNameID := fmt.Sprintf("%s_%s", rayCluster.Name, rayCluster.Namespace)
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	storageKey := utils.EndpointPathToStorageKey("/api/v0/cluster_metadata")
-	metaKey := fmt.Sprintf("log/%s/%s/%s/%s", clusterNameID, sessionID, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
+	sessionDir := clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID)
+	metaKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
 
 	LogWithTimestamp(test.T(), "Waiting for cluster metadata to appear at S3 key: %s", metaKey)
 
 	var metadataBody []byte
 	g.Eventually(func(gg Gomega) {
-		result, err := s3Client.GetObject(&s3.GetObjectInput{
-			Bucket: aws.String(S3BucketName),
-			Key:    aws.String(metaKey),
-		})
-		gg.Expect(err).NotTo(HaveOccurred())
-		defer result.Body.Close()
-
-		body, err := io.ReadAll(result.Body)
+		body, err := s3Client.ReadObject(S3BucketName, metaKey)
 		gg.Expect(err).NotTo(HaveOccurred())
 		gg.Expect(body).NotTo(BeEmpty(), "Cluster metadata file should not be empty")
 
 		// Verify it is valid JSON
-		var metadata map[string]interface{}
+		var metadata map[string]any
 		err = json.Unmarshal(body, &metadata)
 		gg.Expect(err).NotTo(HaveOccurred(), "Cluster metadata should be valid JSON")
 
 		// The Ray dashboard returns {"result": true, "data": {"rayVersion": ..., "pythonVersion": ...}}.
 		// Verify the "data" sub-object contains expected fields.
 		gg.Expect(metadata).To(HaveKey("data"), "Cluster metadata should contain data field")
-		data, ok := metadata["data"].(map[string]interface{})
+		data, ok := metadata["data"].(map[string]any)
 		gg.Expect(ok).To(BeTrue(), "data field should be a JSON object")
 		gg.Expect(data).To(HaveKey("rayVersion"), "Cluster metadata should contain rayVersion")
 		gg.Expect(data).To(HaveKey("pythonVersion"), "Cluster metadata should contain pythonVersion")
@@ -372,35 +383,32 @@ func testCollectorStoresClusterMetadata(test Test, g *WithT, namespace *corev1.N
 //
 // The test case follows these steps:
 // 1. Prepare test environment by applying a Ray cluster with the collector
-// 2. Get the sessionID from the head pod to build the expected S3 key
-// 3. Wait for the timezone file to appear in S3 at {sessionName}/fetched_endpoints/restful__timezone
-// 4. Read the file and verify it contains valid JSON with the expected schema (offset, value)
-// 5. Delete S3 bucket to ensure test isolation
-func testCollectorStoresTimezone(test Test, g *WithT, namespace *corev1.Namespace, s3Client *s3.S3) {
+// 2. Assert the timezone data reaches S3 with the expected key and schema
+// 3. Delete S3 bucket to ensure test isolation
+func testCollectorStoresTimezone(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) {
 	rayCluster := PrepareTestEnv(test, g, namespace, s3Client)
 
-	clusterNameID := fmt.Sprintf("%s_%s", rayCluster.Name, rayCluster.Namespace)
+	assertTimezoneStored(test, g, rayCluster, s3Client)
+
+	DeleteS3Bucket(test, g, s3Client)
+}
+
+func assertTimezoneStored(test Test, g *WithT, rayCluster *rayv1.RayCluster, s3Client *S3TestClient) {
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	storageKey := utils.EndpointPathToStorageKey(EndpointTimezone)
-	timezoneKey := fmt.Sprintf("log/%s/%s/%s/%s", clusterNameID, sessionID, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
+	sessionDir := clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID)
+	timezoneKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
 
 	LogWithTimestamp(test.T(), "Waiting for timezone data to appear at S3 key: %s", timezoneKey)
 
 	var timezoneBody []byte
 	g.Eventually(func(gg Gomega) {
-		result, err := s3Client.GetObject(&s3.GetObjectInput{
-			Bucket: aws.String(S3BucketName),
-			Key:    aws.String(timezoneKey),
-		})
-		gg.Expect(err).NotTo(HaveOccurred())
-		defer result.Body.Close()
-
-		body, err := io.ReadAll(result.Body)
+		body, err := s3Client.ReadObject(S3BucketName, timezoneKey)
 		gg.Expect(err).NotTo(HaveOccurred())
 		gg.Expect(body).NotTo(BeEmpty(), "Timezone file should not be empty")
 
 		// Verify it is valid JSON
-		var timezone map[string]interface{}
+		var timezone map[string]any
 		err = json.Unmarshal(body, &timezone)
 		gg.Expect(err).NotTo(HaveOccurred(), "Timezone data should be valid JSON")
 
@@ -414,78 +422,44 @@ func testCollectorStoresTimezone(test Test, g *WithT, namespace *corev1.Namespac
 	}, TestTimeoutMedium).Should(Succeed())
 
 	LogWithTimestamp(test.T(), "Timezone data stored successfully: %s", string(timezoneBody))
+}
+
+// testCollectorStoresPlacementGroups verifies the collector stores the placement_groups
+// snapshot; the RayJob creates a detached placement group so the PG outlives the job.
+// The history-server replay of this endpoint is covered by testDeadClusterPlacementGroups.
+func testCollectorStoresPlacementGroups(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) {
+	rayCluster := PrepareTestEnv(test, g, namespace, s3Client)
+
+	ApplyRayJobAndWaitForCompletion(test, g, namespace, rayCluster)
+
+	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
+	// Matches placementGroupsEndpoint in the collector's poll.go, query params included.
+	storageKey := utils.EndpointPathToStorageKey("/api/v0/placement_groups?detail=1&limit=10000")
+	sessionDir := clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID)
+	pgKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
+
+	LogWithTimestamp(test.T(), "Waiting for placement groups data to appear at S3 key: %s", pgKey)
+	g.Eventually(func(gg Gomega) {
+		assertPlacementGroupsNonEmpty(gg, readS3Object(gg, s3Client, pgKey))
+	}, TestTimeoutMedium).Should(Succeed())
 
 	DeleteS3Bucket(test, g, s3Client)
 }
 
-// testCollectorStoresPlacementGroups verifies that the Head collector periodically polls
-// /api/v0/placement_groups from the Ray Dashboard and stores the result in S3.
-//
-// The placement_groups endpoint is configured via RAY_COLLECTOR_ADDITIONAL_ENDPOINTS in
-// raycluster.yaml and polled by PollAdditionalEndpointsPeriodically.
-//
-// The test case follows these steps:
-// 1. Prepare test environment by applying a Ray cluster with the collector
-// 2. Submit a RayJob that creates a detached placement group (so the PG persists after the job)
-// 3. Get the sessionID from the head pod to build the expected S3 key
-// 4. Wait for the placement groups file to appear in S3 at {sessionName}/fetched_endpoints/restful__api__v0__placement_groups
-// 5. Read the file and verify it contains valid JSON with a non-empty placement_groups list
-// 6. Delete S3 bucket to ensure test isolation
-func testCollectorStoresPlacementGroups(test Test, g *WithT, namespace *corev1.Namespace, s3Client *s3.S3) {
-	rayCluster := PrepareTestEnv(test, g, namespace, s3Client)
-
-	// Submit a RayJob that creates a detached placement group named "test_pg".
-	// The detached lifetime ensures the PG persists after the job exits, so the
-	// collector captures non-empty data when polling /api/v0/placement_groups.
-	ApplyRayJobAndWaitForCompletion(test, g, namespace, rayCluster)
-
-	clusterNameID := fmt.Sprintf("%s_%s", rayCluster.Name, rayCluster.Namespace)
-	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
-	// The collector stores the endpoint with query params (as configured in RAY_COLLECTOR_ADDITIONAL_ENDPOINTS).
-	storageKey := utils.EndpointPathToStorageKey("/api/v0/placement_groups?detail=1&limit=10000")
-	pgKey := fmt.Sprintf("log/%s/%s/%s/%s", clusterNameID, sessionID, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
-
-	LogWithTimestamp(test.T(), "Waiting for placement groups data to appear at S3 key: %s", pgKey)
-
-	var pgBody []byte
-	g.Eventually(func(gg Gomega) {
-		result, err := s3Client.GetObject(&s3.GetObjectInput{
-			Bucket: aws.String(S3BucketName),
-			Key:    aws.String(pgKey),
-		})
-		gg.Expect(err).NotTo(HaveOccurred())
-		defer result.Body.Close()
-
-		body, err := io.ReadAll(result.Body)
-		gg.Expect(err).NotTo(HaveOccurred())
-		gg.Expect(body).NotTo(BeEmpty(), "Placement groups file should not be empty")
-
-		// Verify it is valid JSON with a non-empty placement groups list.
-		var response map[string]interface{}
-		err = json.Unmarshal(body, &response)
-		gg.Expect(err).NotTo(HaveOccurred(), "Placement groups response should be valid JSON")
-
-		// The Ray State API v2 returns {"result": true, "msg": "", "data": {"result": {"total": N, "result": [...], ...}}}.
-		gg.Expect(response).To(HaveKey("result"), "Placement groups response should contain result field")
-		gg.Expect(response["result"]).To(BeTrue(), "result field should be true")
-		gg.Expect(response).To(HaveKey("data"), "Placement groups response should contain data field")
-		data, ok := response["data"].(map[string]interface{})
-		gg.Expect(ok).To(BeTrue(), "data field should be a JSON object")
-		gg.Expect(data).To(HaveKey("result"), "data should contain result field")
-		resultObj, ok := data["result"].(map[string]interface{})
-		gg.Expect(ok).To(BeTrue(), "data.result field should be a JSON object")
-		gg.Expect(resultObj).To(HaveKey("result"), "data.result should contain result field")
-
-		pgList, ok := resultObj["result"].([]interface{})
-		gg.Expect(ok).To(BeTrue(), "data.result.result should be a JSON array")
-		gg.Expect(pgList).NotTo(BeEmpty(), "placement groups list should not be empty (RayJob creates a detached PG)")
-
-		pgBody = body
-	}, TestTimeoutMedium).Should(Succeed())
-
-	LogWithTimestamp(test.T(), "Placement groups data stored successfully: %s", string(pgBody))
-
-	DeleteS3Bucket(test, g, s3Client)
+// assertPlacementGroupsNonEmpty requires at least one PG in the State API envelope
+// {"result": true, "data": {"result": {"result": [...]}}}; the RayJob creates a detached one.
+func assertPlacementGroupsNonEmpty(g Gomega, body []byte) {
+	var response struct {
+		Result bool `json:"result"`
+		Data   struct {
+			Result struct {
+				Result []json.RawMessage `json:"result"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	g.Expect(json.Unmarshal(body, &response)).To(Succeed(), "placement groups response should be valid JSON")
+	g.Expect(response.Result).To(BeTrue(), "state API result field should be true")
+	g.Expect(response.Data.Result.Result).NotTo(BeEmpty(), "placement groups list should not be empty")
 }
 
 // verifyS3SessionDirs verifies file contents in logs/, node_events/, and job_events/ directories under a session prefix in S3.
@@ -499,10 +473,10 @@ func testCollectorStoresPlacementGroups(test Test, g *WithT, namespace *corev1.N
 //   - Verify that all potential event types are present in the aggregated events
 //
 // NOTE: Since flushed node and job events are nondeterministic, we need to aggregate them first before verifying event type coverage.
-func verifyS3SessionDirs(test Test, g *WithT, s3Client *s3.S3, sessionPrefix string, headNodeID string, workerNodeID string) {
+func verifyS3SessionDirs(test Test, g *WithT, s3Client *S3TestClient, sessionPrefix string, headNodeID string, workerNodeID string) {
 	// Verify file contents in logs/ directory.
-	headLogDirPrefix := fmt.Sprintf("%slogs/%s", sessionPrefix, headNodeID)
-	workerLogDirPrefix := fmt.Sprintf("%slogs/%s", sessionPrefix, workerNodeID)
+	headLogDirPrefix := fmt.Sprintf("%s%s/logs", sessionPrefix, headNodeID)
+	workerLogDirPrefix := fmt.Sprintf("%s%s/logs", sessionPrefix, workerNodeID)
 
 	LogWithTimestamp(test.T(), "Verifying raylet.out, gcs_server.out, and monitor.out exist in head log directory %s", headLogDirPrefix)
 	for _, fileName := range []string{"raylet.out", "gcs_server.out", "monitor.out"} {
@@ -515,31 +489,10 @@ func verifyS3SessionDirs(test Test, g *WithT, s3Client *s3.S3, sessionPrefix str
 	// Verify event type coverage in node_events/ and job_events/ directories.
 	LogWithTimestamp(test.T(), "Verifying all %d event types are covered, except for EVENT_TYPE_UNSPECIFIED: %v", len(types.AllEventTypes)-1, types.AllEventTypes)
 	g.Eventually(func(gg Gomega) {
-		uploadedEvents := []rayEvent{}
-
-		// Load events from node_events directory.
-		nodeEventsPrefix := sessionPrefix + "node_events/"
-		nodeEvents, err := loadRayEventsFromS3(s3Client, S3BucketName, nodeEventsPrefix)
+		events, err := loadRayEventsFromS3(s3Client, S3BucketName, sessionPrefix)
 		gg.Expect(err).NotTo(HaveOccurred())
-		uploadedEvents = append(uploadedEvents, nodeEvents...)
-		LogWithTimestamp(test.T(), "Loaded %d events from node_events", len(nodeEvents))
 
-		// Dynamically discover and load events from job_events directories.
-		jobEventsPrefix := sessionPrefix + "job_events/"
-		jobDirs, err := ListS3Directories(s3Client, S3BucketName, jobEventsPrefix)
-		gg.Expect(err).NotTo(HaveOccurred())
-		gg.Expect(jobDirs).NotTo(BeEmpty())
-		LogWithTimestamp(test.T(), "Found %d job directories: %v", len(jobDirs), jobDirs)
-
-		for _, jobDir := range jobDirs {
-			jobDirPrefix := jobEventsPrefix + jobDir + "/"
-			jobEvents, err := loadRayEventsFromS3(s3Client, S3BucketName, jobDirPrefix)
-			gg.Expect(err).NotTo(HaveOccurred())
-			uploadedEvents = append(uploadedEvents, jobEvents...)
-			LogWithTimestamp(test.T(), "Loaded %d events from job_events/%s", len(jobEvents), jobDir)
-		}
-
-		assertAllEventTypesCovered(test, gg, uploadedEvents)
+		assertAllEventTypesCovered(test, gg, events)
 	}, TestTimeoutMedium).Should(Succeed())
 }
 
@@ -565,39 +518,39 @@ func killContainerAndWaitForRestart(test Test, g *WithT, getPod func() (*corev1.
 }
 
 // loadRayEventsFromS3 loads Ray events from S3.
-func loadRayEventsFromS3(s3Client *s3.S3, bucket string, prefix string) ([]rayEvent, error) {
+func loadRayEventsFromS3(s3Client *S3TestClient, bucket string, prefix string) ([]rayEvent, error) {
 	var events []rayEvent
 
 	// List all file objects in the directory.
-	objects, err := s3Client.ListObjectsV2(&s3.ListObjectsV2Input{
-		Bucket: aws.String(bucket),
-		Prefix: aws.String(prefix),
-	})
+	keys, err := s3Client.ListObjectKeys(bucket, prefix)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, obj := range objects.Contents {
-		fileKey := aws.StringValue(obj.Key)
-		if strings.HasSuffix(fileKey, "/") {
+	for _, fileKey := range keys {
+		if !strings.Contains(fileKey, "/node_events/") && !strings.Contains(fileKey, "/job_events/") {
 			continue
 		}
 
 		// Get the file object content and decode it into Ray events.
-		content, err := s3Client.GetObject(&s3.GetObjectInput{
-			Bucket: aws.String(bucket),
-			Key:    aws.String(fileKey),
-		})
+		content, err := s3Client.ReadObject(bucket, fileKey)
 		if err != nil {
 			return nil, err
 		}
 
-		var fileEvents []rayEvent
-		if err := json.NewDecoder(content.Body).Decode(&fileEvents); err != nil {
-			content.Body.Close()
+		var reader io.Reader = bytes.NewReader(content)
+		if strings.HasSuffix(fileKey, ".gz") {
+			gzReader, err := gzip.NewReader(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create gzip reader for %s: %w", fileKey, err)
+			}
+			reader = gzReader
+		}
+
+		fileEvents, err := decodeJSONLEvents(reader)
+		if err != nil {
 			return nil, fmt.Errorf("failed to decode Ray events from %s: %w", fileKey, err)
 		}
-		content.Body.Close()
 
 		events = append(events, fileEvents...)
 	}
@@ -605,20 +558,32 @@ func loadRayEventsFromS3(s3Client *s3.S3, bucket string, prefix string) ([]rayEv
 	return events, nil
 }
 
-// assertFileExist verifies that a file object exists under the given log directory prefix.
+// assertFileExist verifies that fileName exists under nodeLogDirPrefix, either
+// as a whole object or as at least one chunk under "<fileName>.chunks/" (the
+// collector uploads append-only logs by chunk).
 // For a Ray cluster with one head node and one worker node, there are two log directories to verify:
 //   - logs/<headNodeID>/
 //   - logs/<workerNodeID>/
-func assertFileExist(test Test, g *WithT, s3Client *s3.S3, nodeLogDirPrefix string, fileName string) {
+func assertFileExist(test Test, g *WithT, s3Client *S3TestClient, nodeLogDirPrefix string, fileName string) {
 	fileKey := fmt.Sprintf("%s/%s", nodeLogDirPrefix, fileName)
 	LogWithTimestamp(test.T(), "Verifying file %s exists", fileKey)
 	g.Eventually(func(gg Gomega) {
-		_, err := s3Client.HeadObject(&s3.HeadObjectInput{
-			Bucket: aws.String(S3BucketName),
-			Key:    aws.String(fileKey),
-		})
+		if s3Client.StatObject(S3BucketName, fileKey) == nil {
+			LogWithTimestamp(test.T(), "Verified file %s exists", fileKey)
+			return
+		}
+		keys, err := s3Client.ListObjectKeys(S3BucketName, fileKey+clusterlogs.ChunkDirSuffix+"/")
 		gg.Expect(err).NotTo(HaveOccurred())
-		LogWithTimestamp(test.T(), "Verified file %s exists", fileKey)
+		// The collector writes a "<file>.chunks/" directory marker before the
+		// first chunk; only count real chunk objects.
+		chunks := 0
+		for _, key := range keys {
+			if !strings.HasSuffix(key, "/") {
+				chunks++
+			}
+		}
+		gg.Expect(chunks).NotTo(BeZero(), "neither %s nor any chunk under %s%s/ exists", fileKey, fileKey, clusterlogs.ChunkDirSuffix)
+		LogWithTimestamp(test.T(), "Verified file %s exists as %d chunk(s)", fileKey, chunks)
 	}, TestTimeoutMedium).Should(Succeed(), "Failed to verify file %s exists", fileKey)
 }
 
@@ -640,4 +605,202 @@ func assertAllEventTypesCovered(test Test, g Gomega, events []rayEvent) {
 		}
 		g.Expect(foundEventTypes[string(eventType)]).To(BeTrue(), "Event type %s not found", eventType)
 	}
+}
+
+// readS3Object reads an object body, failing the enclosing Eventually if it is absent.
+func readS3Object(g Gomega, s3Client *S3TestClient, key string) []byte {
+	body, err := s3Client.ReadObject(S3BucketName, key)
+	g.Expect(err).NotTo(HaveOccurred())
+	return body
+}
+
+// listFetchedEndpoints lists polled-endpoint objects by storage-key prefix. Listing beats
+// constructing the key: the session name would have to come from an already-deleted head pod.
+func listFetchedEndpoints(g Gomega, s3Client *S3TestClient, clusterPrefix, storageKeyPrefix string) []string {
+	marker := "/" + utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME + "/"
+
+	allKeys, err := s3Client.ListObjectKeys(S3BucketName, clusterPrefix)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	var keys []string
+	for _, key := range allKeys {
+		if _, after, ok := strings.Cut(key, marker); ok && strings.HasPrefix(after, storageKeyPrefix) {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+// enterClusterForOwner sets the session cookie via enter_cluster, which takes the owner's
+// name and resolves the generated cluster name itself; a plain RayCluster is its own owner.
+func enterClusterForOwner(test Test, g *WithT, client *http.Client, historyServerURL, namespace, ownerKind, ownerName, clusterName, session string) {
+	enterURL := fmt.Sprintf("%s/enter_cluster/%s/%s/%s/%s", historyServerURL, namespace, ownerKind, ownerName, session)
+	LogWithTimestamp(test.T(), "Setting cluster context: %s", enterURL)
+
+	g.Eventually(func(gg Gomega) {
+		var result map[string]any
+		gg.Expect(json.Unmarshal(getHistoryServerJSON(gg, client, enterURL), &result)).To(Succeed())
+		gg.Expect(result["result"]).To(Equal("success"))
+		gg.Expect(result["name"]).To(Equal(clusterName), "enter_cluster should resolve the owner to its generated cluster")
+		gg.Expect(result["session"]).To(Equal(session))
+	}, TestTimeoutShort).Should(Succeed())
+}
+
+// getHistoryServerJSON GETs a history server URL and returns the body, requiring 200.
+func getHistoryServerJSON(g Gomega, client *http.Client, url string) []byte {
+	resp, err := client.Get(url)
+	g.Expect(err).NotTo(HaveOccurred())
+	defer resp.Body.Close()
+	g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+	body, err := io.ReadAll(resp.Body)
+	g.Expect(err).NotTo(HaveOccurred())
+	return body
+}
+
+// testCollectorStoresServeApplications verifies the collector stores a converged Serve
+// snapshot, then replays it through the history server after the RayService is deleted.
+// The round trip matters: collector and server derive the storage key from different
+// inputs, and a mismatch surfaces as a valid-but-empty 200, not an error.
+func testCollectorStoresServeApplications(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) {
+	rayService := ApplyRayServiceAndWaitForRunning(test, g, namespace)
+	clusterName := rayService.Status.ActiveServiceStatus.RayClusterName
+	clusterPrefix := clusterlogs.Prefix("", utils.RayServiceKind, rayService.Name, namespace.Name, clusterName)
+
+	// Matches serveApplicationsEndpoint in the collector's poll.go.
+	storageKey := utils.EndpointPathToStorageKey("/api/serve/applications/")
+	LogWithTimestamp(test.T(), "Waiting for a converged Serve snapshot under S3 prefix: %s", clusterPrefix)
+
+	g.Eventually(func(gg Gomega) {
+		keys := listFetchedEndpoints(gg, s3Client, clusterPrefix, storageKey)
+		gg.Expect(keys).To(HaveLen(1), "the head collector stores exactly one Serve snapshot per session")
+		assertServeAppConverged(gg, readS3Object(gg, s3Client, keys[0]))
+	}, TestTimeoutMedium).Should(Succeed())
+
+	DeleteRayServiceAndWait(test, g, namespace.Name, rayService.Name, clusterName)
+
+	ApplyHistoryServer(test, g, namespace, "")
+	historyServerURL := GetHistoryServerURL(test, g, namespace)
+	clusterInfo := getClusterFromList(test, g, historyServerURL, clusterName, namespace.Name)
+	g.Expect(clusterInfo.SessionName).NotTo(Equal(LiveSessionName), "Cluster should be a dead session after deletion")
+
+	client := CreateHTTPClientWithCookieJar(test, g)
+	enterClusterForOwner(test, g, client, historyServerURL, namespace.Name,
+		utils.RayServiceKind, rayService.Name, clusterName, clusterInfo.SessionName)
+
+	LogWithTimestamp(test.T(), "Replaying /api/serve/applications/ through the history server")
+	g.Eventually(func(gg Gomega) {
+		assertServeAppConverged(gg, getHistoryServerJSON(gg, client, historyServerURL+"/api/serve/applications/"))
+	}, TestTimeoutShort).Should(Succeed())
+
+	DeleteS3Bucket(test, g, s3Client)
+}
+
+// assertServeAppConverged requires RUNNING/HEALTHY: a mid-deploy snapshot and the empty
+// fallback are both valid JSON.
+func assertServeAppConverged(g Gomega, body []byte) {
+	var response struct {
+		Applications map[string]struct {
+			Status      string `json:"status"`
+			Deployments map[string]struct {
+				Status string `json:"status"`
+			} `json:"deployments"`
+		} `json:"applications"`
+	}
+	g.Expect(json.Unmarshal(body, &response)).To(Succeed(), "Serve response should be valid JSON")
+
+	app, ok := response.Applications["historyserver-demo"]
+	g.Expect(ok).To(BeTrue(), "applications should contain historyserver-demo, got %v", response.Applications)
+	g.Expect(app.Status).To(Equal("RUNNING"), "historyserver-demo should have converged")
+
+	deployment, ok := app.Deployments["NoOp"]
+	g.Expect(ok).To(BeTrue(), "historyserver-demo should contain the NoOp deployment")
+	g.Expect(deployment.Status).To(Equal("HEALTHY"), "NoOp replica should be healthy")
+}
+
+// testCollectorStoresDataDatasets verifies per-job Ray Data snapshots: exactly one object
+// (jobs without datasets are never stored), surviving a self-shutdown cluster, and served
+// back by the history server for the URI the frontend requests.
+func testCollectorStoresDataDatasets(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) {
+	rayJob := ApplyRayDataJobAndWaitForCompletion(test, g, namespace)
+	clusterName := rayJob.Status.RayClusterName
+	clusterPrefix := clusterlogs.Prefix("", utils.RayJobKind, rayJob.Name, namespace.Name, clusterName)
+
+	// "/api/data/datasets/" maps to "restful__api__data__datasets"; per-job keys append
+	// "__{job_id}", so this prefix matches every stored job.
+	storageKeyPrefix := utils.EndpointPathToStorageKey("/api/data/datasets/")
+	LogWithTimestamp(test.T(), "Waiting for a non-empty datasets object under S3 prefix: %s", clusterPrefix)
+
+	var jobID string
+	g.Eventually(func(gg Gomega) {
+		keys := listFetchedEndpoints(gg, s3Client, clusterPrefix, storageKeyPrefix)
+		gg.Expect(keys).To(HaveLen(1),
+			"exactly one job used Ray Data, so exactly one datasets object should exist")
+		assertDatasetsNonEmpty(gg, readS3Object(gg, s3Client, keys[0]))
+
+		// Ray assigns the job ID, so recover it from the key the collector chose.
+		jobID = strings.TrimPrefix(path.Base(keys[0]), storageKeyPrefix+"__")
+		gg.Expect(jobID).NotTo(BeEmpty())
+	}, TestTimeoutMedium).Should(Succeed())
+
+	// shutdownAfterJobFinishes tears the cluster down on its own, which is what turns
+	// the session into a replayable one.
+	g.Eventually(func() error {
+		_, err := GetRayCluster(test, namespace.Name, clusterName)
+		return err
+	}, TestTimeoutMedium).Should(WithTransform(k8serrors.IsNotFound, BeTrue()))
+
+	ApplyHistoryServer(test, g, namespace, "")
+	historyServerURL := GetHistoryServerURL(test, g, namespace)
+	clusterInfo := getClusterFromList(test, g, historyServerURL, clusterName, namespace.Name)
+	g.Expect(clusterInfo.SessionName).NotTo(Equal(LiveSessionName), "Cluster should be a dead session after shutdown")
+
+	client := CreateHTTPClientWithCookieJar(test, g)
+	enterClusterForOwner(test, g, client, historyServerURL, namespace.Name,
+		utils.RayJobKind, rayJob.Name, clusterName, clusterInfo.SessionName)
+
+	datasetsURL := fmt.Sprintf("%s/api/data/datasets/%s", historyServerURL, jobID)
+	LogWithTimestamp(test.T(), "Replaying %s through the history server", datasetsURL)
+	g.Eventually(func(gg Gomega) {
+		assertDatasetsNonEmpty(gg, getHistoryServerJSON(gg, client, datasetsURL))
+	}, TestTimeoutShort).Should(Succeed())
+
+	DeleteS3Bucket(test, g, s3Client)
+}
+
+// assertDatasetsNonEmpty requires real stats: empty coming back means the object was missing.
+func assertDatasetsNonEmpty(g Gomega, body []byte) {
+	var response struct {
+		Datasets []json.RawMessage `json:"datasets"`
+	}
+	g.Expect(json.Unmarshal(body, &response)).To(Succeed(), "datasets response should be valid JSON")
+	g.Expect(response.Datasets).NotTo(BeEmpty(), "datasets must be non-empty")
+}
+
+func testCollectorWithTokenAuth(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) {
+	rayCluster := ApplyRayClusterWithCollectorTokenAuth(test, g, namespace)
+
+	headPod, err := GetHeadPod(test, rayCluster)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	// Guard against a vacuous pass: if the Dashboard served this cluster without credentials the
+	// rest of the assertions would hold even with the fix reverted. Probed with Python because
+	// the Ray images ship no curl.
+	probe := `python3 - <<'PY'
+import urllib.error, urllib.request
+try:
+    urllib.request.urlopen("http://localhost:8265/api/v0/nodes?limit=1", timeout=10)
+    print("200")
+except urllib.error.HTTPError as err:
+    print(err.code)
+PY`
+	stdout, stderr := ExecPodCmd(test, headPod, "ray-head", []string{"sh", "-c", probe})
+	g.Expect(stderr.String()).To(BeEmpty())
+	g.Expect(strings.TrimSpace(stdout.String())).To(Equal("401"))
+
+	// Data in storage is the real proof: the collector only writes the timezone object after an
+	// authenticated Dashboard call succeeds.
+	assertTimezoneStored(test, g, rayCluster, s3Client)
+
+	DeleteS3Bucket(test, g, s3Client)
 }

@@ -111,11 +111,6 @@ jobs:
         run: |
           kind load docker-image kuberay/apiserver:local
 
-      - name: Load image to kind cluster (security-proxy)
-        if: steps.list-changed.outputs.changed == 'true' && matrix.chart == 'kuberay-apiserver'
-        run: |
-          kind load docker-image kuberay/security-proxy:local
-
       - name: Install Custom Resource Definitions to kind cluster
         if: steps.list-changed.outputs.changed == 'true' && matrix.chart == 'ray-cluster'
         working-directory: helm-chart/kuberay-operator

@@ -20,11 +20,16 @@ COPY pkg/historyserver/ pkg/historyserver/
 COPY pkg/storage/ pkg/storage/
 COPY pkg/utils/ pkg/utils/
 COPY pkg/eventserver/ pkg/eventserver/
+COPY pkg/compression/ pkg/compression/
+COPY html/ html/
 
 # Build the historyserver binary.
 COPY Makefile Makefile
 RUN make buildhistoryserver GOOS=linux GOARCH=amd64
 
-FROM ubuntu:22.04
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/cache/apt/ && apt-get install -y ca-certificates
+FROM gcr.io/distroless/base-debian12:nonroot
+WORKDIR /
 COPY --from=builder /historyserver/output/bin/historyserver /usr/local/bin/historyserver
+USER 65532:65532
+
+ENTRYPOINT ["/usr/local/bin/historyserver"]

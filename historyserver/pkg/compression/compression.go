@@ -105,7 +105,7 @@ func WriteCompressedBytes(writer StorageWriter, remotePath string, data []byte) 
 
 // StorageContentReader defines the duck-typed interface for storage readers to avoid cyclic dependencies.
 type StorageContentReader interface {
-	GetContent(clusterId string, fileName string) io.Reader
+	GetContent(prefix string, fileName string) io.Reader
 }
 
 // gzipReadCloser wraps a *gzip.Reader and the underlying reader so both are closed properly.
@@ -135,8 +135,8 @@ func (g *gzipReadCloser) Close() error {
 }
 
 // ReadCompressedContent reads a gzip-compressed file from cloud storage and returns an io.ReadCloser.
-func ReadCompressedContent(reader StorageContentReader, clusterId string, fileName string) (io.ReadCloser, error) {
-	contentReader := reader.GetContent(clusterId, fileName)
+func ReadCompressedContent(reader StorageContentReader, prefix string, fileName string) (io.ReadCloser, error) {
+	contentReader := reader.GetContent(prefix, fileName)
 	if contentReader == nil {
 		return nil, errors.New("compression: file not found or nil reader returned by storage")
 	}

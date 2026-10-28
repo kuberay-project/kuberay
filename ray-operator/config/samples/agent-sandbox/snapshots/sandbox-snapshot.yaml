@@ -1,0 +1,136 @@
+# Sandbox infrastructure for the suspend/resume with GKE Pod Snapshots demo.
+#
+# Prerequisites (see the Ray docs page "Suspend and Resume Agent Sandboxes
+# with Ray and GKE Pod Snapshots"):
+#   - GKE Standard cluster >= 1.35.3-gke.1234000 created with
+#     --enable-pod-snapshots and Workload Identity Federation.
+#   - A gVisor node pool (GKE Sandbox).
+#   - A Cloud Storage bucket for snapshot state; replace
+#     SNAPSHOT_BUCKET_NAME below and grant the sandbox-snapshot-ksa
+#     ServiceAccount access to it (roles/storage.bucketViewer +
+#     roles/storage.objectUser via Workload Identity Federation).
+# Identity the sandbox pods run as. GKE Pod Snapshots reads/writes snapshot
+# state in Cloud Storage on behalf of this Kubernetes ServiceAccount via
+# Workload Identity Federation, so it must have IAM access to the bucket.
+# The token is still NOT mounted into the sandbox container
+# (automountServiceAccountToken: false below), so untrusted code inside the
+# sandbox cannot use this identity.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sandbox-snapshot-ksa
+---
+# Where snapshot state is stored. Replace SNAPSHOT_BUCKET_NAME with your
+# bucket (hierarchical namespace enabled, uniform bucket-level access,
+# same location as the cluster).
+apiVersion: podsnapshot.gke.io/v1
+kind: PodSnapshotStorageConfig
+metadata:
+  name: sandbox-snapshot-storage
+spec:
+  snapshotStorageConfig:
+    gcs:
+      bucket: "SNAPSHOT_BUCKET_NAME"
+      path: "agent-sandbox-snapshots"
+---
+# Snapshot policy for every pod in the warm pool. The Agent Sandbox Python
+# SDK creates PodSnapshotManualTrigger resources, so the trigger type must
+# be `manual`, and postCheckpoint `resume` keeps the pod running after a
+# checkpoint (the SDK suspends it separately via the Sandbox API).
+#
+# The grouping rule on the `agents.x-k8s.io/sandbox-name-hash` label is
+# REQUIRED by the SDK: it guarantees a sandbox is only ever restored from
+# its own snapshots, and lets GKE pick the sandbox's most recent snapshot
+# automatically when the pod comes back on resume.
+apiVersion: podsnapshot.gke.io/v1
+kind: PodSnapshotPolicy
+metadata:
+  name: sandbox-snapshot-policy
+spec:
+  storageConfigName: sandbox-snapshot-storage
+  selector:
+    matchLabels:
+      app: python-snapshot-pool
+  triggerConfig:
+    type: manual
+    postCheckpoint: resume
+  snapshotGroupingRules:
+    groupByLabelValue:
+      labels: ["agents.x-k8s.io/sandbox-name-hash"]
+      groupRetentionPolicy:
+        maxSnapshotCountPerGroup: 3
+---
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: python-snapshot-sandbox
+spec:
+  envVarsInjectionPolicy: Disallowed
+  # Unmanaged: the controller's default Managed policy only admits ingress via
+  # the sandbox-router, but this demo's Ray actors connect to the sandbox pod
+  # IP directly (use_pod_ip=True), which that policy would block on
+  # NetworkPolicy-enforcing clusters. See the base agent-sandbox sample for a
+  # hardened egress NetworkPolicy you can layer on top.
+  networkPolicyManagement: Unmanaged
+  podTemplate:
+    metadata:
+      labels:
+        # Must match the PodSnapshotPolicy selector above.
+        app: python-snapshot-pool
+    spec:
+      serviceAccountName: sandbox-snapshot-ksa
+      automountServiceAccountToken: false
+      runtimeClassName: gvisor
+      containers:
+      - name: runtime
+        image: registry.k8s.io/agent-sandbox/python-runtime-sandbox:v0.4.6
+        imagePullPolicy: Always
+---
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxWarmPool
+metadata:
+  name: python-snapshot-pool
+spec:
+  replicas: 4
+  sandboxTemplateRef:
+    name: python-snapshot-sandbox
+---
+# Default-deny egress for the snapshot pool (DNS only). Blocks untrusted code in
+# the sandbox from reaching the GKE metadata server and obtaining the pool's
+# Workload Identity credentials (which hold bucket access). Snapshot checkpoints
+# are unaffected: uploads run through the node-side snapshot agent, not the
+# pod's network namespace. Ingress from Ray workers is untouched (egress-only).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: python-snapshot-pool-restrict-egress
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: python-snapshot-pool
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # GKE NodeLocal DNSCache (link-local) — present on Autopilot,
+  # optional on Standard. Harmless to ship either way.
+  - to:
+    - ipBlock:
+        cidr: 169.254.20.10/32
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53

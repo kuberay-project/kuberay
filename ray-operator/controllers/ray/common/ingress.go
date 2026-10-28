@@ -39,7 +39,18 @@ func BuildIngressForHeadService(ctx context.Context, cluster rayv1.RayCluster) (
 		}
 	}
 
-	pathType := networkingv1.PathTypeExact
+	ingressOptions := cluster.Spec.HeadGroupSpec.IngressOptions
+
+	pathType := networkingv1.PathTypePrefix
+	if ingressOptions != nil && ingressOptions.PathType != nil {
+		pathType = networkingv1.PathType(*ingressOptions.PathType)
+	}
+
+	path := "/"
+	if ingressOptions != nil && ingressOptions.Path != nil {
+		path = *ingressOptions.Path
+	}
+
 	servicePorts := getServicePorts(cluster)
 	dashboardPort := int32(utils.DefaultDashboardPort)
 	if port, ok := servicePorts["dashboard"]; ok {
@@ -52,7 +63,7 @@ func BuildIngressForHeadService(ctx context.Context, cluster rayv1.RayCluster) (
 	}
 	paths := []networkingv1.HTTPIngressPath{
 		{
-			Path:     "/" + cluster.Name + "/(.*)",
+			Path:     path,
 			PathType: &pathType,
 			Backend: networkingv1.IngressBackend{
 				Service: &networkingv1.IngressServiceBackend{
@@ -65,24 +76,32 @@ func BuildIngressForHeadService(ctx context.Context, cluster rayv1.RayCluster) (
 		},
 	}
 
+	rule := networkingv1.IngressRule{
+		IngressRuleValue: networkingv1.IngressRuleValue{
+			HTTP: &networkingv1.HTTPIngressRuleValue{
+				Paths: paths,
+			},
+		},
+	}
+	if ingressOptions != nil && ingressOptions.Host != nil {
+		rule.Host = *ingressOptions.Host
+	}
+
 	ingress := &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        utils.GenerateIngressName(cluster.Name),
+			Name:        utils.CheckName(utils.GenerateIngressName(cluster.Name)),
 			Namespace:   cluster.Namespace,
 			Labels:      labels,
 			Annotations: annotation,
 		},
 		Spec: networkingv1.IngressSpec{
-			Rules: []networkingv1.IngressRule{
-				{
-					IngressRuleValue: networkingv1.IngressRuleValue{
-						HTTP: &networkingv1.HTTPIngressRuleValue{
-							Paths: paths,
-						},
-					},
-				},
-			},
+			Rules: []networkingv1.IngressRule{rule},
 		},
+	}
+
+	if ingressOptions != nil && len(ingressOptions.TLS) > 0 {
+		ingress.Spec.TLS = make([]networkingv1.IngressTLS, len(ingressOptions.TLS))
+		copy(ingress.Spec.TLS, ingressOptions.TLS)
 	}
 
 	// Get ingress class name from rayCluster annotations. this is a required field to use ingress.

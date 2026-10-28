@@ -32,12 +32,15 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/common"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/expectations"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 	"github.com/ray-project/kuberay/ray-operator/test/support"
@@ -1712,6 +1715,172 @@ var _ = Context("Inside the default namespace", func() {
 				g.Expect(names).NotTo(ContainElement(unrelatedPodName), "unrelated pod must not appear in the manager's Pod store; got: %v", names)
 				g.Expect(cachedRayPods.Items).To(HaveLen(2), "this RayCluster has one head and one worker Pod in cache")
 			}, time.Second*10, time.Millisecond*300).Should(Succeed(), "wait for the manager informer to sync listed Pods")
+		})
+	})
+
+	Describe("RayCluster Redis cleanup finalizer timeout and auto-deletion", func() {
+		var (
+			ctx       = context.Background()
+			namespace = "default"
+		)
+
+		newReconciler := func() *RayClusterReconciler {
+			return &RayClusterReconciler{
+				Client:                     k8sClient,
+				Scheme:                     k8sClient.Scheme(),
+				Recorder:                   events.NewFakeRecorder(10),
+				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(k8sClient),
+			}
+		}
+
+		Describe("Helper function tests", func() {
+			It("Should return correct deletion timeout from annotation", func() {
+				cluster := rayClusterTemplate("helper-timeout-test", namespace)
+
+				// No annotation: returns default
+				Expect(getGCSFTDeletionTimeout(cluster)).To(Equal(
+					time.Duration(utils.RAYCLUSTER_GCS_FT_DELETION_TIMEOUT_DEFAULT) * time.Second))
+
+				// Valid annotation
+				cluster.Annotations = map[string]string{
+					utils.RayClusterGCSFTDeletionTimeoutAnnotation: "120",
+				}
+				Expect(getGCSFTDeletionTimeout(cluster)).To(Equal(120 * time.Second))
+
+				// Non-numeric annotation falls back to default
+				cluster.Annotations[utils.RayClusterGCSFTDeletionTimeoutAnnotation] = "not-a-number"
+				Expect(getGCSFTDeletionTimeout(cluster)).To(Equal(
+					time.Duration(utils.RAYCLUSTER_GCS_FT_DELETION_TIMEOUT_DEFAULT) * time.Second))
+
+				// Zero annotation falls back to default (zero is not a valid timeout)
+				cluster.Annotations[utils.RayClusterGCSFTDeletionTimeoutAnnotation] = "0"
+				Expect(getGCSFTDeletionTimeout(cluster)).To(Equal(
+					time.Duration(utils.RAYCLUSTER_GCS_FT_DELETION_TIMEOUT_DEFAULT) * time.Second))
+			})
+		})
+
+		Describe("Auto-deletion for clusters with stuck GCS FT finalizer", Ordered, func() {
+			clusterKey := client.ObjectKey{Name: "raycluster-redis-cleanup", Namespace: namespace}
+
+			BeforeAll(func() {
+				cluster := rayClusterTemplate(clusterKey.Name, namespace)
+				cluster.Finalizers = []string{utils.GCSFaultToleranceRedisCleanupFinalizer}
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+				Eventually(
+					getResourceFunc(ctx, clusterKey, cluster),
+					time.Second*3, time.Millisecond*500).Should(Succeed())
+			})
+
+			It("Should have GCS FT finalizer after creation", func() {
+				cluster := &rayv1.RayCluster{}
+				Expect(k8sClient.Get(ctx, clusterKey, cluster)).To(Succeed())
+				Expect(cluster.Finalizers).To(ContainElement(utils.GCSFaultToleranceRedisCleanupFinalizer))
+			})
+
+			It("Should NOT auto-delete cluster before timeout", func() {
+				cluster := &rayv1.RayCluster{}
+				Expect(k8sClient.Get(ctx, clusterKey, cluster)).To(Succeed())
+
+				// Trigger real deletion — the server sets DeletionTimestamp to "now"
+				Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+
+				// Wait for the server to stamp DeletionTimestamp
+				Eventually(func() bool {
+					c := &rayv1.RayCluster{}
+					return k8sClient.Get(ctx, clusterKey, c) == nil && !c.DeletionTimestamp.IsZero()
+				}, time.Second*3, time.Millisecond*500).Should(BeTrue())
+
+				// DeletionTimestamp is ~now, well under the 5-minute default timeout;
+				// finalizer should still be present.
+				Expect(k8sClient.Get(ctx, clusterKey, cluster)).To(Succeed())
+				Expect(cluster.Finalizers).To(ContainElement(utils.GCSFaultToleranceRedisCleanupFinalizer))
+			})
+
+			It("Should auto-delete cluster after timeout", func() {
+				// Cluster is already in deleting state (DeletionTimestamp set by previous test).
+				// Override in-memory only to simulate age past the 5-minute default.
+				cluster := &rayv1.RayCluster{}
+				Expect(k8sClient.Get(ctx, clusterKey, cluster)).To(Succeed())
+				Expect(cluster.DeletionTimestamp).NotTo(BeNil())
+
+				pastTime := metav1.NewTime(time.Now().Add(-20 * time.Minute))
+				cluster.DeletionTimestamp = &pastTime
+
+				result, err := newReconciler().forceRemoveGCSFTFinalizer(ctx, cluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Eventually(func() []string {
+					c := &rayv1.RayCluster{}
+					if err := k8sClient.Get(ctx, clusterKey, c); err != nil {
+						return nil
+					}
+					return c.Finalizers
+				}, time.Second*3, time.Millisecond*500).ShouldNot(
+					ContainElement(utils.GCSFaultToleranceRedisCleanupFinalizer))
+			})
+		})
+
+		Describe("Auto-deletion safety for clusters without the GCS FT finalizer", func() {
+			It("Should NOT trigger force-delete when the GCS FT finalizer is absent", func() {
+				cluster := rayClusterTemplate("raycluster-no-finalizer", namespace)
+				// No GCS FT finalizer — hasGCSFTFinalizer must return false
+				Expect(hasGCSFTFinalizer(cluster)).To(BeFalse())
+
+				// Even with a very old in-memory timestamp, the missing finalizer guards the path
+				pastTime := metav1.NewTime(time.Now().Add(-2 * time.Hour))
+				cluster.DeletionTimestamp = &pastTime
+				Expect(hasGCSFTFinalizer(cluster)).To(BeFalse())
+			})
+		})
+
+		Describe("Integration with Redis cleanup flow", func() {
+			It("Should detect timeout and force-delete via Reconcile when annotation timeout elapses", func() {
+				cluster := rayClusterTemplate("raycluster-integration", namespace)
+				// 1-second timeout so the test doesn't need to wait long
+				cluster.Annotations = map[string]string{
+					utils.RayFTEnabledAnnotationKey:                "true",
+					utils.RayClusterGCSFTDeletionTimeoutAnnotation: "1",
+				}
+				cluster.Finalizers = []string{utils.GCSFaultToleranceRedisCleanupFinalizer}
+
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+				clusterKey := client.ObjectKey{Name: cluster.Name, Namespace: namespace}
+
+				DeferCleanup(func() {
+					c := &rayv1.RayCluster{}
+					if err := k8sClient.Get(ctx, clusterKey, c); err != nil {
+						return
+					}
+					c.Finalizers = nil
+					_ = k8sClient.Update(ctx, c)
+					_ = k8sClient.Delete(ctx, c)
+				})
+
+				Eventually(
+					getResourceFunc(ctx, clusterKey, cluster),
+					time.Second*3, time.Millisecond*500).Should(Succeed())
+
+				// Trigger deletion; server stamps DeletionTimestamp = now
+				Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+
+				// Wait for the 1-second annotation timeout to elapse
+				time.Sleep(2 * time.Second)
+
+				req := ctrl.Request{NamespacedName: clusterKey}
+				result, err := newReconciler().Reconcile(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Eventually(func() []string {
+					c := &rayv1.RayCluster{}
+					if err := k8sClient.Get(ctx, clusterKey, c); err != nil {
+						return nil
+					}
+					return c.Finalizers
+				}, time.Second*3, time.Millisecond*500).ShouldNot(
+					ContainElement(utils.GCSFaultToleranceRedisCleanupFinalizer))
+			})
 		})
 	})
 })

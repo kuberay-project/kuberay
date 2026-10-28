@@ -133,4 +133,4 @@ kubectl get pods
 | singleNamespaceInstall | bool | `false` | The chart can be installed by users with permissions to a single namespace only |
 | enableAPIServerV2 | bool | `true` | If set to true, APIServer v2 would be served on the same port as the APIServer v1. |
 | security.proxy | object | `{"pullPolicy":"IfNotPresent","repository":"quay.io/kuberay/security-proxy","tag":"nightly"}` | security proxy image. |
-| security.env | object | `{"ENABLE_GRPC":"true","GRPC_LOCAL_PORT":8987,"HTTP_LOCAL_PORT":8988,"SECURITY_PREFIX":"/","SECURITY_TOKEN":"12345"}` | security proxy environment variables. |
+| security.env | object | `{"ENABLE_GRPC":"true","GRPC_LOCAL_PORT":8987,"HTTP_LOCAL_PORT":8988,"SECURITY_PREFIX":"/"}` | security proxy environment variables. |

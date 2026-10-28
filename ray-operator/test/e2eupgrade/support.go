@@ -37,7 +37,8 @@ func rayServiceSampleYamlApplyConfigurationWithWorker() *rayv1ac.RayServiceSpecA
           working_dir: "https://github.com/ray-project/test_dag/archive/78b4a5da38796123d9f9ffff59bab2792a043e95.zip"
         deployments:
           - name: MangoStand
-            num_replicas: 1
+            num_replicas: 2
+            max_replicas_per_node: 1
             user_config:
               price: 3
             ray_actor_options:

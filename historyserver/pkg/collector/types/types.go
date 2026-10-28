@@ -24,8 +24,24 @@ type RayCollectorConfig struct {
 	PushInterval        time.Duration
 	DashboardAddress    string
 
+	// AdditionalEndpoints are polled on top of the collector's built-in set.
 	AdditionalEndpoints  []string
 	EndpointPollInterval time.Duration
+
+	// LogUploadInterval is how often the active session log directory is
+	// scanned to upload Ray rotation backups and active log chunks.
+	LogUploadInterval time.Duration
+
+	// Event collector disk-first storage configuration.
+	EventDataDir          string        // root directory for JSONL event files
+	EventRotationInterval time.Duration // time-based rotation trigger
+	EventMaxFileSizeMB    int           // size-based rotation trigger (MB)
+	EventMaxDiskMB        int           // backpressure threshold (MB)
+	// EventCompressionEnabled controls whether rotated JSONL files are
+	// gzipped before being uploaded to remote storage. When false, plain
+	// JSONL files are uploaded as-is. Events are always written to local
+	// disk first regardless of this setting.
+	EventCompressionEnabled bool
 }
 
 // ValidateRayHanderConfig is

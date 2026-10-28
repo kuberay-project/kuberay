@@ -5,10 +5,12 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	clientv1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	eventsv1client "k8s.io/client-go/kubernetes/typed/events/v1"
 
 	"github.com/ray-project/kuberay/apiserver/pkg/model"
 	"github.com/ray-project/kuberay/apiserver/pkg/util"
@@ -47,7 +49,7 @@ func (r *ResourceManager) getKubernetesConfigMapClient(namespace string) clientv
 	return r.clientManager.KubernetesClient().ConfigMapClient(namespace)
 }
 
-func (r *ResourceManager) getEventsClient(namespace string) clientv1.EventInterface {
+func (r *ResourceManager) getEventsClient(namespace string) eventsv1client.EventInterface {
 	return r.clientManager.KubernetesClient().EventsClient(namespace)
 }
 
@@ -452,18 +454,18 @@ func getComputeTemplateByName(ctx context.Context, client clientv1.ConfigMapInte
 	return runtime, nil
 }
 
-func (r *ResourceManager) GetClusterEvents(ctx context.Context, clusterName string, namespace string) ([]corev1.Event, error) {
+func (r *ResourceManager) GetClusterEvents(ctx context.Context, clusterName string, namespace string) ([]eventsv1.Event, error) {
 	client := r.getEventsClient(namespace)
 	clusterClient := r.getRayClusterClient(namespace)
 	return getRayClusterEventsByName(ctx, clusterName, client, clusterClient)
 }
 
-func getRayClusterEventsByName(ctx context.Context, name string, client clientv1.EventInterface, clusterClient rayv1.RayClusterInterface) ([]corev1.Event, error) {
+func getRayClusterEventsByName(ctx context.Context, name string, client eventsv1client.EventInterface, clusterClient rayv1.RayClusterInterface) ([]eventsv1.Event, error) {
 	rayCluster, err := getClusterByName(ctx, clusterClient, name)
 	if err != nil {
 		return nil, util.Wrap(err, "get raycluster event failed")
 	}
-	fieldSelectorById := fmt.Sprintf("involvedObject.name=%s", rayCluster.Name)
+	fieldSelectorById := fmt.Sprintf("regarding.name=%s", rayCluster.Name)
 	events, err := client.List(ctx, metav1.ListOptions{
 		FieldSelector: fieldSelectorById,
 		TypeMeta:      metav1.TypeMeta{Kind: "RayCluster"},
@@ -478,7 +480,7 @@ func getRayClusterEventsByName(ctx context.Context, name string, client clientv1
 	return events.Items, nil
 }
 
-func (r *ResourceManager) GetServiceEvents(ctx context.Context, service rayv1api.RayService) ([]corev1.Event, error) {
+func (r *ResourceManager) GetServiceEvents(ctx context.Context, service rayv1api.RayService) ([]eventsv1.Event, error) {
 	eventClient := r.getEventsClient(service.Namespace)
 	events, err := getRayServiceEventsByName(ctx, service.Name, eventClient)
 	if err != nil {
@@ -487,15 +489,15 @@ func (r *ResourceManager) GetServiceEvents(ctx context.Context, service rayv1api
 	if len(service.Status.ActiveServiceStatus.RayClusterName) > 0 {
 		clusterEvents, err := r.GetClusterEvents(ctx, service.Status.ActiveServiceStatus.RayClusterName, service.Namespace)
 		if err != nil {
-			clusterEvents = make([]corev1.Event, 0)
+			clusterEvents = make([]eventsv1.Event, 0)
 		}
 		events = append(events, clusterEvents...)
 	}
 	return events, nil
 }
 
-func getRayServiceEventsByName(ctx context.Context, name string, client clientv1.EventInterface) ([]corev1.Event, error) {
-	fieldSelectorById := fmt.Sprintf("involvedObject.name=%s", name)
+func getRayServiceEventsByName(ctx context.Context, name string, client eventsv1client.EventInterface) ([]eventsv1.Event, error) {
+	fieldSelectorById := fmt.Sprintf("regarding.name=%s", name)
 	events, err := client.List(ctx, metav1.ListOptions{
 		FieldSelector: fieldSelectorById,
 		TypeMeta:      metav1.TypeMeta{Kind: "RayService"},
@@ -504,7 +506,7 @@ func getRayServiceEventsByName(ctx context.Context, name string, client clientv1
 		return nil, util.Wrap(err, "Get Ray Cluster Events failed")
 	}
 	if len(events.Items) == 0 {
-		return make([]corev1.Event, 0), nil
+		return make([]eventsv1.Event, 0), nil
 	}
 
 	return events.Items, nil

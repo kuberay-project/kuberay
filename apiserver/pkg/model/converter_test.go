@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -597,7 +598,7 @@ func TestNilAutoscalerOptions(t *testing.T) {
 
 func TestFromCrdToAPIClusters(t *testing.T) {
 	clusters := []*rayv1api.RayCluster{&ClusterSpecTest}
-	clusterEventsMap := map[string][]corev1.Event{}
+	clusterEventsMap := map[string][]eventsv1.Event{}
 	apiClusters := FromCrdToAPIClusters(clusters, clusterEventsMap)
 	assert.Len(t, apiClusters, 1)
 
@@ -609,7 +610,7 @@ func TestFromCrdToAPIClusters(t *testing.T) {
 }
 
 func TestPopulateRayClusterSpec(t *testing.T) {
-	cluster := FromCrdToAPICluster(&ClusterSpecTest, []corev1.Event{})
+	cluster := FromCrdToAPICluster(&ClusterSpecTest, []eventsv1.Event{})
 	if len(cluster.Annotations) != 1 {
 		t.Errorf("failed to convert cluster's annotations")
 	}
@@ -617,7 +618,7 @@ func TestPopulateRayClusterSpec(t *testing.T) {
 	if cluster.ClusterSpec.AutoscalerOptions != nil {
 		t.Errorf("unexpected autoscaler annotations")
 	}
-	cluster = FromCrdToAPICluster(&ClusterSpecAutoscalerTest, []corev1.Event{})
+	cluster = FromCrdToAPICluster(&ClusterSpecAutoscalerTest, []eventsv1.Event{})
 	assert.True(t, cluster.ClusterSpec.EnableInTreeAutoscaling)
 	if cluster.ClusterSpec.AutoscalerOptions == nil {
 		t.Errorf("autoscaler annotations not found")
@@ -754,7 +755,7 @@ func TestPopulateJob(t *testing.T) {
 
 func TestFromCrdToAPIServices(t *testing.T) {
 	services := []*rayv1api.RayService{&ServiceV2Test}
-	serviceEventsMap := map[string][]corev1.Event{}
+	serviceEventsMap := map[string][]eventsv1.Event{}
 	apiServices := FromCrdToAPIServices(services, serviceEventsMap)
 	assert.Len(t, apiServices, 1)
 
@@ -765,7 +766,7 @@ func TestFromCrdToAPIServices(t *testing.T) {
 }
 
 func TestPopulateService(t *testing.T) {
-	service := FromCrdToAPIService(&ServiceV2Test, []corev1.Event{})
+	service := FromCrdToAPIService(&ServiceV2Test, []eventsv1.Event{})
 	assert.Equal(t, ServiceV2Test.ObjectMeta.Name, service.Name)
 	assert.Equal(t, ServiceV2Test.ObjectMeta.Namespace, service.Namespace)
 	assert.Equal(t, ServiceV2Test.ObjectMeta.Labels["ray.io/user"], service.User)
@@ -810,16 +811,16 @@ func TestPopulateServeDeploymentStatus(t *testing.T) {
 
 func TestPopulateRayServiceEvent(t *testing.T) {
 	expectedServiceName := "svc0"
-	expectedEvent := corev1.Event{
+	expectedEvent := eventsv1.Event{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test",
 		},
-		Reason:  "test",
-		Message: "test",
-		Type:    "Normal",
-		Count:   2,
+		Reason:          "test",
+		Note:            "test",
+		Type:            "Normal",
+		DeprecatedCount: 2,
 	}
-	events := []corev1.Event{expectedEvent}
+	events := []eventsv1.Event{expectedEvent}
 	serviceEvents := PopulateRayServiceEvent(expectedServiceName, events)
 	assert.Len(t, serviceEvents, 1)
 
@@ -827,7 +828,7 @@ func TestPopulateRayServiceEvent(t *testing.T) {
 	assert.Equal(t, expectedEvent.Name, serviceEvent.Id)
 	assert.Equal(t, expectedServiceName+"-"+expectedEvent.ObjectMeta.Name, serviceEvent.Name)
 	assert.Equal(t, expectedEvent.Reason, serviceEvent.Reason)
-	assert.Equal(t, expectedEvent.Message, serviceEvent.Message)
+	assert.Equal(t, expectedEvent.Note, serviceEvent.Message)
 	assert.Equal(t, expectedEvent.Type, serviceEvent.Type)
-	assert.Equal(t, expectedEvent.Count, serviceEvent.Count)
+	assert.Equal(t, expectedEvent.DeprecatedCount, serviceEvent.Count)
 }

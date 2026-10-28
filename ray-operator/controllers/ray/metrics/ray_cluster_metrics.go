@@ -67,6 +67,7 @@ func NewRayClusterMetricsManager(ctx context.Context, client client.Client) *Ray
 func (r *RayClusterMetricsManager) Describe(ch chan<- *prometheus.Desc) {
 	r.rayClusterProvisionedDurationSeconds.Describe(ch)
 	ch <- r.rayClusterInfo
+	ch <- r.rayClusterConditionProvisioned
 }
 
 // Collect implements prometheus.Collector interface Collect method.

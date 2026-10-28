@@ -1,0 +1,107 @@
+# This sample demonstrates how to enable Kubernetes Platform Events ingestion in the Ray Dashboard for a RayJob.
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob-platform-events
+spec:
+  entrypoint: python /home/ray/samples/sample_code.py
+  rayClusterSpec:
+    rayVersion: "2.56.0" # Platform events feature is available in 2.56.0+
+    headGroupSpec:
+      rayStartParams: {}
+      template:
+        spec:
+          serviceAccountName: rayjob-platform-events
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.56.0
+            env:
+            - name: RAY_DASHBOARD_INGEST_PLATFORM_EVENTS
+              value: "true"
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            resources:
+              limits:
+                cpu: "1"
+                memory: "5Gi"
+              requests:
+                cpu: "1"
+                memory: "2Gi"
+            volumeMounts:
+            - mountPath: /home/ray/samples
+              name: code-sample
+          volumes:
+          - name: code-sample
+            configMap:
+              name: ray-job-code-sample
+              items:
+              - key: sample_code.py
+                path: sample_code.py
+    workerGroupSpecs:
+    - replicas: 1
+      minReplicas: 1
+      maxReplicas: 5
+      groupName: small-group
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.56.0
+            resources:
+              limits:
+                cpu: "1"
+                memory: "1Gi"
+              requests:
+                cpu: "200m"
+                memory: "1Gi"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-job-code-sample
+data:
+  sample_code.py: |
+    import ray
+    import time
+
+    ray.init()
+
+    print("Running basic Ray job to test platform events...")
+    time.sleep(10)
+    print("Done!")
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rayjob-platform-events
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rayjob-platform-events-reader
+rules:
+- apiGroups: ["", "events.k8s.io"]
+  resources: ["events"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["ray.io"]
+  resources: ["rayclusters", "rayjobs"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rayjob-platform-events-reader-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rayjob-platform-events-reader
+subjects:
+- kind: ServiceAccount
+  name: rayjob-platform-events
+  namespace: default

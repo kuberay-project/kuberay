@@ -1,0 +1,115 @@
+name: Mark and close stale issues and pull requests
+
+on:
+  schedule:
+    # Runs twice a day at 15 minutes past midnight and noon UTC.
+    - cron: '15 */12 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write # Required to manage the actions cache used to persist state across runs.
+      issues: write # Required to add labels, comment, close issues.
+      pull-requests: write # Required to add labels, comment, close PRs.
+
+    steps:
+      - name: Mark and close stale issues and pull requests
+        uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+          # TODO: Disable stale bot for issues for now, we need further discussion on whether we want to enable it.
+          # # --- Issue settings ---
+          # # Number of days of inactivity before an issue becomes stale.
+          # days-before-issue-stale: 120
+          #
+          # # Number of days of inactivity after being marked stale before an issue is closed.
+          # days-before-issue-close: 14
+          #
+          # # Label to use when marking an issue as stale.
+          # stale-issue-label: 'stale'
+          #
+          # # Issues with these labels will never be considered stale.
+          # exempt-issue-labels: >
+          #   P0,
+          #   P0.5,
+          #   P1,
+          #   P2,
+          #   P3,
+          #   good-first-issue,
+          #   release-blocker
+          #
+          # # Comment to post when marking an issue as stale.
+          # stale-issue-message: |
+          #   This issue has been automatically marked as stale because it has not had
+          #   any activity for 120 days. It will be closed in 14 days if no further activity occurs.
+          #
+          #   If you'd like to keep this issue open, just leave any comment, and the stale label will be removed.
+          #   If you'd like to get more attention on this issue, please tag one of the KubeRay maintainers.
+          #
+          #   You can always ask for help on [Ray's public Slack channel](https://github.com/ray-project/kuberay#getting-involved).
+          #
+          # # Comment to post when closing a stale issue.
+          # close-issue-message: |
+          #   This issue has been automatically closed because there has been no more activity in the
+          #   14 days since being marked stale.
+          #
+          #   Please feel free to reopen or open a new issue if you'd still like this to be addressed.
+          #
+          #   Again, you can always ask for help on [Ray's public Slack channel](https://github.com/ray-project/kuberay#getting-involved).
+          #
+          #   Thanks again for the report!
+          days-before-issue-stale: -1
+          days-before-issue-close: -1
+
+          # --- Pull request settings ---
+          # Number of days of inactivity before a pull request becomes stale.
+          days-before-pr-stale: 120
+
+          # Number of days of inactivity after being marked stale before a pull request is closed.
+          days-before-pr-close: 14
+
+          # Label to use when marking a PR as stale.
+          stale-pr-label: 'stale'
+
+          # Pull requests with these labels will never be considered stale.
+          exempt-pr-labels: >
+            release-blocker,
+            branch-cut-blocker
+
+          # Comment to post when marking a PR as stale.
+          stale-pr-message: |
+            This pull request has been automatically marked as stale because it has not had
+            any activity for 120 days. It will be closed in another 14 days if no further activity occurs.
+            Thank you for your contributions.
+
+            You can always ask for help on [Ray's public Slack channel](https://github.com/ray-project/kuberay#getting-involved).
+
+            If you'd like to keep this open, just leave any comment, and the stale label will be removed.
+
+          # Comment to post when closing a stale PR.
+          close-pr-message: |
+            This pull request has been automatically closed because there has been no more activity in the 14 days
+            since being marked stale.
+
+            Please feel free to reopen or open a new pull request if you'd still like this to be addressed.
+
+            Again, you can always ask for help on [Ray's public Slack channel](https://github.com/ray-project/kuberay#getting-involved).
+
+            Thanks again for your contribution!
+
+          # --- Shared settings & other options ---
+          # Limit the number of actions per run.
+          operations-per-run: 500
+
+          # Remove the stale label from issues/PRs when they receive new activity.
+          remove-issue-stale-when-updated: true
+          remove-pr-stale-when-updated: true
+
+          # Set to true to ignore issues/PRs in a milestone.
+          exempt-all-issue-milestones: true
+          exempt-all-pr-milestones: true
+
+          ascending: true

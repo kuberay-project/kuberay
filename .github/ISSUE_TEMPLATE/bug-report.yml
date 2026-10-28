@@ -39,6 +39,42 @@ body:
     validations:
       required: true
 
+  - type: input
+    attributes:
+      label: KubeRay Version
+      description: What version of KubeRay are you using? (e.g., v1.5.0, latest from main, or commit SHA)
+      placeholder: "e.g., v1.5.0"
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Ray Version
+      description: What version of Ray are you using?
+      placeholder: "e.g., 2.54.0"
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Environment
+      description: >
+        Provide details about your environment. This helps us reproduce and diagnose the issue.
+      placeholder: |
+        - Kubernetes version (output of `kubectl version`):
+        - Kubernetes cluster type (e.g., kind, minikube, EKS, GKE, AKS, on-prem):
+        - Helm chart version (if using Helm):
+        - Installation method (Helm / Kustomize / YAML):
+        - OS (e.g., Linux, macOS):
+      value: |
+        - Kubernetes version:
+        - Kubernetes cluster type:
+        - Helm chart version (if applicable):
+        - Installation method (Helm / Kustomize / YAML):
+        - OS:
+    validations:
+      required: true
+
   - type: textarea
     attributes:
       label: What happened + What you expected to happen

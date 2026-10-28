@@ -103,29 +103,29 @@ docker exec -it kind-control-plane crictl images | grep collector
 
 Choose one of the following storage backends for log and event storage:
 
-- [Option A: MinIO (S3-compatible)](#option-a-minio-s3-compatible) - recommended for most users
+- [Option A: RustFS (S3-compatible)](#option-a-rustfs-s3-compatible) - recommended for most users
 - [Option B: Azure Blob Storage (Azurite)](#option-b-azure-blob-storage-azurite)
 
-#### Option A: MinIO (S3-compatible)
+#### Option A: RustFS (S3-compatible)
 
-Deploy MinIO as an S3-compatible storage backend:
+Deploy RustFS as an S3-compatible storage backend:
 
 ```bash
-# Apply the minio manifest.
-kubectl apply -f historyserver/config/minio.yaml
+# Apply the RustFS manifest.
+kubectl apply -f historyserver/config/rustfs.yaml
 
-# Port-forward the minio UI for sanity check.
-kubectl -n minio-dev port-forward svc/minio-service 9001:9001
+# Port-forward the RustFS console for sanity check.
+kubectl -n rustfs-dev port-forward svc/rustfs-service 9001:9001
 
-# Open the minio UI.
-open http://localhost:9001/browser
+# Open the RustFS console.
+open http://localhost:9001/rustfs/console/
 ```
 
 Login with:
 
 ```text
-Username: minioadmin
-Password: minioadmin
+Account: rustfsadmin
+Key: rustfsadmin
 ```
 
 #### Option B: Azure Blob Storage (Azurite)
@@ -148,7 +148,7 @@ Account key:  Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1S
 ```
 
 The collector connects to Azurite using a connection string configured in the Ray cluster
-manifest. See `config/raycluster-azureblob.yaml` for the full configuration.
+manifest. See `config/rayjob-azureblob.yaml` for the full configuration.
 
 ### Deploy a Ray cluster for checks
 
@@ -202,49 +202,48 @@ lifecycle:
         done
 ```
 
-> Note: The example manifest at `config/raycluster.yaml` uses `grep -oP` (Perl regex) which may
+> Note: The example manifest at `config/rayjob.yaml` uses `grep -oP` (Perl regex) which may
 > not be available in all containers. The `sed` command above is more portable.
 
-Deploy the Ray cluster using the manifest that matches your storage backend:
+Submit the RayJob that matches your storage backend. It creates a Ray cluster with the
+collector sidecar, runs a sample workload, and shuts the cluster down after the job
+finishes (`shutdownAfterJobFinishes` with a 30s TTL):
 
 ```bash
-# For MinIO (S3-compatible):
-kubectl apply -f historyserver/config/raycluster.yaml
+# For RustFS (S3-compatible):
+kubectl apply -f historyserver/config/rayjob.yaml
 
 # For Azure Blob Storage (Azurite):
-kubectl apply -f historyserver/config/raycluster-azureblob.yaml
+kubectl apply -f historyserver/config/rayjob-azureblob.yaml
 ```
 
 > [!IMPORTANT]
 > After deploying the Ray cluster, the collector automatically creates a container/bucket named
-> `ray-historyserver` in your storage backend. For MinIO, you can verify this in the MinIO UI.
+> `ray-historyserver` in your storage backend. For RustFS, you can verify this in the RustFS console.
 
-![create_bucket](https://github.com/ray-project/kuberay/blob/69f6f0bd2a9e44a533f18a54aa014ae6a0be88ec/historyserver/docs/assets/create_bucket.png)
+![create_bucket](assets/create_bucket.png)
 
-Submit a Ray job to the existing cluster to verify that events can be uploaded to blob storage:
+Wait for the job to succeed:
 
 ```bash
-# Apply the Ray job manifest.
-kubectl apply -f historyserver/config/rayjob.yaml
+kubectl wait rayjob/rayjob-historyserver --for=jsonpath='{.status.jobStatus}=SUCCEEDED' --timeout=5m
+# For Azure Blob Storage, the RayJob name is rayjob-historyserver-azureblob.
 ```
 
-Since the session logs are processed and events are flushed when the Ray cluster is deleted,
-you can manually delete the Ray cluster to trigger log file and event uploading:
+Session logs are processed and events are flushed when the Ray cluster is deleted, which
+happens automatically 30s after the job finishes. To skip the TTL wait, delete the RayJob:
 
 ```bash
-# Trigger the session log processing and event flushing upon deletion.
-# Use the manifest that matches your storage backend.
-
-# For MinIO:
-kubectl delete -f historyserver/config/raycluster.yaml
+# For RustFS:
+kubectl delete -f historyserver/config/rayjob.yaml
 
 # For Azure Blob Storage:
-kubectl delete -f historyserver/config/raycluster-azureblob.yaml
+kubectl delete -f historyserver/config/rayjob-azureblob.yaml
 ```
 
-You should see the uploaded logs and events in the storage backend UI. For MinIO:
+You should see the uploaded logs and events in the storage backend UI. For RustFS:
 
-![write_logs_and_events](https://github.com/ray-project/kuberay/blob/db7cb864061518ed4cfa7bf48cf05cfbfeb49f95/historyserver/docs/assets/write_logs_and_events.png)
+![write_logs_and_events](assets/write_logs_and_events.png)
 
 ## Troubleshooting
 

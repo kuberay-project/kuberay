@@ -1,0 +1,76 @@
+suite: Test Event Forwarder RBAC
+
+templates:
+  - event_forwarder_rbac.yaml
+
+release:
+  name: kuberay-operator
+  namespace: kuberay-system
+
+tests:
+  - it: Should not create Event Forwarder RBAC by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should not create Event Forwarder RBAC if nodeEventForwarder is disabled
+    set:
+      rbacEnable: true
+      nodeEventForwarder:
+        enabled: false
+      featureGates:
+        - name: RayNodeEventForwarder
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should not create Event Forwarder RBAC when singleNamespaceInstall is true
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: true
+      nodeEventForwarder:
+        enabled: true
+      featureGates:
+        - name: RayNodeEventForwarder
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should create Roles and RoleBindings in default and kube-system when enabled with cluster-scoped install
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+      nodeEventForwarder:
+        enabled: true
+      featureGates:
+        - name: RayNodeEventForwarder
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 4
+      - documentIndex: 0
+        containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          name: kuberay-operator-node-event-forwarder
+          namespace: default
+      - documentIndex: 1
+        containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          name: kuberay-operator-node-event-forwarder
+          namespace: default
+      - documentIndex: 2
+        containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          name: kuberay-operator-node-event-forwarder
+          namespace: kube-system
+      - documentIndex: 3
+        containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          name: kuberay-operator-node-event-forwarder
+          namespace: kube-system

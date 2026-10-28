@@ -44,15 +44,15 @@ func TestTrim(t *testing.T) {
 	// relativePath := strings.TrimPrefix(absoluteLogPathName, logdir)
 	// Split relative path into subdir and filename
 	subdir, filename := filepath.Split(relativePath)
-	test_path_join := path.Join("aa./b/c/d", "e")
+	testPathJoin := path.Join("aa./b/c/d", "e")
 	t.Logf("file [%s] logdir [%s] subdir %s filename %s", absoluteLogPathName,
 		logdir, subdir, filename)
-	t.Logf("test_path_join [%s]", test_path_join)
+	t.Logf("testPathJoin [%s]", testPathJoin)
 }
 
 func TestWalk(t *testing.T) {
 	watchPath := fmt.Sprintf("%s/test/LLogs/", utils.GetTmpRayRoot())
-	filepath.Walk(watchPath, func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(watchPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			logrus.Errorf("Walk path error %v", err)
 			return err // Return error
@@ -62,5 +62,7 @@ func TestWalk(t *testing.T) {
 			logrus.Infof("Find new file %s", path) // Log file path
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Logf("Walk %s: %v", watchPath, err)
+	}
 }

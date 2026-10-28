@@ -13,7 +13,7 @@ import (
 //
 // RayJob is the Schema for the rayjobs API
 type RayJobApplyConfiguration struct {
-	metav1.TypeMetaApplyConfiguration    `json:",inline"`
+	metav1.TypeMetaApplyConfiguration    `json:""`
 	*metav1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                                 *RayJobSpecApplyConfiguration   `json:"spec,omitempty"`
 	Status                               *RayJobStatusApplyConfiguration `json:"status,omitempty"`

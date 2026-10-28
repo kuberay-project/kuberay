@@ -8,7 +8,7 @@ variables or `/var/collector-config/data`.
 Content in `/var/collector-config/data` should be in JSON format, like
 `{"azureContainer": "", "azureConnectionString": "", "azureAccountURL": ""}`
 
-Set `--runtime-class-name=azureblob` to enable this module.
+Set `--storage-backend=azureblob` to enable this module.
 
 ## Authentication
 

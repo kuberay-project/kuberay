@@ -3,6 +3,7 @@ package client
 import (
 	"k8s.io/client-go/kubernetes"
 	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	eventsv1 "k8s.io/client-go/kubernetes/typed/events/v1"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
@@ -15,11 +16,12 @@ type KubernetesClientInterface interface {
 	PodClient(namespace string) v1.PodInterface
 	ConfigMapClient(namespace string) v1.ConfigMapInterface
 	NamespaceClient() v1.NamespaceInterface
-	EventsClient(namespace string) v1.EventInterface
+	EventsClient(namespace string) eventsv1.EventInterface
 }
 
 type KubernetesClient struct {
-	coreV1Client v1.CoreV1Interface
+	coreV1Client   v1.CoreV1Interface
+	eventsV1Client eventsv1.EventsV1Interface
 }
 
 func (c *KubernetesClient) PodClient(namespace string) v1.PodInterface {
@@ -30,8 +32,8 @@ func (c *KubernetesClient) ConfigMapClient(namespace string) v1.ConfigMapInterfa
 	return c.coreV1Client.ConfigMaps(namespace)
 }
 
-func (c *KubernetesClient) EventsClient(namespace string) v1.EventInterface {
-	return c.coreV1Client.Events(namespace)
+func (c *KubernetesClient) EventsClient(namespace string) eventsv1.EventInterface {
+	return c.eventsV1Client.Events(namespace)
 }
 
 func (c *KubernetesClient) NamespaceClient() v1.NamespaceInterface {
@@ -51,5 +53,5 @@ func CreateKubernetesCoreOrFatal(options util.ClientOptions) KubernetesClientInt
 	if err != nil {
 		klog.Fatalf("Failed to create pod client. Error: %v", err)
 	}
-	return &KubernetesClient{clientSet.CoreV1()}
+	return &KubernetesClient{coreV1Client: clientSet.CoreV1(), eventsV1Client: clientSet.EventsV1()}
 }

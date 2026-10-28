@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	. "github.com/onsi/ginkgo/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -34,6 +35,7 @@ import (
 	"go.uber.org/mock/gomock"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -44,8 +46,9 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientFake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -512,7 +515,7 @@ func TestReconcile_RemoveWorkersToDelete_RandomDelete(t *testing.T) {
 			assert.Len(t, testRayCluster.Spec.WorkerGroupSpecs[0].ScaleStrategy.WorkersToDelete, expectedNumWorkersToDelete)
 			testRayClusterReconciler := &RayClusterReconciler{
 				Client:                     fakeClient,
-				Recorder:                   &record.FakeRecorder{},
+				Recorder:                   &events.FakeRecorder{},
 				Scheme:                     scheme.Scheme,
 				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 			}
@@ -608,7 +611,7 @@ func TestReconcile_RemoveWorkersToDelete_NoRandomDelete(t *testing.T) {
 
 			testRayClusterReconciler := &RayClusterReconciler{
 				Client:                     fakeClient,
-				Recorder:                   &record.FakeRecorder{},
+				Recorder:                   &events.FakeRecorder{},
 				Scheme:                     scheme.Scheme,
 				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 			}
@@ -654,7 +657,7 @@ func TestReconcile_RandomDelete_OK(t *testing.T) {
 	assert.Len(t, podList.Items, len(testPods), "Init pod list len is wrong")
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -716,7 +719,7 @@ func TestReconcile_PodDeleted_Diff0_OK(t *testing.T) {
 	// Initialize a new RayClusterReconciler.
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -774,7 +777,7 @@ func TestReconcile_PodDeleted_DiffLess0_OK(t *testing.T) {
 	// Initialize a new RayClusterReconciler.
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -830,7 +833,7 @@ func TestReconcile_Diff0_WorkersToDelete_OK(t *testing.T) {
 	// Initialize a new RayClusterReconciler.
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -906,7 +909,7 @@ func TestReconcile_PodCrash_DiffLess0_OK(t *testing.T) {
 			// Initialize a new RayClusterReconciler.
 			testRayClusterReconciler := &RayClusterReconciler{
 				Client:                     fakeClient,
-				Recorder:                   &record.FakeRecorder{},
+				Recorder:                   &events.FakeRecorder{},
 				Scheme:                     scheme.Scheme,
 				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 			}
@@ -985,7 +988,7 @@ func TestReconcile_PodEvicted_DiffLess0_OK(t *testing.T) {
 
 			testRayClusterReconciler := &RayClusterReconciler{
 				Client:                     fakeClient,
-				Recorder:                   &record.FakeRecorder{},
+				Recorder:                   &events.FakeRecorder{},
 				Scheme:                     scheme.Scheme,
 				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 			}
@@ -1046,7 +1049,7 @@ func TestReconcileHeadService(t *testing.T) {
 	// Initialize RayCluster reconciler.
 	r := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -1116,7 +1119,7 @@ func TestReconcileHeadlessService(t *testing.T) {
 	// Initialize RayCluster reconciler.
 	r := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -1182,7 +1185,7 @@ func TestReconcile_AutoscalerServiceAccount(t *testing.T) {
 
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -1216,7 +1219,7 @@ func TestReconcile_Autoscaler_ServiceAccountName(t *testing.T) {
 	// Initialize the reconciler
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -1237,7 +1240,7 @@ func TestReconcile_Autoscaler_ServiceAccountName(t *testing.T) {
 	// Initialize the reconciler
 	testRayClusterReconciler = &RayClusterReconciler{
 		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Scheme:   scheme.Scheme,
 	}
 
@@ -1262,7 +1265,7 @@ func TestReconcile_AutoscalerRoleBinding(t *testing.T) {
 
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -1299,7 +1302,7 @@ func TestReconcile_UpdateClusterReason(t *testing.T) {
 
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -1323,7 +1326,7 @@ func TestUpdateEndpoints(t *testing.T) {
 	ctx := context.Background()
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Scheme:   scheme.Scheme,
 	}
 
@@ -1470,7 +1473,7 @@ func TestGetHeadServiceIPAndName(t *testing.T) {
 			fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(tc.services...).Build()
 			testRayClusterReconciler := &RayClusterReconciler{
 				Client:                     fakeClient,
-				Recorder:                   &record.FakeRecorder{},
+				Recorder:                   &events.FakeRecorder{},
 				Scheme:                     scheme.Scheme,
 				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 			}
@@ -1501,7 +1504,7 @@ func TestGetHeadServiceIPAndNameOnHeadlessService(t *testing.T) {
 
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Scheme:   scheme.Scheme,
 	}
 
@@ -1554,7 +1557,7 @@ func TestUpdateStatusObservedGeneration(t *testing.T) {
 	// Initialize RayCluster reconciler.
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -1591,7 +1594,7 @@ func TestReconcile_UpdateClusterState(t *testing.T) {
 
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     newScheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -1670,7 +1673,7 @@ func TestCalculateStatus(t *testing.T) {
 	// Initialize a RayCluster reconciler.
 	r := &RayClusterReconciler{
 		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Scheme:   scheme.Scheme,
 	}
 
@@ -1766,7 +1769,7 @@ func TestCalculateStatusWithoutDesiredReplicas(t *testing.T) {
 	// Initialize a RayCluster reconciler.
 	r := &RayClusterReconciler{
 		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Scheme:   scheme.Scheme,
 	}
 
@@ -1831,7 +1834,7 @@ func TestCalculateStatusWithSuspendedWorkerGroups(t *testing.T) {
 	// Initialize a RayCluster reconciler.
 	r := &RayClusterReconciler{
 		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Scheme:   scheme.Scheme,
 	}
 
@@ -1906,7 +1909,7 @@ func TestCalculateStatusWithReconcileErrorBackAndForth(t *testing.T) {
 	// Initialize a RayCluster reconciler.
 	r := &RayClusterReconciler{
 		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Scheme:   scheme.Scheme,
 	}
 
@@ -1999,7 +2002,7 @@ func TestRayClusterProvisionedCondition(t *testing.T) {
 	ctx := context.Background()
 	r := &RayClusterReconciler{
 		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Scheme:   scheme.Scheme,
 	}
 
@@ -2078,7 +2081,7 @@ func TestStateTransitionTimes_NoStateChange(t *testing.T) {
 	// Initialize a RayCluster reconciler.
 	r := &RayClusterReconciler{
 		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Scheme:   scheme.Scheme,
 	}
 
@@ -2134,7 +2137,7 @@ func Test_TerminatedWorkers_NoAutoscaler(t *testing.T) {
 	// Initialize a new RayClusterReconciler.
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -2258,7 +2261,7 @@ func Test_TerminatedHead_RestartPolicy(t *testing.T) {
 	// Initialize a new RayClusterReconciler.
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     newScheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -2356,7 +2359,7 @@ func Test_RunningPods_RayContainerTerminated(t *testing.T) {
 	// Initialize a new RayClusterReconciler.
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     newScheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -2510,6 +2513,7 @@ func Test_RedisCleanupFeatureFlag(t *testing.T) {
 	newScheme := runtime.NewScheme()
 	_ = rayv1.AddToScheme(newScheme)
 	_ = corev1.AddToScheme(newScheme)
+	_ = certmanagerv1.AddToScheme(newScheme)
 
 	// Prepare a RayCluster with the GCS FT enabled and Autoscaling disabled.
 	gcsFTEnabledCluster := testRayCluster.DeepCopy()
@@ -2563,7 +2567,7 @@ func Test_RedisCleanupFeatureFlag(t *testing.T) {
 			// Initialize the reconciler
 			testRayClusterReconciler := &RayClusterReconciler{
 				Client:                     fakeClient,
-				Recorder:                   &record.FakeRecorder{},
+				Recorder:                   &events.FakeRecorder{},
 				Scheme:                     newScheme,
 				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 			}
@@ -2610,6 +2614,101 @@ func Test_RedisCleanupFeatureFlag(t *testing.T) {
 				assert.NotEmpty(t, podList.Items)
 			}
 		})
+	}
+}
+
+func Test_RedisCleanupSkippedForEmbeddedBackend(t *testing.T) {
+	setupTest(t)
+	defer os.Unsetenv(utils.ENABLE_GCS_FT_REDIS_CLEANUP)
+	features.SetFeatureGateDuringTest(t, features.GCSFaultToleranceEmbeddedStorage, true)
+	// Redis cleanup is enabled by default; the embedded RocksDB backend must still
+	// not receive the Redis cleanup finalizer (there is no Redis to clean up, so
+	// the finalizer/Job would stall deletion).
+	os.Unsetenv(utils.ENABLE_GCS_FT_REDIS_CLEANUP)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+
+	cluster := testRayCluster.DeepCopy()
+	cluster.Spec.EnableInTreeAutoscaling = nil
+	cluster.Spec.GcsFaultToleranceOptions = &rayv1.GcsFaultToleranceOptions{
+		Backend: rayv1.GcsFTBackendRocksDB,
+	}
+	ctx := context.Background()
+
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(newScheme).
+		WithObjects(cluster).
+		WithStatusSubresource(cluster).
+		Build()
+
+	testRayClusterReconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   &events.FakeRecorder{},
+		Scheme:                     newScheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}
+
+	_, err := testRayClusterReconciler.rayClusterReconcile(ctx, cluster)
+	require.NoError(t, err)
+
+	rayClusterList := rayv1.RayClusterList{}
+	require.NoError(t, fakeClient.List(ctx, &rayClusterList, client.InNamespace(namespaceStr)))
+	require.Len(t, rayClusterList.Items, 1)
+	assert.False(t, controllerutil.ContainsFinalizer(&rayClusterList.Items[0], utils.GCSFaultToleranceRedisCleanupFinalizer),
+		"embedded RocksDB backend must not receive the Redis cleanup finalizer")
+}
+
+func Test_StaleRedisCleanupFinalizerRemovedForEmbeddedBackend(t *testing.T) {
+	setupTest(t)
+	defer os.Unsetenv(utils.ENABLE_GCS_FT_REDIS_CLEANUP)
+	os.Unsetenv(utils.ENABLE_GCS_FT_REDIS_CLEANUP)
+	features.SetFeatureGateDuringTest(t, features.GCSFaultToleranceEmbeddedStorage, true)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+
+	// A cluster that previously used the Redis backend (so it carries the Redis
+	// cleanup finalizer) and was later switched to the embedded RocksDB backend,
+	// now being deleted.
+	cluster := testRayCluster.DeepCopy()
+	cluster.Spec.EnableInTreeAutoscaling = nil
+	cluster.Spec.GcsFaultToleranceOptions = &rayv1.GcsFaultToleranceOptions{
+		Backend: rayv1.GcsFTBackendRocksDB,
+	}
+	controllerutil.AddFinalizer(cluster, utils.GCSFaultToleranceRedisCleanupFinalizer)
+	now := metav1.Now()
+	cluster.DeletionTimestamp = &now
+	ctx := context.Background()
+
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(newScheme).
+		WithObjects(cluster).
+		WithStatusSubresource(cluster).
+		Build()
+
+	testRayClusterReconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   &events.FakeRecorder{},
+		Scheme:                     newScheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}
+
+	_, err := testRayClusterReconciler.rayClusterReconcile(ctx, cluster)
+	require.NoError(t, err)
+
+	// With the stale finalizer removed and a deletion timestamp set, the CR is no
+	// longer blocked: the fake client garbage-collects it. Either outcome (object
+	// gone, or present without the finalizer) proves it is not stuck Terminating.
+	rayClusterList := rayv1.RayClusterList{}
+	require.NoError(t, fakeClient.List(ctx, &rayClusterList, client.InNamespace(namespaceStr)))
+	if len(rayClusterList.Items) == 1 {
+		assert.False(t, controllerutil.ContainsFinalizer(&rayClusterList.Items[0], utils.GCSFaultToleranceRedisCleanupFinalizer),
+			"stale Redis cleanup finalizer must be removed for an embedded-backend RayCluster being deleted")
+	} else {
+		assert.Empty(t, rayClusterList.Items, "RayCluster should be deleted once the stale finalizer is removed")
 	}
 }
 
@@ -2676,7 +2775,7 @@ func TestEvents_RedisCleanup(t *testing.T) {
 			// Buffer length of 100 is arbitrary here. We should have only 1 event generated, but we keep 100
 			// if that isn't the case in the future. If this test starts timing out because of a full
 			// channel, this is probably the reason, and we should change our approach or increase buffer length.
-			recorder := record.NewFakeRecorder(100)
+			recorder := events.NewFakeRecorder(100)
 
 			testRayClusterReconciler := &RayClusterReconciler{
 				Client:   fakeClient,
@@ -2822,7 +2921,7 @@ func Test_RedisCleanup(t *testing.T) {
 
 			testRayClusterReconciler := &RayClusterReconciler{
 				Client:   fakeClient,
-				Recorder: &record.FakeRecorder{},
+				Recorder: &events.FakeRecorder{},
 				Scheme:   newScheme,
 			}
 
@@ -2941,7 +3040,7 @@ func TestReconcile_Replicas_Optional(t *testing.T) {
 			// Initialize a new RayClusterReconciler.
 			testRayClusterReconciler := &RayClusterReconciler{
 				Client:                     fakeClient,
-				Recorder:                   &record.FakeRecorder{},
+				Recorder:                   &events.FakeRecorder{},
 				Scheme:                     scheme.Scheme,
 				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 			}
@@ -3040,7 +3139,7 @@ func TestReconcile_Multihost_Replicas(t *testing.T) {
 			// Initialize a new RayClusterReconciler.
 			testRayClusterReconciler := &RayClusterReconciler{
 				Client:                     fakeClient,
-				Recorder:                   &record.FakeRecorder{},
+				Recorder:                   &events.FakeRecorder{},
 				Scheme:                     scheme.Scheme,
 				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 			}
@@ -3112,7 +3211,7 @@ func TestReconcile_NumOfHosts(t *testing.T) {
 			// Initialize a new RayClusterReconciler.
 			testRayClusterReconciler := &RayClusterReconciler{
 				Client:                     fakeClient,
-				Recorder:                   &record.FakeRecorder{},
+				Recorder:                   &events.FakeRecorder{},
 				Scheme:                     scheme.Scheme,
 				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 			}
@@ -3235,7 +3334,7 @@ func TestDeleteAllPods(t *testing.T) {
 
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Scheme:   newScheme,
 	}
 	ctx := context.Background()
@@ -3337,7 +3436,7 @@ func TestEvents_FailedPodCreation(t *testing.T) {
 			// Buffer length of 100 is arbitrary here. We should have only 1 event genereated, but we keep 100
 			// if that isn't the case in the future. If this test starts timining out because of a full
 			// channel, this is probably the reason and we should change our approach or increase buffer length.
-			recorder := record.NewFakeRecorder(100)
+			recorder := events.NewFakeRecorder(100)
 
 			// Initialize a new RayClusterReconciler.
 			testRayClusterReconciler := &RayClusterReconciler{
@@ -3420,7 +3519,7 @@ func Test_ReconcileManagedBy(t *testing.T) {
 				Build()
 			testRayClusterReconciler := &RayClusterReconciler{
 				Client:                     fakeClient,
-				Recorder:                   &record.FakeRecorder{},
+				Recorder:                   &events.FakeRecorder{},
 				Scheme:                     newScheme,
 				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 			}
@@ -3435,6 +3534,232 @@ func Test_ReconcileManagedBy(t *testing.T) {
 				assert.InDelta(t, result.RequeueAfter.Seconds(), time.Duration(0).Seconds(), 1e-6)
 			}
 		})
+	}
+}
+
+func Test_ReconcileIdleTerminationOptionsSuspendPolicy(t *testing.T) {
+	setupTest(t)
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+	_ = batchv1.AddToScheme(newScheme)
+	_ = rbacv1.AddToScheme(newScheme)
+
+	enableIdleSuspendPolicy := func(c *rayv1.RayCluster) {
+		c.Spec.EnableInTreeAutoscaling = new(true)
+		c.Spec.RayVersion = "2.60.0"
+		c.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{
+			Version: ptr.To(rayv1.AutoscalerVersionV2),
+		}
+		c.Spec.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+			TimeoutSeconds: ptr.To[int32](60),                          // 1 min
+			Policy:         ptr.To(rayv1.IdleTerminationPolicySuspend), // the default policy is Suspend, we explicitly set it for clarity
+		}
+		// Simulates the Ray autoscaler flipped spec.idleSuspend to true.
+		c.Spec.IdleSuspend = new(true)
+	}
+
+	ctx := context.Background()
+	cluster := testRayCluster.DeepCopy()
+	cluster.Status = rayv1.RayClusterStatus{}
+	enableIdleSuspendPolicy(cluster)
+
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(newScheme).
+		WithObjects(cluster).
+		WithStatusSubresource(cluster).
+		Build()
+	recorder := events.NewFakeRecorder(10)
+	reconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   recorder,
+		Scheme:                     newScheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}
+
+	// Transitions RayClusterSuspending to True
+	_, err := reconciler.rayClusterReconcile(ctx, cluster)
+	require.NoError(t, err)
+
+	got := &rayv1.RayCluster{}
+	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}, got))
+
+	// Transition to RayClusterSuspended.
+	_, err = reconciler.rayClusterReconcile(ctx, got)
+	require.NoError(t, err)
+	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}, got))
+
+	cond := meta.FindStatusCondition(got.Status.Conditions, string(rayv1.RayClusterSuspended))
+	if assert.NotNil(t, cond) {
+		assert.Equal(t, metav1.ConditionTrue, cond.Status)
+		assert.Equal(t, string(rayv1.RayClusterIdleSuspended), cond.Reason)
+	}
+}
+
+func Test_ReconcileIdleTerminationOptionsDeletePolicy(t *testing.T) {
+	setupTest(t)
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+	_ = batchv1.AddToScheme(newScheme)
+	_ = rbacv1.AddToScheme(newScheme)
+
+	enableIdleDeletePolicy := func(c *rayv1.RayCluster) {
+		c.Spec.EnableInTreeAutoscaling = new(true)
+		c.Spec.RayVersion = "2.60.0"
+		c.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{
+			Version: ptr.To(rayv1.AutoscalerVersionV2),
+		}
+		c.Spec.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+			TimeoutSeconds: ptr.To[int32](60), // 1 min
+			Policy:         ptr.To(rayv1.IdleTerminationPolicyDelete),
+		}
+	}
+	setDeletionTimestamp := func(c *rayv1.RayCluster) {
+		now := metav1.Now()
+		c.DeletionTimestamp = &now
+	}
+
+	tests := []struct {
+		mutate        func(*rayv1.RayCluster)
+		name          string
+		expectDeleted bool
+	}{
+		{
+			name: "finalizer present, deletionTimestamp set, feature enabled: finalizer is removed and deletion proceeds",
+			mutate: func(c *rayv1.RayCluster) {
+				enableIdleDeletePolicy(c)
+				controllerutil.AddFinalizer(c, utils.IdleTerminationCleanupFinalizer)
+				setDeletionTimestamp(c)
+			},
+			expectDeleted: true,
+		},
+		{
+			name: "deletionTimestamp set but a different finalizer is blocking deletion: idle-termination finalizer logic is a no-op",
+			mutate: func(c *rayv1.RayCluster) {
+				enableIdleDeletePolicy(c)
+				controllerutil.AddFinalizer(c, "example.com/other-finalizer")
+				setDeletionTimestamp(c)
+			},
+			expectDeleted: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			cluster := testRayCluster.DeepCopy()
+			cluster.Status = rayv1.RayClusterStatus{}
+			tc.mutate(cluster)
+
+			fakeClient := clientFake.NewClientBuilder().
+				WithScheme(newScheme).
+				WithObjects(cluster).
+				WithStatusSubresource(cluster).
+				Build()
+			recorder := events.NewFakeRecorder(10)
+			reconciler := &RayClusterReconciler{
+				Client:                     fakeClient,
+				Recorder:                   recorder,
+				Scheme:                     newScheme,
+				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+			}
+
+			_, err := reconciler.rayClusterReconcile(ctx, cluster)
+			require.NoError(t, err)
+
+			got := &rayv1.RayCluster{}
+			err = fakeClient.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}, got)
+			if tc.expectDeleted {
+				assert.True(t, k8serrors.IsNotFound(err))
+				if err == nil {
+					assert.False(t, controllerutil.ContainsFinalizer(got, utils.IdleTerminationCleanupFinalizer))
+				}
+				event := <-recorder.Events
+				assert.Contains(t, event, string(utils.DeletedIdleRayCluster))
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_ReconcileIdleTerminationOptionsDeletePolicy_WithGCSFaultTolerance(t *testing.T) {
+	setupTest(t)
+	defer os.Unsetenv(utils.ENABLE_GCS_FT_REDIS_CLEANUP)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+	_ = batchv1.AddToScheme(newScheme)
+	_ = rbacv1.AddToScheme(newScheme)
+
+	enableIdleDeletePolicy := func(c *rayv1.RayCluster) {
+		c.Spec.EnableInTreeAutoscaling = new(true)
+		c.Spec.RayVersion = "2.60.0"
+		c.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{
+			Version: ptr.To(rayv1.AutoscalerVersionV2),
+		}
+		c.Spec.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+			TimeoutSeconds: ptr.To[int32](60), // 1 min
+			Policy:         ptr.To(rayv1.IdleTerminationPolicyDelete),
+		}
+	}
+	ctx := context.Background()
+	cluster := testRayCluster.DeepCopy()
+	cluster.Status = rayv1.RayClusterStatus{}
+	enableIdleDeletePolicy(cluster)
+	controllerutil.AddFinalizer(cluster, utils.IdleTerminationCleanupFinalizer)
+	cluster.Spec.GcsFaultToleranceOptions = &rayv1.GcsFaultToleranceOptions{
+		RedisAddress: "redis://redis:6379",
+	}
+	controllerutil.AddFinalizer(cluster, utils.GCSFaultToleranceRedisCleanupFinalizer)
+	now := metav1.Now()
+	cluster.DeletionTimestamp = &now
+
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(newScheme).
+		WithObjects(cluster).
+		WithStatusSubresource(cluster).
+		Build()
+	recorder := events.NewFakeRecorder(10)
+	reconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   recorder,
+		Scheme:                     newScheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}
+
+	// In the first reconcile,
+	// check the idle-termination finalizer must be removed,
+	// and the GCS FT block must already have created the Redis cleanup Job.
+	_, err := reconciler.rayClusterReconcile(ctx, cluster)
+	require.NoError(t, err)
+
+	assert.NotContains(t, cluster.ObjectMeta.Finalizers, utils.IdleTerminationCleanupFinalizer)
+	assert.Contains(t, cluster.ObjectMeta.Finalizers, utils.GCSFaultToleranceRedisCleanupFinalizer)
+
+	jobList := batchv1.JobList{}
+	require.NoError(t, fakeClient.List(ctx, &jobList, client.InNamespace(namespaceStr)), "Fail to get Job list")
+	require.Len(t, jobList.Items, 1, "Redis cleanup Job should be created in the same reconcile pass as the idle finalizer removal")
+
+	// Simulate the Job succeeds.
+	job := jobList.Items[0]
+	job.Status.Succeeded = 1
+	job.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobSuccessCriteriaMet, Status: corev1.ConditionTrue}, {Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}
+	require.NoError(t, fakeClient.Status().Update(ctx, &job), "Fail to update Job status")
+
+	// In the second reconcile,
+	// check the Job is now finished, the GCS FT finalizer is removed,
+	// and the RayCluster is deleted.
+	_, err = reconciler.rayClusterReconcile(ctx, cluster)
+	require.NoError(t, err)
+
+	got := &rayv1.RayCluster{}
+	err = fakeClient.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}, got)
+	assert.True(t, k8serrors.IsNotFound(err))
+	if err == nil {
+		assert.False(t, controllerutil.ContainsFinalizer(got, utils.GCSFaultToleranceRedisCleanupFinalizer))
 	}
 }
 
@@ -3574,7 +3899,7 @@ func TestReconcile_AuthSecret(t *testing.T) {
 
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -3609,7 +3934,7 @@ func TestReconcile_AuthSecret_SkipWhenK8sTokenAuthEnabled(t *testing.T) {
 
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -3632,7 +3957,7 @@ func TestReconcile_PodsWithAuthToken(t *testing.T) {
 
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -3804,7 +4129,7 @@ func TestShouldRecreatePodsForUpgrade(t *testing.T) {
 			testRayClusterReconciler := &RayClusterReconciler{
 				Client:   fakeClient,
 				Scheme:   scheme.Scheme,
-				Recorder: &record.FakeRecorder{},
+				Recorder: &events.FakeRecorder{},
 			}
 
 			result := testRayClusterReconciler.shouldRecreatePodsForUpgrade(ctx, cluster)
@@ -3827,7 +4152,7 @@ func TestReconcileAuthSecret_WithSecretName(t *testing.T) {
 
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -3856,7 +4181,7 @@ func TestReconcilePodsWithAuthTokenSecretName(t *testing.T) {
 
 	testRayClusterReconciler := &RayClusterReconciler{
 		Client:                     fakeClient,
-		Recorder:                   &record.FakeRecorder{},
+		Recorder:                   &events.FakeRecorder{},
 		Scheme:                     scheme.Scheme,
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
 	}
@@ -3889,4 +4214,731 @@ func TestReconcilePodsWithAuthTokenSecretName(t *testing.T) {
 		}
 		assert.True(t, authTokenEnvFound, "Auth token env var with provided secret name not found")
 	}
+}
+
+func TestHasGCSFTFinalizer(t *testing.T) {
+	tests := []struct {
+		name       string
+		finalizers []string
+		want       bool
+	}{
+		{name: "no finalizers", finalizers: nil, want: false},
+		{name: "GCS FT finalizer present", finalizers: []string{utils.GCSFaultToleranceRedisCleanupFinalizer}, want: true},
+		{name: "other finalizer only", finalizers: []string{"some-other-finalizer"}, want: false},
+		{name: "GCS FT among multiple finalizers", finalizers: []string{"other", utils.GCSFaultToleranceRedisCleanupFinalizer}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := &rayv1.RayCluster{}
+			cluster.Finalizers = tt.finalizers
+			assert.Equal(t, tt.want, hasGCSFTFinalizer(cluster))
+		})
+	}
+}
+
+func TestGetGCSFTDeletionTimeout(t *testing.T) {
+	defaultTimeout := time.Duration(utils.RAYCLUSTER_GCS_FT_DELETION_TIMEOUT_DEFAULT) * time.Second
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		want        time.Duration
+	}{
+		{name: "no annotation returns default", annotations: nil, want: defaultTimeout},
+		{name: "valid annotation", annotations: map[string]string{
+			utils.RayClusterGCSFTDeletionTimeoutAnnotation: "120",
+		}, want: 120 * time.Second},
+		{name: "non-numeric annotation falls back to default", annotations: map[string]string{
+			utils.RayClusterGCSFTDeletionTimeoutAnnotation: "not-a-number",
+		}, want: defaultTimeout},
+		{name: "zero annotation falls back to default", annotations: map[string]string{
+			utils.RayClusterGCSFTDeletionTimeoutAnnotation: "0",
+		}, want: defaultTimeout},
+		{name: "negative annotation falls back to default", annotations: map[string]string{
+			utils.RayClusterGCSFTDeletionTimeoutAnnotation: "-5",
+		}, want: defaultTimeout},
+		{name: "1-second annotation (minimum valid)", annotations: map[string]string{
+			utils.RayClusterGCSFTDeletionTimeoutAnnotation: "1",
+		}, want: 1 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := &rayv1.RayCluster{}
+			cluster.Annotations = tt.annotations
+			assert.Equal(t, tt.want, getGCSFTDeletionTimeout(cluster))
+		})
+	}
+}
+
+func TestBuildPodsInjectDefaultPodMetadata(t *testing.T) {
+	cluster := rayClusterTemplate("raycluster-default-pod-metadata", "default")
+	cluster.Spec.HeadGroupSpec.RayStartParams = map[string]string{}
+	cluster.Spec.HeadGroupSpec.Template.Annotations = map[string]string{
+		"shared-annotation": "head",
+		"user-annotation":   "head-only",
+	}
+	cluster.Spec.HeadGroupSpec.Template.Labels = map[string]string{
+		"shared-label": "head",
+		"user-label":   "head-only",
+	}
+
+	worker := &cluster.Spec.WorkerGroupSpecs[0]
+	worker.RayStartParams = map[string]string{}
+	worker.Template.Annotations = map[string]string{
+		"shared-annotation": "worker",
+		"user-annotation":   "worker-only",
+	}
+	worker.Template.Labels = map[string]string{
+		"shared-label": "worker",
+		"user-label":   "worker-only",
+	}
+
+	reconciler := &RayClusterReconciler{
+		Client: clientFake.NewClientBuilder().Build(),
+		Scheme: scheme.Scheme,
+		options: RayClusterReconcilerOptions{
+			DefaultPodAnnotations: map[string]string{
+				"monitoring.example.com/scrape": "true",
+				"shared-annotation":             "default",
+			},
+			DefaultPodLabels: map[string]string{
+				"fleet":        "managed",
+				"shared-label": "default",
+			},
+		},
+	}
+
+	headPod := reconciler.buildHeadPod(context.Background(), *cluster)
+	assert.Equal(t, "true", headPod.Annotations["monitoring.example.com/scrape"])
+	assert.Equal(t, "head", headPod.Annotations["shared-annotation"])
+	assert.Equal(t, "head-only", headPod.Annotations["user-annotation"])
+	assert.Equal(t, "managed", headPod.Labels["fleet"])
+	assert.Equal(t, "head", headPod.Labels["shared-label"])
+	assert.Equal(t, "head-only", headPod.Labels["user-label"])
+
+	workerPod := reconciler.buildWorkerPod(context.Background(), *cluster, cluster.Spec.WorkerGroupSpecs[0], "", 0, 0)
+	assert.Equal(t, "true", workerPod.Annotations["monitoring.example.com/scrape"])
+	assert.Equal(t, "worker", workerPod.Annotations["shared-annotation"])
+	assert.Equal(t, "worker-only", workerPod.Annotations["user-annotation"])
+	assert.Equal(t, "managed", workerPod.Labels["fleet"])
+	assert.Equal(t, "worker", workerPod.Labels["shared-label"])
+	assert.Equal(t, "worker-only", workerPod.Labels["user-label"])
+}
+
+func TestBuildPodsWithoutDefaultPodMetadata(t *testing.T) {
+	cluster := rayClusterTemplate("raycluster-no-default-pod-metadata", "default")
+	cluster.Spec.HeadGroupSpec.RayStartParams = map[string]string{}
+	cluster.Spec.HeadGroupSpec.Template.Annotations = map[string]string{
+		"user-annotation": "head-only",
+	}
+	cluster.Spec.HeadGroupSpec.Template.Labels = map[string]string{
+		"user-label": "head-only",
+	}
+
+	worker := &cluster.Spec.WorkerGroupSpecs[0]
+	worker.RayStartParams = map[string]string{}
+	worker.Template.Annotations = map[string]string{
+		"user-annotation": "worker-only",
+	}
+	worker.Template.Labels = map[string]string{
+		"user-label": "worker-only",
+	}
+
+	reconciler := &RayClusterReconciler{
+		Client:  clientFake.NewClientBuilder().Build(),
+		Scheme:  scheme.Scheme,
+		options: RayClusterReconcilerOptions{},
+	}
+
+	headPod := reconciler.buildHeadPod(context.Background(), *cluster)
+	assert.Equal(t, "head-only", headPod.Annotations["user-annotation"])
+	assert.Equal(t, "head-only", headPod.Labels["user-label"])
+	assert.NotContains(t, headPod.Annotations, "monitoring.example.com/scrape")
+	assert.NotContains(t, headPod.Labels, "fleet")
+
+	workerPod := reconciler.buildWorkerPod(context.Background(), *cluster, cluster.Spec.WorkerGroupSpecs[0], "", 0, 0)
+	assert.Equal(t, "worker-only", workerPod.Annotations["user-annotation"])
+	assert.Equal(t, "worker-only", workerPod.Labels["user-label"])
+	assert.NotContains(t, workerPod.Annotations, "monitoring.example.com/scrape")
+	assert.NotContains(t, workerPod.Labels, "fleet")
+}
+
+func TestBuildPodsCollectorImage(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterHistoryServer, true)
+
+	const operatorCollectorImage = "my-registry.io/kuberay/collector:v1.7.0"
+
+	tests := []struct {
+		clusterCollectorImage *string
+		name                  string
+		expectedImage         string
+	}{
+		{
+			name:                  "collector image falls back to the operator configuration",
+			clusterCollectorImage: nil,
+			expectedImage:         operatorCollectorImage,
+		},
+		{
+			name:                  "collector image in the RayCluster takes precedence",
+			clusterCollectorImage: new("quay.io/kuberay/collector:nightly"),
+			expectedImage:         "quay.io/kuberay/collector:nightly",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cluster := rayClusterTemplate("raycluster-collector-image", "default")
+			cluster.Spec.HeadGroupSpec.RayStartParams = map[string]string{}
+			cluster.Spec.WorkerGroupSpecs[0].RayStartParams = map[string]string{}
+			cluster.Spec.HistoryServerOptions = &rayv1.HistoryServerOptions{
+				CollectorOptions: &rayv1.CollectorOptions{
+					Image: tc.clusterCollectorImage,
+				},
+			}
+
+			reconciler := &RayClusterReconciler{
+				Client:  clientFake.NewClientBuilder().Build(),
+				Scheme:  scheme.Scheme,
+				options: RayClusterReconcilerOptions{CollectorImage: operatorCollectorImage},
+			}
+
+			headPod := reconciler.buildHeadPod(context.Background(), *cluster)
+			assert.Equal(t, tc.expectedImage, collectorContainerImage(t, headPod))
+
+			workerPod := reconciler.buildWorkerPod(context.Background(), *cluster, cluster.Spec.WorkerGroupSpecs[0], "", 0, 0)
+			assert.Equal(t, tc.expectedImage, collectorContainerImage(t, workerPod))
+		})
+	}
+}
+
+func collectorContainerImage(t *testing.T, pod corev1.Pod) string {
+	t.Helper()
+	for _, container := range pod.Spec.Containers {
+		if container.Name == utils.CollectorContainerName {
+			return container.Image
+		}
+	}
+	t.Fatalf("collector container %q not found in Pod %s", utils.CollectorContainerName, pod.Name)
+	return ""
+}
+
+func TestReconcileIngressKubernetesSkipsUnownedIngress(t *testing.T) {
+	setupTest(t)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = networkingv1.AddToScheme(newScheme)
+
+	cluster := testRayCluster.DeepCopy()
+	cluster.UID = "raycluster-uid"
+
+	// An Ingress that carries the ray.io/cluster label (so it matches the
+	// operator's label selector) but is NOT owned by this RayCluster, e.g. one a
+	// user created by hand. The operator must leave it untouched.
+	userIngress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "user-owned-ingress",
+			Namespace: cluster.Namespace,
+			Labels: map[string]string{
+				utils.RayClusterLabelKey: cluster.Name,
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{Host: "user-defined-host.example.com"},
+			},
+		},
+	}
+
+	runtimeObjects := []runtime.Object{cluster, userIngress}
+	fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(runtimeObjects...).Build()
+	ctx := context.TODO()
+
+	r := &RayClusterReconciler{
+		Client:   fakeClient,
+		Recorder: &events.FakeRecorder{},
+		Scheme:   newScheme,
+	}
+
+	err := r.reconcileIngressKubernetes(ctx, cluster)
+	require.NoError(t, err)
+
+	// The user-owned Ingress must be left untouched (not clobbered).
+	updated := &networkingv1.Ingress{}
+	err = fakeClient.Get(ctx, types.NamespacedName{Name: userIngress.Name, Namespace: userIngress.Namespace}, updated)
+	require.NoError(t, err)
+	assert.Equal(t, userIngress.Spec, updated.Spec, "operator must not modify an Ingress it does not own")
+
+	// Since no owned Ingress existed, the operator should create its own instead
+	// of adopting the user's Ingress.
+	allIngresses := &networkingv1.IngressList{}
+	err = fakeClient.List(ctx, allIngresses, client.InNamespace(cluster.Namespace))
+	require.NoError(t, err)
+	var ownedCount int
+	for i := range allIngresses.Items {
+		if metav1.IsControlledBy(&allIngresses.Items[i], cluster) {
+			ownedCount++
+		}
+	}
+	assert.Equal(t, 1, ownedCount, "operator should create exactly one Ingress it owns when none existed yet")
+}
+
+func TestReconcileIngressKubernetesUpdatesOwnedIngressAmongUnowned(t *testing.T) {
+	setupTest(t)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = networkingv1.AddToScheme(newScheme)
+
+	cluster := testRayCluster.DeepCopy()
+	cluster.UID = "raycluster-uid"
+
+	// The owned dashboard Ingress, with a stale spec.
+	ownedIngress, err := common.BuildIngressForHeadService(context.TODO(), *cluster)
+	require.NoError(t, err)
+	require.NoError(t, controllerutil.SetControllerReference(cluster, ownedIngress, newScheme))
+	ownedIngress.Spec.Rules[0].Host = "stale-host.example.com"
+
+	// A second, user-created Ingress that shares the ray.io/cluster label.
+	userIngress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "user-owned-ingress",
+			Namespace: cluster.Namespace,
+			Labels: map[string]string{
+				utils.RayClusterLabelKey: cluster.Name,
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{Host: "user-defined-host.example.com"},
+			},
+		},
+	}
+
+	runtimeObjects := []runtime.Object{cluster, ownedIngress, userIngress}
+	fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(runtimeObjects...).Build()
+	ctx := context.TODO()
+
+	r := &RayClusterReconciler{
+		Client:   fakeClient,
+		Recorder: &events.FakeRecorder{},
+		Scheme:   newScheme,
+	}
+
+	err = r.reconcileIngressKubernetes(ctx, cluster)
+	require.NoError(t, err)
+
+	desired, err := common.BuildIngressForHeadService(ctx, *cluster)
+	require.NoError(t, err)
+
+	// The owned Ingress must be reconciled even though another labeled Ingress exists.
+	updatedOwned := &networkingv1.Ingress{}
+	err = fakeClient.Get(ctx, types.NamespacedName{Name: ownedIngress.Name, Namespace: ownedIngress.Namespace}, updatedOwned)
+	require.NoError(t, err)
+	assert.Equal(t, desired.Spec.Rules, updatedOwned.Spec.Rules, "owned Ingress must be reconciled even when other labeled Ingresses exist")
+
+	// The user's Ingress must remain untouched.
+	updatedUser := &networkingv1.Ingress{}
+	err = fakeClient.Get(ctx, types.NamespacedName{Name: userIngress.Name, Namespace: userIngress.Namespace}, updatedUser)
+	require.NoError(t, err)
+	assert.Equal(t, userIngress.Spec, updatedUser.Spec, "operator must not modify an Ingress it does not own")
+}
+
+func TestReconcileIngressKubernetesUpdatesOwnedIngress(t *testing.T) {
+	setupTest(t)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = networkingv1.AddToScheme(newScheme)
+
+	cluster := testRayCluster.DeepCopy()
+	cluster.UID = "raycluster-uid"
+
+	// Seed an Ingress that IS owned by this RayCluster but has a stale spec; the
+	// operator should reconcile it back to the desired dashboard configuration.
+	ownedIngress, err := common.BuildIngressForHeadService(context.TODO(), *cluster)
+	require.NoError(t, err)
+	require.NoError(t, controllerutil.SetControllerReference(cluster, ownedIngress, newScheme))
+	ownedIngress.Spec.Rules[0].Host = "stale-host.example.com"
+
+	runtimeObjects := []runtime.Object{cluster, ownedIngress}
+	fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(runtimeObjects...).Build()
+	ctx := context.TODO()
+
+	r := &RayClusterReconciler{
+		Client:   fakeClient,
+		Recorder: &events.FakeRecorder{},
+		Scheme:   newScheme,
+	}
+
+	err = r.reconcileIngressKubernetes(ctx, cluster)
+	require.NoError(t, err)
+
+	desired, err := common.BuildIngressForHeadService(ctx, *cluster)
+	require.NoError(t, err)
+
+	updated := &networkingv1.Ingress{}
+	err = fakeClient.Get(ctx, types.NamespacedName{Name: ownedIngress.Name, Namespace: ownedIngress.Namespace}, updated)
+	require.NoError(t, err)
+	assert.Equal(t, desired.Spec.Rules, updated.Spec.Rules, "operator must reconcile an Ingress it owns back to the desired spec")
+}
+
+func TestReconcileIngressKubernetesFindsOwnedIngressByNameWhenLabelsDrift(t *testing.T) {
+	setupTest(t)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = networkingv1.AddToScheme(newScheme)
+
+	cluster := testRayCluster.DeepCopy()
+	cluster.UID = "raycluster-uid"
+
+	// An owned Ingress whose ray.io/cluster label has drifted (removed), so the
+	// label selector won't return it. The operator should still find it by its
+	// deterministic name and reconcile it instead of creating a duplicate.
+	ownedIngress, err := common.BuildIngressForHeadService(context.TODO(), *cluster)
+	require.NoError(t, err)
+	require.NoError(t, controllerutil.SetControllerReference(cluster, ownedIngress, newScheme))
+	delete(ownedIngress.Labels, utils.RayClusterLabelKey)
+	ownedIngress.Spec.Rules[0].Host = "stale-host.example.com"
+
+	runtimeObjects := []runtime.Object{cluster, ownedIngress}
+	fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(runtimeObjects...).Build()
+	ctx := context.TODO()
+
+	r := &RayClusterReconciler{
+		Client:   fakeClient,
+		Recorder: &events.FakeRecorder{},
+		Scheme:   newScheme,
+	}
+
+	err = r.reconcileIngressKubernetes(ctx, cluster)
+	require.NoError(t, err)
+
+	// No duplicate Ingress should have been created.
+	allIngresses := &networkingv1.IngressList{}
+	require.NoError(t, fakeClient.List(ctx, allIngresses, client.InNamespace(cluster.Namespace)))
+	assert.Len(t, allIngresses.Items, 1, "operator must not create a duplicate when the owned Ingress is found by name")
+
+	// The existing owned Ingress should have been reconciled to the desired spec.
+	desired, err := common.BuildIngressForHeadService(ctx, *cluster)
+	require.NoError(t, err)
+	updated := &networkingv1.Ingress{}
+	err = fakeClient.Get(ctx, types.NamespacedName{Name: ownedIngress.Name, Namespace: ownedIngress.Namespace}, updated)
+	require.NoError(t, err)
+	assert.Equal(t, desired.Spec.Rules, updated.Spec.Rules, "owned Ingress found by name must be reconciled to the desired spec")
+}
+
+func TestReconcileIngressKubernetesFindsOwnedIngressWhenNameIsShortened(t *testing.T) {
+	setupTest(t)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = networkingv1.AddToScheme(newScheme)
+
+	// A cluster name long enough that utils.CheckName shortens the generated
+	// ingress name, so the Get and Create must agree on the shortened name.
+	cluster := testRayCluster.DeepCopy()
+	cluster.Name = "this-is-a-very-long-raycluster-name-that-exceeds-limits"
+	cluster.UID = "raycluster-uid"
+	cluster.Spec.HeadGroupSpec.IngressOptions = &rayv1.IngressOptions{Host: new("a.example.com")}
+
+	require.NotEqual(t,
+		utils.GenerateIngressName(cluster.Name),
+		utils.CheckName(utils.GenerateIngressName(cluster.Name)),
+		"test requires a cluster name whose ingress name gets shortened",
+	)
+
+	fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(cluster).Build()
+	ctx := context.TODO()
+	r := &RayClusterReconciler{
+		Client:   fakeClient,
+		Recorder: &events.FakeRecorder{},
+		Scheme:   newScheme,
+	}
+
+	require.NoError(t, r.reconcileIngressKubernetes(ctx, cluster))
+
+	ingresses := &networkingv1.IngressList{}
+	require.NoError(t, fakeClient.List(ctx, ingresses, client.InNamespace(cluster.Namespace)))
+	require.Len(t, ingresses.Items, 1, "first reconcile should create exactly one ingress")
+	assert.Equal(t, utils.CheckName(utils.GenerateIngressName(cluster.Name)), ingresses.Items[0].Name)
+
+	cluster.Spec.HeadGroupSpec.IngressOptions.Host = new("b.example.com")
+	require.NoError(t, r.reconcileIngressKubernetes(ctx, cluster))
+
+	ingresses = &networkingv1.IngressList{}
+	require.NoError(t, fakeClient.List(ctx, ingresses, client.InNamespace(cluster.Namespace)))
+	require.Len(t, ingresses.Items, 1, "second reconcile must not create a duplicate ingress")
+	assert.Equal(t, "b.example.com", ingresses.Items[0].Spec.Rules[0].Host,
+		"operator must find and update its own ingress under the shortened name")
+}
+
+func TestReconcileIngressKubernetesSkipsUnownedIngressWithGeneratedName(t *testing.T) {
+	setupTest(t)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = networkingv1.AddToScheme(newScheme)
+
+	cluster := testRayCluster.DeepCopy()
+	cluster.UID = "raycluster-uid"
+
+	// A user-created Ingress that happens to use the operator's generated name but
+	// is not owned by the RayCluster and does not carry the label. The operator
+	// must not adopt or modify it, and must surface the collision via an event
+	// rather than silently swallowing an AlreadyExists error on create.
+	userIngress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      utils.GenerateIngressName(cluster.Name),
+			Namespace: cluster.Namespace,
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{{Host: "user-defined-host.example.com"}},
+		},
+	}
+
+	runtimeObjects := []runtime.Object{cluster, userIngress}
+	fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(runtimeObjects...).Build()
+	ctx := context.TODO()
+
+	recorder := events.NewFakeRecorder(10)
+	r := &RayClusterReconciler{
+		Client:   fakeClient,
+		Recorder: recorder,
+		Scheme:   newScheme,
+	}
+
+	err := r.reconcileIngressKubernetes(ctx, cluster)
+	require.NoError(t, err)
+
+	updated := &networkingv1.Ingress{}
+	err = fakeClient.Get(ctx, types.NamespacedName{Name: userIngress.Name, Namespace: userIngress.Namespace}, updated)
+	require.NoError(t, err)
+	assert.Equal(t, userIngress.Spec, updated.Spec, "operator must not modify an unowned Ingress that shares its generated name")
+
+	// The collision must be surfaced via a warning event, not silently ignored.
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, string(utils.FailedToCreateIngress))
+		assert.Contains(t, event, "not owned by this RayCluster")
+	default:
+		t.Fatal("expected a warning event for the ingress name collision, but none was recorded")
+	}
+}
+
+func TestIngressNeedsUpdateAppliesDesiredFields(t *testing.T) {
+	exact := networkingv1.PathTypeExact
+	prefix := networkingv1.PathTypePrefix
+
+	existing := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sample-head-ingress",
+			Namespace: "default",
+			Labels: map[string]string{
+				"ray.io/cluster": "sample",
+			},
+			Annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/rewrite-target": "/$1",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: "old.example.com",
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{Paths: []networkingv1.HTTPIngressPath{{Path: "/sample/(.*)", PathType: &exact}}},
+					},
+				},
+			},
+		},
+	}
+
+	desired := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sample-head-ingress",
+			Namespace: "default",
+			Labels: map[string]string{
+				"ray.io/cluster": "sample",
+				"extra":          "label",
+			},
+			Annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/ssl-redirect": "true",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: "new.example.com",
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{Paths: []networkingv1.HTTPIngressPath{{Path: "/dashboard", PathType: &prefix}}},
+					},
+				},
+			},
+			TLS: []networkingv1.IngressTLS{{Hosts: []string{"new.example.com"}, SecretName: "ray-tls"}},
+		},
+	}
+
+	updated := ingressNeedsUpdate(existing, desired)
+
+	assert.True(t, updated)
+	assert.Equal(t, desired.Labels, existing.Labels)
+	assert.Equal(t, desired.Annotations, existing.Annotations)
+	assert.Equal(t, desired.Spec, existing.Spec)
+}
+
+func TestIngressNeedsUpdateNoopWhenEqual(t *testing.T) {
+	prefix := networkingv1.PathTypePrefix
+	existing := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sample-head-ingress",
+			Namespace: "default",
+			Labels: map[string]string{
+				"ray.io/cluster": "sample",
+			},
+			Annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/ssl-redirect": "true",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: "new.example.com",
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{Paths: []networkingv1.HTTPIngressPath{{Path: "/dashboard", PathType: &prefix}}},
+					},
+				},
+			},
+			TLS: []networkingv1.IngressTLS{{Hosts: []string{"new.example.com"}, SecretName: "ray-tls"}},
+		},
+	}
+
+	desired := existing.DeepCopy()
+
+	updated := ingressNeedsUpdate(existing, desired)
+
+	assert.False(t, updated)
+}
+
+func TestIngressNeedsUpdatePreservesDefaultedIngressClassName(t *testing.T) {
+	prefix := networkingv1.PathTypePrefix
+	rules := []networkingv1.IngressRule{
+		{
+			Host: "ray.example.com",
+			IngressRuleValue: networkingv1.IngressRuleValue{
+				HTTP: &networkingv1.HTTPIngressRuleValue{Paths: []networkingv1.HTTPIngressPath{{Path: "/", PathType: &prefix}}},
+			},
+		},
+	}
+
+	// The live Ingress has spec.ingressClassName set by the DefaultIngressClass
+	// admission plugin, while the desired object (the RayCluster did not request a
+	// class) leaves it nil.
+	existing := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: "sample-head-ingress", Namespace: "default"},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: new("nginx"),
+			Rules:            rules,
+		},
+	}
+	desired := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: "sample-head-ingress", Namespace: "default"},
+		Spec: networkingv1.IngressSpec{
+			Rules: rules,
+		},
+	}
+
+	updated := ingressNeedsUpdate(existing, desired)
+
+	assert.False(t, updated, "should not update when the only difference is an admission-defaulted ingress class")
+	require.NotNil(t, existing.Spec.IngressClassName)
+	assert.Equal(t, "nginx", *existing.Spec.IngressClassName, "the defaulted ingress class must be preserved")
+}
+
+func TestIngressNeedsUpdateOverridesIngressClassNameWhenRequested(t *testing.T) {
+	prefix := networkingv1.PathTypePrefix
+	rules := []networkingv1.IngressRule{
+		{
+			Host: "ray.example.com",
+			IngressRuleValue: networkingv1.IngressRuleValue{
+				HTTP: &networkingv1.HTTPIngressRuleValue{Paths: []networkingv1.HTTPIngressPath{{Path: "/", PathType: &prefix}}},
+			},
+		},
+	}
+
+	// When the RayCluster does request a class, it must win over the live value.
+	existing := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: "sample-head-ingress", Namespace: "default"},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: new("nginx"),
+			Rules:            rules,
+		},
+	}
+	desired := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: "sample-head-ingress", Namespace: "default"},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: new("traefik"),
+			Rules:            rules,
+		},
+	}
+
+	updated := ingressNeedsUpdate(existing, desired)
+
+	assert.True(t, updated)
+	require.NotNil(t, existing.Spec.IngressClassName)
+	assert.Equal(t, "traefik", *existing.Spec.IngressClassName, "an explicitly requested ingress class must override the live value")
+}
+
+func TestReconcile_TLSAutoGenerate_RejectsWithoutCertManager(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
+
+	cluster := &rayv1.RayCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "tls-cluster",
+			Namespace: "default",
+		},
+		Spec: rayv1.RayClusterSpec{
+			TLSOptions: &rayv1.TLSOptions{Enabled: new(true)},
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				RayStartParams: map[string]string{"dashboard-host": "0.0.0.0"},
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ray-head", Image: "rayproject/ray:latest"}},
+					},
+				},
+			},
+		},
+	}
+
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(scheme.Scheme).
+		WithRuntimeObjects(cluster).
+		WithStatusSubresource(cluster).
+		Build()
+
+	recorder := events.NewFakeRecorder(10)
+	r := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Scheme:                     scheme.Scheme,
+		Recorder:                   recorder,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+		options:                    RayClusterReconcilerOptions{CertManagerAvailable: false},
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace},
+	})
+
+	require.NoError(t, err, "should not return an error (no requeue)")
+	assert.Equal(t, ctrl.Result{}, result, "should not requeue")
+
+	var foundEvent bool
+	for len(recorder.Events) > 0 {
+		event := <-recorder.Events
+		if strings.Contains(event, "cert-manager") && strings.Contains(event, "Warning") {
+			foundEvent = true
+			break
+		}
+	}
+	assert.True(t, foundEvent, "expected a warning event about cert-manager")
 }

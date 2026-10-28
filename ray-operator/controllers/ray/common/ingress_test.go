@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -107,4 +108,38 @@ func TestBuildIngressForHeadService(t *testing.T) {
 	for _, path := range paths {
 		assert.Equal(t, headSvcName, path.Backend.Service.Name)
 	}
+
+	// default path and pathType should work out of the box (no rewrite/regex required)
+	assert.Equal(t, "/", paths[0].Path)
+	assert.Equal(t, networkingv1.PathTypePrefix, *paths[0].PathType)
+}
+
+func TestBuildIngressForHeadServiceWithIngressFields(t *testing.T) {
+	path := "/dashboard"
+	host := "ray.example.com"
+	pathType := rayv1.IngressPathTypePrefix
+
+	cluster := instanceWithIngressEnabled.DeepCopy()
+	cluster.Spec.HeadGroupSpec.IngressOptions = &rayv1.IngressOptions{
+		Host:     &host,
+		Path:     &path,
+		PathType: &pathType,
+		TLS: []networkingv1.IngressTLS{
+			{
+				Hosts:      []string{host},
+				SecretName: "ray-tls",
+			},
+		},
+	}
+
+	ingress, err := BuildIngressForHeadService(context.Background(), *cluster)
+	require.NoError(t, err)
+
+	assert.Equal(t, "nginx", *ingress.Spec.IngressClassName)
+	assert.Equal(t, host, ingress.Spec.Rules[0].Host)
+	assert.Equal(t, path, ingress.Spec.Rules[0].HTTP.Paths[0].Path)
+	assert.Equal(t, networkingv1.PathTypePrefix, *ingress.Spec.Rules[0].HTTP.Paths[0].PathType)
+	require.Len(t, ingress.Spec.TLS, 1)
+	assert.Equal(t, []string{host}, ingress.Spec.TLS[0].Hosts)
+	assert.Equal(t, "ray-tls", ingress.Spec.TLS[0].SecretName)
 }

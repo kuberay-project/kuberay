@@ -20,13 +20,11 @@ func (s *ServerHandler) getTimezone(req *restful.Request, resp *restful.Response
 		return
 	}
 
-	clusterName := req.Attribute(COOKIE_CLUSTER_NAME_KEY).(string)
-	clusterNamespace := req.Attribute(COOKIE_CLUSTER_NAMESPACE_KEY).(string)
-	clusterNameID := clusterName + "_" + clusterNamespace
+	clusterLogPathPrefix := s.getClusterLogPathPrefix(req)
 
 	storageKey := utils.EndpointPathToStorageKey(timezoneEndpoint)
 	endpointPath := path.Join(sessionName, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
-	reader := s.reader.GetContent(clusterNameID, endpointPath)
+	reader := s.reader.GetContent(clusterLogPathPrefix, endpointPath)
 	if reader == nil {
 		resp.Header().Set("Content-Type", "application/json")
 		resp.Write([]byte(`{"offset":"","value":""}`))

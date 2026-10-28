@@ -73,6 +73,8 @@ repos:
         require_serial: true
         pass_filenames: true
         files: .*\.(js|jsx|ts|tsx|cjs|mjs)$
+        additional_dependencies:
+          - eslint@8
 
 
   - repo: https://github.com/igorshubovych/markdownlint-cli

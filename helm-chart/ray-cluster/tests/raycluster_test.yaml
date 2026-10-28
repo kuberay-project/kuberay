@@ -97,6 +97,50 @@ tests:
               seccompProfile:
                 type: RuntimeDefault
 
+  - it: Should set upgradeStrategy when `upgradeStrategy` is set
+    set:
+      upgradeStrategy:
+        type: Recreate
+    asserts:
+      - equal:
+          path: spec.upgradeStrategy
+          value:
+            type: Recreate
+
+  - it: Should set upgradeStrategy type None when configured
+    set:
+      upgradeStrategy:
+        type: None
+    asserts:
+      - equal:
+          path: spec.upgradeStrategy
+          value:
+            type: None
+
+  - it: Should set authOptions when `authOptions` is set
+    set:
+      authOptions:
+        mode: token
+        secretName: ray-cluster-token
+    asserts:
+      - equal:
+          path: spec.authOptions
+          value:
+            mode: token
+            secretName: ray-cluster-token
+
+  - it: Should set Kubernetes token auth when `authOptions.enableK8sTokenAuth` is true
+    set:
+      authOptions:
+        mode: token
+        enableK8sTokenAuth: true
+    asserts:
+      - equal:
+          path: spec.authOptions
+          value:
+            mode: token
+            enableK8sTokenAuth: true
+
   - it: Should add GCS fault tolerance options when `gcsFaultTolerance.enabled` is `true`
     set:
       gcsFaultTolerance:
@@ -146,6 +190,54 @@ tests:
             metadata:
               name: test-head-service
               namespace: ray
+
+  - it: Should not set ingress fields by default
+    asserts:
+      - notExists:
+          path: spec.headGroupSpec.enableIngress
+      - notExists:
+          path: spec.headGroupSpec.ingressOptions
+
+  - it: Should enable ingress if `head.enableIngress` is `true`
+    set:
+      head:
+        enableIngress: true
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.enableIngress
+          value: true
+
+  - it: Should not enable ingress if `head.enableIngress` is `false`
+    set:
+      head:
+        enableIngress: false
+    asserts:
+      - notExists:
+          path: spec.headGroupSpec.enableIngress
+
+  - it: Should use the specified ingress options if `head.ingressOptions` is set
+    set:
+      head:
+        enableIngress: true
+        ingressOptions:
+          host: ray.example.com
+          path: /dashboard
+          pathType: Exact
+          tls:
+            - hosts:
+                - ray.example.com
+              secretName: ray-tls
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.ingressOptions
+          value:
+            host: ray.example.com
+            path: /dashboard
+            pathType: Exact
+            tls:
+              - hosts:
+                  - ray.example.com
+                secretName: ray-tls
 
   - it: Should use the specified service type if `service.type` is set
     set:
@@ -2240,3 +2332,114 @@ tests:
       - equal:
           path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.runtimeClassName
           value: nvidia
+
+  # ===========================================================================
+  # Test common.envFrom
+  # ===========================================================================
+
+  - it: Should prepend common.envFrom before each group's envFrom
+    set:
+      common:
+        envFrom:
+          - configMapRef:
+              name: common-config
+          - secretRef:
+              name: common-secret
+      head:
+        envFrom:
+          - secretRef:
+              name: head-secret
+      worker:
+        envFrom:
+          - secretRef:
+              name: worker-secret
+      additionalWorkerGroups:
+        smallGroup:
+          disabled: false
+          replicas: 1
+          minReplicas: 0
+          maxReplicas: 1
+          envFrom:
+            - secretRef:
+                name: additional-secret
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].envFrom
+          value:
+            - configMapRef:
+                name: common-config
+            - secretRef:
+                name: common-secret
+            - secretRef:
+                name: head-secret
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+          value:
+            - configMapRef:
+                name: common-config
+            - secretRef:
+                name: common-secret
+            - secretRef:
+                name: worker-secret
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="smallGroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+          value:
+            - configMapRef:
+                name: common-config
+            - secretRef:
+                name: common-secret
+            - secretRef:
+                name: additional-secret
+
+  - it: Should apply common.envFrom to custom additional worker groups without local envFrom
+    set:
+      common:
+        envFrom:
+          - secretRef:
+              name: common-secret
+      additionalWorkerGroups:
+        customGroup:
+          replicas: 1
+    asserts:
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="customGroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+          value:
+            - secretRef:
+                name: common-secret
+
+  - it: Should not render envFrom when both common and local lists are empty
+    asserts:
+      - notExists:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].envFrom
+      - notExists:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+
+  - it: Should keep duplicate entries when common and group envFrom reference the same source
+    set:
+      common:
+        envFrom:
+          - configMapRef:
+              name: shared-config
+      head:
+        envFrom:
+          - configMapRef:
+              name: shared-config-head
+      worker:
+        envFrom:
+          - configMapRef:
+              name: shared-config-worker
+    asserts:
+      - equal:
+          path: spec.headGroupSpec.template.spec.containers[?(@.name=="ray-head")].envFrom
+          value:
+            - configMapRef:
+                name: shared-config
+            - configMapRef:
+                name: shared-config-head
+      - equal:
+          path: spec.workerGroupSpecs[?(@.groupName=="workergroup")].template.spec.containers[?(@.name=="ray-worker")].envFrom
+          value:
+            - configMapRef:
+                name: shared-config
+            - configMapRef:
+                name: shared-config-worker

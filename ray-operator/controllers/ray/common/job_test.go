@@ -3,6 +3,9 @@ package common
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os/exec"
 	"strconv"
 	"testing"
 
@@ -73,7 +76,7 @@ func TestBuildJobSubmitCommandWithK8sJobMode(t *testing.T) {
 	testRayJob := rayJobTemplate()
 	expected := []string{
 		"until",
-		fmt.Sprintf(utils.BasePythonHealthCommand, "http://127.0.0.1:8265/"+utils.RayDashboardGCSHealthPath, utils.RayDashboardGCSHealthCheckTimeoutSeconds),
+		fmt.Sprintf(utils.K8sJobDashboardHealthCommand, utils.RayDashboardGCSHealthPath, utils.RayDashboardGCSHealthCheckTimeoutSeconds, "http://127.0.0.1:8265"),
 		">/dev/null", "2>&1", ";",
 		"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at http://127.0.0.1:8265 ..."), ";", "sleep", "2", ";", "done", ";",
 		"if",
@@ -214,6 +217,51 @@ func TestBuildJobSubmitCommandWithK8sJobModeHealthWaitLoop(t *testing.T) {
 	assert.NotContains(t, command[1], "wget")
 }
 
+func TestBuildJobSubmitCommandWithK8sJobModeDashboardAddressOverrides(t *testing.T) {
+	_, err := exec.LookPath("python")
+	require.NoError(t, err, "python is required to execute the generated health probe")
+
+	tests := []struct {
+		name         string
+		env          map[string]string
+		expectedPath string
+	}{
+		{"fallback", nil, "/fallback/api/gcs_healthz"},
+		{"Ray address", map[string]string{"RAY_ADDRESS": "/ray"}, "/ray/api/gcs_healthz"},
+		{"API server address", map[string]string{"RAY_API_SERVER_ADDRESS": "/api"}, "/api/api/gcs_healthz"},
+		{"API server takes precedence", map[string]string{"RAY_ADDRESS": "/ray", "RAY_API_SERVER_ADDRESS": "/api"}, "/api/api/gcs_healthz"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc(tt.expectedPath, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte("success"))
+			})
+			server := httptest.NewServer(mux)
+			defer server.Close()
+
+			t.Setenv("RAY_ADDRESS", "")
+			t.Setenv("RAY_API_SERVER_ADDRESS", "")
+			t.Setenv("no_proxy", "*")
+			for name, path := range tt.env {
+				t.Setenv(name, server.URL+path)
+			}
+
+			// Only the expected address returns success; other paths return HTTP 404.
+			rayJob := rayJobTemplate()
+			rayJob.Status.DashboardURL = server.URL + "/fallback"
+			command, err := BuildJobSubmitCommand(rayJob, rayv1.K8sJobMode)
+			require.NoError(t, err)
+			require.GreaterOrEqual(t, len(command), 2)
+			//nolint:gosec // G204: intentionally execute the generated probe using only a fixed template and the local test server URL.
+			cmd := exec.CommandContext(t.Context(), "/bin/bash", "-c", "exec "+command[1])
+			output, err := cmd.CombinedOutput()
+			require.NoError(t, err, "%s", output)
+		})
+	}
+}
+
 func TestBuildJobSubmitCommandWithSidecarModeAndFeatureGate(t *testing.T) {
 	// Enable the SidecarSubmitterRestart feature gate for this test
 	features.SetFeatureGateDuringTest(t, features.SidecarSubmitterRestart, true)
@@ -284,7 +332,7 @@ pip: ["python-multipart==0.0.6"]
 	}
 	expected := []string{
 		"until",
-		fmt.Sprintf(utils.BasePythonHealthCommand, "http://127.0.0.1:8265/"+utils.RayDashboardGCSHealthPath, utils.RayDashboardGCSHealthCheckTimeoutSeconds),
+		fmt.Sprintf(utils.K8sJobDashboardHealthCommand, utils.RayDashboardGCSHealthPath, utils.RayDashboardGCSHealthCheckTimeoutSeconds, "http://127.0.0.1:8265"),
 		">/dev/null", "2>&1", ";",
 		"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at http://127.0.0.1:8265 ..."), ";", "sleep", "2", ";", "done", ";",
 		"if",

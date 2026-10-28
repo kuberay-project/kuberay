@@ -7,12 +7,32 @@
     - kubectl config set clusters.kind-kind.server https://docker:6443
     # Build nightly KubeRay operator image
     - pushd ray-operator
-    - source ../.buildkite/build-start-operator.sh
-    - kubectl wait --timeout=90s --for=condition=Available=true deployment kuberay-operator
+    - |
+      for attempt in 1 2; do
+        # Use bash to propagate the script's failure status and trigger the retry on failure.
+        if bash ../.buildkite/build-start-operator.sh; then
+          break
+        fi
+        if [ "$attempt" -eq 2 ]; then
+          echo "--- ERROR: build-start-operator.sh failed twice"
+          exit 1
+        fi
+        echo "--- WARN: build-start-operator.sh failed; retrying in 20s"
+        sleep 20
+      done
+    - |
+      if ! kubectl wait --timeout=180s --for=condition=Available=true deployment kuberay-operator; then
+        echo "--- kuberay-operator not ready within 180s; collecting diagnostics"
+        kubectl get pods -A -o wide || true
+        kubectl describe deployment kuberay-operator || true
+        kubectl logs --tail=200 -l app.kubernetes.io/name=kuberay || true
+        echo "--- retrying kuberay-operator readiness wait once"
+        kubectl wait --timeout=180s --for=condition=Available=true deployment kuberay-operator
+      fi
     - popd
     # Setup Python environment and install Python client
     - echo "--- START:Setting up Python environment"
-    - pushd clients/python-client
+    - pushd clients/kuberay-client
     - python3 -m venv venv
     - source venv/bin/activate
     - pip install -e .
@@ -20,5 +40,5 @@
     # Run Python client tests
     - echo "--- START:Running Python client tests"
     - set -o pipefail
-    - pytest python_client_test/ -v || (kubectl logs --tail=50 -l app.kubernetes.io/name=kuberay && exit 1)
+    - pytest kuberay_client_test/ -v || (kubectl logs --tail=50 -l app.kubernetes.io/name=kuberay && exit 1)
     - echo "--- END:Python client tests finished"

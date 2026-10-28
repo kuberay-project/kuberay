@@ -4,10 +4,10 @@ kind: ServiceMonitor
 metadata:
   name: {{ include "kuberay-operator.fullname" . }}
   namespace: {{ .Values.metrics.serviceMonitor.namespace | default .Release.Namespace }}
+  {{- with .Values.metrics.serviceMonitor.additionalLabels }}
   labels:
-    {{- with .Values.metrics.serviceMonitor.selector }}
-      {{- toYaml . | nindent 4 }}
-    {{- end }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   endpoints:
     - path: /metrics

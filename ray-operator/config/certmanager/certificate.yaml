@@ -29,6 +29,8 @@ metadata:
   name: serving-cert  # this name should match the one appeared in kustomizeconfig.yaml
   namespace: system
 spec:
+  subject:
+    organizations: [kuberay]
   # $(SERVICE_NAME) and $(SERVICE_NAMESPACE) will be substituted by kustomize
   dnsNames:
   - $(SERVICE_NAME).$(SERVICE_NAMESPACE).svc

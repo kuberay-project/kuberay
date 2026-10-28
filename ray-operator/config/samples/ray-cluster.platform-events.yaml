@@ -1,0 +1,80 @@
+# This config demonstrates how to enable Kubernetes Platform Events ingestion in the Ray Dashboard.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-platform-events
+spec:
+  rayVersion: "2.56.0" # Platform events feature is available in 2.56.0+
+  headGroupSpec:
+    rayStartParams: {}
+    template:
+      spec:
+        serviceAccountName: raycluster-platform-events
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.56.0
+          env:
+          - name: RAY_DASHBOARD_INGEST_PLATFORM_EVENTS
+            value: "true"
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "5Gi"
+          ports:
+          - containerPort: 6379
+            name: gcs-server
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+  workerGroupSpecs:
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 5
+    groupName: workergroup
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.56.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: raycluster-platform-events
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: raycluster-platform-events-reader
+rules:
+- apiGroups: ["", "events.k8s.io"]
+  resources: ["events"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["ray.io"]
+  resources: ["rayclusters"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: raycluster-platform-events-reader-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: raycluster-platform-events-reader
+subjects:
+- kind: ServiceAccount
+  name: raycluster-platform-events
+  namespace: default

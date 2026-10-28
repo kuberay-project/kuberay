@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -93,10 +94,10 @@ type TaskStateTransition struct {
 type TaskLogInfo struct {
 	StdoutFile  string `json:"stdoutFile"`
 	StderrFile  string `json:"stderrFile"`
-	StdoutStart int64  `json:"stdoutStart"`
-	StdoutEnd   int64  `json:"stdoutEnd"`
-	StderrStart int64  `json:"stderrStart"`
-	StderrEnd   int64  `json:"stderrEnd"`
+	StdoutStart int64  `json:"stdoutStart,string"`
+	StdoutEnd   int64  `json:"stdoutEnd,string"`
+	StderrStart int64  `json:"stderrStart,string"`
+	StderrEnd   int64  `json:"stderrEnd,string"`
 }
 
 // Task's fields are populated from the TASK_DEFINITION_EVENT, ACTOR_TASK_DEFINITION_EVENT, and TASK_LIFECYCLE_EVENT.
@@ -153,8 +154,7 @@ type Task struct {
 	// Actor task repr name, if applicable.
 	ActorReprName *string `json:"actorReprName,omitempty"`
 
-	// TaskLogInfo is just added at https://github.com/ray-project/ray/pull/60287.
-	// TODO(jiangjiawei1103): Add support for TaskLogInfo.
+	// TaskLogInfo was added at https://github.com/ray-project/ray/pull/60287.
 	TaskLogInfo *TaskLogInfo `json:"taskLogInfo,omitempty"`
 
 	State        TaskStatus
@@ -365,16 +365,12 @@ func (t Task) DeepCopy() Task {
 
 	if len(t.RequiredResources) > 0 {
 		cp.RequiredResources = make(map[string]float64, len(t.RequiredResources))
-		for k, v := range t.RequiredResources {
-			cp.RequiredResources[k] = v
-		}
+		maps.Copy(cp.RequiredResources, t.RequiredResources)
 	}
 
 	if len(t.RefIDs) > 0 {
 		cp.RefIDs = make(map[string]string, len(t.RefIDs))
-		for k, v := range t.RefIDs {
-			cp.RefIDs[k] = v
-		}
+		maps.Copy(cp.RefIDs, t.RefIDs)
 	}
 
 	if t.CallSite != nil {
@@ -384,9 +380,7 @@ func (t Task) DeepCopy() Task {
 
 	if len(t.LabelSelector) > 0 {
 		cp.LabelSelector = make(map[string]string, len(t.LabelSelector))
-		for k, v := range t.LabelSelector {
-			cp.LabelSelector[k] = v
-		}
+		maps.Copy(cp.LabelSelector, t.LabelSelector)
 	}
 
 	if len(t.StateTransitions) > 0 {

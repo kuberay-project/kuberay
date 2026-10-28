@@ -30,8 +30,8 @@ func MergeStateTransitions[T StateTransition](existingStateTransitions []T, newS
 	}
 
 	// Append new state transitions that haven't seen before.
-	mergedStateTransitions := make([]T, len(existingStateTransitions))
-	copy(mergedStateTransitions, existingStateTransitions)
+	mergedStateTransitions := make([]T, 0, len(existingStateTransitions)+len(newStateTransitions))
+	mergedStateTransitions = append(mergedStateTransitions, existingStateTransitions...)
 	for _, tr := range newStateTransitions {
 		key := StateTransitionKey{
 			State:     tr.GetState(),

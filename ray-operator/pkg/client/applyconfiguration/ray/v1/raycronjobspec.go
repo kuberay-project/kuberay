@@ -12,6 +12,10 @@ type RayCronJobSpecApplyConfiguration struct {
 	JobTemplate *RayJobSpecApplyConfiguration `json:"jobTemplate,omitempty"`
 	// Schedule is the cron schedule string
 	Schedule *string `json:"schedule,omitempty"`
+	// TimeZone is the time zone name for the given schedule. If not specified, default to the local time zone of the
+	// KubeRay operator. Empty string is not allowed.
+	// The bundled version of the time zone database is used.
+	TimeZone *string `json:"timeZone,omitempty"`
 	// Suspend tells the controller to suspend the scheduling, it does not apply to
 	// scheduled RayJob.
 	Suspend *bool `json:"suspend,omitempty"`
@@ -36,6 +40,14 @@ func (b *RayCronJobSpecApplyConfiguration) WithJobTemplate(value *RayJobSpecAppl
 // If called multiple times, the Schedule field is set to the value of the last call.
 func (b *RayCronJobSpecApplyConfiguration) WithSchedule(value string) *RayCronJobSpecApplyConfiguration {
 	b.Schedule = &value
+	return b
+}
+
+// WithTimeZone sets the TimeZone field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the TimeZone field is set to the value of the last call.
+func (b *RayCronJobSpecApplyConfiguration) WithTimeZone(value string) *RayCronJobSpecApplyConfiguration {
+	b.TimeZone = &value
 	return b
 }
 

@@ -151,7 +151,7 @@ func TestCreateClusterAutoscaler(t *testing.T) {
 	require.Nil(t, actualRPCStatus, "No RPC status expected")
 	require.NotNil(t, actualJob, "A job is expected")
 	require.True(t, jobSpecEqual(deleteActorRequest.Job, actualJob), "Job spec should match the request. Expected: %v, Actual: %v", deleteActorRequest.Job, actualJob)
-	waitForRayJobInExpectedStatuses(t, tCtx, createActorRequest.Job.Name, []rayv1api.JobStatus{rayv1api.JobStatusSucceeded})
+	waitForRayJobInExpectedStatuses(t, tCtx, deleteActorRequest.Job.Name, []rayv1api.JobStatus{rayv1api.JobStatusSucceeded})
 	g.Eventually(func() int32 {
 		rayCluster, err := tCtx.GetRayClusterByName(actualCluster.Name)
 		if err != nil {

@@ -73,6 +73,7 @@ const (
 	PreRunningDeadlineExceeded                       JobFailedReason = "PreRunningDeadlineExceeded"
 	AppFailed                                        JobFailedReason = "AppFailed"
 	JobDeploymentStatusTransitionGracePeriodExceeded JobFailedReason = "JobDeploymentStatusTransitionGracePeriodExceeded"
+	JobStatusCheckTimeoutExceeded                    JobFailedReason = "JobStatusCheckTimeoutExceeded"
 	ValidationFailed                                 JobFailedReason = "ValidationFailed"
 )
 
@@ -86,6 +87,10 @@ const (
 )
 
 // DeletionStrategy configures automated cleanup after the RayJob reaches a terminal state.
+// Two mutually exclusive styles are supported:
+//
+//   - Legacy: provide both onSuccess and onFailure (deprecated; removal planned for 1.6.0). May be combined with shutdownAfterJobFinishes and (optionally) global TTLSecondsAfterFinished.
+//   - Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds instead).
 //
 // Semantics:
 //   - The deletionRules list is the primary mechanism for cleanup; it must be non-empty when this block is present.
@@ -322,6 +327,10 @@ type RayJobStatus struct {
 	// RayClusterStatus is the status of the RayCluster running the job.
 	// +optional
 	RayClusterStatus RayClusterStatus `json:"rayClusterStatus,omitempty"`
+	// JobStatusCheckFailureStartTime is set when job status checks via the Ray Dashboard started failing.
+	// Reset on a successful check. JobDeploymentStatus transitions to 'Failed' after RAYJOB_STATUS_CHECK_TIMEOUT_SECONDS
+	// +optional
+	JobStatusCheckFailureStartTime *metav1.Time `json:"jobStatusCheckFailureStartTime,omitempty"`
 
 	// observedGeneration is the most recent generation observed for this RayJob. It corresponds to the
 	// RayJob's generation, which is updated on mutation by the API Server.

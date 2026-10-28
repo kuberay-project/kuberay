@@ -1,0 +1,42 @@
+## ============================================================================
+## Kustomize overlay: kubernetes-was-v1alpha3 (local dev / CI e2e only)
+## ----------------------------------------------------------------------------
+## Purpose: Deploy the operator with the kubernetes-was-v1alpha3 batch scheduler
+## plugin on top of the standard test-overrides overlay.
+## Requires Kubernetes 1.37+ with GenericWorkload enabled.
+## ============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../test-overrides
+
+patches:
+  - path: deployment-override.yaml
+    target:
+      kind: Deployment
+      name: kuberay-operator
+  # The scheduling.k8s.io RBAC is scoped to this overlay (mirroring the Helm chart,
+  # which gates it on the KubernetesWAS feature gate) so the base install does not grant it.
+  - target:
+      group: rbac.authorization.k8s.io
+      version: v1
+      kind: ClusterRole
+      name: kuberay-operator
+    patch: |-
+      - op: add
+        path: /rules/-
+        value:
+          apiGroups:
+            - scheduling.k8s.io
+          resources:
+            - podgroups
+            - workloads
+          verbs:
+            - create
+            - delete
+            - get
+            - list
+            - patch
+            - update
+            - watch

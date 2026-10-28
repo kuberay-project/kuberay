@@ -13,23 +13,23 @@ const (
 	// Without owner: cluster-metadata/raycluster/{namespace}_{cluster_name}/{session_id}
 	metaPartsCountWithoutOwner = 2
 	// With owner:    cluster-metadata/{rayjob|rayservice}/{namespace}_{owner_name}_{cluster_name}/{session_id}
-	metaPartsCountWithOwner    = 3
+	metaPartsCountWithOwner = 3
 )
 
 // EncodePath builds the hierarchical path for a given session ID.
 func EncodePath(info utils.ClusterInfo, rootDir, sessionID string) string {
 	prefix := Prefix(rootDir)
-	var resourceSubDir string
 	ownerKind := strings.ToLower(info.OwnerKind)
-	if (ownerKind == utils.RAYJOB_OBJECT_DIR || ownerKind == utils.RAYSERVICE_OBJECT_DIR) && info.OwnerName != "" {
+	hasOwner := (ownerKind == utils.RayJobKind || ownerKind == utils.RayServiceKind) && info.OwnerName != ""
+
+	resourceSubDir := utils.RayClusterKind
+	if hasOwner {
 		resourceSubDir = ownerKind
-	} else {
-		resourceSubDir = utils.RAYCLUSTER_OBJECT_DIR
 	}
 
 	var parts []string
 	parts = append(parts, info.Namespace)
-	if (ownerKind == utils.RAYJOB_OBJECT_DIR || ownerKind == utils.RAYSERVICE_OBJECT_DIR) && info.OwnerName != "" {
+	if hasOwner {
 		parts = append(parts, info.OwnerName)
 	}
 	parts = append(parts, info.Name)
@@ -54,7 +54,7 @@ func DecodePath(filePath string, rootDir string) (utils.ClusterInfo, error) {
 	}
 
 	resourceSubDir := strings.ToLower(pathSegments[0])
-	if resourceSubDir != utils.RAYCLUSTER_OBJECT_DIR && resourceSubDir != utils.RAYJOB_OBJECT_DIR && resourceSubDir != utils.RAYSERVICE_OBJECT_DIR {
+	if resourceSubDir != utils.RayClusterKind && resourceSubDir != utils.RayJobKind && resourceSubDir != utils.RayServiceKind {
 		return utils.ClusterInfo{}, fmt.Errorf("unsupported cluster metadata subdirectory %q in path %q", resourceSubDir, filePath)
 	}
 
@@ -66,12 +66,12 @@ func DecodePath(filePath string, rootDir string) (utils.ClusterInfo, error) {
 	c.Namespace = metaParts[0]
 	switch len(metaParts) {
 	case metaPartsCountWithoutOwner:
-		if resourceSubDir != utils.RAYCLUSTER_OBJECT_DIR {
+		if resourceSubDir != utils.RayClusterKind {
 			return utils.ClusterInfo{}, fmt.Errorf("mismatched subdirectory %q for metadata structure without owner in path %q", resourceSubDir, filePath)
 		}
 		c.Name = metaParts[1]
 	case metaPartsCountWithOwner:
-		if resourceSubDir != utils.RAYJOB_OBJECT_DIR && resourceSubDir != utils.RAYSERVICE_OBJECT_DIR {
+		if resourceSubDir != utils.RayJobKind && resourceSubDir != utils.RayServiceKind {
 			return utils.ClusterInfo{}, fmt.Errorf("unsupported subdirectory %q with owner metadata in path %q", resourceSubDir, filePath)
 		}
 		c.OwnerKind = resourceSubDir
@@ -91,7 +91,7 @@ func DecodePath(filePath string, rootDir string) (utils.ClusterInfo, error) {
 	return c, nil
 }
 
-// Prefix returns the root directory prefix
+// Prefix returns the root directory prefix.
 func Prefix(rootDir string) string {
 	if rootDir == "" {
 		return ClusterMetadataDir + "/"

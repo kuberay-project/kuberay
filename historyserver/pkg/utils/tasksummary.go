@@ -5,8 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	eventtypes "github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
 	"github.com/sirupsen/logrus"
+
+	eventtypes "github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
 )
 
 // --- Lineage Summary Types ---
