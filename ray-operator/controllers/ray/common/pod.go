@@ -238,7 +238,7 @@ func configureEmbeddedFT(podTemplate *corev1.PodTemplateSpec, instance rayv1.Ray
 }
 
 // DefaultHeadPodTemplate sets the config values
-func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, headSpec rayv1.HeadGroupSpec, podName string, headPort string) corev1.PodTemplateSpec {
+func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, headSpec rayv1.HeadGroupSpec, podName string, headPort string, headIPFamily corev1.IPFamily) corev1.PodTemplateSpec {
 	// TODO (Dmitri) The argument headPort is essentially unused;
 	// headPort is passed into setMissingRayStartParams but unused there for the head pod.
 	// To mitigate this awkwardness and reduce code redundancy, unify head and worker pod configuration logic.
@@ -262,7 +262,7 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 	mergedLabels := mergeLabels(headSpec.Template.ObjectMeta.Labels, headSpec.Labels)
 	podTemplate.Labels = labelPod(rayv1.HeadNode, instance.Name, utils.RayNodeHeadGroupLabelValue, mergedLabels)
 
-	headSpec.RayStartParams = setMissingRayStartParams(ctx, headSpec.RayStartParams, rayv1.HeadNode, headPort, "")
+	headSpec.RayStartParams = setMissingRayStartParams(ctx, headSpec.RayStartParams, rayv1.HeadNode, headPort, "", headIPFamily)
 
 	initTemplateAnnotations(instance, &podTemplate)
 
@@ -289,8 +289,8 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 		// preventing the user from overriding these via the merge below.
 		//
 		// GCS address alignment: the autoscaler co-located in the head pod reaches GCS
-		// via localhost (127.0.0.1) or the head pod IP. Both are always present in the
-		// head certificate SANs — 127.0.0.1 is added unconditionally, and the pod IP
+		// via localhost (127.0.0.1/::1) or the head pod IP. The loopback matching
+		// the Pod's address family and the Pod IP are present in the certificate SANs;
 		// SAN is guaranteed by the wait-for-tls-ip-san init container (injected by
 		// configureTLS below) before any containers, including this sidecar, start.
 		// No additional RAY_ADDRESS injection is required.
@@ -504,7 +504,9 @@ func configureTLS(podTemplate *corev1.PodTemplateSpec, instance rayv1.RayCluster
 	//     marks the worker dead, and the RayJob fails. Relying on KubeRay pod recreation is
 	//     not sufficient because the RayJob itself fails before a retry can succeed.
 	certPath := utils.RayTLSCertMountPath + "/tls.crt"
+	caCertPath := utils.RayTLSCertMountPath + "/ca.crt"
 	waitScript := fmt.Sprintf(`CERT="%s"
+CA_CERT="%s"
 if [ -z "${POD_IP}" ]; then
   POD_IP=$(hostname -i 2>/dev/null | awk '{print $1}')
 fi
@@ -514,13 +516,13 @@ if ! command -v openssl >/dev/null 2>&1; then
 fi
 echo "Waiting for TLS cert to include IP SAN for ${POD_IP}..."
 while true; do
-  if openssl x509 -in "${CERT}" -noout -text 2>/dev/null | grep -qE "IP Address:${POD_IP}([^0-9.]|$)"; then
+  if output=$(openssl verify -CAfile "${CA_CERT}" -verify_ip "${POD_IP}" "${CERT}" 2>&1); then
     echo "TLS cert now includes IP SAN for ${POD_IP}"
     exit 0
   fi
-  echo "IP SAN for ${POD_IP} not yet in cert, retrying in 5s..."
+  echo "TLS cert not yet valid for ${POD_IP}, retrying in 5s: ${output}"
   sleep 5
-done`, certPath)
+done`, certPath, caCertPath)
 
 	waitInitContainer := corev1.Container{
 		Name:            "wait-for-tls-ip-san",
@@ -709,7 +711,7 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 			podTemplate.Labels[utils.RayHostIndexKey] = strconv.Itoa(numHostIndex)
 		}
 	}
-	workerSpec.RayStartParams = setMissingRayStartParams(ctx, workerSpec.RayStartParams, rayv1.WorkerNode, headPort, fqdnRayIP)
+	workerSpec.RayStartParams = setMissingRayStartParams(ctx, workerSpec.RayStartParams, rayv1.WorkerNode, headPort, fqdnRayIP, "")
 
 	initTemplateAnnotations(instance, &podTemplate)
 	configureGCSFaultTolerance(&podTemplate, instance, rayv1.WorkerNode)
@@ -1266,7 +1268,7 @@ func setContainerEnvVars(pod *corev1.Pod, rayNodeType rayv1.RayNodeType, fqdnRay
 		}
 	}
 
-	// case 1: head   => Use LOCAL_HOST
+	// case 1: head   => Use localhost (resolved to the available IP family)
 	// case 2: worker => Use fqdnRayIP (fully qualified domain name)
 	ip := utils.LOCAL_HOST
 	if rayNodeType == rayv1.WorkerNode {
@@ -1390,7 +1392,19 @@ func setContainerEnvVars(pod *corev1.Pod, rayNodeType rayv1.RayNodeType, fqdnRay
 	}
 }
 
-func setMissingRayStartParams(ctx context.Context, rayStartParams map[string]string, nodeType rayv1.RayNodeType, headPort string, fqdnRayIP string) (completeStartParams map[string]string) {
+// defaultDashboardHost returns the wildcard address for the given IP family so the
+// dashboard is reachable from outside the head Pod. IPv4 is the default when the
+// family is unknown, which matches the behavior before IPv6 support.
+func defaultDashboardHost(ipFamily corev1.IPFamily) string {
+	if ipFamily == corev1.IPv6Protocol {
+		return "::"
+	}
+	return "0.0.0.0"
+}
+
+// setMissingRayStartParams fills in the rayStartParams that KubeRay manages. headIPFamily is the
+// primary IP family of the head Service and is only used for the head node.
+func setMissingRayStartParams(ctx context.Context, rayStartParams map[string]string, nodeType rayv1.RayNodeType, headPort string, fqdnRayIP string, headIPFamily corev1.IPFamily) (completeStartParams map[string]string) {
 	log := ctrl.LoggerFrom(ctx)
 	// Note: The argument headPort is unused for nodeType == rayv1.HeadNode.
 	if nodeType == rayv1.WorkerNode {
@@ -1401,10 +1415,11 @@ func setMissingRayStartParams(ctx context.Context, rayStartParams map[string]str
 	}
 
 	if nodeType == rayv1.HeadNode {
-		// Allow incoming connections from all network interfaces for the dashboard by default.
+		// Allow incoming connections from all network interfaces for the dashboard by default,
+		// using the wildcard of the head Service's IP family (`0.0.0.0` or `::`).
 		// The default value of `dashboard-host` is `localhost` which is not accessible from outside the head Pod.
 		if _, ok := rayStartParams["dashboard-host"]; !ok {
-			rayStartParams["dashboard-host"] = "0.0.0.0"
+			rayStartParams["dashboard-host"] = defaultDashboardHost(headIPFamily)
 		}
 
 		// If `autoscaling-config` is not provided in the head Pod's rayStartParams, the `BASE_READONLY_CONFIG`

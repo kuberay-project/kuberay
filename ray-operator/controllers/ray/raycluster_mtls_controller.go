@@ -3,6 +3,7 @@ package ray
 import (
 	"context"
 	"fmt"
+	"net"
 	"reflect"
 	"sort"
 	"time"
@@ -560,11 +561,31 @@ func certificateNeedsUpdate(existing, desired *certmanagerv1.CertificateSpec) bo
 		!setsEqual(existing.IPAddresses, desired.IPAddresses)
 }
 
-// normalizeIPs returns a sorted, de-duplicated set of IPs. Always includes 127.0.0.1.
+// normalizeIPs returns a sorted, de-duplicated set of IPs. It includes the
+// loopback address for each Pod IP family so localhost is covered without
+// rotating IPv4-only certificates merely because the operator was upgraded.
 func normalizeIPs(podIPs []string) []string {
 	s := sets.New(podIPs...)
 	s.Delete("")
-	s.Insert("127.0.0.1")
+	hasIPv4 := false
+	hasIPv6 := false
+	for _, podIP := range podIPs {
+		ip := net.ParseIP(podIP)
+		if ip == nil {
+			continue
+		}
+		if ip.To4() != nil {
+			hasIPv4 = true
+		} else {
+			hasIPv6 = true
+		}
+	}
+	if hasIPv4 || !hasIPv6 {
+		s.Insert("127.0.0.1")
+	}
+	if hasIPv6 {
+		s.Insert("::1")
+	}
 	return sets.List(s)
 }
 

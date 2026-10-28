@@ -2232,7 +2232,7 @@ func Test_TerminatedHead_RestartPolicy(t *testing.T) {
 	_ = corev1.AddToScheme(newScheme)
 
 	// Only one head Pod and no worker Pods in the RayCluster.
-	runtimeObjects := testPods[0:1]
+	runtimeObjects := append(testServices, testPods[0:1]...)
 	cluster := testRayCluster.DeepCopy()
 	cluster.Spec.WorkerGroupSpecs = nil
 	fakeClient := clientFake.NewClientBuilder().
@@ -2320,7 +2320,7 @@ func Test_RunningPods_RayContainerTerminated(t *testing.T) {
 	_ = corev1.AddToScheme(newScheme)
 
 	// Only one head Pod and no worker Pods in the RayCluster.
-	runtimeObjects := testPods[0:1]
+	runtimeObjects := append(testServices, testPods[0:1]...)
 	cluster := testRayCluster.DeepCopy()
 	cluster.Spec.WorkerGroupSpecs = nil
 	fakeClient := clientFake.NewClientBuilder().
@@ -3422,7 +3422,7 @@ func TestEvents_FailedPodCreation(t *testing.T) {
 				Create: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.CreateOption) error {
 					return test.errInject
 				},
-			}).WithRuntimeObjects(testPods...).Build()
+			}).WithRuntimeObjects(append(testServices, testPods...)...).Build()
 			ctx := context.Background()
 
 			// Get the pod list from the fake client.
@@ -3952,7 +3952,7 @@ func TestReconcile_PodsWithAuthToken(t *testing.T) {
 
 	testRayCluster.Spec.AuthOptions = &rayv1.AuthOptions{Mode: rayv1.AuthModeToken}
 
-	fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects().Build()
+	fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(testServices...).Build()
 	ctx := context.Background()
 
 	testRayClusterReconciler := &RayClusterReconciler{
@@ -4176,7 +4176,7 @@ func TestReconcilePodsWithAuthTokenSecretName(t *testing.T) {
 		SecretName: &providedSecretName,
 	}
 
-	fakeClient := clientFake.NewClientBuilder().Build()
+	fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(testServices...).Build()
 	ctx := context.Background()
 
 	testRayClusterReconciler := &RayClusterReconciler{
@@ -4308,7 +4308,7 @@ func TestBuildPodsInjectDefaultPodMetadata(t *testing.T) {
 		},
 	}
 
-	headPod := reconciler.buildHeadPod(context.Background(), *cluster)
+	headPod := reconciler.buildHeadPod(context.Background(), *cluster, corev1.IPv4Protocol)
 	assert.Equal(t, "true", headPod.Annotations["monitoring.example.com/scrape"])
 	assert.Equal(t, "head", headPod.Annotations["shared-annotation"])
 	assert.Equal(t, "head-only", headPod.Annotations["user-annotation"])
@@ -4350,7 +4350,7 @@ func TestBuildPodsWithoutDefaultPodMetadata(t *testing.T) {
 		options: RayClusterReconcilerOptions{},
 	}
 
-	headPod := reconciler.buildHeadPod(context.Background(), *cluster)
+	headPod := reconciler.buildHeadPod(context.Background(), *cluster, corev1.IPv4Protocol)
 	assert.Equal(t, "head-only", headPod.Annotations["user-annotation"])
 	assert.Equal(t, "head-only", headPod.Labels["user-label"])
 	assert.NotContains(t, headPod.Annotations, "monitoring.example.com/scrape")
@@ -4402,7 +4402,7 @@ func TestBuildPodsCollectorImage(t *testing.T) {
 				options: RayClusterReconcilerOptions{CollectorImage: operatorCollectorImage},
 			}
 
-			headPod := reconciler.buildHeadPod(context.Background(), *cluster)
+			headPod := reconciler.buildHeadPod(context.Background(), *cluster, corev1.IPv4Protocol)
 			assert.Equal(t, tc.expectedImage, collectorContainerImage(t, headPod))
 
 			workerPod := reconciler.buildWorkerPod(context.Background(), *cluster, cluster.Spec.WorkerGroupSpecs[0], "", 0, 0)

@@ -6,6 +6,7 @@ import (
 	"encoding/base32"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
 	"os"
 	"reflect"
@@ -1124,12 +1125,25 @@ func GetRayDashboardClientFunc(ctx context.Context, mgr manager.Manager, useKube
 	}
 }
 
+// GetServiceIPFamily returns the primary IP family of a Service. It prefers spec.ipFamilies,
+// which the API server populates on creation, and falls back to the family of spec.clusterIP.
+// IPv4 is returned when neither is available (for example a headless Service with no ipFamilies).
+func GetServiceIPFamily(svc *corev1.Service) corev1.IPFamily {
+	if len(svc.Spec.IPFamilies) > 0 {
+		return svc.Spec.IPFamilies[0]
+	}
+	if ip := net.ParseIP(svc.Spec.ClusterIP); ip != nil && ip.To4() == nil {
+		return corev1.IPv6Protocol
+	}
+	return corev1.IPv4Protocol
+}
+
 func GetRayHttpProxyClientFunc(mgr manager.Manager, useKubernetesProxy bool) func(hostIp, podNamespace, podName string, port int) RayHttpProxyClientInterface {
 	return func(hostIp, podNamespace, podName string, port int) RayHttpProxyClientInterface {
 		httpClient := &http.Client{
 			Timeout: rayHTTPClientTimeout(useKubernetesProxy),
 		}
-		httpProxyURL := fmt.Sprintf("http://%s:%d/", hostIp, port)
+		httpProxyURL := fmt.Sprintf("http://%s/", net.JoinHostPort(hostIp, strconv.Itoa(port)))
 
 		if useKubernetesProxy {
 			// Use the manager's transport for TLS and API server authentication.

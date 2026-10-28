@@ -2,7 +2,8 @@ package e2erayservice
 
 import (
 	"encoding/json"
-	"fmt"
+	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -111,7 +112,7 @@ func TestOldHeadPodFailDuringUpgrade(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 	}
 
-	healthURL := fmt.Sprintf("http://%s:%d/", headPod.Status.PodIP, utils.DefaultServingPort) + utils.RayServeProxyHealthPath
+	healthURL := "http://" + net.JoinHostPort(headPod.Status.PodIP, strconv.Itoa(utils.DefaultServingPort)) + "/" + utils.RayServeProxyHealthPath
 	LogWithTimestamp(test.T(), "Curling head Pod %s at %s until ephemeral iptables applies DROP on :%d (expect curl to fail)", headPodName, healthURL, utils.DefaultServingPort)
 	curlCmd := []string{
 		"curl", "-sS", "-f", "--connect-timeout", "3", "--max-time", "5", "-X", "GET", healthURL,
