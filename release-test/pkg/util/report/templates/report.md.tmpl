@@ -1,0 +1,31 @@
+{{template "front.tmpl" .Front}}# {{.ID}}
+
+| | |
+|---|---|
+| Source | {{.Source}} (`{{printf "%.12s" .SourceSHA}}`) |
+| KubeRay | {{.Front.Version}} |
+| Ran | {{.Started}}, {{.Took}}s |
+
+## Steps
+
+| # | Step | Result | Time | Log |
+|---|---|---|---|---|
+{{range .Steps}}| {{.Num}} | {{cell .Name}} | {{if .Result}}{{.Result}} | {{.Took}}s | [log]({{.Log}}), {{.Lines}} lines |{{else}}not run | | |{{end}}
+{{end}}
+{{- with .Notes}}
+## Plan notes
+
+{{range .}}- {{.}}
+{{end}}{{end -}}
+{{with .Swept}}
+## Left behind by cleanup
+
+The runner deleted these after the unit's cleanup:
+
+{{range .}}- {{.}}
+{{end}}{{end -}}
+{{with .SweepErr}}
+## Sweep skipped
+
+The cluster could not be listed before the unit ({{.}}), so nothing was deleted after it. What this unit left behind is now part of the next unit's baseline; check the cluster by hand.
+{{end -}}

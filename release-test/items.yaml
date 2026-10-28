@@ -1,0 +1,56 @@
+# Everything a KubeRay release is validated against. Each Item gets its own row in
+# results/<tag>/SUMMARY.md. Change this file when something to validate is added, moved or removed;
+# `go run ./release-test stale --kuberay-version <tag>` then tells the plan skill which units to (re)write.
+#
+#   id         stable kebab-case slug, also the manifest unit id and the results/<tag>/<id>/ directory
+#   source     a docs.ray.io page (the plan reads its markdown on ray master, following
+#              redirects), a path in this repo (read as it is at the tag under test) or another
+#              https:// URL (read as served)
+#   procedure  for Items that are not a page or a sample: what to check, in prose
+#   requires   what a local kind cluster cannot provide: gpu, tpu, gke, eks, aks, gvisor.
+#              A non-empty list means a human runs the Item; the plan and the runner skip it.
+#              A page that only uses a cloud cluster as its example has no requires.
+#
+# Starts with the core paths: installing the operator, the RayCluster, RayJob and RayService quick
+# starts, the basic RayCluster sample and the Go module, plus a few Items a human runs because they
+# need a GPU, a TPU, gVisor or a cloud cluster.
+items:
+  # Docs: Getting started
+  - id: operator-installation
+    source: https://docs.ray.io/en/master/kuberay/getting-started/operator-installation.html
+  - id: raycluster-quick-start
+    source: https://docs.ray.io/en/master/kuberay/getting-started/raycluster-quick-start.html
+  - id: rayjob-quick-start
+    source: https://docs.ray.io/en/master/kuberay/getting-started/rayjob-quick-start.html
+  - id: rayservice-quick-start
+    source: https://docs.ray.io/en/master/kuberay/getting-started/rayservice-quick-start.html
+
+  # Docs: User guides
+  - id: gpu
+    source: https://docs.ray.io/en/master/kuberay/user-guides/gpu.html
+    requires: [gpu]
+  - id: tpu
+    source: https://docs.ray.io/en/master/kuberay/user-guides/tpu.html
+    requires: [tpu, gke]
+
+  # Docs: Examples
+  - id: ray-sandboxing
+    source: https://docs.ray.io/en/master/kuberay/examples/ray-sandboxing.html
+    requires: [gke, gvisor]
+
+  # Samples
+  - id: ray-cluster-agc-gatewayapi
+    source: ray-operator/config/samples/ray-cluster-agc-gatewayapi.yaml
+    requires: [aks]
+  - id: ray-cluster-alb-ingress
+    source: ray-operator/config/samples/ray-cluster-alb-ingress.yaml
+    requires: [eks]
+  - id: ray-cluster-sample
+    source: ray-operator/config/samples/ray-cluster.sample.yaml
+
+  # Go modules
+  - id: go-get-ray-operator
+    procedure: |
+      In an empty Go module, go get github.com/ray-project/kuberay/ray-operator@$KUBERAY_VERSION
+      succeeds, and a main package that imports
+      github.com/ray-project/kuberay/ray-operator/apis/ray/v1 and builds a RayCluster value compiles.

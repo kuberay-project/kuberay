@@ -254,6 +254,11 @@ See [helm-chart.md](./helm-chart.md) for the end-to-end workflow. Below are step
 
 ### Step 8: Validate the Release
 
+[`release-test/`](../../release-test/README.md) automates this step: it installs the published charts on a
+kind cluster and runs the docs.ray.io pages, the samples and the Go module checks against the tag. Run it
+with `go run ./release-test run --kuberay-version <tag>`, then read the `Fail` table in its `SUMMARY.md`.
+The manual steps below remain the fallback.
+
 Perform basic validation to ensure the released artifacts work together.
 
 1. Update your local Helm repository:

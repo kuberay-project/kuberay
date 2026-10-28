@@ -1,0 +1,3 @@
+{{template "front.tmpl" .}}# {{.Item}}
+
+Not run: {{.Brief}}. Re-plan it with `/release-test-plan {{.Version}} {{.Item}}`, review the manifest diff, then run `go run ./release-test run --kuberay-version {{.Version}} {{.Item}}`.

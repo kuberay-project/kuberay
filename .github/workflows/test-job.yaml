@@ -307,6 +307,27 @@ jobs:
         run: go test ./pkg/... -race -parallel 4
         working-directory: ${{env.working-directory}}
 
+  test_release-test:
+    name: Test release-test
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: v1.26
+
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v6
+        with:
+          # When checking out the repository that
+          # triggered a workflow, this defaults to the reference or SHA for that event.
+          # Default value should work for both pull_request and merge(push) event.
+          ref: ${{github.event.pull_request.head.sha}}
+
+      # release-test is part of the root Go module, so run from the repo root.
+      - name: Test
+        run: go test ./release-test/... -race -parallel 4
+
   build_historyserver:
     env:
       working-directory: ./historyserver

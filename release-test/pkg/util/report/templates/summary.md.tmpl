@@ -1,0 +1,58 @@
+{{define "link"}}[{{.ID}}]({{.ID}}/report.md){{end -}}
+{{$tag := .Version -}}
+# Release test summary
+
+KubeRay {{.Version}}, {{.Date}}. {{.Counts}}.
+{{with .Fail}}
+## Fail
+
+| Item | Step | Triage | Brief |
+|---|---|---|---|
+{{range .}}| {{template "link" .}} | {{with .Report.FailedStep}}{{.}}{{end}} | {{.Report.Triage}} | {{esc .Report.Brief}} |
+{{end}}{{end -}}
+{{with .Unreadable}}
+## Unreadable
+
+A report.md exists but its front matter does not parse. Fix it by hand, or re-run the Item.
+
+| Item | Error |
+|---|---|
+{{range .}}| {{template "link" .}} | {{esc .Err.Error}} |
+{{end}}{{end -}}
+{{with .Stale}}
+## Stale
+
+Not run: the page or sample changed since the unit was planned. `/release-test-plan {{$tag}} <id>` re-plans a unit; after the manifest is reviewed, `go run ./release-test run --kuberay-version {{$tag}} <id>` runs it.
+
+| Item | Why |
+|---|---|
+{{range .}}| {{template "link" .}} | {{esc .Report.Brief}} |
+{{end}}{{end -}}
+{{with .Manual}}
+## Manual
+
+Needs hardware or a cloud a kind cluster cannot provide; a human runs these.
+
+| Item | Requires | Source |
+|---|---|---|
+{{range .}}| {{.ID}} | {{join .Requires ", "}} | {{.Source}} |
+{{end}}{{end -}}
+{{with .NotRun}}
+## Not run
+
+Planned, but no report: the runner has not reached them.
+
+{{range .}}- {{.ID}}
+{{end}}{{end -}}
+{{with .Unplanned}}
+## Not planned
+
+No unit in manifest.yaml yet; `go run ./release-test stale --kuberay-version {{$tag}}` lists them for the plan skill.
+
+{{range .}}- {{.ID}}
+{{end}}{{end -}}
+{{with .Pass}}
+## Pass
+
+{{range .}}- {{template "link" .}}
+{{end}}{{end -}}

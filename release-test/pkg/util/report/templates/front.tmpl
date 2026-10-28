@@ -1,0 +1,9 @@
+---
+item: {{.Item}}
+status: {{.Status}}
+version: {{.Version}}
+failed_step: {{with .FailedStep}}{{.}}{{end}}
+triage: {{printf "%q" .Triage}}
+brief: {{printf "%q" .Brief}}
+---
+{{/* A blank line ends the front matter. */}}
