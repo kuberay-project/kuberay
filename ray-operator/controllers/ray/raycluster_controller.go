@@ -1393,14 +1393,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 		}
 	}
 	numRunningReplicas := len(validReplicaGroups)
-	numExpectedWorkerPods := int(utils.GetWorkerGroupDesiredReplicas(*worker))
-
-	// Ensure that if numExpectedWorkerPods is not a multiple of NumOfHosts, we log an error.
-	if numExpectedWorkerPods%int(worker.NumOfHosts) != 0 {
-		return fmt.Errorf("desired worker pods (%d) is not a multiple of NumOfHosts (%d) for group %s",
-			numExpectedWorkerPods, worker.NumOfHosts, worker.GroupName)
-	}
-	numExpectedReplicas := numExpectedWorkerPods / int(worker.NumOfHosts)
+	numExpectedReplicas := int(utils.GetWorkerGroupDesiredReplicaGroups(*worker))
 	replicasToCreate := numExpectedReplicas - numRunningReplicas
 
 	// Track full replica groups to determine next replica index to assign to.

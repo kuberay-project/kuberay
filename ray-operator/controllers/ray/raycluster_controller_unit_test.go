@@ -3061,6 +3061,86 @@ func TestReconcile_Replicas_Optional(t *testing.T) {
 	}
 }
 
+func TestReconcileMultiHostWorkerGroupDesiredReplicas(t *testing.T) {
+	setupTest(t)
+
+	tests := []struct {
+		name        string
+		replicas    *int32
+		minReplicas *int32
+		maxReplicas *int32
+		suspend     bool
+		wantGroups  int
+	}{
+		{name: "unset replicas", minReplicas: ptr.To[int32](2), wantGroups: 2},
+		{name: "below minimum", replicas: ptr.To[int32](1), minReplicas: ptr.To[int32](2), wantGroups: 2},
+		{name: "above maximum", replicas: ptr.To[int32](3), maxReplicas: ptr.To[int32](2), wantGroups: 2},
+		{name: "within bounds", replicas: ptr.To[int32](2), minReplicas: ptr.To[int32](1), maxReplicas: ptr.To[int32](3), wantGroups: 2},
+		{name: "zero replicas", replicas: ptr.To[int32](0)},
+		{name: "suspended", replicas: ptr.To[int32](2), minReplicas: ptr.To[int32](1), suspend: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := testRayCluster.DeepCopy()
+			worker := &cluster.Spec.WorkerGroupSpecs[0]
+			worker.NumOfHosts = 2
+			worker.Replicas = tt.replicas
+			worker.MinReplicas = tt.minReplicas
+			worker.MaxReplicas = tt.maxReplicas
+			worker.Suspend = new(tt.suspend)
+			worker.ScaleStrategy.WorkersToDelete = nil
+			fakeClient := clientFake.NewClientBuilder().Build()
+			reconciler := &RayClusterReconciler{
+				Client:                     fakeClient,
+				Recorder:                   &events.FakeRecorder{},
+				Scheme:                     scheme.Scheme,
+				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+			}
+			ctx := context.Background()
+			require.NoError(t, reconciler.reconcileMultiHostWorkerGroup(ctx, cluster, worker, nil))
+
+			pods := &corev1.PodList{}
+			require.NoError(t, fakeClient.List(ctx, pods))
+			assert.Len(t, pods.Items, tt.wantGroups*2)
+			replicaGroups := make(map[string]int)
+			for _, pod := range pods.Items {
+				replicaGroups[pod.Labels[utils.RayWorkerReplicaNameKey]]++
+			}
+			assert.Len(t, replicaGroups, tt.wantGroups)
+			for name, size := range replicaGroups {
+				assert.NotEmpty(t, name)
+				assert.Equal(t, 2, size)
+			}
+		})
+	}
+}
+
+func TestReconcileMultiHostWorkerGroupLargeReplicaCount(t *testing.T) {
+	setupTest(t)
+	cluster := testRayCluster.DeepCopy()
+	worker := &cluster.Spec.WorkerGroupSpecs[0]
+	worker.NumOfHosts = 2
+	worker.Replicas = ptr.To[int32](math.MaxInt32)
+	worker.MaxReplicas = nil
+	worker.ScaleStrategy.WorkersToDelete = nil
+
+	// Stop at the first Pod creation to check scale-up without allocating a large cluster.
+	createErr := errors.New("stop after first worker Pod")
+	fakeClient := clientFake.NewClientBuilder().
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.CreateOption) error {
+				return createErr
+			},
+		}).Build()
+	reconciler := &RayClusterReconciler{
+		Client:   fakeClient,
+		Recorder: &events.FakeRecorder{},
+		Scheme:   scheme.Scheme,
+	}
+	err := reconciler.reconcileMultiHostWorkerGroup(context.Background(), cluster, worker, nil)
+	require.ErrorIs(t, err, createErr)
+}
+
 func TestReconcile_Multihost_Replicas(t *testing.T) {
 	setupTest(t)
 

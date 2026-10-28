@@ -3,6 +3,7 @@ package volcano
 import (
 	"context"
 	"maps"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -546,6 +547,20 @@ func TestCalculatePodGroupParams(t *testing.T) {
 }
 
 func TestCalculateSubGroupPolicy(t *testing.T) {
+	t.Run("logical replicas are independent of the pod count limit", func(t *testing.T) {
+		for _, replicas := range []int32{math.MaxInt32 / 2, math.MaxInt32/2 + 1, math.MaxInt32} {
+			cluster := createTestRayCluster(2)
+			cluster.Spec.WorkerGroupSpecs[0].Replicas = new(replicas)
+			cluster.Spec.WorkerGroupSpecs[0].MaxReplicas = nil
+
+			policies := calculateSubGroupPolicy(&cluster, &cluster.Spec)
+
+			require.Len(t, policies, 2, "replicas: %d", replicas)
+			assert.Equal(t, int32(2), ptr.Deref(policies[1].SubGroupSize, int32(0)))
+			assert.Equal(t, replicas, ptr.Deref(policies[1].MinSubGroups, int32(0)))
+		}
+	})
+
 	t.Run("autoscaling uses each active worker group's minimum logical replicas", func(t *testing.T) {
 		cluster := createTestRayCluster(1)
 		cluster.Spec.EnableInTreeAutoscaling = new(true)
