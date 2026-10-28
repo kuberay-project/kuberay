@@ -431,19 +431,18 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			}
 		}()
 
-		// The RayJob has reached a terminal state. Handle the cleanup and deletion logic.
-		// If the RayJob uses an existing RayCluster, we must not delete it.
-		if len(rayJobInstance.Spec.ClusterSelector) > 0 {
-			logger.Info("RayJob is using an existing RayCluster via clusterSelector; skipping resource deletion.", "RayClusterSelector", rayJobInstance.Spec.ClusterSelector)
-			return ctrl.Result{}, nil
-		}
-
 		if features.Enabled(features.RayJobDeletionPolicy) && rayJobInstance.Spec.DeletionStrategy != nil {
 			// The previous validation logic ensures that either DeletionRules or the legacy policies are set, but not both.
 			if rayJobInstance.Spec.DeletionStrategy.DeletionRules != nil {
 				return r.handleDeletionRules(ctx, rayJobInstance)
 			}
 			return r.handleLegacyDeletionPolicy(ctx, rayJobInstance)
+		}
+
+		// Skip shutdownAfterJobFinishes cleanup when using an existing RayCluster.
+		if len(rayJobInstance.Spec.ClusterSelector) > 0 {
+			logger.Info("RayJob is using an existing RayCluster via clusterSelector; skipping resource deletion.", "RayClusterSelector", rayJobInstance.Spec.ClusterSelector)
+			return ctrl.Result{}, nil
 		}
 
 		if rayJobInstance.Spec.ShutdownAfterJobFinishes {
