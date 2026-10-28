@@ -115,6 +115,9 @@ func (r *RayLogsHandler) _listFiles(prefix string, delimiter string, onlyBase bo
 		logrus.Infof("[ListFiles]Returned objects in %v. length of Contents: %v, length of CommonPrefixes: %v", prefix+"/", len(page.Contents),
 			len(page.CommonPrefixes))
 		for _, objects := range page.Contents {
+			if utils.IsDirectoryMarker(*objects.Key) {
+				continue
+			}
 			objName := *objects.Key
 			if onlyBase {
 				objName = path.Base(*objects.Key)
@@ -178,6 +181,9 @@ func (r *RayLogsHandler) List() (res []utils.ClusterInfo) {
 			logrus.Infof("[List]Returned objects in %v. length of Contents: %v, length of CommonPrefixes: %v", prefix, len(page.Contents),
 				len(page.CommonPrefixes))
 			for _, objects := range page.Contents {
+				if utils.IsDirectoryMarker(*objects.Key) {
+					continue
+				}
 				c, err := clustermetadata.DecodePath(*objects.Key, r.OssRootDir)
 				if err != nil {
 					logrus.Errorf("Failed to parse meta file path: %s, error: %v", *objects.Key, err)

@@ -117,6 +117,9 @@ func (r *RayLogsHandler) _listFiles(prefix string, delimiter string, onlyBase bo
 				prefix+"/", len(page.Contents), len(page.CommonPrefixes))
 
 			for _, object := range page.Contents {
+				if utils.IsDirectoryMarker(*object.Key) {
+					continue
+				}
 				objName := *object.Key
 				if onlyBase {
 					objName = path.Base(*object.Key)
@@ -185,6 +188,9 @@ func (r *RayLogsHandler) List() (res []utils.ClusterInfo) {
 					prefix, len(page.Contents), len(page.CommonPrefixes))
 
 				for _, object := range page.Contents {
+					if utils.IsDirectoryMarker(*object.Key) {
+						continue
+					}
 					c, err := clustermetadata.DecodePath(*object.Key, r.S3RootDir)
 					if err != nil {
 						logrus.Errorf("Failed to parse meta file path: %s, error: %v", *object.Key, err)
