@@ -461,7 +461,7 @@ class ClusterUtils:
 
     def is_valid_name(self, name: str) -> bool:
         msg = "The name must be 63 characters or less, begin and end with an alphanumeric character, and contain only dashes, dots, and alphanumerics."
-        if len(name) > 63 or not bool(re.match("^[a-z0-9]([-.]*[a-z0-9])+$", name)):
+        if len(name) > 63 or not bool(re.match("^[a-z0-9]([-.]*[a-z0-9])*$", name)):
             log.error(msg)
             return False
         return True
