@@ -446,7 +446,7 @@ func (s *ServerHandler) redirectRequest(req *restful.Request, resp *restful.Resp
 			svcInfo.Namespace, svcInfo.ServiceName, req.Request.URL.String())
 	} else {
 		// Connect through in-cluster service discovery.
-		targetURL = fmt.Sprintf("http://%s:%d%s", svcInfo.ServiceName, svcInfo.Port, req.Request.URL.String())
+		targetURL = fmt.Sprintf("http://%s.%s:%d%s", svcInfo.ServiceName, svcInfo.Namespace, svcInfo.Port, req.Request.URL.String())
 		logrus.Infof("Using in-cluster service discovery to access service %s/%s: %s",
 			svcInfo.Namespace, svcInfo.ServiceName, req.Request.URL.String())
 	}
