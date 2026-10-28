@@ -1021,24 +1021,20 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		logger.Info("reconcilePods", "Expectation", "NotSatisfiedHeadExpectations, reconcile head later")
 	} else if len(headPods.Items) == 1 {
 		headPod := headPods.Items[0]
+		headRayContainerTerminated := getRayContainerStateTerminated(headPod)
 		logger.Info("reconcilePods", "Found 1 head Pod", headPod.Name, "Pod status", headPod.Status.Phase,
 			"Pod status reason", headPod.Status.Reason,
 			"Pod restart policy", headPod.Spec.RestartPolicy,
-			"Ray container terminated status", getRayContainerStateTerminated(headPod))
+			"Ray container terminated status", headRayContainerTerminated)
 
 		shouldDelete, reason := shouldDeletePod(headPod, rayv1.HeadNode)
 		logger.Info("reconcilePods", "head Pod", headPod.Name, "shouldDelete", shouldDelete, "reason", reason)
 		if shouldDelete {
-			if err := r.Delete(ctx, &headPod); err != nil {
-				r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteHeadPod), string(utils.DeleteAction),
-					"Failed deleting head Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v, %v",
-					headPod.Namespace, headPod.Name, headPod.Status.Phase, headPod.Spec.RestartPolicy, getRayContainerStateTerminated(headPod), err)
-				return errstd.Join(utils.ErrFailedDeleteHeadPod, err)
+			if err := r.deletePod(ctx, instance, &headPod, rayv1.HeadNode, expectations.HeadGroup,
+				fmt.Sprintf("Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v",
+					headPod.Status.Phase, headPod.Spec.RestartPolicy, headRayContainerTerminated)); err != nil {
+				return err
 			}
-			r.rayClusterScaleExpectation.ExpectScalePod(headPod.Namespace, instance.Name, expectations.HeadGroup, headPod.Name, expectations.Delete)
-			r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedHeadPod), string(utils.DeleteAction),
-				"Deleted head Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v",
-				headPod.Namespace, headPod.Name, headPod.Status.Phase, headPod.Spec.RestartPolicy, getRayContainerStateTerminated(headPod))
 			return errstd.New(reason)
 		}
 	} else if len(headPods.Items) == 0 {
@@ -1130,16 +1126,11 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			if shouldDelete {
 				numDeletedUnhealthyWorkerPods++
 				deletedWorkers[workerPod.Name] = deleted
-				if err := r.Delete(ctx, &workerPod); err != nil {
-					r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteWorkerPod), string(utils.DeleteAction),
-						"Failed deleting worker Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v, %v",
-						workerPod.Namespace, workerPod.Name, workerPod.Status.Phase, workerPod.Spec.RestartPolicy, getRayContainerStateTerminated(workerPod), err)
-					return errstd.Join(utils.ErrFailedDeleteWorkerPod, err)
+				if err := r.deletePod(ctx, instance, &workerPod, rayv1.WorkerNode, worker.GroupName,
+					fmt.Sprintf("Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v",
+						workerPod.Status.Phase, workerPod.Spec.RestartPolicy, getRayContainerStateTerminated(workerPod))); err != nil {
+					return err
 				}
-				r.rayClusterScaleExpectation.ExpectScalePod(workerPod.Namespace, instance.Name, worker.GroupName, workerPod.Name, expectations.Delete)
-				r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedWorkerPod), string(utils.DeleteAction),
-					"Deleted worker Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v",
-					workerPod.Namespace, workerPod.Name, workerPod.Status.Phase, workerPod.Spec.RestartPolicy, getRayContainerStateTerminated(workerPod))
 			}
 		}
 
@@ -1156,18 +1147,11 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			pod.Name = podsToDelete
 			pod.Namespace = utils.GetNamespace(instance.ObjectMeta)
 			logger.Info("Deleting pod", "namespace", pod.Namespace, "name", pod.Name)
-			if err := r.Delete(ctx, &pod); err != nil {
-				if !errors.IsNotFound(err) {
-					logger.Info("reconcilePods", "Fail to delete Pod", pod.Name, "error", err)
-					r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteWorkerPod), string(utils.DeleteAction), "Failed deleting pod %s/%s, %v", pod.Namespace, pod.Name, err)
-					return errstd.Join(utils.ErrFailedDeleteWorkerPod, err)
-				}
-				logger.Info("reconcilePods", "The worker Pod has already been deleted", pod.Name)
-			} else {
-				r.rayClusterScaleExpectation.ExpectScalePod(pod.Namespace, instance.Name, worker.GroupName, pod.Name, expectations.Delete)
-				deletedWorkers[pod.Name] = deleted
-				r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedWorkerPod), string(utils.DeleteAction), "Deleted pod %s/%s", pod.Namespace, pod.Name)
+			if err := r.deletePod(ctx, instance, &pod, rayv1.WorkerNode, worker.GroupName, "autoscaler scale-down request"); err != nil {
+				logger.Info("reconcilePods", "Fail to delete Pod", pod.Name, "error", err)
+				return err
 			}
+			deletedWorkers[pod.Name] = deleted
 		}
 
 		runningPods := corev1.PodList{}
@@ -1258,15 +1242,9 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 				for i := range randomlyRemovedWorkers {
 					randomPodToDelete := runningPods.Items[i]
 					logger.Info("Randomly deleting Pod", "progress", fmt.Sprintf("%d / %d", i+1, randomlyRemovedWorkers), "with name", randomPodToDelete.Name)
-					if err := r.Delete(ctx, &randomPodToDelete); err != nil {
-						if !errors.IsNotFound(err) {
-							r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteWorkerPod), string(utils.DeleteAction), "Failed deleting Pod %s/%s, %v", randomPodToDelete.Namespace, randomPodToDelete.Name, err)
-							return errstd.Join(utils.ErrFailedDeleteWorkerPod, err)
-						}
-						logger.Info("reconcilePods", "The worker Pod has already been deleted", randomPodToDelete.Name)
+					if err := r.deletePod(ctx, instance, &randomPodToDelete, rayv1.WorkerNode, worker.GroupName, "random scale-down to match desired replicas"); err != nil {
+						return err
 					}
-					r.rayClusterScaleExpectation.ExpectScalePod(randomPodToDelete.Namespace, instance.Name, worker.GroupName, randomPodToDelete.Name, expectations.Delete)
-					r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedWorkerPod), string(utils.DeleteAction), "Deleted Pod %s/%s", randomPodToDelete.Namespace, randomPodToDelete.Name)
 				}
 			} else {
 				logger.Info("Random Pod deletion is disabled for the cluster. The only decision-maker for Pod deletions is Autoscaler.")
@@ -1276,23 +1254,39 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 	return nil
 }
 
-// deletePods is a helper function to handle the deletion of a list of Pods, setting scale expectations
+// deleteWorkerPods is a helper function to handle the deletion of a list of worker Pods, setting scale expectations
 // and recording events.
-func (r *RayClusterReconciler) deletePods(ctx context.Context, instance *rayv1.RayCluster, podsToDelete []corev1.Pod, groupName string, reason string) error {
+func (r *RayClusterReconciler) deleteWorkerPods(ctx context.Context, instance *rayv1.RayCluster, podsToDelete []corev1.Pod, groupName string, reason string) error {
 	for i := range podsToDelete {
-		pod := podsToDelete[i]
-		if err := r.Delete(ctx, &pod); err != nil {
-			if errors.IsNotFound(err) {
-				continue
-			}
-			r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteWorkerPod), string(utils.DeleteAction),
-				"Failed deleting worker Pod %s/%s for group %s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v, %v",
-				pod.Namespace, pod.Name, groupName, pod.Status.Phase, pod.Spec.RestartPolicy, getRayContainerStateTerminated(pod), err)
-			return errstd.Join(utils.ErrFailedDeleteWorkerPod, err)
+		if err := r.deletePod(ctx, instance, &podsToDelete[i], rayv1.WorkerNode, groupName, reason); err != nil {
+			return err
 		}
-		r.rayClusterScaleExpectation.ExpectScalePod(pod.Namespace, instance.Name, groupName, pod.Name, expectations.Delete)
-		r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedWorkerPod), string(utils.DeleteAction),
-			"Deleted worker Pod %s/%s for group %s: %s", pod.Namespace, pod.Name, groupName, reason)
+	}
+	return nil
+}
+
+// deletePod deletes a Pod, records a Delete scale expectation for it, and emits an event.
+func (r *RayClusterReconciler) deletePod(ctx context.Context, instance *rayv1.RayCluster, pod *corev1.Pod, nodeType rayv1.RayNodeType, groupName string, reason string) error {
+	logger := ctrl.LoggerFrom(ctx)
+	failedEvent, deletedEvent, errFailedDelete := utils.FailedToDeleteWorkerPod, utils.DeletedWorkerPod, utils.ErrFailedDeleteWorkerPod
+	if nodeType == rayv1.HeadNode {
+		failedEvent, deletedEvent, errFailedDelete = utils.FailedToDeleteHeadPod, utils.DeletedHeadPod, utils.ErrFailedDeleteHeadPod
+	}
+
+	deleted := true
+	if err := r.Delete(ctx, pod); err != nil {
+		if !errors.IsNotFound(err) {
+			r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(failedEvent), string(utils.DeleteAction),
+				"Failed deleting %s Pod %s/%s; %s, %v", nodeType, pod.Namespace, pod.Name, reason, err)
+			return errstd.Join(errFailedDelete, err)
+		}
+		logger.Info("Pod has already been deleted", "namespace", pod.Namespace, "name", pod.Name, "nodeType", nodeType, "group", groupName)
+		deleted = false
+	}
+	r.rayClusterScaleExpectation.ExpectScalePod(pod.Namespace, instance.Name, groupName, pod.Name, expectations.Delete)
+	if deleted {
+		r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(deletedEvent), string(utils.DeleteAction),
+			"Deleted %s Pod %s/%s; %s", nodeType, pod.Namespace, pod.Name, reason)
 	}
 	return nil
 }
@@ -1317,7 +1311,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 	for replicaName, podList := range replicaMap {
 		if len(podList) < int(worker.NumOfHosts) {
 			logger.Info("Found incomplete multi-host replica group, deleting all remaining pods to maintain atomicity.", "group", worker.GroupName, "replica", replicaName, "found", len(podList), "expected", worker.NumOfHosts)
-			if err := r.deletePods(ctx, instance, podList, worker.GroupName, "cleanup of incomplete multi-host group"); err != nil {
+			if err := r.deleteWorkerPods(ctx, instance, podList, worker.GroupName, "cleanup of incomplete multi-host group"); err != nil {
 				return err
 			}
 			// Requeue to avoid creating new Pods on this reconciliation.
@@ -1339,7 +1333,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 				continue
 			}
 			logger.Info("Deleting unhealthy replica group.", "group", worker.GroupName, "replica", replicaName, "reason", reason)
-			if err := r.deletePods(ctx, instance, podsToDelete, worker.GroupName, reason); err != nil {
+			if err := r.deleteWorkerPods(ctx, instance, podsToDelete, worker.GroupName, reason); err != nil {
 				return err
 			}
 			// All Pods in the group have been deleted.
@@ -1370,7 +1364,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 			for _, p := range podsToDeleteFromStrategy {
 				podsToDel = append(podsToDel, p)
 			}
-			if err := r.deletePods(ctx, instance, podsToDel, worker.GroupName, "autoscaler scale-down request"); err != nil {
+			if err := r.deleteWorkerPods(ctx, instance, podsToDel, worker.GroupName, "autoscaler scale-down request"); err != nil {
 				return err
 			}
 			return fmt.Errorf("deleted %d worker Pods based on ScaleStrategy, requeueing", len(podsToDel))
@@ -1457,7 +1451,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 					break
 				}
 				podList := replicaMap[replicaID]
-				if err := r.deletePods(ctx, instance, podList, worker.GroupName, "scaling down"); err != nil {
+				if err := r.deleteWorkerPods(ctx, instance, podList, worker.GroupName, "scaling down"); err != nil {
 					return err
 				}
 				replicasDeleted++
