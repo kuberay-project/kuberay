@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync/atomic"
@@ -34,7 +35,22 @@ func (r *FakeRayDashboardClient) GetMultiApplicationStatus(_ context.Context) (m
 }
 
 func (r *FakeRayDashboardClient) GetServeDetails(_ context.Context) (*utiltypes.ServeDetails, error) {
-	return &r.serveDetails, nil
+	serveDetails := r.serveDetails
+	// Tests that only call SetMultiApplicationStatuses expect GetServeDetails to report the same applications.
+	if serveDetails.Applications == nil && r.multiAppStatuses != nil {
+		statusesJson, err := json.Marshal(r.multiAppStatuses)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(statusesJson, &serveDetails.Applications); err != nil {
+			return nil, err
+		}
+	}
+	return &serveDetails, nil
+}
+
+func (r *FakeRayDashboardClient) SetServeDetails(serveDetails utiltypes.ServeDetails) {
+	r.serveDetails = serveDetails
 }
 
 func (r *FakeRayDashboardClient) SetMultiApplicationStatuses(statuses map[string]*utiltypes.ServeApplicationStatus) {
