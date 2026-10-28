@@ -1542,6 +1542,7 @@ func (r *RayJobReconciler) handleShutdownAfterJobFinishes(ctx context.Context, r
 
 	var err error
 	if s := os.Getenv(utils.DELETE_RAYJOB_CR_AFTER_JOB_FINISHES); strings.ToLower(s) == "true" {
+		logger.Info("The DELETE_RAYJOB_CR_AFTER_JOB_FINISHES environment variable is deprecated and will be removed in release 1.9.0. Use the RayJob DeletionStrategy API instead.")
 		err = r.Client.Delete(ctx, rayJob)
 		if err == nil {
 			logger.Info("RayJob is deleted", "RayJob", rayJob.Name)

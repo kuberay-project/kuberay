@@ -312,6 +312,8 @@ env:
 # Enabling this feature contributes to the robustness of Ray clusters.
 # - name: ENABLE_PROBES_INJECTION
 #   value: "true"
+# DEPRECATED: this environment variable will be removed in release 1.9.0.
+# Use the RayJob spec.deletionStrategy API instead (a deletionRules entry with the DeleteSelf policy).
 # If set to true, the RayJob CR itself will be deleted if shutdownAfterJobFinishes is set to true. Note that all resources created by the RayJob CR will be deleted, including the K8s Job. Otherwise, only the RayCluster CR will be deleted. Default is false.
 # - name: DELETE_RAYJOB_CR_AFTER_JOB_FINISHES
 #   value: "false"
