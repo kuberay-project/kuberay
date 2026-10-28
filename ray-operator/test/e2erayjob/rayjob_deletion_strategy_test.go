@@ -42,10 +42,6 @@ func TestDeletionStrategy(t *testing.T) {
 			testFunc: testMultiStageDeletion,
 		},
 		{
-			name:     "Legacy OnSuccess DeleteCluster should still work",
-			testFunc: testLegacyOnSuccessDeleteCluster,
-		},
-		{
 			name:     "DeletionRules with JobDeploymentStatus Failed and DeleteWorkers policy should delete only worker pods",
 			testFunc: testDeletionRulesWithJobDeploymentStatusFailedAndDeleteWorkersPolicy,
 		},
@@ -428,46 +424,6 @@ env_vars:
 	}, TestTimeoutMedium).Should(WithTransform(k8serrors.IsNotFound, BeTrue()))
 	LogWithTimestamp(test.T(), "Stage 3 complete: RayJob deleted successfully")
 	LogWithTimestamp(test.T(), "Multi-stage deletion completed in correct order")
-}
-
-func testLegacyOnSuccessDeleteCluster(test Test, g *WithT, namespace *corev1.Namespace, cm *corev1.ConfigMap) {
-	rayJobAC := rayv1ac.RayJob("legacy-success-test", namespace.Name).
-		WithSpec(rayv1ac.RayJobSpec().
-			WithRayClusterSpec(NewRayClusterSpec(MountConfigMap[rayv1ac.RayClusterSpecApplyConfiguration](cm, "/home/ray/jobs"))).
-			WithEntrypoint("python /home/ray/jobs/counter.py").
-			WithRuntimeEnvYAML(`
-env_vars:
-  counter_name: test_counter
-`).
-			WithShutdownAfterJobFinishes(true).
-			WithTTLSecondsAfterFinished(10). // Legacy TTL for backward compatibility
-			WithDeletionStrategy(rayv1ac.DeletionStrategy().
-				WithOnSuccess(rayv1ac.DeletionPolicy().
-					WithPolicy(rayv1.DeleteCluster)).
-				WithOnFailure(rayv1ac.DeletionPolicy().
-					WithPolicy(rayv1.DeleteCluster))).
-			WithSubmitterPodTemplate(JobSubmitterPodTemplateApplyConfiguration()))
-	rayJob := applyRayJobAndWaitForCompletion(test, g, namespace, rayJobAC)
-
-	// Get the associated RayCluster name (legacy path; same early assertion rationale)
-	rayJob, err := GetRayJob(test, rayJob.Namespace, rayJob.Name)
-	g.Expect(err).NotTo(HaveOccurred())
-	rayClusterName := rayJob.Status.RayClusterName
-	g.Expect(rayClusterName).NotTo(BeEmpty())
-
-	// Wait for cluster to be deleted due to OnSuccess policy
-	LogWithTimestamp(test.T(), "Waiting for legacy OnSuccess policy to delete cluster...")
-	g.Eventually(func() error {
-		_, err := GetRayCluster(test, namespace.Name, rayClusterName)
-		return err
-	}, TestTimeoutMedium).Should(WithTransform(k8serrors.IsNotFound, BeTrue()))
-	LogWithTimestamp(test.T(), "Cluster deleted by legacy OnSuccess policy")
-
-	// Verify RayJob still exists
-	job, err := GetRayJob(test, rayJob.Namespace, rayJob.Name)
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(job).NotTo(BeNil())
-	LogWithTimestamp(test.T(), "Legacy OnSuccess policy working correctly")
 }
 
 func testDeletionRulesWithJobDeploymentStatusFailedAndDeleteWorkersPolicy(test Test, g *WithT, namespace *corev1.Namespace, cm *corev1.ConfigMap) {

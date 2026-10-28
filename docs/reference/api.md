@@ -179,8 +179,7 @@ _Appears in:_
 
 
 
-DeletionPolicy is the legacy single-stage deletion policy.
-Deprecated: This struct is part of the legacy API. Use DeletionRule for new configurations.
+
 
 
 
@@ -189,7 +188,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `policy` _[DeletionPolicyType](#deletionpolicytype)_ | Policy is the action to take when the condition is met.<br />This field is logically required when using the legacy OnSuccess/OnFailure policies.<br />It is marked as '+optional' at the API level to allow the 'deletionRules' field to be used instead. |  | Enum: [DeleteCluster DeleteWorkers DeleteSelf DeleteNone] <br /> |
+| `policy` _[DeletionPolicyType](#deletionpolicytype)_ |  |  |  |
 
 
 #### DeletionPolicyType
@@ -241,15 +240,15 @@ Two mutually exclusive styles are supported:
   - Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds instead).
 
 Semantics:
-  - A non-empty deletionRules selects rules mode; empty lists are treated as unset.
-  - Legacy requires both onSuccess and onFailure; specifying only one is invalid.
-  - Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true; therefore it cannot be used with rules mode or with legacy alone (no shutdown).
+  - The deletionRules list is the primary mechanism for cleanup; it must be non-empty when this block is present.
+  - DeletionStrategy is mutually exclusive with spec.shutdownAfterJobFinishes.
+  - Global spec.ttlSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true;
+    therefore it cannot be used with DeletionStrategy (use condition.ttlSeconds within rules instead).
   - Feature gate RayJobDeletionPolicy must be enabled when this block is present.
 
 Validation:
-  - CRD XValidations prevent mixing legacy fields with deletionRules and enforce legacy completeness.
   - Controller logic enforces rules vs shutdown exclusivity and TTL constraints.
-  - onSuccess/onFailure are deprecated; migration to deletionRules is encouraged.
+  - Cross-field validation (CEL) ensures deletionRules is provided when the strategy is set.
 
 
 
@@ -258,9 +257,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `onSuccess` _[DeletionPolicy](#deletionpolicy)_ | OnSuccess is the deletion policy for a successful RayJob.<br />Deprecated: Use `deletionRules` instead for more flexible, multi-stage deletion strategies.<br />This field will be removed in release 1.6.0. |  |  |
-| `onFailure` _[DeletionPolicy](#deletionpolicy)_ | OnFailure is the deletion policy for a failed RayJob.<br />Deprecated: Use `deletionRules` instead for more flexible, multi-stage deletion strategies.<br />This field will be removed in release 1.6.0. |  |  |
-| `deletionRules` _[DeletionRule](#deletionrule) array_ | DeletionRules is a list of deletion rules, processed based on their trigger conditions.<br />While the rules can be used to define a sequence, if multiple rules are overdue (e.g., due to controller downtime),<br />the most impactful rule (e.g., DeleteSelf) will be executed first to prioritize resource cleanup. |  | MinItems: 1 <br /> |
+| `deletionRules` _[DeletionRule](#deletionrule) array_ | DeletionRules is a list of deletion rules, processed based on their trigger conditions. |  |  |
+| `onSuccess` _[DeletionPolicy](#deletionpolicy)_ | OnSuccess is deprecated; use deletionRules instead.<br />This field is for backward compatibility but is no longer functional. |  |  |
+| `onFailure` _[DeletionPolicy](#deletionpolicy)_ | OnFailure is deprecated; use deletionRules instead.<br />This field is for backward compatibility but is no longer functional. |  |  |
 
 
 
@@ -777,7 +776,7 @@ _Appears in:_
 | `clusterSelector` _object (keys:string, values:string)_ | clusterSelector is used to select running rayclusters by labels |  |  |
 | `submitterConfig` _[SubmitterConfig](#submitterconfig)_ | Configurations of submitter k8s job. |  |  |
 | `managedBy` _string_ | ManagedBy is an optional configuration for the controller or entity that manages a RayJob.<br />The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.<br />The kuberay-operator reconciles a RayJob which doesn't have this field at all or<br />the field value is the reserved string 'ray.io/kuberay-operator',<br />but delegates reconciling the RayJob with 'kueue.x-k8s.io/multikueue' to the Kueue.<br />The field is immutable. |  |  |
-| `deletionStrategy` _[DeletionStrategy](#deletionstrategy)_ | DeletionStrategy automates post-completion cleanup.<br />Choose one style or omit:<br />  - Legacy: both onSuccess & onFailure (deprecated; may combine with shutdownAfterJobFinishes and TTLSecondsAfterFinished).<br />  - Rules: deletionRules (non-empty) — incompatible with shutdownAfterJobFinishes, legacy fields, and global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds).<br />Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true.<br />Feature gate RayJobDeletionPolicy must be enabled when this field is set. |  |  |
+| `deletionStrategy` _[DeletionStrategy](#deletionstrategy)_ | DeletionStrategy automates post-completion cleanup.<br />Configure deletion rules or omit:<br />  - Rules: deletionRules (non-empty) — incompatible with shutdownAfterJobFinishes and global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds).<br />Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true.<br />Feature gate RayJobDeletionPolicy must be enabled when this field is set. |  |  |
 | `entrypoint` _string_ | Entrypoint represents the command to start execution. |  |  |
 | `runtimeEnvYAML` _string_ | RuntimeEnvYAML represents the runtime environment configuration<br />provided as a multi-line YAML string. |  |  |
 | `jobId` _string_ | If jobId is not set, a new jobId will be auto-generated. |  |  |

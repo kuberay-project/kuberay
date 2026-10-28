@@ -439,11 +439,9 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 		}
 
 		if features.Enabled(features.RayJobDeletionPolicy) && rayJobInstance.Spec.DeletionStrategy != nil {
-			// The previous validation logic ensures that either DeletionRules or the legacy policies are set, but not both.
-			if rayJobInstance.Spec.DeletionStrategy.DeletionRules != nil {
+			if len(rayJobInstance.Spec.DeletionStrategy.DeletionRules) > 0 {
 				return r.handleDeletionRules(ctx, rayJobInstance)
 			}
-			return r.handleLegacyDeletionPolicy(ctx, rayJobInstance)
 		}
 
 		if rayJobInstance.Spec.ShutdownAfterJobFinishes {
@@ -1474,50 +1472,6 @@ func (r *RayJobReconciler) handleDeletionRules(ctx context.Context, rayJob *rayv
 	return ctrl.Result{}, nil
 }
 
-// handleLegacyDeletionPolicy handles the deprecated onSuccess and onFailure policies.
-func (r *RayJobReconciler) handleLegacyDeletionPolicy(ctx context.Context, rayJob *rayv1.RayJob) (ctrl.Result, error) {
-	logger := ctrl.LoggerFrom(ctx).WithValues("deletionMechanism", "LegacyOnSuccessFailure")
-
-	var policy rayv1.DeletionPolicyType
-	switch rayJob.Status.JobStatus {
-	case rayv1.JobStatusSucceeded:
-		policy = *rayJob.Spec.DeletionStrategy.OnSuccess.Policy
-	case rayv1.JobStatusFailed:
-		policy = *rayJob.Spec.DeletionStrategy.OnFailure.Policy
-	default:
-		logger.Info("JobStatus is not valid for deletion, no policy applied", "jobStatus", rayJob.Status.JobStatus)
-		return ctrl.Result{}, nil
-	}
-
-	// If the policy is DeleteNone, we are done.
-	if policy == rayv1.DeleteNone {
-		logger.Info("Deletion policy is DeleteNone; no action taken.")
-		return ctrl.Result{}, nil
-	}
-
-	// These legacy policies use the top-level TTLSecondsAfterFinished.
-	nowTime := time.Now()
-	ttlSeconds := rayJob.Spec.TTLSecondsAfterFinished
-	shutdownTime := rayJob.Status.EndTime.Add(time.Duration(ttlSeconds) * time.Second)
-	logger.Info("Evaluating legacy deletion policy (onSuccess/onFailure)",
-		"JobDeploymentStatus", rayJob.Status.JobDeploymentStatus,
-		"policy", policy,
-		"JobStatus", rayJob.Status.JobStatus,
-		"ttlSecondsAfterFinished", ttlSeconds,
-		"Status.endTime", rayJob.Status.EndTime,
-		"Now", nowTime,
-		"ShutdownTime", shutdownTime)
-
-	if shutdownTime.After(nowTime) {
-		requeueAfter := requeueDelayFor(shutdownTime)
-		logger.Info("TTL has not been met for legacy policy. Requeuing.", "shutdownTime", shutdownTime, "requeueAfter", requeueAfter)
-		return ctrl.Result{RequeueAfter: requeueAfter}, nil
-	}
-
-	logger.Info("Executing legacy deletion policy.", "policy", policy)
-	return r.executeDeletionPolicy(ctx, rayJob, policy)
-}
-
 // handleShutdownAfterJobFinishes handles the oldest deletion mechanism, the ShutdownAfterJobFinishes boolean flag.
 func (r *RayJobReconciler) handleShutdownAfterJobFinishes(ctx context.Context, rayJob *rayv1.RayJob) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx).WithValues("deletionMechanism", "ShutdownAfterJobFinishes")
@@ -1563,7 +1517,6 @@ func (r *RayJobReconciler) handleShutdownAfterJobFinishes(ctx context.Context, r
 }
 
 // executeDeletionPolicy performs the actual resource deletion based on the policy type.
-// This function centralizes the deletion logic to avoid code duplication.
 func (r *RayJobReconciler) executeDeletionPolicy(ctx context.Context, rayJob *rayv1.RayJob, policy rayv1.DeletionPolicyType) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 	var err error

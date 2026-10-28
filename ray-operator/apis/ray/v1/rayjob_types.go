@@ -93,38 +93,37 @@ const (
 //   - Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds instead).
 //
 // Semantics:
-//   - A non-empty deletionRules selects rules mode; empty lists are treated as unset.
-//   - Legacy requires both onSuccess and onFailure; specifying only one is invalid.
-//   - Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true; therefore it cannot be used with rules mode or with legacy alone (no shutdown).
+//   - The deletionRules list is the primary mechanism for cleanup; it must be non-empty when this block is present.
+//   - DeletionStrategy is mutually exclusive with spec.shutdownAfterJobFinishes.
+//   - Global spec.ttlSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true;
+//     therefore it cannot be used with DeletionStrategy (use condition.ttlSeconds within rules instead).
 //   - Feature gate RayJobDeletionPolicy must be enabled when this block is present.
 //
 // Validation:
-//   - CRD XValidations prevent mixing legacy fields with deletionRules and enforce legacy completeness.
 //   - Controller logic enforces rules vs shutdown exclusivity and TTL constraints.
-//   - onSuccess/onFailure are deprecated; migration to deletionRules is encouraged.
+//   - Cross-field validation (CEL) ensures deletionRules is provided when the strategy is set.
 //
-// +kubebuilder:validation:XValidation:rule="!((has(self.onSuccess) || has(self.onFailure)) && has(self.deletionRules))",message="legacy policies (onSuccess/onFailure) and deletionRules cannot be used together within the same deletionStrategy"
-// +kubebuilder:validation:XValidation:rule="((has(self.onSuccess) && has(self.onFailure)) || has(self.deletionRules))",message="deletionStrategy requires either BOTH onSuccess and onFailure, OR the deletionRules field (cannot be empty)"
+// +kubebuilder:validation:XValidation:rule="has(self.deletionRules) && size(self.deletionRules) > 0", message="deletionRules is required and cannot be empty when deletionStrategy is set"
 type DeletionStrategy struct {
-	// OnSuccess is the deletion policy for a successful RayJob.
-	// Deprecated: Use `deletionRules` instead for more flexible, multi-stage deletion strategies.
-	// This field will be removed in release 1.6.0.
+	// DeletionRules is a list of deletion rules, processed based on their trigger conditions.
+	// +optional
+	// +listType=atomic
+	DeletionRules []DeletionRule `json:"deletionRules,omitempty"`
+
+	// OnSuccess is deprecated; use deletionRules instead.
+	// This field is for backward compatibility but is no longer functional.
 	// +optional
 	OnSuccess *DeletionPolicy `json:"onSuccess,omitempty"`
 
-	// OnFailure is the deletion policy for a failed RayJob.
-	// Deprecated: Use `deletionRules` instead for more flexible, multi-stage deletion strategies.
-	// This field will be removed in release 1.6.0.
+	// OnFailure is deprecated; use deletionRules instead.
+	// This field is for backward compatibility but is no longer functional.
 	// +optional
 	OnFailure *DeletionPolicy `json:"onFailure,omitempty"`
+}
 
-	// DeletionRules is a list of deletion rules, processed based on their trigger conditions.
-	// While the rules can be used to define a sequence, if multiple rules are overdue (e.g., due to controller downtime),
-	// the most impactful rule (e.g., DeleteSelf) will be executed first to prioritize resource cleanup.
+type DeletionPolicy struct {
 	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MinItems=1
-	DeletionRules []DeletionRule `json:"deletionRules,omitempty"`
+	Policy DeletionPolicyType `json:"policy,omitempty"`
 }
 
 // DeletionRule defines a single deletion action and its trigger condition.
@@ -165,17 +164,6 @@ type DeletionCondition struct {
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	TTLSeconds int32 `json:"ttlSeconds,omitempty"`
-}
-
-// DeletionPolicy is the legacy single-stage deletion policy.
-// Deprecated: This struct is part of the legacy API. Use DeletionRule for new configurations.
-type DeletionPolicy struct {
-	// Policy is the action to take when the condition is met.
-	// This field is logically required when using the legacy OnSuccess/OnFailure policies.
-	// It is marked as '+optional' at the API level to allow the 'deletionRules' field to be used instead.
-	// +kubebuilder:validation:Enum=DeleteCluster;DeleteWorkers;DeleteSelf;DeleteNone
-	// +optional
-	Policy *DeletionPolicyType `json:"policy,omitempty"`
 }
 
 type DeletionPolicyType string
@@ -240,9 +228,8 @@ type RayJobSpec struct {
 	// +optional
 	ManagedBy *string `json:"managedBy,omitempty"`
 	// DeletionStrategy automates post-completion cleanup.
-	// Choose one style or omit:
-	//   - Legacy: both onSuccess & onFailure (deprecated; may combine with shutdownAfterJobFinishes and TTLSecondsAfterFinished).
-	//   - Rules: deletionRules (non-empty) — incompatible with shutdownAfterJobFinishes, legacy fields, and global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds).
+	// Configure deletion rules or omit:
+	//   - Rules: deletionRules (non-empty) — incompatible with shutdownAfterJobFinishes and global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds).
 	// Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true.
 	// Feature gate RayJobDeletionPolicy must be enabled when this field is set.
 	// +optional

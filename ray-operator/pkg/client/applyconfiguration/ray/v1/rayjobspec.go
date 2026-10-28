@@ -36,9 +36,8 @@ type RayJobSpecApplyConfiguration struct {
 	// The field is immutable.
 	ManagedBy *string `json:"managedBy,omitempty"`
 	// DeletionStrategy automates post-completion cleanup.
-	// Choose one style or omit:
-	// - Legacy: both onSuccess & onFailure (deprecated; may combine with shutdownAfterJobFinishes and TTLSecondsAfterFinished).
-	// - Rules: deletionRules (non-empty) — incompatible with shutdownAfterJobFinishes, legacy fields, and global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds).
+	// Configure deletion rules or omit:
+	// - Rules: deletionRules (non-empty) — incompatible with shutdownAfterJobFinishes and global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds).
 	// Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true.
 	// Feature gate RayJobDeletionPolicy must be enabled when this field is set.
 	DeletionStrategy *DeletionStrategyApplyConfiguration `json:"deletionStrategy,omitempty"`
