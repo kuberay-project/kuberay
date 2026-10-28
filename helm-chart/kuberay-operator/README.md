@@ -202,6 +202,7 @@ spec:
 | collectorImage | string | `""` | Default image for the History Server collector sidecar. A RayCluster can override it with `spec.historyServerOptions.collectorOptions.image`. If empty, defaults to `quay.io/kuberay/collector` with the tag matching the operator version. |
 | metrics.enabled | bool | `true` | Whether KubeRay operator should emit control plane metrics. |
 | metrics.serviceMonitor.enabled | bool | `false` | Enable a prometheus ServiceMonitor |
+| metrics.serviceMonitor.apiVersion | string | `"monitoring.coreos.com/v1"` | API version of the ServiceMonitor resource. |
 | metrics.serviceMonitor.interval | string | `"30s"` | Prometheus ServiceMonitor interval |
 | metrics.serviceMonitor.honorLabels | bool | `true` | When true, honorLabels preserves the metric’s labels when they collide with the target’s labels. |
 | metrics.serviceMonitor.additionalLabels | object | `{}` | Additional labels to add to the ServiceMonitor's metadata. |

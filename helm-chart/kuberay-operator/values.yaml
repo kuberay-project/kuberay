@@ -214,6 +214,8 @@ metrics:
   serviceMonitor:
     # -- Enable a prometheus ServiceMonitor
     enabled: false
+    # -- API version of the ServiceMonitor resource.
+    apiVersion: monitoring.coreos.com/v1
     # -- Prometheus ServiceMonitor interval
     interval: 30s
     # -- When true, honorLabels preserves the metric’s labels when they collide with the target’s labels.
