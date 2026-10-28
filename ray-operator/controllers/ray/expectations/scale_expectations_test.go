@@ -241,9 +241,8 @@ func TestIsPodScaled(t *testing.T) {
 func TestIsPodScaledTimeout(t *testing.T) {
 	ctx := context.Background()
 
-	// Save original timeout and restore after test
 	originalTimeout := ExpectationsTimeout
-	ExpectationsTimeout = 20 * time.Millisecond
+	ExpectationsTimeout = time.Hour
 	defer func() { ExpectationsTimeout = originalTimeout }()
 
 	fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects().Build()
@@ -266,12 +265,85 @@ func TestIsPodScaledTimeout(t *testing.T) {
 		recordTimestamp: time.Now(),
 	}
 
-	// Initially should return false (pod doesn't exist)
 	result := exp.isPodScaled(ctx, rp)
 	assert.False(t, result)
 
-	// After timeout, should return true even though pod doesn't exist
-	time.Sleep(ExpectationsTimeout + 10*time.Millisecond)
+	rp.recordTimestamp = time.Now().Add(-ExpectationsTimeout - time.Second)
 	result = exp.isPodScaled(ctx, rp)
 	assert.True(t, result)
+}
+
+// TestIsPodScaledDeleteTimeout verifies that a Delete expectation whose Pod is stuck
+// (never actually deleted, e.g. its node is NotReady so the Pod keeps a deletionTimestamp
+// that never clears) is released after the timeout instead of blocking forever.
+// Without this, IsSatisfied short-circuits on the unsatisfied Delete expectation and
+// freezes all scaling for the entire worker group indefinitely.
+func TestIsPodScaledDeleteTimeout(t *testing.T) {
+	ctx := context.Background()
+
+	originalTimeout := ExpectationsTimeout
+	ExpectationsTimeout = time.Hour
+	defer func() { ExpectationsTimeout = originalTimeout }()
+
+	deletionTimestamp := metav1.Now()
+	testPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "stuck-pod",
+			Namespace:         "default",
+			DeletionTimestamp: &deletionTimestamp,
+			Finalizers:        []string{"test-finalizer"},
+		},
+	}
+
+	fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(testPod).Build()
+	storedPod := &corev1.Pod{}
+	require.NoError(t, fakeClient.Get(ctx, client.ObjectKeyFromObject(testPod), storedPod))
+	require.NotNil(t, storedPod.DeletionTimestamp)
+
+	exp := &rayClusterScaleExpectationImpl{
+		Client:     fakeClient,
+		itemsCache: nil,
+	}
+
+	rp := &rayPod{
+		name:            testPod.Name,
+		namespace:       testPod.Namespace,
+		action:          Delete,
+		recordTimestamp: time.Now(),
+	}
+
+	assert.False(t, exp.isPodScaled(ctx, rp))
+
+	rp.recordTimestamp = time.Now().Add(-ExpectationsTimeout - time.Second)
+	assert.True(t, exp.isPodScaled(ctx, rp))
+}
+
+func TestIsPodScaledDeleteDoesNotTimeoutBeforeDeletion(t *testing.T) {
+	ctx := context.Background()
+
+	originalTimeout := ExpectationsTimeout
+	ExpectationsTimeout = time.Hour
+	defer func() { ExpectationsTimeout = originalTimeout }()
+
+	testPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "existing-pod",
+			Namespace: "default",
+		},
+	}
+
+	fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(testPod).Build()
+	exp := &rayClusterScaleExpectationImpl{
+		Client:     fakeClient,
+		itemsCache: nil,
+	}
+
+	rp := &rayPod{
+		name:            testPod.Name,
+		namespace:       testPod.Namespace,
+		action:          Delete,
+		recordTimestamp: time.Now().Add(-ExpectationsTimeout - time.Second),
+	}
+
+	assert.False(t, exp.isPodScaled(ctx, rp))
 }
