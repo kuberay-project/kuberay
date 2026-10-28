@@ -40,11 +40,9 @@ const (
 	ATTRIBUTE_AUTH_TOKEN   = "cluster_auth_token"
 )
 
-// enterClusterBootstrapPage is served by /enter_cluster once the cluster context cookies
-// are set. The URL fragment (e.g. #/overview) never reaches the server, so the landing
-// page travels client-side: the browser carries it over to the dashboard root itself.
-// Serving a page instead of a redirect matters because a proxy between the browser and
-// this server would follow the redirect itself, swallowing both it and the cookies.
+// enterClusterBootstrapPage sets up client-side navigation to the dashboard root.
+// We serve a page instead of a redirect because Ray's --proxy-server-url middleware
+// follows redirects internally, preventing the browser from receiving the Set-Cookie headers.
 const enterClusterBootstrapPage = `<!DOCTYPE html>
 <html>
   <head><meta charset="utf-8"><title>Ray History Server</title></head>
@@ -336,11 +334,12 @@ func routerRayClusterSet(s *ServerHandler) {
 	ws := new(restful.WebService)
 	defer restful.Add(ws)
 
-	// No Consumes: /enter_cluster is a browser-facing page, and a JSON-only declaration
-	// makes go-restful reject navigations whose Content-Type is not JSON (415) once any
-	// proxy in front adds one. Produces is HTML because the response is the bootstrap page.
-	ws.Path("/enter_cluster").Produces("text/html").Filter(RequestLogFilter)
+	ws.Path("/enter_cluster").Produces("text/html", restful.MIME_JSON).Filter(RequestLogFilter)
 	enterHandler := func(r1 *restful.Request, r2 *restful.Response, namespace, resourceType, resourceName, session string) {
+		r2.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		r2.Header().Set("X-Content-Type-Options", "nosniff")
+		r2.Header().Set("X-Frame-Options", "DENY")
+		r2.Header().Set("Cache-Control", "no-store")
 		kindLower := strings.ToLower(resourceType)
 		if kindLower != utils.RayClusterKind && kindLower != utils.RayJobKind && kindLower != utils.RayServiceKind {
 			r2.WriteErrorString(http.StatusBadRequest, fmt.Sprintf("unsupported resource kind: %q (must be raycluster, rayjob, or rayservice)", resourceType))
@@ -398,6 +397,18 @@ func routerRayClusterSet(s *ServerHandler) {
 		http.SetCookie(r2, &http.Cookie{MaxAge: 600, Path: "/", Name: COOKIE_SESSION_NAME_KEY, Value: resolvedSession})
 		http.SetCookie(r2, &http.Cookie{MaxAge: 600, Path: "/", Name: COOKIE_OWNER_KIND_KEY, Value: resolvedClusterInfo.OwnerKind})
 		http.SetCookie(r2, &http.Cookie{MaxAge: 600, Path: "/", Name: COOKIE_OWNER_NAME_KEY, Value: resolvedClusterInfo.OwnerName})
+
+		if accept, _, _ := mime.ParseMediaType(r1.Request.Header.Get("Accept")); accept == restful.MIME_JSON {
+			if err := r2.WriteJson(map[string]string{
+				"result":    "success",
+				"name":      resolvedName,
+				"namespace": namespace,
+				"session":   resolvedSession,
+			}, restful.MIME_JSON); err != nil {
+				logrus.Errorf("Failed to write the enter_cluster JSON response: %v", err)
+			}
+			return
+		}
 
 		r2.Header().Set("Content-Type", "text/html; charset=utf-8")
 		r2.WriteHeader(http.StatusOK)

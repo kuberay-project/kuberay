@@ -681,6 +681,9 @@ func enterClusterForOwner(test Test, g *WithT, client *http.Client, historyServe
 		}
 		gg.Expect(cookies[historyserver.COOKIE_CLUSTER_NAME_KEY]).To(Equal(clusterName), "enter_cluster should resolve the owner to its generated cluster")
 		gg.Expect(cookies[historyserver.COOKIE_SESSION_NAME_KEY]).To(Equal(session))
+		gg.Expect(cookies[historyserver.COOKIE_CLUSTER_NAMESPACE_KEY]).To(Equal(namespace))
+		gg.Expect(cookies[historyserver.COOKIE_OWNER_KIND_KEY]).To(Equal(ownerKind))
+		gg.Expect(cookies[historyserver.COOKIE_OWNER_NAME_KEY]).To(Equal(ownerName))
 	}, TestTimeoutShort).Should(Succeed())
 }
 
