@@ -17,6 +17,8 @@ type RayClusterApplyConfiguration struct {
 	metav1.TypeMetaApplyConfiguration    `json:""`
 	*metav1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// Specification of the desired behavior of the RayCluster.
+	// The has() guards keep the rule valid when workerGroupSpecs is unset or an empty list,
+	// so updates that omit the field (e.g. controller finalizer writes) are not rejected.
 	Spec   *RayClusterSpecApplyConfiguration   `json:"spec,omitempty"`
 	Status *RayClusterStatusApplyConfiguration `json:"status,omitempty"`
 }

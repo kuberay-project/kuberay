@@ -16,6 +16,7 @@ type WorkerGroupSpecApplyConfiguration struct {
 	// This is not a user-facing API and is only used by RayJob DeletionStrategy.
 	Suspend *bool `json:"suspend,omitempty"`
 	// we can have multiple worker groups, we distinguish them by name
+	// MaxLength is load-bearing: it caps the worker group removal validation rule's CEL cost so the CRD stays installable. Do not remove.
 	GroupName *string `json:"groupName,omitempty"`
 	// Replicas is the number of desired Pods for this worker group. See https://github.com/ray-project/kuberay/pull/1443 for more details about the reason for making this field optional.
 	Replicas *int32 `json:"replicas,omitempty"`

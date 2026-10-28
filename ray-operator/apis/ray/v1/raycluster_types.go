@@ -75,6 +75,8 @@ type RayClusterSpec struct {
 	RayVersion string `json:"rayVersion,omitempty"`
 	// WorkerGroupSpecs are the specs for the worker pods
 	// +optional
+	// MaxItems is load-bearing: it caps the worker group removal validation rule's CEL cost so the CRD stays installable. Do not remove.
+	// +kubebuilder:validation:MaxItems=100
 	WorkerGroupSpecs []WorkerGroupSpec `json:"workerGroupSpecs,omitempty"`
 }
 
@@ -481,6 +483,8 @@ type WorkerGroupSpec struct {
 	// +optional
 	Suspend *bool `json:"suspend,omitempty"`
 	// we can have multiple worker groups, we distinguish them by name
+	// MaxLength is load-bearing: it caps the worker group removal validation rule's CEL cost so the CRD stays installable. Do not remove.
+	// +kubebuilder:validation:MaxLength=63
 	GroupName string `json:"groupName"`
 	// Replicas is the number of desired Pods for this worker group. See https://github.com/ray-project/kuberay/pull/1443 for more details about the reason for making this field optional.
 	// +kubebuilder:default:=0
@@ -825,6 +829,9 @@ type RayCluster struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Specification of the desired behavior of the RayCluster.
+	// The has() guards keep the rule valid when workerGroupSpecs is unset or an empty list,
+	// so updates that omit the field (e.g. controller finalizer writes) are not rejected.
+	// +kubebuilder:validation:XValidation:rule="!has(oldSelf.workerGroupSpecs) || oldSelf.workerGroupSpecs.all(oldGroup, has(self.workerGroupSpecs) && self.workerGroupSpecs.exists(newGroup, newGroup.groupName == oldGroup.groupName))",message="workerGroupSpecs entries cannot be removed; scale the group to zero replicas or suspend it instead"
 	Spec RayClusterSpec `json:"spec,omitempty"`
 	// +optional
 	Status RayClusterStatus `json:"status,omitempty"`
