@@ -854,6 +854,93 @@ func TestReconcile_Diff0_WorkersToDelete_OK(t *testing.T) {
 		"Replica number is wrong after reconcile expect %d actual %d", expectReplicaNum, getNotFailedPodItemNum(podList))
 }
 
+func TestReconcile_CreateFailureDoesNotBlockOtherWorkerGroups(t *testing.T) {
+	tests := []struct {
+		name              string
+		multiHostIndexing bool
+		groupANumOfHosts  int32
+	}{
+		{
+			name:              "single-host group with RayMultiHostIndexing enabled",
+			multiHostIndexing: true,
+			groupANumOfHosts:  1,
+		},
+		{
+			name:              "single-host group with RayMultiHostIndexing disabled",
+			multiHostIndexing: false,
+			groupANumOfHosts:  1,
+		},
+		{
+			// Group A is reconciled by reconcileMultiHostWorkerGroup.
+			name:              "multi-host group with RayMultiHostIndexing enabled",
+			multiHostIndexing: true,
+			groupANumOfHosts:  2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setupTest(t)
+			features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, tc.multiHostIndexing)
+
+			// This test makes some assumptions about the testRayCluster object.
+			// (1) 1 workerGroup (small-group)
+			// (2) The goal state of the workerGroup is 3 replicas.
+			assert.Len(t, testRayCluster.Spec.WorkerGroupSpecs, 1, "This test assumes only one worker group.")
+			assert.Equal(t, 3, int(*testRayCluster.Spec.WorkerGroupSpecs[0].Replicas), "This test assumes the expected number of worker pods is 3.")
+			// `testPods` contains 6 pods, including 1 head pod and 5 worker pods in small-group.
+			assert.Len(t, testPods, 6, "This test assumes the testPods object contains 6 pods.")
+
+			// Group B (small-group) has 5 Pods, and the autoscaler asks to delete pod3 and pod4.
+			groupB := testRayCluster.Spec.WorkerGroupSpecs[0]
+			groupB.ScaleStrategy.WorkersToDelete = []string{"pod3", "pod4"}
+
+			// Group A comes first and has no Pods, so the controller will try to create Pods for it.
+			groupA := *groupB.DeepCopy()
+			groupA.GroupName = "group-a"
+			groupA.Replicas = ptr.To[int32](2)
+			groupA.NumOfHosts = tc.groupANumOfHosts
+			groupA.ScaleStrategy.WorkersToDelete = nil
+			testRayCluster.Spec.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{groupA, groupB}
+
+			// Initialize a fake client with testPods. The interceptor makes every Create() fail,
+			// simulating the namespace ResourceQuota rejecting Pod creation.
+			fakeClient := clientFake.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				Create: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.CreateOption) error {
+					return errors.New("exceeded quota")
+				},
+			}).WithRuntimeObjects(testPods...).Build()
+			ctx := context.Background()
+
+			// Initialize a new RayClusterReconciler.
+			testRayClusterReconciler := &RayClusterReconciler{
+				Client:                     fakeClient,
+				Recorder:                   &events.FakeRecorder{},
+				Scheme:                     scheme.Scheme,
+				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+			}
+
+			err := testRayClusterReconciler.reconcilePods(ctx, testRayCluster)
+			// The creation failure in group A should still be surfaced so that the ReplicaFailure condition is set.
+			require.ErrorIs(t, err, utils.ErrFailedCreateWorkerPod)
+
+			// Group B's WorkersToDelete should be deleted despite group A's failure.
+			// workerSelector selects small-group, which is group B.
+			podList := corev1.PodList{}
+			err = fakeClient.List(ctx, &podList, &client.ListOptions{
+				LabelSelector: workerSelector,
+				Namespace:     namespaceStr,
+			})
+			require.NoError(t, err)
+			podNames := make([]string, 0, len(podList.Items))
+			for _, pod := range podList.Items {
+				podNames = append(podNames, pod.Name)
+			}
+			assert.ElementsMatch(t, []string{"pod1", "pod2", "pod5"}, podNames, "WorkersToDelete of group B should be deleted even though group A failed to create Pods")
+		})
+	}
+}
+
 func TestReconcile_PodCrash_DiffLess0_OK(t *testing.T) {
 	setupTest(t)
 
