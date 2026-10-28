@@ -353,79 +353,79 @@ func TestTaskLifecycleEventDeduplication(t *testing.T) {
 		{
 			name: "Scenario 1: Normal deduplication - same events processed twice",
 			existingEvents: []types.TaskStateTransition{
-				makeStateEvent(types.PENDING_NODE_ASSIGNMENT, 1000),
-				makeStateEvent(types.RUNNING, 2000),
+				makeStateEvent(types.TASK_PENDING_NODE_ASSIGNMENT, 1000),
+				makeStateEvent(types.TASK_RUNNING, 2000),
 			},
 			newTransitions: []map[string]any{
 				makeTransition("PENDING_NODE_ASSIGNMENT", 1000), // Duplicate
 				makeTransition("RUNNING", 2000),                 // Duplicate
 			},
 			wantEvents: []types.TaskStateTransition{
-				makeStateEvent(types.PENDING_NODE_ASSIGNMENT, 1000),
-				makeStateEvent(types.RUNNING, 2000),
+				makeStateEvent(types.TASK_PENDING_NODE_ASSIGNMENT, 1000),
+				makeStateEvent(types.TASK_RUNNING, 2000),
 			},
-			wantState: types.RUNNING,
+			wantState: types.TASK_RUNNING,
 		},
 		{
 			name: "Scenario 2: Out-of-order events - B(t=2) arrives after A(t=1), C(t=3)",
 			existingEvents: []types.TaskStateTransition{
-				makeStateEvent(types.PENDING_NODE_ASSIGNMENT, 1000), // A
-				makeStateEvent(types.FINISHED, 3000),                // C
+				makeStateEvent(types.TASK_PENDING_NODE_ASSIGNMENT, 1000), // A
+				makeStateEvent(types.TASK_FINISHED, 3000),                // C
 			},
 			newTransitions: []map[string]any{
 				makeTransition("RUNNING", 2000), // B - should be inserted in the middle
 			},
 			wantEvents: []types.TaskStateTransition{
-				makeStateEvent(types.PENDING_NODE_ASSIGNMENT, 1000), // A
-				makeStateEvent(types.RUNNING, 2000),                 // B - now in correct position
-				makeStateEvent(types.FINISHED, 3000),                // C
+				makeStateEvent(types.TASK_PENDING_NODE_ASSIGNMENT, 1000), // A
+				makeStateEvent(types.TASK_RUNNING, 2000),                 // B - now in correct position
+				makeStateEvent(types.TASK_FINISHED, 3000),                // C
 			},
-			wantState: types.FINISHED,
+			wantState: types.TASK_FINISHED,
 		},
 		{
 			name: "Scenario 3: Same timestamp, different states - both should be kept",
 			existingEvents: []types.TaskStateTransition{
-				makeStateEvent(types.PENDING_NODE_ASSIGNMENT, 1000),
+				makeStateEvent(types.TASK_PENDING_NODE_ASSIGNMENT, 1000),
 			},
 			newTransitions: []map[string]any{
 				makeTransition("RUNNING", 1000), // Same timestamp, different state
 			},
 			wantEvents: []types.TaskStateTransition{
-				makeStateEvent(types.PENDING_NODE_ASSIGNMENT, 1000),
-				makeStateEvent(types.RUNNING, 1000),
+				makeStateEvent(types.TASK_PENDING_NODE_ASSIGNMENT, 1000),
+				makeStateEvent(types.TASK_RUNNING, 1000),
 			},
-			wantState: types.RUNNING, // Last after sort (order of same timestamp is stable)
+			wantState: types.TASK_RUNNING, // Last after sort (order of same timestamp is stable)
 		},
 		{
 			name: "Scenario 4: Exact duplicate event - only one should remain",
 			existingEvents: []types.TaskStateTransition{
-				makeStateEvent(types.RUNNING, 1000),
+				makeStateEvent(types.TASK_RUNNING, 1000),
 			},
 			newTransitions: []map[string]any{
 				makeTransition("RUNNING", 1000), // Exact duplicate
 				makeTransition("RUNNING", 1000), // Another duplicate
 			},
 			wantEvents: []types.TaskStateTransition{
-				makeStateEvent(types.RUNNING, 1000), // Only one
+				makeStateEvent(types.TASK_RUNNING, 1000), // Only one
 			},
-			wantState: types.RUNNING,
+			wantState: types.TASK_RUNNING,
 		},
 		{
 			name: "Scenario 5: Partial overlap - existing [A,B], new [B,C] -> result [A,B,C]",
 			existingEvents: []types.TaskStateTransition{
-				makeStateEvent(types.PENDING_NODE_ASSIGNMENT, 1000), // A
-				makeStateEvent(types.RUNNING, 2000),                 // B
+				makeStateEvent(types.TASK_PENDING_NODE_ASSIGNMENT, 1000), // A
+				makeStateEvent(types.TASK_RUNNING, 2000),                 // B
 			},
 			newTransitions: []map[string]any{
 				makeTransition("RUNNING", 2000),  // B - duplicate
 				makeTransition("FINISHED", 3000), // C - new
 			},
 			wantEvents: []types.TaskStateTransition{
-				makeStateEvent(types.PENDING_NODE_ASSIGNMENT, 1000), // A
-				makeStateEvent(types.RUNNING, 2000),                 // B
-				makeStateEvent(types.FINISHED, 3000),                // C
+				makeStateEvent(types.TASK_PENDING_NODE_ASSIGNMENT, 1000), // A
+				makeStateEvent(types.TASK_RUNNING, 2000),                 // B
+				makeStateEvent(types.TASK_FINISHED, 3000),                // C
 			},
-			wantState: types.FINISHED,
+			wantState: types.TASK_FINISHED,
 		},
 		{
 			name:           "Scenario 6: Empty initial events - add new events",
@@ -435,17 +435,17 @@ func TestTaskLifecycleEventDeduplication(t *testing.T) {
 				makeTransition("RUNNING", 2000),
 			},
 			wantEvents: []types.TaskStateTransition{
-				makeStateEvent(types.PENDING_NODE_ASSIGNMENT, 1000),
-				makeStateEvent(types.RUNNING, 2000),
+				makeStateEvent(types.TASK_PENDING_NODE_ASSIGNMENT, 1000),
+				makeStateEvent(types.TASK_RUNNING, 2000),
 			},
-			wantState: types.RUNNING,
+			wantState: types.TASK_RUNNING,
 		},
 		{
 			name: "Scenario 7: Multiple reprocessing cycles - events should not grow",
 			existingEvents: []types.TaskStateTransition{
-				makeStateEvent(types.PENDING_NODE_ASSIGNMENT, 1000),
-				makeStateEvent(types.RUNNING, 2000),
-				makeStateEvent(types.FINISHED, 3000),
+				makeStateEvent(types.TASK_PENDING_NODE_ASSIGNMENT, 1000),
+				makeStateEvent(types.TASK_RUNNING, 2000),
+				makeStateEvent(types.TASK_FINISHED, 3000),
 			},
 			newTransitions: []map[string]any{
 				// Simulating reprocess of same file
@@ -454,11 +454,11 @@ func TestTaskLifecycleEventDeduplication(t *testing.T) {
 				makeTransition("FINISHED", 3000),
 			},
 			wantEvents: []types.TaskStateTransition{
-				makeStateEvent(types.PENDING_NODE_ASSIGNMENT, 1000),
-				makeStateEvent(types.RUNNING, 2000),
-				makeStateEvent(types.FINISHED, 3000),
+				makeStateEvent(types.TASK_PENDING_NODE_ASSIGNMENT, 1000),
+				makeStateEvent(types.TASK_RUNNING, 2000),
+				makeStateEvent(types.TASK_FINISHED, 3000),
 			},
-			wantState: types.FINISHED,
+			wantState: types.TASK_FINISHED,
 		},
 	}
 
@@ -575,7 +575,7 @@ func TestTaskLogInfoLifecycleReplay(t *testing.T) {
 			require.Len(t, tasks, 1)
 			assert.Equal(t, want, tasks[0].TaskLogInfo)
 			assert.Equal(t, "bench_task", tasks[0].TaskName)
-			assert.Equal(t, types.RUNNING, tasks[0].State)
+			assert.Equal(t, types.TASK_RUNNING, tasks[0].State)
 		})
 	}
 
@@ -647,7 +647,7 @@ func TestStoreRay256TaskLogInfoJSONL(t *testing.T) {
 	require.Len(t, tasks, 1)
 	task := tasks[0]
 	assert.Equal(t, "bench_task", task.TaskName)
-	assert.Equal(t, types.FINISHED, task.State)
+	assert.Equal(t, types.TASK_FINISHED, task.State)
 	assert.NotEmpty(t, task.NodeID)
 	assert.NotEmpty(t, task.WorkerID)
 	require.NotNil(t, task.TaskLogInfo)
@@ -668,7 +668,7 @@ func TestActorLifecycleEventDeduplication(t *testing.T) {
 	)
 
 	// Helper to create an ActorStateEvent
-	makeActorStateEvent := func(state types.StateType, timestampNano int64) types.ActorStateEvent {
+	makeActorStateEvent := func(state types.ActorState, timestampNano int64) types.ActorStateEvent {
 		return types.ActorStateEvent{
 			State:     state,
 			Timestamp: time.Unix(0, timestampNano),
@@ -704,44 +704,44 @@ func TestActorLifecycleEventDeduplication(t *testing.T) {
 		existingEvents []types.ActorStateEvent
 		newTransitions []map[string]any
 		wantEvents     []types.ActorStateEvent
-		wantState      types.StateType
+		wantState      types.ActorState
 	}{
 		{
 			name: "Actor: Normal deduplication",
 			existingEvents: []types.ActorStateEvent{
-				makeActorStateEvent(types.PENDING_CREATION, 1000),
-				makeActorStateEvent(types.ALIVE, 2000),
+				makeActorStateEvent(types.ACTOR_PENDING_CREATION, 1000),
+				makeActorStateEvent(types.ACTOR_ALIVE, 2000),
 			},
 			newTransitions: []map[string]any{
 				makeTransition("PENDING_CREATION", 1000),
 				makeTransition("ALIVE", 2000),
 			},
 			wantEvents: []types.ActorStateEvent{
-				makeActorStateEvent(types.PENDING_CREATION, 1000),
-				makeActorStateEvent(types.ALIVE, 2000),
+				makeActorStateEvent(types.ACTOR_PENDING_CREATION, 1000),
+				makeActorStateEvent(types.ACTOR_ALIVE, 2000),
 			},
-			wantState: types.ALIVE,
+			wantState: types.ACTOR_ALIVE,
 		},
 		{
 			name: "Actor: Out-of-order with sort",
 			existingEvents: []types.ActorStateEvent{
-				makeActorStateEvent(types.PENDING_CREATION, 1000),
-				makeActorStateEvent(types.DEAD, 3000),
+				makeActorStateEvent(types.ACTOR_PENDING_CREATION, 1000),
+				makeActorStateEvent(types.ACTOR_DEAD, 3000),
 			},
 			newTransitions: []map[string]any{
 				makeTransition("ALIVE", 2000), // Should be inserted between
 			},
 			wantEvents: []types.ActorStateEvent{
-				makeActorStateEvent(types.PENDING_CREATION, 1000),
-				makeActorStateEvent(types.ALIVE, 2000),
-				makeActorStateEvent(types.DEAD, 3000),
+				makeActorStateEvent(types.ACTOR_PENDING_CREATION, 1000),
+				makeActorStateEvent(types.ACTOR_ALIVE, 2000),
+				makeActorStateEvent(types.ACTOR_DEAD, 3000),
 			},
-			wantState: types.DEAD,
+			wantState: types.ACTOR_DEAD,
 		},
 		{
 			name: "Actor: Exact duplicate should not increase count",
 			existingEvents: []types.ActorStateEvent{
-				makeActorStateEvent(types.ALIVE, 1000),
+				makeActorStateEvent(types.ACTOR_ALIVE, 1000),
 			},
 			newTransitions: []map[string]any{
 				makeTransition("ALIVE", 1000),
@@ -749,23 +749,23 @@ func TestActorLifecycleEventDeduplication(t *testing.T) {
 				makeTransition("ALIVE", 1000),
 			},
 			wantEvents: []types.ActorStateEvent{
-				makeActorStateEvent(types.ALIVE, 1000),
+				makeActorStateEvent(types.ACTOR_ALIVE, 1000),
 			},
-			wantState: types.ALIVE,
+			wantState: types.ACTOR_ALIVE,
 		},
 		{
 			name: "Actor: Same timestamp different states should both be kept",
 			existingEvents: []types.ActorStateEvent{
-				makeActorStateEvent(types.PENDING_CREATION, 1000),
+				makeActorStateEvent(types.ACTOR_PENDING_CREATION, 1000),
 			},
 			newTransitions: []map[string]any{
 				makeTransition("ALIVE", 1000), // Same timestamp, different state
 			},
 			wantEvents: []types.ActorStateEvent{
-				makeActorStateEvent(types.PENDING_CREATION, 1000),
-				makeActorStateEvent(types.ALIVE, 1000),
+				makeActorStateEvent(types.ACTOR_PENDING_CREATION, 1000),
+				makeActorStateEvent(types.ACTOR_ALIVE, 1000),
 			},
-			wantState: types.ALIVE,
+			wantState: types.ACTOR_ALIVE,
 		},
 	}
 
@@ -850,7 +850,7 @@ func TestDriverJobLifecycleEventDuplication(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// Available Job States are UNSPECIFIED, CREATED, JOBFINISHED
+		// Available Job States are JOB_UNSPECIFIED, JOB_CREATED, JOB_FINISHED
 		existingTransitions []types.JobStateTransition
 		newTransitions      []map[string]any
 		wantTransitions     []types.JobStateTransition
@@ -859,18 +859,18 @@ func TestDriverJobLifecycleEventDuplication(t *testing.T) {
 		{
 			name: "Driver Job: Same event is processed twice",
 			existingTransitions: []types.JobStateTransition{
-				makeDriverJobStateTransitionEvent(types.UNSPECIFIED, 1000),
-				makeDriverJobStateTransitionEvent(types.CREATED, 2000),
+				makeDriverJobStateTransitionEvent(types.JOB_UNSPECIFIED, 1000),
+				makeDriverJobStateTransitionEvent(types.JOB_CREATED, 2000),
 			},
 			newTransitions: []map[string]any{
 				makeTransition("UNSPECIFIED", 1000),
 				makeTransition("CREATED", 2000),
 			},
 			wantTransitions: []types.JobStateTransition{
-				makeDriverJobStateTransitionEvent(types.UNSPECIFIED, 1000),
-				makeDriverJobStateTransitionEvent(types.CREATED, 2000),
+				makeDriverJobStateTransitionEvent(types.JOB_UNSPECIFIED, 1000),
+				makeDriverJobStateTransitionEvent(types.JOB_CREATED, 2000),
 			},
-			wantState: types.CREATED,
+			wantState: types.JOB_CREATED,
 		},
 		{
 			name:                "Driver Job: Empty existing transitions",
@@ -881,32 +881,32 @@ func TestDriverJobLifecycleEventDuplication(t *testing.T) {
 				makeTransition("FINISHED", 3000),
 			},
 			wantTransitions: []types.JobStateTransition{
-				makeDriverJobStateTransitionEvent(types.UNSPECIFIED, 1000),
-				makeDriverJobStateTransitionEvent(types.CREATED, 2000),
-				makeDriverJobStateTransitionEvent(types.JOBFINISHED, 3000),
+				makeDriverJobStateTransitionEvent(types.JOB_UNSPECIFIED, 1000),
+				makeDriverJobStateTransitionEvent(types.JOB_CREATED, 2000),
+				makeDriverJobStateTransitionEvent(types.JOB_FINISHED, 3000),
 			},
-			wantState: types.JOBFINISHED,
+			wantState: types.JOB_FINISHED,
 		},
 		{
 			name: "Driver Job: Out of order transition event",
 			existingTransitions: []types.JobStateTransition{
-				makeDriverJobStateTransitionEvent(types.UNSPECIFIED, 1000),
-				makeDriverJobStateTransitionEvent(types.JOBFINISHED, 3000),
+				makeDriverJobStateTransitionEvent(types.JOB_UNSPECIFIED, 1000),
+				makeDriverJobStateTransitionEvent(types.JOB_FINISHED, 3000),
 			},
 			newTransitions: []map[string]any{
 				makeTransition("CREATED", 2000),
 			},
 			wantTransitions: []types.JobStateTransition{
-				makeDriverJobStateTransitionEvent(types.UNSPECIFIED, 1000),
-				makeDriverJobStateTransitionEvent(types.CREATED, 2000),
-				makeDriverJobStateTransitionEvent(types.JOBFINISHED, 3000),
+				makeDriverJobStateTransitionEvent(types.JOB_UNSPECIFIED, 1000),
+				makeDriverJobStateTransitionEvent(types.JOB_CREATED, 2000),
+				makeDriverJobStateTransitionEvent(types.JOB_FINISHED, 3000),
 			},
-			wantState: types.JOBFINISHED,
+			wantState: types.JOB_FINISHED,
 		},
 		{
 			name: "Driver Job: Multiple duplicate of same transition event",
 			existingTransitions: []types.JobStateTransition{
-				makeDriverJobStateTransitionEvent(types.CREATED, 2000),
+				makeDriverJobStateTransitionEvent(types.JOB_CREATED, 2000),
 			},
 			newTransitions: []map[string]any{
 				makeTransition("CREATED", 2000),
@@ -915,14 +915,14 @@ func TestDriverJobLifecycleEventDuplication(t *testing.T) {
 				makeTransition("CREATED", 2000),
 			},
 			wantTransitions: []types.JobStateTransition{
-				makeDriverJobStateTransitionEvent(types.CREATED, 2000),
+				makeDriverJobStateTransitionEvent(types.JOB_CREATED, 2000),
 			},
-			wantState: types.CREATED,
+			wantState: types.JOB_CREATED,
 		},
 		{
 			name: "Driver Job: Different transition events with same time stamp, all be kept",
 			existingTransitions: []types.JobStateTransition{
-				makeDriverJobStateTransitionEvent(types.UNSPECIFIED, 1000),
+				makeDriverJobStateTransitionEvent(types.JOB_UNSPECIFIED, 1000),
 			},
 			newTransitions: []map[string]any{
 				makeTransition("CREATED", 1000),
@@ -930,12 +930,12 @@ func TestDriverJobLifecycleEventDuplication(t *testing.T) {
 				makeTransition("FINISHED", 2000),
 			},
 			wantTransitions: []types.JobStateTransition{
-				makeDriverJobStateTransitionEvent(types.UNSPECIFIED, 1000),
-				makeDriverJobStateTransitionEvent(types.CREATED, 1000),
-				makeDriverJobStateTransitionEvent(types.CREATED, 2000),
-				makeDriverJobStateTransitionEvent(types.JOBFINISHED, 2000),
+				makeDriverJobStateTransitionEvent(types.JOB_UNSPECIFIED, 1000),
+				makeDriverJobStateTransitionEvent(types.JOB_CREATED, 1000),
+				makeDriverJobStateTransitionEvent(types.JOB_CREATED, 2000),
+				makeDriverJobStateTransitionEvent(types.JOB_FINISHED, 2000),
 			},
-			wantState: types.JOBFINISHED,
+			wantState: types.JOB_FINISHED,
 		},
 	}
 

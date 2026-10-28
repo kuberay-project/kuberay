@@ -887,11 +887,11 @@ func formatJobForResponse(job eventtypes.Job) map[string]any {
 		}
 	}
 	if status == "" {
-		// Only infer RUNNING from CREATED state. JOBFINISHED does not imply SUCCEEDED
+		// Only infer RUNNING from CREATED state. JOB_FINISHED does not imply SUCCEEDED
 		// (the driver may have crashed or been stopped), so we leave it empty rather
 		// than showing a misleading status.
-		if job.State == eventtypes.CREATED {
-			status = string(eventtypes.JOBRUNNING)
+		if job.State == eventtypes.JOB_CREATED {
+			status = string(eventtypes.JOB_RUNNING)
 		}
 	}
 

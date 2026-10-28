@@ -582,7 +582,7 @@ func richSnapshot(clusterSessionKey string) *eventserver.SessionSnapshot {
 				TaskID: "task-e2e-1111", TaskAttempt: 0, JobID: "job-e2e-aaaa",
 				TaskName: "task-e2e-name", RequiredResources: map[string]float64{"CPU": 2},
 				// Set derived lifecycle fields so the round-trip test proves they survive encoding/decoding.
-				State:        eventtypes.RUNNING,
+				State:        eventtypes.TASK_RUNNING,
 				CreationTime: time.Unix(1770635700, 0).UTC(),
 				StartTime:    time.Unix(1770635705, 0).UTC(),
 				EndTime:      time.Unix(1770635710, 0).UTC(),
@@ -590,7 +590,7 @@ func richSnapshot(clusterSessionKey string) *eventserver.SessionSnapshot {
 			{TaskID: "task-e2e-2222", TaskAttempt: 1, JobID: "job-e2e-aaaa"},
 		},
 		Actors: map[string]eventtypes.Actor{
-			"actor-e2e-cafe": {ActorID: "actor-e2e-cafe", JobID: "job-e2e-aaaa", ActorClass: "MyActor", Name: "actorname-e2e", NumRestarts: 3, State: eventtypes.ALIVE},
+			"actor-e2e-cafe": {ActorID: "actor-e2e-cafe", JobID: "job-e2e-aaaa", ActorClass: "MyActor", Name: "actorname-e2e", NumRestarts: 3, State: eventtypes.ACTOR_ALIVE},
 		},
 		Jobs: map[string]eventtypes.Job{
 			"job-e2e-aaaa": {JobID: "job-e2e-aaaa", SubmissionID: "sub-e2e-bbbb", JobType: "SUBMISSION", EntryPoint: "python main.py", RuntimeEnv: map[string]string{"pip": "ray"}},

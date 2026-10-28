@@ -10,13 +10,11 @@ import (
 type JobStatus string
 
 const (
-	SUCCEEDED JobStatus = "SUCCEEDED"
-	PENDING   JobStatus = "PENDING"
-	STOPPED   JobStatus = "STOPPED"
-	// FAILED is already used in the package, using JOBFAILED
-	JOBFAILED JobStatus = "FAILED"
-	// RUNNING is already used in the package, using JOBRUNNING
-	JOBRUNNING JobStatus = "RUNNING"
+	JOB_SUCCEEDED JobStatus = "SUCCEEDED"
+	JOB_PENDING   JobStatus = "PENDING"
+	JOB_STOPPED   JobStatus = "STOPPED"
+	JOB_FAILED    JobStatus = "FAILED"
+	JOB_RUNNING   JobStatus = "RUNNING"
 )
 
 type JobStatusTransition struct {
@@ -28,10 +26,9 @@ type JobStatusTransition struct {
 type JobState string
 
 const (
-	UNSPECIFIED JobState = "UNSPECIFIED"
-	CREATED     JobState = "CREATED"
-	// FINISHED is already used in package, using JOBFINSIHED
-	JOBFINISHED JobState = "FINISHED"
+	JOB_UNSPECIFIED JobState = "UNSPECIFIED"
+	JOB_CREATED     JobState = "CREATED"
+	JOB_FINISHED    JobState = "FINISHED"
 )
 
 type JobStateTransition struct {
