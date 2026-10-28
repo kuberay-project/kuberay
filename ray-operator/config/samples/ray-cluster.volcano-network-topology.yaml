@@ -1,0 +1,50 @@
+# This sample requires Volcano v1.14.1 or later, the network-topology-aware scheduler plugin,
+# and HyperNode resources that describe the network topology of the Kubernetes cluster.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: test-cluster-network-topology
+  labels:
+    # All Pods of the RayCluster must be placed within one HyperNode of tier 2 or below.
+    volcano.sh/network-topology-mode: hard
+    volcano.sh/network-topology-highest-tier-allowed: "2"
+spec:
+  rayVersion: "2.52.0"
+  headGroupSpec:
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+  workerGroupSpecs:
+  - groupName: worker
+    replicas: 2
+    minReplicas: 2
+    maxReplicas: 2
+    numOfHosts: 2
+    rayStartParams: {}
+    template:
+      metadata:
+        labels:
+          # Each replica (2 Pods) of this worker group must be placed within one HyperNode of tier 1 or below.
+          volcano.sh/network-topology-mode: hard
+          volcano.sh/network-topology-highest-tier-allowed: "1"
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"
