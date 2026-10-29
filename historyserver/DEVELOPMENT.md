@@ -133,6 +133,9 @@ ray start --head --num-cpus=1 --proxy-server-url=http://localhost:8080
 > [!NOTE]
 > Use `--proxy-server-url` parameter to route requests to the port-forwarded History Server.
 
+If token authentication is enabled, open `http://localhost:8265/` and log in with
+the token from `ray get-auth-token` before continuing.
+
 ## Step 7: Validate the Dead Path
 
 Open a browser and request the `/clusters` endpoint to view all clusters (including live and dead):
