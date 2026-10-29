@@ -429,6 +429,38 @@
             box-shadow: none;
         }
 
+        .btn-secondary {
+            background-color: var(--slate-800);
+            color: var(--text-primary);
+            border: 1px solid var(--slate-700);
+            cursor: pointer;
+        }
+
+        .btn-secondary:hover {
+            background-color: var(--slate-700);
+            color: var(--text-white);
+        }
+
+        /* Icon-only variant: square, sits left of the primary action */
+        .btn-icon {
+            width: auto;
+            padding: 0.5rem;
+            flex-shrink: 0;
+        }
+
+        /* Keeps the action buttons on one row; .btn alone is width: 100% */
+        .action-group {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn:focus-visible {
+            outline: 2px solid var(--blue-500);
+            outline-offset: 2px;
+        }
+
         .mini-spinner {
             animation: spin 1s linear infinite;
             border-radius: 50%;
@@ -648,13 +680,14 @@
                     });
             }
 
-            function enterCluster(namespace, name, session) {
+            function enterCluster(namespace, name, session, reload = false) {
                 if (entering) return; // In-flight lock
                 entering = `${namespace}/${name}/${session}`;
                 showError(null);
                 renderTable();
 
-                fetch(`/enter_cluster/${namespace}/raycluster/${name}/${session}`)
+                const qs = reload ? '?reload=true' : '';
+                fetch(`/enter_cluster/${encodeURIComponent(namespace)}/raycluster/${encodeURIComponent(name)}/${encodeURIComponent(session)}${qs}`)
                     .then(res => {
                         if (!res.ok) {
                             return res.text().then(body => {
@@ -699,7 +732,7 @@
                     const wrapper = document.createElement('div');
                     wrapper.className = 'empty-state-wrapper';
 
-                    const svgString = '<svg class="empty-state-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>';
+                    const svgString = '<svg xmlns="http://www.w3.org/2000/svg" class="empty-state-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>';
                     const parser = new DOMParser();
                     const svgDoc = parser.parseFromString(svgString, 'image/svg+xml');
                     wrapper.appendChild(svgDoc.documentElement);
@@ -805,7 +838,10 @@
                         // Action
                         const tdAction = document.createElement('td');
                         tdAction.className = 'px-6 text-right';
+                        const actionGroup = document.createElement('div');
+                        actionGroup.className = 'action-group';
                         const btn = document.createElement('button');
+                        btn.type = 'button';
                         btn.disabled = isAnyEntering;
 
                         if (isThisEntering) {
@@ -834,7 +870,7 @@
                             wrapper.appendChild(textSpan);
 
                             const parser = new DOMParser();
-                            const svgDoc = parser.parseFromString('<svg class="arrow-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>', 'image/svg+xml');
+                            const svgDoc = parser.parseFromString('<svg xmlns="http://www.w3.org/2000/svg" class="arrow-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>', 'image/svg+xml');
                             wrapper.appendChild(svgDoc.documentElement);
 
                             btn.appendChild(wrapper);
@@ -842,7 +878,28 @@
                                 btn.onclick = () => enterCluster(c.namespace, c.name, c.sessionName);
                             }
                         }
-                        tdAction.appendChild(btn);
+
+                        // `live` rows are proxied to the running dashboard, so there is no cached snapshot to invalidate.
+                        if (!isLive) {
+                            const reloadBtn = document.createElement('button');
+                            reloadBtn.type = 'button';
+                            reloadBtn.className = isAnyEntering ? 'btn btn-icon btn-disabled' : 'btn btn-icon btn-secondary';
+                            reloadBtn.disabled = isAnyEntering;
+                            reloadBtn.setAttribute('aria-label', `Reload ${c.name} (${c.sessionName}) from storage and open dashboard`);
+                            reloadBtn.title = 'Reload from storage';
+
+                            // Heroicons v1 outline "refresh", same family as the arrow/search icons
+                            const parser = new DOMParser();
+                            const svgDoc = parser.parseFromString('<svg xmlns="http://www.w3.org/2000/svg" class="arrow-icon" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>', 'image/svg+xml');
+                            reloadBtn.appendChild(svgDoc.documentElement);
+
+                            if (!isAnyEntering) {
+                                reloadBtn.onclick = () => enterCluster(c.namespace, c.name, c.sessionName, true);
+                            }
+                            actionGroup.appendChild(reloadBtn);
+                        }
+                        actionGroup.appendChild(btn);
+                        tdAction.appendChild(actionGroup);
                         tr.appendChild(tdAction);
 
                         tbody.appendChild(tr);
