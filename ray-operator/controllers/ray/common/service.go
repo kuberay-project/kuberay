@@ -61,7 +61,7 @@ func BuildServiceForHeadPod(ctx context.Context, cluster rayv1.RayCluster, label
 		annotations = make(map[string]string)
 	}
 
-	defaultName, err := utils.GenerateHeadServiceName(utils.RayClusterCRD, cluster.Spec, cluster.Name)
+	headServiceName, err := utils.GenerateHeadServiceName(utils.RayClusterCRD, cluster.Spec, cluster.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +80,7 @@ func BuildServiceForHeadPod(ctx context.Context, cluster rayv1.RayCluster, label
 		// Use the provided "custom" HeadService.
 		// Deep copy the HeadService to avoid modifying the original object
 		headService := cluster.Spec.HeadGroupSpec.HeadService.DeepCopy()
+		headService.Name = headServiceName
 
 		// For the selector, ignore any custom HeadService selectors or labels.
 		headService.Spec.Selector = selector
@@ -104,7 +105,6 @@ func BuildServiceForHeadPod(ctx context.Context, cluster rayv1.RayCluster, label
 		headService.Spec.Ports = append(headService.Spec.Ports, ports...)
 
 		setLabelsforUserProvidedService(headService, labelsForService)
-		setNameforUserProvidedService(ctx, headService, defaultName)
 		setNamespaceforUserProvidedService(ctx, headService, defaultNamespace)
 		setServiceTypeForUserProvidedService(ctx, headService, defaultType)
 
@@ -113,7 +113,7 @@ func BuildServiceForHeadPod(ctx context.Context, cluster rayv1.RayCluster, label
 
 	headService := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        defaultName,
+			Name:        headServiceName,
 			Namespace:   defaultNamespace,
 			Labels:      labelsForService,
 			Annotations: annotations,
@@ -204,7 +204,7 @@ func BuildServeService(ctx context.Context, rayService rayv1.RayService, rayClus
 		selectorLabels[utils.RayClusterServingServiceLabelKey] = utils.EnableRayClusterServingServiceTrue
 	}
 
-	defaultName := utils.GenerateServeServiceName(name)
+	serveServiceName := utils.GenerateServeServiceName(name)
 	defaultNamespace := namespace
 	defaultType := rayCluster.Spec.HeadGroupSpec.ServiceType
 	if isRayService {
@@ -234,6 +234,7 @@ func BuildServeService(ctx context.Context, rayService rayv1.RayService, rayClus
 			// Use the provided "custom" ServeService.
 			// Deep copy the ServeService to avoid modifying the original object
 			serveService := rayService.Spec.ServeService.DeepCopy()
+			serveService.Name = serveServiceName
 
 			// For the selector, ignore any custom ServeService selectors or labels.
 			serveService.Spec.Selector = selectorLabels
@@ -265,7 +266,6 @@ func BuildServeService(ctx context.Context, rayService rayv1.RayService, rayClus
 			}
 
 			setLabelsforUserProvidedService(serveService, labels)
-			setNameforUserProvidedService(ctx, serveService, defaultName)
 			setNamespaceforUserProvidedService(ctx, serveService, defaultNamespace)
 			setServiceTypeForUserProvidedService(ctx, serveService, defaultType)
 
@@ -281,7 +281,7 @@ func BuildServeService(ctx context.Context, rayService rayv1.RayService, rayClus
 
 	serveService := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultName,
+			Name:      serveServiceName,
 			Namespace: defaultNamespace,
 			Labels:    labels,
 		},
@@ -375,19 +375,6 @@ func setNamespaceforUserProvidedService(ctx context.Context, service *corev1.Ser
 	}
 
 	service.ObjectMeta.Namespace = defaultNamespace
-}
-
-func setNameforUserProvidedService(ctx context.Context, service *corev1.Service, defaultName string) {
-	log := ctrl.LoggerFrom(ctx)
-	// If the user has not specified a name, use the default name passed
-	if service.ObjectMeta.Name == "" {
-		log.Info("Using default name for user provided service.", "default_name", defaultName)
-		service.ObjectMeta.Name = defaultName
-	} else {
-		log.Info("Overriding default name for user provided service with name in service.ObjectMeta.Name.",
-			"default_name", defaultName,
-			"provided_name", service.ObjectMeta.Name)
-	}
 }
 
 func setLabelsforUserProvidedService(service *corev1.Service, labels map[string]string) {

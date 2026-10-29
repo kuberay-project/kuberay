@@ -40,7 +40,7 @@ func TestRayServiceServeServiceNamespacedNameForUserSpecifiedServeService(t *tes
 	namespaced := RayServiceServeServiceNamespacedName(testRayServiceWithServeService)
 	assert.Equal(t, svc.Namespace, namespaced.Namespace)
 	assert.Equal(t, svc.Name, namespaced.Name)
-	assert.Equal(t, "user-custom-name", namespaced.Name)
+	assert.Equal(t, "rayservice-sample-serve-svc", namespaced.Name)
 }
 
 // TestRayClusterServeServiceNamespacedName tests the function for generating a NamespacedName for a RayCluster's serve service
