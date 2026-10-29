@@ -45,6 +45,7 @@ func NewMux(config MuxConfig, clientManager manager.ClientManagerInterface) (*ht
 	// TODO: add template features to specify routes.
 	mux.Handle("/apis/ray.io/v1/", handler)                                                                                              // forward KubeRay CR requests.
 	mux.Handle("GET /apis/events.k8s.io/v1/namespaces/{namespace}/events", withFieldSelector(handler, "regarding.apiVersion=ray.io/v1")) // allow querying KubeRay CR events.
+	mux.Handle("GET /api/v1/namespaces", handler)                                                                                        // allow listing namespaces for the dashboard namespace switcher.
 
 	k8sClient := kubernetes.NewForConfigOrDie(config.KubernetesConfig)
 

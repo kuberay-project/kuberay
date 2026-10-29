@@ -21,12 +21,19 @@ import {
 } from "./JobStatusParser";
 import { JobRow } from "@/types/table";
 import { apiVersion } from "@/utils/constants";
+import { useNamespace } from "@/components/NamespaceProvider";
 
 const headCells: readonly HeadCell<JobRow>[] = [
   {
     id: "name",
     label: "Name",
     width: 170,
+    sortable: true,
+  },
+  {
+    id: "namespace",
+    label: "Namespace",
+    width: 130,
     sortable: true,
   },
   {
@@ -56,6 +63,7 @@ const headCells: readonly HeadCell<JobRow>[] = [
 ];
 
 export const JobsTable = () => {
+  const namespace = useNamespace();
   const [search, setSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<JobStatus | null>(
     null,
@@ -77,6 +85,11 @@ export const JobsTable = () => {
   const renderRow = (row: JobRow) => {
     return (
       <>
+        <td className="truncate">
+          <Tooltip variant="outlined" title={row.namespace}>
+            <span>{row.namespace}</span>
+          </Tooltip>
+        </td>
         <td>
           <Tooltip
             variant="outlined"
@@ -190,6 +203,7 @@ export const JobsTable = () => {
         types={["All", "Batch API"]}
       />
       <FrontendTable<JobRow>
+        key={namespace}
         data={filteredItems}
         isLoading={isLoading}
         error={error}
@@ -199,6 +213,7 @@ export const JobsTable = () => {
         renderRow={renderRow}
         defaultOrderBy="createdAt"
         name="jobs"
+        getRowKey={(row) => `${row.namespace}/${row.name}`}
       />
     </>
   );

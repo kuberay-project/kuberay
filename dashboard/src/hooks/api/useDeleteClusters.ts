@@ -3,6 +3,8 @@ import React from "react";
 import { useSnackBar } from "@/components/SnackBarProvider";
 import { useNamespace } from "@/components/NamespaceProvider";
 import { config } from "@/utils/constants";
+import { ClusterRow } from "@/types/table";
+import { ALL_NAMESPACES } from "@/utils/config-defaults";
 
 async function _deleteCluster(namespace: string, clusterName: string) {
   const baseUrl = `${config.rayApiUrl}/namespaces/${namespace}/rayclusters/`;
@@ -22,22 +24,26 @@ export const useDeleteClusters = () => {
   const namespace = useNamespace();
   const snackBar = useSnackBar();
 
-  const deleteClusters = async (clusters: readonly string[]) => {
+  // Use the namespace of each row so that deletion works no matter which
+  // namespace the dashboard is currently listing (including "all").
+  const deleteClusters = async (clusters: readonly ClusterRow[]) => {
     setDeleting(true);
     // Delete the cluster and use "mutate" to force refresh the cache.
     // We don't want to use the result of deletion to populate cache, since the
     // response is empty.
     try {
       await mutate(
-        `/namespaces/${namespace}/rayclusters`,
+        `${namespace == ALL_NAMESPACES ? `` : `/namespaces/${namespace}`}/rayclusters`,
         Promise.all(
-          clusters.map((clusterName) => _deleteCluster(namespace, clusterName)),
+          clusters.map((cluster) =>
+            _deleteCluster(cluster.namespace, cluster.name),
+          ),
         ),
         { populateCache: false },
       );
       snackBar.showSnackBar(
         `${clusters.length} cluster${clusters.length > 1 ? "s" : ""} deleted`,
-        `Deleted ${clusters.join(", ")}`,
+        `Deleted ${clusters.map((cluster) => cluster.name).join(", ")}`,
         "success",
       );
     } catch (err) {
