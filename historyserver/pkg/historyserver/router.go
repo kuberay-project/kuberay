@@ -10,6 +10,7 @@ import (
 	"math"
 	"mime"
 	"net/http"
+	"net/url"
 	"path"
 	"sort"
 	"strconv"
@@ -38,6 +39,8 @@ const (
 
 	ATTRIBUTE_SERVICE_NAME = "cluster_service_name"
 	ATTRIBUTE_AUTH_TOKEN   = "cluster_auth_token"
+	// ATTRIBUTE_AUTH_USER carries the authenticated username resolved by AuthFilter.
+	ATTRIBUTE_AUTH_USER = "authenticated_user"
 )
 
 // handleMissingSnapshot responds 503 when the session snapshot is not in the cache.
@@ -276,16 +279,37 @@ func routerHealthz(_ *ServerHandler) {
 	})
 }
 
-func routerSelectCluster(_ *ServerHandler) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
+func selectClusterHandler(s *ServerHandler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Serving the page unauthenticated looks like an empty history list
+		// because its fetch('/clusters') receives a 401. Redirect before rendering
+		// so the user sees the real cause and returns to the selector after login.
+		if s.authenticator != nil {
+			token, err := extractToken(r)
+			if err == nil {
+				_, err = s.authenticator.Authenticate(r.Context(), token)
+			}
+			if err != nil {
+				status := authStatus(err)
+				if status == http.StatusUnauthorized {
+					http.Redirect(w, r, LoginPath+"?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
+					return
+				}
+				writeAuthError(w, status, err.Error())
+				return
+			}
+		}
 		logrus.Infof("Serving cluster selector page: %s %s", r.Method, r.URL.String())
 		w.Header().Set("Content-Type", "text/html")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
 		w.Write(html.ClusterSelectorHTML)
-	}
-	http.HandleFunc("/select_cluster", handler)
+	})
+}
+
+func routerSelectCluster(s *ServerHandler) {
+	http.Handle(SelectClusterPath, selectClusterHandler(s))
 }
 
 func routerLogical(s *ServerHandler) {
@@ -408,6 +432,14 @@ func routerRayClusterSet(s *ServerHandler) {
 }
 
 func (s *ServerHandler) RegisterRouter() {
+	// Authentication runs as a container-level filter so every go-restful
+	// WebService is gated before its handler executes. /select_cluster performs
+	// the same check explicitly; only /login, /logout and the probes remain
+	// unauthenticated.
+	if s.authenticator != nil {
+		restful.Filter(s.AuthFilter)
+	}
+	routerAuth(s)
 	routerRayClusterSet(s)
 	routerClusters(s)
 	routerTimezone(s)
@@ -419,6 +451,24 @@ func (s *ServerHandler) RegisterRouter() {
 	// routerHomepage(s)
 	routerHealthz(s)
 	routerLogical(s)
+}
+
+// stripAuthCookie removes the history server's own auth cookie from an outgoing
+// Cookie header, leaving every other cookie untouched. Returns "" when nothing
+// remains.
+func stripAuthCookie(header string) string {
+	parts := strings.Split(header, ";")
+	kept := make([]string, 0, len(parts))
+	for _, part := range parts {
+		name, _, _ := strings.Cut(strings.TrimSpace(part), "=")
+		if name == AuthCookieName {
+			continue
+		}
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			kept = append(kept, trimmed)
+		}
+	}
+	return strings.Join(kept, "; ")
 }
 
 func (s *ServerHandler) redirectRequest(req *restful.Request, resp *restful.Response) {
@@ -466,7 +516,10 @@ func (s *ServerHandler) redirectRequest(req *restful.Request, resp *restful.Resp
 		}
 		// In auth-token mode, drop the client-supplied x-ray-authorization so it cannot bypass
 		// the server-managed token injected below.
-		if s.useAuthTokenMode && strings.EqualFold(key, utils.RayAuthHeader) {
+		// Under --enable-auth the strip is unconditional: it closes the legacy
+		// combination (auth-token mode off + direct dial) where a client-supplied
+		// header would otherwise reach Ray untouched.
+		if (s.useAuthTokenMode || s.authenticator != nil) && strings.EqualFold(key, utils.RayAuthHeader) {
 			continue
 		}
 		// Authorization has to be dropped in two cases. In auth-token mode, Ray only falls back to
@@ -475,7 +528,18 @@ func (s *ServerHandler) redirectRequest(req *restful.Request, resp *restful.Resp
 		// instead of Ray, and client-go's transport skips injecting the service account token when
 		// Authorization is already set, so forwarding it would make the proxied request fail
 		// authentication.
-		if (s.useAuthTokenMode || s.useKubernetesProxy) && strings.EqualFold(key, "authorization") {
+		if (s.useAuthTokenMode || s.useKubernetesProxy || s.authenticator != nil) && strings.EqualFold(key, "authorization") {
+			continue
+		}
+		if strings.EqualFold(key, "cookie") {
+			// Ray does not authenticate with cookies, so dropping ours costs nothing
+			// functionally; the point is that the user's Kubernetes token must never
+			// reach a live cluster's dashboard process.
+			for _, value := range values {
+				if stripped := stripAuthCookie(value); stripped != "" {
+					proxyReq.Header.Add(key, stripped)
+				}
+			}
 			continue
 		}
 		for _, value := range values {

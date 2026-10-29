@@ -79,6 +79,31 @@ The history server can be configured using command-line flags:
 > the history server can reach the Ray Dashboard API of every RayCluster the history server can
 > access. Only turn it on where that access is already restricted by other means.
 
+#### Authentication
+
+Authentication is off by default, which serves every request unauthenticated.
+Enabling it makes the history server validate the caller's own Kubernetes token
+with the TokenReview API before any cluster data is served:
+
+- `--enable-auth`: Authenticate users against the Kubernetes TokenReview API (default: false)
+- `--auth-cache-ttl`: How long a successful review stays cached; a revoked token keeps working for at most
+  this long (default: 60s)
+- `--auth-cookie-secure`: Mark the session cookie `Secure`; set to false only for local plain-HTTP
+  development (default: true)
+- `--auth-cookie-max-age`: Lifetime of the session cookie issued after login (default: 10m)
+
+The TokenReview call needs the built-in `system:auth-delegator` ClusterRole:
+
+```bash
+kubectl apply -f config/service_account_auth.yaml
+```
+
+Browsers are redirected to `/login` to paste a token (for example
+`kubectl create token <serviceaccount>`); programmatic callers send
+`Authorization: Bearer <token>`. Note this is authentication only: any token the
+cluster accepts can read every session the history server holds, so authorize
+per namespace at the ingress in front of it if that is not acceptable.
+
 ### Collector Configuration
 
 The collector can be configured using command-line flags:

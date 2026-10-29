@@ -27,6 +27,20 @@ type ServerHandler struct {
 	useKubernetesProxy bool
 	useAuthTokenMode   bool
 	enableLiveClusters bool
+
+	// User authentication (user -> history server). nil when --enable-auth is
+	// off, which keeps the pre-auth behavior intact.
+	authenticator    *Authenticator
+	authCookieSecure bool
+	authCookieMaxAge time.Duration
+}
+
+// AuthConfig carries the user-authentication knobs from the command line.
+type AuthConfig struct {
+	Enabled      bool
+	CacheTTL     time.Duration
+	CookieSecure bool
+	CookieMaxAge time.Duration
 }
 
 func NewServerHandler(
@@ -38,6 +52,7 @@ func NewServerHandler(
 	useKubernetesProxy bool,
 	useAuthTokenMode bool,
 	enableLiveClusters bool,
+	authConfig AuthConfig,
 ) (*ServerHandler, error) {
 	handler := &ServerHandler{
 		reader:        reader,
@@ -51,6 +66,9 @@ func NewServerHandler(
 
 		useAuthTokenMode:   useAuthTokenMode,
 		enableLiveClusters: enableLiveClusters,
+
+		authCookieSecure: authConfig.CookieSecure,
+		authCookieMaxAge: authConfig.CookieMaxAge,
 	}
 
 	if len(clientManager.configs) > 0 {
@@ -80,6 +98,19 @@ func NewServerHandler(
 			handler.useKubernetesProxy = false
 		}
 	}
+	if authConfig.Enabled {
+		if len(clientManager.configs) == 0 {
+			return nil, fmt.Errorf("--enable-auth requires a Kubernetes config for TokenReview")
+		}
+		authenticator, err := NewAuthenticator(clientManager.configs[0], authConfig.CacheTTL)
+		if err != nil {
+			return nil, err
+		}
+		handler.authenticator = authenticator
+		logrus.Infof("Authentication enabled: TokenReview cache TTL %s, secure cookie %t",
+			authConfig.CacheTTL, authConfig.CookieSecure)
+	}
+
 	return handler, nil
 }
 
