@@ -3150,7 +3150,7 @@ func TestBuildCollectorContainerAndPodInjection(t *testing.T) {
 	assert.Equal(t, utils.DEFAULT_RAY_EXPOSABLE_EVENT_TYPES, workerEventTypesV2Env.Value)
 }
 
-func TestBuildCollectorContainerSecurityContextAndEnvFrom(t *testing.T) {
+func TestBuildCollectorContainerSecurityContext(t *testing.T) {
 	fqdnRayIP := "test-cluster-head-svc.default.svc.cluster.local"
 	baseOptions := func() *rayv1.CollectorOptions {
 		return &rayv1.CollectorOptions{
@@ -3162,36 +3162,22 @@ func TestBuildCollectorContainerSecurityContextAndEnvFrom(t *testing.T) {
 		}
 	}
 
-	t.Run("nil SecurityContext and EnvFrom are not set on container", func(t *testing.T) {
+	t.Run("nil SecurityContext is not set on container", func(t *testing.T) {
 		opts := baseOptions()
 		container := BuildCollectorContainer(opts, rayv1.HeadNode, "cluster", "default", fqdnRayIP, nil)
 		assert.Nil(t, container.SecurityContext)
-		assert.Empty(t, container.EnvFrom)
 	})
 
-	t.Run("SecurityContext and multiple source EnvFrom are both applied together", func(t *testing.T) {
+	t.Run("SecurityContext is applied to container", func(t *testing.T) {
 		opts := baseOptions()
 		opts.SecurityContext = &corev1.SecurityContext{
 			RunAsUser:    new(int64(0)),
 			RunAsNonRoot: new(false),
 		}
-		opts.EnvFrom = []corev1.EnvFromSource{
-			{ConfigMapRef: &corev1.ConfigMapEnvSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: "collector-config"},
-			}},
-			{SecretRef: &corev1.SecretEnvSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: "collector-secret"},
-			}},
-		}
 		container := BuildCollectorContainer(opts, rayv1.HeadNode, "cluster", "default", fqdnRayIP, nil)
 		require.NotNil(t, container.SecurityContext)
 		assert.Equal(t, int64(0), *container.SecurityContext.RunAsUser)
 		assert.False(t, *container.SecurityContext.RunAsNonRoot)
-		require.Len(t, container.EnvFrom, 2)
-		require.NotNil(t, container.EnvFrom[0].ConfigMapRef)
-		assert.Equal(t, "collector-config", container.EnvFrom[0].ConfigMapRef.Name)
-		require.NotNil(t, container.EnvFrom[1].SecretRef)
-		assert.Equal(t, "collector-secret", container.EnvFrom[1].SecretRef.Name)
 	})
 }
 

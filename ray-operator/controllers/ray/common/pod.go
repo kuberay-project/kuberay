@@ -1208,10 +1208,6 @@ func BuildCollectorContainer(collectorOptions *rayv1.CollectorOptions, nodeType 
 		container.Env = append(container.Env, collectorOptions.Env...)
 	}
 
-	if len(collectorOptions.EnvFrom) > 0 {
-		container.EnvFrom = append(container.EnvFrom, collectorOptions.EnvFrom...)
-	}
-
 	return container
 }
 

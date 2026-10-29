@@ -19,9 +19,6 @@ type CollectorOptionsApplyConfiguration struct {
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 	// Env allows injecting custom environment variables into the collector container.
 	Env []corev1.EnvVar `json:"env,omitempty"`
-	// EnvFrom allows injecting environment variables from a ConfigMap or Secret
-	// into the collector container.
-	EnvFrom []corev1.EnvFromSource `json:"envFrom,omitempty"`
 	// SecurityContext specifies the security context for the collector container.
 	// If set, the fields of SecurityContext override the equivalent fields of PodSecurityContext.
 	// More info: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
@@ -64,16 +61,6 @@ func (b *CollectorOptionsApplyConfiguration) WithResources(value corev1.Resource
 func (b *CollectorOptionsApplyConfiguration) WithEnv(values ...corev1.EnvVar) *CollectorOptionsApplyConfiguration {
 	for i := range values {
 		b.Env = append(b.Env, values[i])
-	}
-	return b
-}
-
-// WithEnvFrom adds the given value to the EnvFrom field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the EnvFrom field.
-func (b *CollectorOptionsApplyConfiguration) WithEnvFrom(values ...corev1.EnvFromSource) *CollectorOptionsApplyConfiguration {
-	for i := range values {
-		b.EnvFrom = append(b.EnvFrom, values[i])
 	}
 	return b
 }

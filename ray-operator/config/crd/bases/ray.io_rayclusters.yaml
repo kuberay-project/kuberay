@@ -4835,31 +4835,6 @@ spec:
                           - name
                           type: object
                         type: array
-                      envFrom:
-                        items:
-                          properties:
-                            configMapRef:
-                              properties:
-                                name:
-                                  default: ""
-                                  type: string
-                                optional:
-                                  type: boolean
-                              type: object
-                              x-kubernetes-map-type: atomic
-                            prefix:
-                              type: string
-                            secretRef:
-                              properties:
-                                name:
-                                  default: ""
-                                  type: string
-                                optional:
-                                  type: boolean
-                              type: object
-                              x-kubernetes-map-type: atomic
-                          type: object
-                        type: array
                       image:
                         type: string
                       imagePullPolicy:
