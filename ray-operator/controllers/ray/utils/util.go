@@ -770,6 +770,35 @@ func IsAutoscalingV1Enabled(spec *rayv1.RayClusterSpec) bool {
 	return spec != nil && spec.AutoscalerOptions != nil && spec.AutoscalerOptions.Version != nil && *spec.AutoscalerOptions.Version == rayv1.AutoscalerVersionV1
 }
 
+// IsAutoscalerStandalone returns whether the autoscaler should run as a dedicated Pod
+// instead of a sidecar container in the head Pod. It defaults to false (the legacy
+// sidecar layout); set autoscalerOptions.standalone to true to opt in.
+func IsAutoscalerStandalone(spec *rayv1.RayClusterSpec) bool {
+	return spec != nil && spec.AutoscalerOptions != nil &&
+		spec.AutoscalerOptions.Standalone != nil && *spec.AutoscalerOptions.Standalone
+}
+
+// IsGCSForwardingEnabled returns true when the dedicated autoscaler Pod should carry
+// a TCP forwarding container so the autoscaler can reach the head GCS via its own Pod
+// IP. This is the default when TLS is disabled, because it works with any Ray
+// version: no released Ray image supports `--gcs-address` yet
+// (https://github.com/ray-project/ray/pull/65894 is only on master/nightly). Setting
+// autoscalerOptions.gcsForwarding to false opts into the direct `--gcs-address`
+// connection, which requires such an image. TLS always disables forwarding, which
+// cannot pass certificate hostname verification.
+func IsGCSForwardingEnabled(spec *rayv1.RayClusterSpec) bool {
+	if !IsAutoscalingEnabled(spec) || !IsAutoscalerStandalone(spec) {
+		return false
+	}
+	if IsTLSEnabled(spec) {
+		return false
+	}
+	if spec.AutoscalerOptions != nil && spec.AutoscalerOptions.GCSForwarding != nil {
+		return *spec.AutoscalerOptions.GCSForwarding
+	}
+	return true
+}
+
 // Check if the RayCluster has GCS fault tolerance enabled.
 func IsGCSFaultToleranceEnabled(spec *rayv1.RayClusterSpec, annotations map[string]string) bool {
 	v, ok := annotations[RayFTEnabledAnnotationKey]
@@ -841,18 +870,26 @@ func GetCASecretName(clusterName string, clusterUID types.UID) string {
 
 // GetTLSSecretName returns the cert-manager generated TLS secret name for the given node type.
 func GetTLSSecretName(clusterName string, nodeType rayv1.RayNodeType) string {
-	if nodeType == rayv1.HeadNode {
+	switch nodeType {
+	case rayv1.HeadNode:
 		return fmt.Sprintf("%s-%s", RayHeadSecretPrefix, clusterName)
+	case rayv1.AutoscalerNode:
+		return fmt.Sprintf("%s-%s", RayAutoscalerSecretPrefix, clusterName)
+	default:
+		return fmt.Sprintf("%s-%s", RayWorkerSecretPrefix, clusterName)
 	}
-	return fmt.Sprintf("%s-%s", RayWorkerSecretPrefix, clusterName)
 }
 
 // GetTLSCertName returns the cert-manager Certificate name for the given node type.
 func GetTLSCertName(clusterName string, nodeType rayv1.RayNodeType) string {
-	if nodeType == rayv1.HeadNode {
+	switch nodeType {
+	case rayv1.HeadNode:
 		return fmt.Sprintf("%s-%s", RayHeadCertPrefix, clusterName)
+	case rayv1.AutoscalerNode:
+		return fmt.Sprintf("%s-%s", RayAutoscalerCertPrefix, clusterName)
+	default:
+		return fmt.Sprintf("%s-%s", RayWorkerCertPrefix, clusterName)
 	}
-	return fmt.Sprintf("%s-%s", RayWorkerCertPrefix, clusterName)
 }
 
 // GetSelfSignedIssuerName returns the self-signed Issuer name for the given cluster.

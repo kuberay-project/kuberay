@@ -14,6 +14,9 @@ import (
 
 const HeadGroup = ""
 
+// AutoscalerGroup is the scale-expectation group for the dedicated autoscaler Pod.
+const AutoscalerGroup = "autoscaler"
+
 // ScaleAction is the action of scale, like create and delete.
 type ScaleAction string
 

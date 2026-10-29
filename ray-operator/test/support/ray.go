@@ -161,6 +161,21 @@ func GetHeadPod(t Test, rayCluster *rayv1.RayCluster) (*corev1.Pod, error) {
 	return &pods.Items[0], nil
 }
 
+// GetAutoscalerPod returns the dedicated autoscaler Pod of a RayCluster.
+func GetAutoscalerPod(t Test, rayCluster *rayv1.RayCluster) (*corev1.Pod, error) {
+	pods, err := t.Client().Core().CoreV1().Pods(rayCluster.Namespace).List(
+		t.Ctx(),
+		common.RayClusterAutoscalerPodsAssociationOptions(rayCluster).ToMetaV1ListOptions(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(pods.Items) != 1 {
+		return nil, errors.New("number of autoscaler pods is not 1")
+	}
+	return &pods.Items[0], nil
+}
+
 func WorkerPods(t Test, rayCluster *rayv1.RayCluster) func() ([]corev1.Pod, error) {
 	return func() ([]corev1.Pod, error) {
 		return GetWorkerPods(t, rayCluster)

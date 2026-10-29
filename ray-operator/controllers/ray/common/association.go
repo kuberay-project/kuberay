@@ -100,6 +100,18 @@ func RayClusterWorkerPodsAssociationOptions(instance *rayv1.RayCluster) Associat
 	}
 }
 
+// RayClusterAutoscalerPodsAssociationOptions matches the dedicated autoscaler Pod
+// of a RayCluster (present when autoscaling runs outside the head Pod).
+func RayClusterAutoscalerPodsAssociationOptions(instance *rayv1.RayCluster) AssociationOptions {
+	return AssociationOptions{
+		client.InNamespace(instance.Namespace),
+		client.MatchingLabels{
+			utils.RayClusterLabelKey:  instance.Name,
+			utils.RayNodeTypeLabelKey: string(rayv1.AutoscalerNode),
+		},
+	}
+}
+
 func RayClusterRedisCleanupJobAssociationOptions(instance *rayv1.RayCluster) AssociationOptions {
 	return AssociationOptions{
 		client.InNamespace(instance.Namespace),

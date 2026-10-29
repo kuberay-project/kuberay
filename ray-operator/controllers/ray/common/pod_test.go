@@ -837,7 +837,7 @@ func TestBuildAutoscalerContainer(t *testing.T) {
 	const expectedCmd = "ray kuberay-autoscaler --cluster-name $(RAY_CLUSTER_NAME) --cluster-namespace $(RAY_CLUSTER_NAMESPACE)"
 
 	t.Run("KUBERAY_GEN_AUTOSCALER_START_CMD is always injected with the generated command", func(t *testing.T) {
-		container := BuildAutoscalerContainer(autoscalerImage)
+		container := BuildAutoscalerContainer(autoscalerImage, "")
 
 		env := getEnvVar(container, utils.KUBERAY_GEN_AUTOSCALER_START_CMD)
 		require.NotNil(t, env, "KUBERAY_GEN_AUTOSCALER_START_CMD env var should always be present")
@@ -845,7 +845,7 @@ func TestBuildAutoscalerContainer(t *testing.T) {
 	})
 
 	t.Run("Default Args equal KUBERAY_GEN_AUTOSCALER_START_CMD value", func(t *testing.T) {
-		container := BuildAutoscalerContainer(autoscalerImage)
+		container := BuildAutoscalerContainer(autoscalerImage, "")
 
 		require.Len(t, container.Args, 1)
 		assert.Equal(t, expectedCmd, container.Args[0],
@@ -853,7 +853,7 @@ func TestBuildAutoscalerContainer(t *testing.T) {
 	})
 
 	t.Run("AutoscalerOptions.Command override replaces command", func(t *testing.T) {
-		container := BuildAutoscalerContainer(autoscalerImage)
+		container := BuildAutoscalerContainer(autoscalerImage, "")
 		customCMD := []string{"/bin/bash", "-lc", "--"}
 		mergeAutoscalerOverrides(&container, &rayv1.AutoscalerOptions{
 			Command: customCMD,
@@ -869,7 +869,7 @@ func TestBuildAutoscalerContainer(t *testing.T) {
 	})
 
 	t.Run("AutoscalerOptions.Args override replaces Args but not KUBERAY_GEN_AUTOSCALER_START_CMD", func(t *testing.T) {
-		container := BuildAutoscalerContainer(autoscalerImage)
+		container := BuildAutoscalerContainer(autoscalerImage, "")
 		customArgs := []string{"ulimit -n 65536; $KUBERAY_GEN_AUTOSCALER_START_CMD"}
 		mergeAutoscalerOverrides(&container, &rayv1.AutoscalerOptions{
 			Args: customArgs,
@@ -885,7 +885,7 @@ func TestBuildAutoscalerContainer(t *testing.T) {
 	})
 
 	t.Run("AutoscalerOptions.Env additions do not overwrite KUBERAY_GEN_AUTOSCALER_START_CMD", func(t *testing.T) {
-		container := BuildAutoscalerContainer(autoscalerImage)
+		container := BuildAutoscalerContainer(autoscalerImage, "")
 		mergeAutoscalerOverrides(&container, &rayv1.AutoscalerOptions{
 			Env: []corev1.EnvVar{
 				{Name: "AUTOSCALER_UPDATE_INTERVAL_S", Value: "10"},
@@ -1334,20 +1334,28 @@ func TestBuildPodWithAutoscalerOptions(t *testing.T) {
 func TestHeadPodTemplate_WithAutoscalingEnabled(t *testing.T) {
 	ctx := context.Background()
 
+	// By default (autoscalerOptions.standalone unset) the autoscaler runs as a sidecar
+	// container in the head Pod, which also gets the autoscaler's ServiceAccount.
 	cluster := instance.DeepCopy()
 	cluster.Spec.EnableInTreeAutoscaling = &trueFlag
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
 	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
-
-	// autoscaler container is injected into head pod
 	assert.Len(t, podTemplateSpec.Spec.Containers, 2)
-
 	assert.Equal(t, cluster.Name, podTemplateSpec.Spec.ServiceAccountName)
 
 	// Repeat ServiceAccountName check with long cluster name.
 	cluster.Name = longString(t) // 200 chars long
 	podTemplateSpec = DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
 	assert.Equal(t, shortString(t), podTemplateSpec.Spec.ServiceAccountName)
+
+	// With standalone=true the autoscaler runs as a dedicated Pod: the head pod
+	// template has a single container and no autoscaler ServiceAccount injection.
+	standaloneCluster := instance.DeepCopy()
+	standaloneCluster.Spec.EnableInTreeAutoscaling = &trueFlag
+	standaloneCluster.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{Standalone: new(true)}
+	podTemplateSpec = DefaultHeadPodTemplate(ctx, *standaloneCluster, standaloneCluster.Spec.HeadGroupSpec, podName, "6379")
+	assert.Len(t, podTemplateSpec.Spec.Containers, 1)
+	assert.Empty(t, podTemplateSpec.Spec.ServiceAccountName)
 }
 
 func TestDefaultHeadPodTemplate_Autoscaling(t *testing.T) {
@@ -1366,6 +1374,13 @@ func TestDefaultHeadPodTemplate_Autoscaling(t *testing.T) {
 	clusterAutoscalingV2.Spec.EnableInTreeAutoscaling = new(true)
 	clusterAutoscalingV2.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{
 		Version: ptr.To(rayv1.AutoscalerVersionV2),
+	}
+
+	// clusterAutoscalingStandalone opts into the dedicated autoscaler Pod layout.
+	clusterAutoscalingStandalone := instance.DeepCopy()
+	clusterAutoscalingStandalone.Spec.EnableInTreeAutoscaling = new(true)
+	clusterAutoscalingStandalone.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{
+		Standalone: new(true),
 	}
 
 	ctx := context.Background()
@@ -1438,6 +1453,13 @@ func TestDefaultHeadPodTemplate_Autoscaling(t *testing.T) {
 			// RestartPolicy is set to Always in the cluster template and should be kept as-is.
 			expectedRestartPolicy: corev1.RestartPolicyAlways,
 		},
+		"Pod template with autoscaling enabled and standalone=true should not inject the autoscaler sidecar": {
+			cluster:                    *clusterAutoscalingStandalone,
+			expectedHeadContainers:     1,
+			expectedAutoscalerV2EnvVar: false,
+			expectedAutoscalerV1EnvVar: false,
+			expectedRestartPolicy:      "",
+		},
 	}
 
 	for name, tc := range tests {
@@ -1508,6 +1530,161 @@ func TestHeadPodTemplate_AutoscalerImage(t *testing.T) {
 	pod.Spec = podTemplateSpec.Spec
 	autoscalerContainerIndex = getAutoscalerContainerIndex(pod)
 	assert.Equal(t, customAutoscalerImage, podTemplateSpec.Spec.Containers[autoscalerContainerIndex].Image)
+}
+
+func TestBuildAutoscalerPod(t *testing.T) {
+	ctx := context.Background()
+
+	newStandaloneCluster := func() *rayv1.RayCluster {
+		cluster := instance.DeepCopy()
+		cluster.Spec.EnableInTreeAutoscaling = &trueFlag
+		cluster.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{Standalone: new(true)}
+		return cluster
+	}
+
+	t.Run("default layout forwards GCS on the pod IP", func(t *testing.T) {
+		cluster := newStandaloneCluster()
+		fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
+		pod := BuildAutoscalerPod(ctx, *cluster, "6379")
+
+		// The dedicated autoscaler Pod has a deterministic name (no random suffix).
+		assert.Equal(t, "raycluster-sample-autoscaler", pod.Name)
+		assert.Empty(t, pod.GenerateName)
+		assert.Equal(t, cluster.Name, pod.Labels[utils.RayClusterLabelKey])
+		assert.Equal(t, string(rayv1.AutoscalerNode), pod.Labels[utils.RayNodeTypeLabelKey])
+		assert.Equal(t, utils.RayNodeAutoscalerGroupLabelValue, pod.Labels[utils.RayNodeGroupLabelKey])
+		assert.Equal(t, cluster.Name, pod.Spec.ServiceAccountName)
+
+		require.Len(t, pod.Spec.Containers, 2)
+		autoscaler := pod.Spec.Containers[0]
+		assert.Equal(t, AutoscalerContainerName, autoscaler.Name)
+		assert.Equal(t, "repo/image:custom", autoscaler.Image)
+		assert.NotContains(t, autoscaler.Args[0], "--gcs-address")
+		assert.NotContains(t, getEnvVar(autoscaler, utils.KUBERAY_GEN_AUTOSCALER_START_CMD).Value, "--gcs-address")
+		// The dedicated pod defaults to a small guaranteed footprint (requests == limits),
+		// so it is not scheduled as a BestEffort pod.
+		expectedDefaultResources := corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		}
+		assert.Equal(t, expectedDefaultResources, autoscaler.Resources.Requests)
+		assert.Equal(t, expectedDefaultResources, autoscaler.Resources.Limits)
+		// RAY_HEAD_POD_NAME is meaningless outside the head pod and must be dropped.
+		assert.False(t, utils.EnvVarExists("RAY_HEAD_POD_NAME", autoscaler.Env))
+		// The monitor log dir is persisted in a dedicated volume.
+		assert.True(t, utils.VolumeMountExists(RayLogVolumeName, autoscaler.VolumeMounts))
+
+		forwarder := pod.Spec.Containers[1]
+		assert.Equal(t, utils.GCSForwardContainerName, forwarder.Name)
+		assert.Equal(t, utils.DefaultGCSForwardingImage, forwarder.Image)
+		assert.Equal(t, []string{"TCP-LISTEN:6379,fork,reuseaddr", fmt.Sprintf("TCP:%s:6379", fqdnRayIP)}, forwarder.Args)
+
+		assert.True(t, utils.VolumeExists(RayLogVolumeName, pod.Spec.Volumes))
+	})
+
+	t.Run("pod name is deterministic and stays within the 63 character limit", func(t *testing.T) {
+		cluster := newStandaloneCluster()
+		assert.Equal(t, "raycluster-sample-autoscaler", BuildAutoscalerPod(ctx, *cluster, "6379").Name)
+
+		// A long cluster name is truncated by utils.PodName instead of producing an invalid name.
+		cluster.Name = strings.Repeat("a", 80)
+		pod := BuildAutoscalerPod(ctx, *cluster, "6379")
+		assert.Equal(t, strings.Repeat("a", 50)+"-autoscaler", pod.Name)
+		assert.LessOrEqual(t, len(pod.Name), 63)
+	})
+
+	t.Run("gcsForwarding=false switches to the direct connection for Ray images with --gcs-address support", func(t *testing.T) {
+		cluster := newStandaloneCluster()
+		cluster.Spec.AutoscalerOptions.GCSForwarding = new(false)
+		fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
+		pod := BuildAutoscalerPod(ctx, *cluster, "6379")
+
+		// No forwarder is injected; the autoscaler dials the head service FQDN directly.
+		require.Len(t, pod.Spec.Containers, 1)
+		autoscaler := pod.Spec.Containers[0]
+		assert.Contains(t, autoscaler.Args[0], fmt.Sprintf("--gcs-address %s:6379", fqdnRayIP))
+		assert.Contains(t, getEnvVar(autoscaler, utils.KUBERAY_GEN_AUTOSCALER_START_CMD).Value, "--gcs-address")
+	})
+
+	t.Run("custom head port is honored by the forwarder", func(t *testing.T) {
+		cluster := newStandaloneCluster()
+		fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
+		pod := BuildAutoscalerPod(ctx, *cluster, "12345")
+		// Ray without --gcs-address support always dials the pod IP on 6379, so the
+		// forwarder keeps listening on 6379 and targets the actual head port.
+		require.Len(t, pod.Spec.Containers, 2)
+		assert.Equal(t, []string{"TCP-LISTEN:6379,fork,reuseaddr", fmt.Sprintf("TCP:%s:12345", fqdnRayIP)}, pod.Spec.Containers[1].Args)
+	})
+
+	t.Run("autoscaler image honors autoscalerOptions override", func(t *testing.T) {
+		cluster := newStandaloneCluster()
+		cluster.Spec.AutoscalerOptions.Image = new("custom-autoscaler:v1")
+		pod := BuildAutoscalerPod(ctx, *cluster, "6379")
+		assert.Equal(t, "custom-autoscaler:v1", pod.Spec.Containers[0].Image)
+	})
+
+	t.Run("resources honor autoscalerOptions overrides", func(t *testing.T) {
+		customResources := corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")},
+		}
+		cluster := newStandaloneCluster()
+		cluster.Spec.AutoscalerOptions.Resources = &customResources
+		pod := BuildAutoscalerPod(ctx, *cluster, "6379")
+		assert.Equal(t, customResources, pod.Spec.Containers[0].Resources)
+	})
+
+	t.Run("scheduling fields are reused from the head template", func(t *testing.T) {
+		cluster := newStandaloneCluster()
+		headSpec := &cluster.Spec.HeadGroupSpec.Template.Spec
+		headSpec.NodeSelector = map[string]string{"pool": "ray"}
+		headSpec.Tolerations = []corev1.Toleration{{Key: "dedicated", Operator: corev1.TolerationOpEqual, Value: "ray", Effect: corev1.TaintEffectNoSchedule}}
+		headSpec.SchedulerName = "kai-scheduler"
+		headSpec.PriorityClassName = "high-priority"
+		headSpec.RuntimeClassName = new("runc")
+		headSpec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "pull-secret"}}
+
+		pod := BuildAutoscalerPod(ctx, *cluster, "6379")
+		assert.Equal(t, headSpec.NodeSelector, pod.Spec.NodeSelector)
+		assert.Equal(t, headSpec.Tolerations, pod.Spec.Tolerations)
+		assert.Equal(t, headSpec.SchedulerName, pod.Spec.SchedulerName)
+		assert.Equal(t, headSpec.PriorityClassName, pod.Spec.PriorityClassName)
+		assert.Equal(t, headSpec.RuntimeClassName, pod.Spec.RuntimeClassName)
+		assert.Equal(t, headSpec.ImagePullSecrets, pod.Spec.ImagePullSecrets)
+	})
+
+	t.Run("operator-level forwarding image override", func(t *testing.T) {
+		t.Setenv(utils.KUBERAY_GCS_FORWARDING_IMAGE_ENV, "mirror.example.com/socat:v2")
+		cluster := newStandaloneCluster()
+		pod := BuildAutoscalerPod(ctx, *cluster, "6379")
+		require.Len(t, pod.Spec.Containers, 2)
+		assert.Equal(t, "mirror.example.com/socat:v2", pod.Spec.Containers[1].Image)
+	})
+
+	t.Run("TLS mounts the dedicated autoscaler certificate and defaults to --gcs-address", func(t *testing.T) {
+		features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
+		cluster := newStandaloneCluster()
+		cluster.Spec.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+		pod := BuildAutoscalerPod(ctx, *cluster, "6379")
+
+		// Forwarding is incompatible with mTLS hostname verification, so the direct
+		// --gcs-address mode is selected and no forwarder is injected.
+		require.Len(t, pod.Spec.Containers, 1)
+		autoscaler := pod.Spec.Containers[0]
+		assert.Contains(t, autoscaler.Args[0], "--gcs-address")
+		assert.True(t, utils.EnvVarExists(utils.RAY_USE_TLS, autoscaler.Env))
+		assert.True(t, utils.VolumeMountExists(utils.RayTLSVolumeName, autoscaler.VolumeMounts))
+
+		var tlsVolume *corev1.Volume
+		for i := range pod.Spec.Volumes {
+			if pod.Spec.Volumes[i].Name == utils.RayTLSVolumeName {
+				tlsVolume = &pod.Spec.Volumes[i]
+			}
+		}
+		require.NotNil(t, tlsVolume)
+		require.NotNil(t, tlsVolume.Secret)
+		assert.Equal(t, utils.GetTLSSecretName(cluster.Name, rayv1.AutoscalerNode), tlsVolume.Secret.SecretName,
+			"the autoscaler pod must mount its own client certificate, not the head certificate")
+	})
 }
 
 // If no service account is specified in the RayCluster,
@@ -3365,5 +3542,32 @@ func TestBuildPod_GeneratedRayStartCmdIsArgsSubstring(t *testing.T) {
 		require.NotNil(t, generated)
 		require.Len(t, container.Args, 1)
 		assert.Equal(t, 1, strings.Count(container.Args[0], generated.Value), "args: %q", container.Args[0])
+	}
+}
+
+func TestBuildAutoscalerPodForwardingImage(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		env   string
+		image *string
+		want  string
+	}{
+		{name: "default", want: utils.DefaultGCSForwardingImage},
+		{name: "operator override", env: "operator/socat:custom", want: "operator/socat:custom"},
+		{name: "cluster override", image: new("cluster/socat:custom"), want: "cluster/socat:custom"},
+		{name: "cluster overrides operator", env: "operator/socat:custom", image: new("cluster/socat:custom"), want: "cluster/socat:custom"},
+		{name: "empty cluster falls back to operator", env: "operator/socat:custom", image: new(""), want: "operator/socat:custom"},
+		{name: "empty cluster falls back to default", image: new(""), want: utils.DefaultGCSForwardingImage},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(utils.KUBERAY_GCS_FORWARDING_IMAGE_ENV, tc.env)
+			cluster := instance.DeepCopy()
+			cluster.Spec.EnableInTreeAutoscaling = new(true)
+			cluster.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{Standalone: new(true), GCSForwardingImage: tc.image}
+			pod := BuildAutoscalerPod(context.Background(), *cluster, "6379")
+			require.Len(t, pod.Spec.Containers, 2)
+			assert.Equal(t, utils.GCSForwardContainerName, pod.Spec.Containers[1].Name)
+			assert.Equal(t, tc.want, pod.Spec.Containers[1].Image)
+		})
 	}
 }

@@ -246,6 +246,16 @@ func ValidateRayClusterSpec(spec *rayv1.RayClusterSpec, annotations map[string]s
 			return fmt.Errorf("both .spec.autoscalerOptions.version and head Pod env var %s are set, please only use the former", RAY_ENABLE_AUTOSCALER_V2)
 		}
 
+		if spec.AutoscalerOptions != nil && spec.AutoscalerOptions.GCSForwarding != nil {
+			if spec.AutoscalerOptions.Standalone != nil && !*spec.AutoscalerOptions.Standalone {
+				return fmt.Errorf("autoscalerOptions.gcsForwarding has no effect when autoscalerOptions.standalone is false")
+			}
+			if *spec.AutoscalerOptions.GCSForwarding && IsTLSEnabled(spec) {
+				return fmt.Errorf("autoscalerOptions.gcsForwarding is incompatible with tlsOptions: the forwarding path cannot pass mTLS hostname verification. " +
+					"Use a Ray image supporting `ray kuberay-autoscaler --gcs-address` or set autoscalerOptions.standalone: false")
+			}
+		}
+
 		if IsAutoscalingV2Enabled(spec) && !SupportsFlexibleRestartPolicy(spec.RayVersion) {
 			if spec.HeadGroupSpec.Template.Spec.RestartPolicy != "" && spec.HeadGroupSpec.Template.Spec.RestartPolicy != corev1.RestartPolicyNever {
 				return fmt.Errorf("restartPolicy for head Pod should be Never or unset when using autoscaler V2")

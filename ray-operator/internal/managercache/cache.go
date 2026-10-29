@@ -16,7 +16,7 @@ import (
 
 // K8sControllerRuntimeCacheSelectors returns a map[client.Object]cache.ByObject that scopes the manager's
 // informer cache to only watch KubeRay-managed Jobs (filtered by app.kubernetes.io/created-by=kuberay-operator)
-// and Ray node Pods (filtered by ray.io/node-type in head|worker|redis-cleanup).
+// and Ray node Pods (filtered by ray.io/node-type in head|worker|autoscaler|redis-cleanup).
 func K8sControllerRuntimeCacheSelectors() (map[client.Object]cache.ByObject, error) {
 	createByLabel, err := labels.NewRequirement(utils.KubernetesCreatedByLabelKey, selection.Equals, []string{utils.ComponentName})
 	if err != nil {
@@ -25,7 +25,7 @@ func K8sControllerRuntimeCacheSelectors() (map[client.Object]cache.ByObject, err
 	rayNodeTypeLabel, err := labels.NewRequirement(
 		utils.RayNodeTypeLabelKey,
 		selection.In,
-		[]string{string(rayv1.HeadNode), string(rayv1.WorkerNode), string(rayv1.RedisCleanupNode)},
+		[]string{string(rayv1.HeadNode), string(rayv1.WorkerNode), string(rayv1.AutoscalerNode), string(rayv1.RedisCleanupNode)},
 	)
 	if err != nil {
 		return nil, err

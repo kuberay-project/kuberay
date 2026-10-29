@@ -1084,6 +1084,12 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		return fmt.Errorf("%d head pods found %v. Please delete extra head pods", len(headPods.Items), headPodNames)
 	}
 
+	// Reconcile the dedicated autoscaler Pod. This is a no-op unless in-tree autoscaling
+	// is enabled and the head Pod does not carry the autoscaler sidecar.
+	if err := r.reconcileAutoscalerPods(ctx, *instance); err != nil {
+		return err
+	}
+
 	// Reconcile worker pods now
 	for _, worker := range instance.Spec.WorkerGroupSpecs {
 		if !r.rayClusterScaleExpectation.IsSatisfied(ctx, instance.Namespace, instance.Name, worker.GroupName) {
@@ -1680,6 +1686,143 @@ func (r *RayClusterReconciler) createHeadPod(ctx context.Context, instance rayv1
 	return nil
 }
 
+// reconcileAutoscalerPods reconciles the dedicated autoscaler Pod of a RayCluster.
+//
+// Exactly one autoscaler process should run per cluster:
+//   - If autoscaling is disabled, no autoscaler runs.
+//   - If the live head Pod still carries the autoscaler sidecar (e.g. a cluster created
+//     with autoscalerOptions.standalone=false, or by an older operator), no dedicated Pod
+//     is created; it takes over once the head Pod is recreated without the sidecar.
+//   - Otherwise (autoscaling enabled and no head-side autoscaler), exactly one dedicated
+//     autoscaler Pod is ensured.
+func (r *RayClusterReconciler) reconcileAutoscalerPods(ctx context.Context, instance rayv1.RayCluster) error {
+	logger := ctrl.LoggerFrom(ctx)
+
+	autoscalerPods := corev1.PodList{}
+	if err := r.List(ctx, &autoscalerPods, common.RayClusterAutoscalerPodsAssociationOptions(&instance).ToListOptions()...); err != nil {
+		return err
+	}
+
+	wantPod := false
+	if utils.IsAutoscalingEnabled(&instance.Spec) && utils.IsAutoscalerStandalone(&instance.Spec) {
+		headPod, err := common.GetRayClusterHeadPod(ctx, r, &instance)
+		if err != nil {
+			return err
+		}
+		wantPod = headPod == nil || !common.HasAutoscalerContainer(headPod)
+	}
+
+	if !wantPod {
+		if len(autoscalerPods.Items) == 0 {
+			return nil
+		}
+		if _, err := r.deleteAllPods(ctx, common.RayClusterAutoscalerPodsAssociationOptions(&instance)); err != nil {
+			r.Recorder.Eventf(&instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteAutoscalerPod), string(utils.DeleteAction),
+				"Failed deleting autoscaler Pods for RayCluster %s/%s, %v", instance.Namespace, instance.Name, err)
+			return errstd.Join(utils.ErrFailedDeleteAutoscalerPod, err)
+		}
+		for _, pod := range autoscalerPods.Items {
+			r.rayClusterScaleExpectation.ExpectScalePod(pod.Namespace, instance.Name, expectations.AutoscalerGroup, pod.Name, expectations.Delete)
+		}
+		r.Recorder.Eventf(&instance, nil, corev1.EventTypeNormal, string(utils.DeletedAutoscalerPod), string(utils.DeleteAction),
+			"Deleted %d autoscaler Pod(s) for RayCluster %s/%s", len(autoscalerPods.Items), instance.Namespace, instance.Name)
+		return nil
+	}
+
+	if !r.rayClusterScaleExpectation.IsSatisfied(ctx, instance.Namespace, instance.Name, expectations.AutoscalerGroup) {
+		logger.Info("reconcileAutoscalerPods", "Expectation", "NotSatisfiedAutoscalerExpectations, reconcile autoscaler later")
+		return nil
+	}
+
+	switch len(autoscalerPods.Items) {
+	case 0:
+		// Create the autoscaler Pod if it does not exist.
+		if err := r.createAutoscalerPod(ctx, instance); err != nil {
+			return errstd.Join(utils.ErrFailedCreateAutoscalerPod, err)
+		}
+	case 1:
+		autoscalerPod := autoscalerPods.Items[0]
+		shouldDelete, reason := shouldDeletePod(autoscalerPod, rayv1.AutoscalerNode)
+		logger.Info("reconcileAutoscalerPods", "autoscaler Pod", autoscalerPod.Name, "shouldDelete", shouldDelete, "reason", reason)
+		if shouldDelete {
+			if err := r.Delete(ctx, &autoscalerPod); err != nil {
+				r.Recorder.Eventf(&instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteAutoscalerPod), string(utils.DeleteAction),
+					"Failed deleting autoscaler Pod %s/%s; Pod status: %s, %v", autoscalerPod.Namespace, autoscalerPod.Name, autoscalerPod.Status.Phase, err)
+				return errstd.Join(utils.ErrFailedDeleteAutoscalerPod, err)
+			}
+			r.rayClusterScaleExpectation.ExpectScalePod(autoscalerPod.Namespace, instance.Name, expectations.AutoscalerGroup, autoscalerPod.Name, expectations.Delete)
+			r.Recorder.Eventf(&instance, nil, corev1.EventTypeNormal, string(utils.DeletedAutoscalerPod), string(utils.DeleteAction),
+				"Deleted autoscaler Pod %s/%s; Pod status: %s", autoscalerPod.Namespace, autoscalerPod.Name, autoscalerPod.Status.Phase)
+			return errstd.New(reason)
+		}
+	default: // This should never happen. This protects against the case that users manually create autoscaler pods.
+		podNames := make([]string, len(autoscalerPods.Items))
+		for i, pod := range autoscalerPods.Items {
+			podNames[i] = pod.Name
+		}
+		return fmt.Errorf("%d autoscaler pods found %v. Please delete extra autoscaler pods", len(autoscalerPods.Items), podNames)
+	}
+	return nil
+}
+
+func (r *RayClusterReconciler) createAutoscalerPod(ctx context.Context, instance rayv1.RayCluster) error {
+	logger := ctrl.LoggerFrom(ctx)
+
+	pod := r.buildAutoscalerPod(ctx, instance)
+
+	if err := r.Create(ctx, &pod); err != nil {
+		if errors.IsAlreadyExists(err) {
+			// The autoscaler Pod has a deterministic name, so a conflict means the previous Pod
+			// is still terminating (or a foreign Pod holds the name). Its deletion re-triggers
+			// reconciliation through the Pod watch, so there is nothing to retry now.
+			logger.Info("Autoscaler Pod already exists; waiting for it to be deleted before recreating it", "name", pod.Name)
+			return nil
+		}
+		r.Recorder.Eventf(&instance, nil, corev1.EventTypeWarning, string(utils.FailedToCreateAutoscalerPod), string(utils.CreateAction),
+			"Failed to create autoscaler Pod for the cluster %s/%s, %v", instance.Namespace, instance.Name, err)
+		return err
+	}
+	r.rayClusterScaleExpectation.ExpectScalePod(pod.Namespace, instance.Name, expectations.AutoscalerGroup, pod.Name, expectations.Create)
+	logger.Info("Created autoscaler Pod for RayCluster", "name", pod.Name)
+	r.Recorder.Eventf(&instance, nil, corev1.EventTypeNormal, string(utils.CreatedAutoscalerPod), string(utils.CreateAction), "Created autoscaler Pod %s/%s", pod.Namespace, pod.Name)
+	return nil
+}
+
+// buildAutoscalerPod builds the dedicated autoscaler Pod.
+func (r *RayClusterReconciler) buildAutoscalerPod(ctx context.Context, instance rayv1.RayCluster) corev1.Pod {
+	logger := ctrl.LoggerFrom(ctx)
+
+	// The Ray head port used by the autoscaler to connect to the GCS server.
+	headPort := common.GetHeadPort(instance.Spec.HeadGroupSpec.RayStartParams)
+	pod := common.BuildAutoscalerPod(ctx, instance, headPort)
+	if len(r.options.DefaultPodAnnotations) > 0 {
+		if pod.Annotations == nil {
+			pod.Annotations = make(map[string]string)
+		}
+		for k, v := range r.options.DefaultPodAnnotations {
+			if _, exists := pod.Annotations[k]; !exists {
+				pod.Annotations[k] = v
+			}
+		}
+	}
+	if len(r.options.DefaultPodLabels) > 0 {
+		if pod.Labels == nil {
+			pod.Labels = make(map[string]string)
+		}
+		for k, v := range r.options.DefaultPodLabels {
+			if _, exists := pod.Labels[k]; !exists {
+				pod.Labels[k] = v
+			}
+		}
+	}
+	// Set raycluster instance as the owner and controller
+	if err := controllerutil.SetControllerReference(&instance, &pod, r.Scheme); err != nil {
+		logger.Error(err, "Failed to set controller reference for raycluster autoscaler pod")
+	}
+
+	return pod
+}
+
 func (r *RayClusterReconciler) createWorkerPod(ctx context.Context, instance rayv1.RayCluster, worker rayv1.WorkerGroupSpec) error {
 	logger := ctrl.LoggerFrom(ctx)
 
@@ -1921,11 +2064,8 @@ func (r *RayClusterReconciler) buildRedisCleanupJob(ctx context.Context, instanc
 // mounted during a SAN reissue (e.g. after a pod IP is added). Checking ObservedGeneration
 // on the condition ensures Ready=True reflects the current spec, not a previous generation.
 func (r *RayClusterReconciler) checkMTLSSecretsReady(ctx context.Context, instance *rayv1.RayCluster) error {
-	certNames := []string{
-		utils.GetTLSCertName(instance.Name, rayv1.HeadNode),
-		utils.GetTLSCertName(instance.Name, rayv1.WorkerNode),
-	}
-	for _, certName := range certNames {
+	for _, nodeType := range tlsCertificateNodeTypes(instance) {
+		certName := utils.GetTLSCertName(instance.Name, nodeType)
 		cert := &certmanagerv1.Certificate{}
 		if err := r.Get(ctx, client.ObjectKey{Name: certName, Namespace: instance.Namespace}, cert); err != nil {
 			return fmt.Errorf("certificate %s not found: %w", certName, err)
@@ -1935,12 +2075,9 @@ func (r *RayClusterReconciler) checkMTLSSecretsReady(ctx context.Context, instan
 		}
 	}
 
-	secretNames := []string{
-		utils.GetTLSSecretName(instance.Name, rayv1.HeadNode),
-		utils.GetTLSSecretName(instance.Name, rayv1.WorkerNode),
-	}
 	requiredKeys := []string{"tls.crt", "tls.key", "ca.crt"}
-	for _, secretName := range secretNames {
+	for _, nodeType := range tlsCertificateNodeTypes(instance) {
+		secretName := utils.GetTLSSecretName(instance.Name, nodeType)
 		secret := &corev1.Secret{}
 		if err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: instance.Namespace}, secret); err != nil {
 			return fmt.Errorf("secret %s not found: %w", secretName, err)
@@ -2031,7 +2168,16 @@ func (r *RayClusterReconciler) calculateStatus(ctx context.Context, instance *ra
 	newInstance.Status.DesiredGPU = sumGPUs(totalResources)
 	newInstance.Status.DesiredTPU = totalResources[corev1.ResourceName("google.com/tpu")]
 
-	if reconcileErr == nil && len(runtimePods.Items) == int(newInstance.Status.DesiredWorkerReplicas)+1 { // workers + 1 head
+	// Count dedicated autoscaler Pods so the Ready check below accounts for them; a
+	// crashing autoscaler Pod makes the cluster not Ready, which surfaces the failure.
+	autoscalerPodCount := 0
+	for _, pod := range runtimePods.Items {
+		if pod.Labels[utils.RayNodeTypeLabelKey] == string(rayv1.AutoscalerNode) {
+			autoscalerPodCount++
+		}
+	}
+
+	if reconcileErr == nil && len(runtimePods.Items) == int(newInstance.Status.DesiredWorkerReplicas)+1+autoscalerPodCount { // workers + 1 head + autoscaler Pods
 		if utils.CheckAllPodsRunning(ctx, runtimePods) {
 			newInstance.Status.State = rayv1.Ready
 			newInstance.Status.Reason = ""

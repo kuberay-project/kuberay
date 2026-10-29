@@ -977,6 +977,43 @@ func TestValidateRayClusterSpecAutoscaler(t *testing.T) {
 				KUBERAY_GEN_AUTOSCALER_START_CMD,
 			),
 		},
+		"should return error if gcsForwarding is set while standalone is false": {
+			spec: rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Standalone:    new(false),
+					GCSForwarding: new(true),
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: podTemplateSpec(nil, nil),
+				},
+			},
+			expectedErr: "autoscalerOptions.gcsForwarding has no effect when autoscalerOptions.standalone is false",
+		},
+		"should not return error for standalone autoscaler with explicit gcsForwarding": {
+			spec: rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Standalone:    new(true),
+					GCSForwarding: new(true),
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: podTemplateSpec(nil, nil),
+				},
+			},
+		},
+		"should not return error for standalone autoscaler with gcsForwarding disabled": {
+			spec: rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Standalone:    new(true),
+					GCSForwarding: new(false),
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: podTemplateSpec(nil, nil),
+				},
+			},
+		},
 	}
 
 	features.SetFeatureGateDuringTest(t, features.RayJobDeletionPolicy, true)
@@ -995,6 +1032,30 @@ func TestValidateRayClusterSpecAutoscaler(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateRayClusterSpecGCSForwardingWithTLS(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
+
+	spec := rayv1.RayClusterSpec{
+		EnableInTreeAutoscaling: new(true),
+		TLSOptions:              &rayv1.TLSOptions{Enabled: new(true)},
+		AutoscalerOptions: &rayv1.AutoscalerOptions{
+			Standalone:    new(true),
+			GCSForwarding: new(true),
+		},
+		HeadGroupSpec: rayv1.HeadGroupSpec{
+			Template: podTemplateSpec(nil, nil),
+		},
+	}
+
+	err := ValidateRayClusterSpec(&spec, nil)
+	require.ErrorContains(t, err, "autoscalerOptions.gcsForwarding is incompatible with tlsOptions")
+
+	// With TLS enabled and gcsForwarding unset, the standalone autoscaler falls back to
+	// --gcs-address, which is a valid combination.
+	spec.AutoscalerOptions.GCSForwarding = nil
+	require.NoError(t, ValidateRayClusterSpec(&spec, nil))
 }
 
 // TestValidateRayClusterSpecAutoscaler_FlexibleRestartPolicy tests that when Ray version is

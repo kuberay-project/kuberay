@@ -1104,6 +1104,120 @@ func TestIsAutoscalingEnabled(t *testing.T) {
 	}
 }
 
+func TestIsAutoscalerStandalone(t *testing.T) {
+	tests := map[string]struct {
+		spec     *rayv1.RayClusterSpec
+		expected bool
+	}{
+		"should be false when spec is nil": {
+			spec:     nil,
+			expected: false,
+		},
+		"should be false when autoscaler options is nil": {
+			spec:     &rayv1.RayClusterSpec{},
+			expected: false,
+		},
+		"should be false when standalone is unset": {
+			spec:     &rayv1.RayClusterSpec{AutoscalerOptions: &rayv1.AutoscalerOptions{}},
+			expected: false,
+		},
+		"should be true when standalone is true": {
+			spec:     &rayv1.RayClusterSpec{AutoscalerOptions: &rayv1.AutoscalerOptions{Standalone: new(true)}},
+			expected: true,
+		},
+		"should be false when standalone is false": {
+			spec:     &rayv1.RayClusterSpec{AutoscalerOptions: &rayv1.AutoscalerOptions{Standalone: new(false)}},
+			expected: false,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, IsAutoscalerStandalone(tc.spec))
+		})
+	}
+}
+
+func TestIsGCSForwardingEnabled(t *testing.T) {
+	autoscalingSpec := func() *rayv1.RayClusterSpec {
+		return &rayv1.RayClusterSpec{
+			EnableInTreeAutoscaling: new(true),
+			AutoscalerOptions:       &rayv1.AutoscalerOptions{Standalone: new(true)},
+		}
+	}
+	sidecarSpec := func() *rayv1.RayClusterSpec {
+		return &rayv1.RayClusterSpec{
+			EnableInTreeAutoscaling: new(true),
+			AutoscalerOptions:       &rayv1.AutoscalerOptions{Standalone: new(false)},
+		}
+	}
+
+	tests := map[string]struct {
+		spec     *rayv1.RayClusterSpec
+		tls      bool
+		expected bool
+	}{
+		"should be false when autoscaling is disabled": {
+			spec:     &rayv1.RayClusterSpec{EnableInTreeAutoscaling: new(false)},
+			expected: false,
+		},
+		"should be true when autoscaling is enabled without TLS (forwarding works with any Ray version)": {
+			spec:     autoscalingSpec(),
+			expected: true,
+		},
+		"should be false when the autoscaler runs as a sidecar": {
+			spec:     sidecarSpec(),
+			expected: false,
+		},
+		"should be false when TLS is enabled": {
+			spec:     autoscalingSpec(),
+			tls:      true,
+			expected: false,
+		},
+		"gcsForwarding=false opts into the direct --gcs-address connection": {
+			spec: &rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Standalone:    new(true),
+					GCSForwarding: new(false),
+				},
+			},
+			expected: false,
+		},
+		"gcsForwarding=true keeps the forwarding container": {
+			spec: &rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Standalone:    new(true),
+					GCSForwarding: new(true),
+				},
+			},
+			expected: true,
+		},
+		"TLS always wins over a gcsForwarding=true request": {
+			spec: &rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Standalone:    new(true),
+					GCSForwarding: new(true),
+				},
+			},
+			tls:      true,
+			expected: false,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if tc.tls {
+				features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
+				tc.spec.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+			}
+			assert.Equal(t, tc.expected, IsGCSForwardingEnabled(tc.spec))
+		})
+	}
+}
+
 func TestIsAutoscalingV2Enabled(t *testing.T) {
 	tests := map[string]struct {
 		spec     *rayv1.RayClusterSpec

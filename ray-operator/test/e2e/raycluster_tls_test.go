@@ -434,7 +434,10 @@ func TestRayClusterTLSEdgeCases(t *testing.T) {
 		clusterName := "tls-autoscaler"
 		spec := NewRayClusterSpecWithMTLS().
 			WithRayVersion(GetRayVersion()).
-			WithEnableInTreeAutoscaling(true)
+			WithEnableInTreeAutoscaling(true).
+			// The dedicated autoscaler connects to GCS via --gcs-address when TLS is
+			// enabled, which requires a nightly Ray image (ray-project/ray#65894).
+			WithAutoscalerOptions(rayv1ac.AutoscalerOptions().WithStandalone(true))
 
 		rayClusterAC := rayv1ac.RayCluster(clusterName, namespace.Name).WithSpec(spec)
 		rayCluster, err := test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), rayClusterAC, TestApplyOptions)
@@ -447,24 +450,34 @@ func TestRayClusterTLSEdgeCases(t *testing.T) {
 		headPod, err := GetHeadPod(test, rayCluster)
 		g.Expect(err).NotTo(HaveOccurred())
 
-		// The autoscaler sidecar is injected as a second container.
-		// Find it and verify it has TLS config too.
-		g.Expect(len(headPod.Spec.Containers)).To(BeNumerically(">", 1),
-			"head pod should have more than 1 container when autoscaler is enabled")
+		// With standalone enabled the autoscaler runs as a dedicated Pod and the head
+		// Pod keeps a single Ray container.
+		g.Expect(headPod.Spec.Containers).To(HaveLen(1),
+			"head pod should only have the Ray container when the autoscaler runs as a dedicated Pod")
 
 		// Verify the Ray container has TLS
 		verifyContainerTLSEnvVars(g, &headPod.Spec.Containers[utils.RayContainerIndex])
 
-		// Verify the autoscaler sidecar also has TLS env vars
-		for i := 1; i < len(headPod.Spec.Containers); i++ {
-			container := &headPod.Spec.Containers[i]
+		// The dedicated autoscaler Pod must exist and be configured for mTLS with its
+		// own client certificate.
+		var autoscalerPod *corev1.Pod
+		g.Eventually(func(gg Gomega) {
+			var err error
+			autoscalerPod, err = GetAutoscalerPod(test, rayCluster)
+			gg.Expect(err).NotTo(HaveOccurred())
+		}, TestTimeoutMedium).Should(Succeed())
+		for i := range autoscalerPod.Spec.Containers {
+			container := &autoscalerPod.Spec.Containers[i]
 			verifyContainerTLSEnvVars(g, container)
 			LogWithTimestamp(t, "Autoscaler container %s has TLS env vars", container.Name)
 		}
 
-		// Verify TLS volume mount exists on the pod with the head secret.
+		// Verify TLS volume mounts: the head Pod mounts the head certificate, and the
+		// dedicated autoscaler Pod mounts its own client certificate.
 		headSecretName := fmt.Sprintf("%s-%s", utils.RayHeadSecretPrefix, clusterName)
 		verifyTLSVolumeMount(g, headPod, headSecretName)
+		autoscalerSecretName := utils.GetTLSSecretName(clusterName, rayv1.AutoscalerNode)
+		verifyTLSVolumeMount(g, autoscalerPod, autoscalerSecretName)
 
 		LogWithTimestamp(t, "Autoscaler TLS verified for cluster %s", clusterName)
 	})
@@ -572,6 +585,9 @@ func TestRayClusterTLSAutoscalerScaleUp(t *testing.T) {
 		WithRayVersion(GetRayVersion()).
 		WithEnableInTreeAutoscaling(true).
 		WithTLSOptions(rayv1ac.TLSOptions().WithEnabled(true)).
+		// The dedicated autoscaler connects to GCS via --gcs-address when TLS is
+		// enabled, which requires a nightly Ray image (ray-project/ray#65894).
+		WithAutoscalerOptions(rayv1ac.AutoscalerOptions().WithStandalone(true)).
 		WithHeadGroupSpec(rayv1ac.HeadGroupSpec().
 			WithRayStartParams(map[string]string{"num-cpus": "0"}).
 			WithTemplate(HeadPodTemplateApplyConfiguration())).

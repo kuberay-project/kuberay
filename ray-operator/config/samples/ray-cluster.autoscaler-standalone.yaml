@@ -1,0 +1,97 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-autoscaler-standalone
+spec:
+  # The version of Ray you are using. Make sure all Ray containers are running this version of Ray.
+  rayVersion: "2.59.0"
+  # If `enableInTreeAutoscaling` is true, KubeRay runs the Ray autoscaler for this cluster.
+  # Ray Autoscaler integration is Beta with KubeRay >= 0.3.0 and Ray >= 2.0.0.
+  enableInTreeAutoscaling: true
+  autoscalerOptions:
+    # `standalone` controls where the autoscaler runs. When unset or false (the
+    # default), the autoscaler runs as a sidecar container in the head Pod (the
+    # legacy layout). Set it to true, as shown here, to run the autoscaler as a
+    # dedicated Pod so the head Pod no longer needs the autoscaler's Kubernetes
+    # RBAC permissions:
+    standalone: true
+    #
+    # `gcsForwarding` controls how the standalone autoscaler reaches the head GCS:
+    #   - unset or true (default without TLS): a TCP forwarding (socat) container
+    #     is added to the autoscaler Pod so it reaches GCS via its own Pod IP,
+    #     which works with ANY Ray version.
+    #   - false: the autoscaler connects directly via `--gcs-address`, which
+    #     requires a Ray image containing
+    #     https://github.com/ray-project/ray/pull/65894 (master/nightly only).
+    #     This is the only mode used when TLS is enabled.
+    # gcsForwarding: true
+    #
+    # `gcsForwardingImage` optionally overrides the forwarding container image
+    # (default "alpine/socat:1.8.0.1"), e.g. for clusters without public registry access.
+    # The operator-level environment variable KUBERAY_GCS_FORWARDING_IMAGE sets the
+    # default for all clusters; this field takes precedence over it:
+    # gcsForwardingImage: "my-registry.example.com/alpine/socat:1.8.0.1"
+    #
+    # The dedicated autoscaler Pod reuses the head group's scheduling fields
+    # (nodeSelector, affinity, tolerations, ...) and requests/limits 250m CPU and
+    # 256Mi memory by default. Raise them for clusters with many nodes:
+    # resources:
+    #   limits:
+    #     cpu: "500m"
+    #     memory: "512Mi"
+    #   requests:
+    #     cpu: "500m"
+    #     memory: "512Mi"
+    upscalingMode: Default
+    idleTimeoutSeconds: 60
+    imagePullPolicy: IfNotPresent
+    securityContext: {}
+    env: []
+    envFrom: []
+  # Ray head pod template
+  headGroupSpec:
+    rayStartParams:
+      # Setting "num-cpus: 0" to avoid any Ray actors or tasks being scheduled on the Ray head Pod.
+      num-cpus: "0"
+    # Pod template
+    template:
+      spec:
+        containers:
+        # The Ray head container
+        - name: ray-head
+          image: rayproject/ray:2.59.0
+          ports:
+          - containerPort: 6379
+            name: gcs
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+  workerGroupSpecs:
+  # the Pod replicas in this group typed worker
+  - replicas: 0
+    minReplicas: 0
+    maxReplicas: 10
+    # logical group name, for this called small-group, also can be functional
+    groupName: small-group
+    rayStartParams: {}
+    # Pod template
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.59.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"
