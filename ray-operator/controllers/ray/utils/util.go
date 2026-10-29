@@ -1093,7 +1093,7 @@ func GetRayDashboardClientFunc(ctx context.Context, mgr manager.Manager, useKube
 
 			tokenBytes, exists := secret.Data[RAY_AUTH_TOKEN_SECRET_KEY]
 			if !exists {
-				return nil, fmt.Errorf("auth token key '%q' not found in secret %s/%s", RAY_AUTH_TOKEN_SECRET_KEY, rayCluster.Namespace, secretName)
+				return nil, fmt.Errorf("auth token key %q not found in secret %s/%s", RAY_AUTH_TOKEN_SECRET_KEY, rayCluster.Namespace, secretName)
 			}
 
 			authToken = string(tokenBytes)

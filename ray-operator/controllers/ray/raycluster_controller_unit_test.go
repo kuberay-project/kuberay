@@ -3910,7 +3910,7 @@ func TestReconcile_AuthSecret(t *testing.T) {
 	err = fakeClient.Get(ctx, secretNamespacedName, &secret)
 	require.NoError(t, err, "Fail to get auth Secret after reconciliation")
 
-	decodedBytes, err := base64.StdEncoding.DecodeString(secret.StringData["auth_token"])
+	decodedBytes, err := base64.StdEncoding.DecodeString(secret.StringData[utils.RAY_AUTH_TOKEN_SECRET_KEY])
 	require.NoError(t, err)
 
 	assert.Len(t, decodedBytes, 32)
