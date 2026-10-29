@@ -21,10 +21,3 @@ spec:
             requests:
               cpu: "1"
               memory: "2Gi"
-          ports:
-          - containerPort: 6379
-            name: gcs-server
-          - containerPort: 8265
-            name: dashboard
-          - containerPort: 10001
-            name: client

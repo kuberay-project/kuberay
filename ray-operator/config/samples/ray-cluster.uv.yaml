@@ -21,13 +21,6 @@ spec:
             requests:
               cpu: "1"
               memory: "2Gi"
-          ports:
-          - containerPort: 6379
-            name: gcs-server
-          - containerPort: 8265 # Ray dashboard
-            name: dashboard
-          - containerPort: 10001
-            name: client
           volumeMounts:
           - mountPath: /home/ray/samples
             name: code-sample
