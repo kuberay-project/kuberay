@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
+	"github.com/ray-project/kuberay/historyserver/pkg/historyserver"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 	. "github.com/ray-project/kuberay/historyserver/test/support"
@@ -638,11 +639,21 @@ func enterClusterForOwner(test Test, g *WithT, client *http.Client, historyServe
 	LogWithTimestamp(test.T(), "Setting cluster context: %s", enterURL)
 
 	g.Eventually(func(gg Gomega) {
-		var result map[string]any
-		gg.Expect(json.Unmarshal(getHistoryServerJSON(gg, client, enterURL), &result)).To(Succeed())
-		gg.Expect(result["result"]).To(Equal("success"))
-		gg.Expect(result["name"]).To(Equal(clusterName), "enter_cluster should resolve the owner to its generated cluster")
-		gg.Expect(result["session"]).To(Equal(session))
+		resp, err := client.Get(enterURL)
+		gg.Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close()
+		gg.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		gg.Expect(resp.Header.Get("Content-Type")).To(ContainSubstring("text/html"))
+
+		cookies := map[string]string{}
+		for _, cookie := range resp.Cookies() {
+			cookies[cookie.Name] = cookie.Value
+		}
+		gg.Expect(cookies[historyserver.COOKIE_CLUSTER_NAME_KEY]).To(Equal(clusterName), "enter_cluster should resolve the owner to its generated cluster")
+		gg.Expect(cookies[historyserver.COOKIE_SESSION_NAME_KEY]).To(Equal(session))
+		gg.Expect(cookies[historyserver.COOKIE_CLUSTER_NAMESPACE_KEY]).To(Equal(namespace))
+		gg.Expect(cookies[historyserver.COOKIE_OWNER_KIND_KEY]).To(Equal(ownerKind))
+		gg.Expect(cookies[historyserver.COOKIE_OWNER_NAME_KEY]).To(Equal(ownerName))
 	}, TestTimeoutShort).Should(Succeed())
 }
 

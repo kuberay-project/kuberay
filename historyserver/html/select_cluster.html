@@ -654,6 +654,10 @@
                 showError(null);
                 renderTable();
 
+                // /enter_cluster answers with the HTML bootstrap page, not JSON: the cluster
+                // context rides on its Set-Cookie headers, and fetch() never executes the page
+                // it receives. So once the response is ok the cookies are set and this page
+                // navigates to the dashboard itself.
                 fetch(`/enter_cluster/${namespace}/raycluster/${name}/${session}`)
                     .then(res => {
                         if (!res.ok) {
@@ -661,16 +665,7 @@
                                 throw new Error(body.trim() || `${res.status}: ${res.statusText || 'Error'}`);
                             });
                         }
-                        return res.json();
-                    })
-                    .then(data => {
-                        if (data.result === 'success') {
-                            window.location.href = '/#/overview';
-                        } else {
-                            showError(data.message || "500: Error entering cluster session");
-                            entering = null;
-                            renderTable();
-                        }
+                        window.location.href = '/#/overview';
                     })
                     .catch(err => {
                         showError(err.message || "500: Communication Error");

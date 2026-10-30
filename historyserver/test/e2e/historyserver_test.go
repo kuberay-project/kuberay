@@ -15,6 +15,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/ray-project/kuberay/historyserver/pkg/historyserver"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 	. "github.com/ray-project/kuberay/historyserver/test/support"
@@ -2537,16 +2538,16 @@ func setClusterContext(test Test, g *WithT, client *http.Client, historyServerUR
 		defer resp.Body.Close()
 		gg.Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-		body, err := io.ReadAll(resp.Body)
-		gg.Expect(err).NotTo(HaveOccurred())
-
-		var result map[string]any
-		err = json.Unmarshal(body, &result)
-		gg.Expect(err).NotTo(HaveOccurred())
-		gg.Expect(result["result"]).To(Equal("success"))
-		gg.Expect(result["name"]).To(Equal(clusterName))
-		gg.Expect(result["namespace"]).To(Equal(namespace))
-		gg.Expect(result["session"]).To(Equal(session))
+		// The cluster context rides on the response cookies: the body is the bootstrap
+		// page that hands the URL fragment over to the dashboard root client-side.
+		gg.Expect(resp.Header.Get("Content-Type")).To(ContainSubstring("text/html"))
+		cookies := map[string]string{}
+		for _, cookie := range resp.Cookies() {
+			cookies[cookie.Name] = cookie.Value
+		}
+		gg.Expect(cookies[historyserver.COOKIE_CLUSTER_NAME_KEY]).To(Equal(clusterName))
+		gg.Expect(cookies[historyserver.COOKIE_CLUSTER_NAMESPACE_KEY]).To(Equal(namespace))
+		gg.Expect(cookies[historyserver.COOKIE_SESSION_NAME_KEY]).To(Equal(session))
 	}, TestTimeoutShort).Should(Succeed())
 }
 

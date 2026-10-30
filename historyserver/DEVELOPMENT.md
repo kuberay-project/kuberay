@@ -149,12 +149,15 @@ Substitute your real `<SELECTED_SESSION_ID>` (the URL addresses the cluster by i
 RayJob, so no generated cluster name is needed):
 
 ```text
-http://localhost:8265/enter_cluster/default/rayjob/rayjob-historyserver/<SELECTED_SESSION_ID>
+http://localhost:8265/enter_cluster/default/rayjob/rayjob-historyserver/<SELECTED_SESSION_ID>/#/overview
 ```
 
-A successful request produces output like the following:
+A successful request sets the cluster context cookies and automatically opens the Dashboard
+Overview page. The response is an HTML bootstrap page, rather than the previous JSON response.
+The URL fragment selects the dashboard page without a server-side redirect.
 
-![enter_cluster_dead](https://github.com/ray-project/kuberay/blob/40bf59590022c459086629e56b96444297c507d1/historyserver/docs/assets/enter_cluster_dead.png)
+Scripts that need the previous JSON response can send `Accept: application/json`; use
+`curl -c cookies.txt` to save the context cookies.
 
 Once set up, you can hit any endpoint via the Ray Dashboard. Take `http://localhost:8265/#/cluster` as an example:
 
@@ -173,12 +176,10 @@ kubectl wait rayjob/rayjob-historyserver --for=jsonpath='{.status.jobStatus}=SUC
 In the browser, switch to the live session by visiting:
 
 ```text
-http://localhost:8265/enter_cluster/default/rayjob/rayjob-historyserver/live
+http://localhost:8265/enter_cluster/default/rayjob/rayjob-historyserver/live/#/overview
 ```
 
-The result should look like the following:
-
-![enter_cluster_live](https://github.com/ray-project/kuberay/blob/40bf59590022c459086629e56b96444297c507d1/historyserver/docs/assets/enter_cluster_live.png)
+The browser automatically opens the Dashboard Overview page with the live session context applied.
 
 Now open `http://localhost:8265/#/cluster`. Unlike Step 7, the History Server reverse-proxies each API
 call to the live RayCluster's head dashboard service, so you see real-time state instead of replay:

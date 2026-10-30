@@ -173,6 +173,10 @@ SESSION="session_2026-01-11_19-38-40_146706_1"  # Replace with actual session
 curl -c ~/cookies.txt "http://localhost:8080/enter_cluster/default/rayjob/rayjob-historyserver/$SESSION"
 ```
 
+The response body is an HTML page that forwards a browser to the dashboard (the URL
+fragment picks the landing page); with `curl` you only need the cookies it sets,
+saved by `-c`.
+
 ### Dead Cluster Endpoints
 
 ```bash
