@@ -3150,6 +3150,35 @@ func TestBuildCollectorContainerAndPodInjection(t *testing.T) {
 	assert.Equal(t, utils.DEFAULT_RAY_EXPOSABLE_EVENT_TYPES, workerEventTypesV2Env.Value)
 }
 
+func TestBuildCollectorContainerSecurityContext(t *testing.T) {
+	fqdnRayIP := "test-cluster-head-svc.default.svc.cluster.local"
+	baseOptions := func() *rayv1.CollectorOptions {
+		return &rayv1.CollectorOptions{
+			Image: new("quay.io/kuberay/collector:latest"),
+			Env: []corev1.EnvVar{
+				{Name: "STORAGE_BACKEND", Value: "GCS"},
+				{Name: "GCS_BUCKET", Value: "my-bucket"},
+			},
+		}
+	}
+
+	t.Run("nil SecurityContext is not set on container", func(t *testing.T) {
+		opts := baseOptions()
+		container := BuildCollectorContainer(opts, rayv1.HeadNode, "cluster", "default", fqdnRayIP, nil)
+		assert.Nil(t, container.SecurityContext)
+	})
+
+	t.Run("SecurityContext is applied to container", func(t *testing.T) {
+		opts := baseOptions()
+		opts.SecurityContext = &corev1.SecurityContext{
+			RunAsUser:    new(int64(0)),
+			RunAsNonRoot: new(false),
+		}
+		container := BuildCollectorContainer(opts, rayv1.HeadNode, "cluster", "default", fqdnRayIP, nil)
+		assert.Equal(t, opts.SecurityContext, container.SecurityContext)
+	})
+}
+
 func TestIsNPUResourceKey(t *testing.T) {
 	tests := []struct {
 		name        string

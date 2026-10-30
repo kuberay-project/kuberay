@@ -1145,6 +1145,7 @@ func BuildCollectorContainer(collectorOptions *rayv1.CollectorOptions, nodeType 
 		Image:           image,
 		ImagePullPolicy: pullPolicy,
 		Resources:       resources,
+		SecurityContext: collectorOptions.SecurityContext,
 		Env: []corev1.EnvVar{
 			{
 				Name: utils.POD_IP,
