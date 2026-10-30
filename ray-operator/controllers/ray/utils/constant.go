@@ -513,6 +513,7 @@ const (
 	UpdatedGateway                  K8sEventType = "UpdatedGateway"
 	UpdatedHTTPRoute                K8sEventType = "UpdatedHTTPRoute"
 	UpdatedServeApplications        K8sEventType = "UpdatedServeApplications"
+	RetriedServeApplications        K8sEventType = "RetriedServeApplications"
 	UpdatedServeTargetCapacity      K8sEventType = "UpdatedServeTargetCapacity"
 	FailedToUpdateHeadPodServeLabel K8sEventType = "FailedToUpdateHeadPodServeLabel"
 	FailedToUpdateServeApplications K8sEventType = "FailedToUpdateServeApplications"
