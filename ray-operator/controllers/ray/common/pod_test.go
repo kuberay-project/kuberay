@@ -3175,9 +3175,7 @@ func TestBuildCollectorContainerSecurityContext(t *testing.T) {
 			RunAsNonRoot: new(false),
 		}
 		container := BuildCollectorContainer(opts, rayv1.HeadNode, "cluster", "default", fqdnRayIP, nil)
-		require.NotNil(t, container.SecurityContext)
-		assert.Equal(t, int64(0), *container.SecurityContext.RunAsUser)
-		assert.False(t, *container.SecurityContext.RunAsNonRoot)
+		assert.Equal(t, opts.SecurityContext, container.SecurityContext)
 	})
 }
 
