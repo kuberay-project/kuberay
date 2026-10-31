@@ -18,12 +18,12 @@ jobs:
         script: core.setFailed('This action can only be run on tags')
 
     - name: Set up Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: v1.26
 
     - name: Check out code into the Go module directory
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
 
@@ -113,12 +113,12 @@ jobs:
         script: core.setFailed('This action can only be run on tags')
 
     - name: Set up Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: v1.26
 
     - name: Check out code into the Go module directory
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
 
@@ -220,7 +220,7 @@ jobs:
         script: core.setFailed('This action can only be run on tags')
 
     - name: Check out code into dashboard directory
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
 
@@ -266,12 +266,12 @@ jobs:
         script: core.setFailed('This action can only be run on tags')
 
     - name: Set up Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: v1.26
 
     - name: Check out code into the Go module directory
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
 
@@ -345,12 +345,12 @@ jobs:
         script: core.setFailed('This action can only be run on tags')
 
     - name: Set up Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: v1.26
 
     - name: Check out code into the Go module directory
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
 
