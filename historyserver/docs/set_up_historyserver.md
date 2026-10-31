@@ -90,6 +90,23 @@ kubectl port-forward svc/historyserver 8080:30080
 > 404; enter the cluster with `?reload=true` to pick up newer uploads. To proxy requests to the
 > live Ray Dashboard instead, set `--enable-live-clusters=true`.
 
+#### Configuring Log Line Limits
+
+For stored logs requested through `/api/v0/logs/file` with a nonnegative `lines` value
+(the default is 1000), `--max-log-line-bytes` sets the maximum Scanner buffer size.
+It defaults to **1 MiB (1,048,576 bytes)** and must be a positive integer. For example,
+`--max-log-line-bytes=4194304` allows a buffer of up to 4 MiB for multi-megabyte JSON log lines.
+
+The buffer must include space for line delimiters: with the default limit, a line containing
+exactly 1 MiB of content followed by LF exceeds the limit; 1 MiB minus one byte followed by LF
+fits. A CRLF delimiter needs two bytes. Log lines exceeding the limit cause the request to fail
+with HTTP 500 and `bufio.Scanner: token too long`; they are not silently truncated or skipped.
+Requests with `lines=-1` read the entire log without using Scanner and are not subject to this limit.
+
+Scanner starts with a buffer of at most 64 KiB and grows as needed. This setting is **not a total
+request memory budget**: retained lines, storage reads, and the response also consume memory.
+Increasing the limit can increase memory usage, especially with concurrent requests or large line counts.
+
 #### Run History Server Outside the Kind Cluster
 
 You can also run the history server outside the Kind cluster to accelerate the development iteration and enable

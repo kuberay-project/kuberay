@@ -15,9 +15,10 @@ import (
 )
 
 type ServerHandler struct {
-	maxClusters  int
-	rootDir      string
-	dashboardDir string
+	maxClusters     int
+	maxLogLineBytes int
+	rootDir         string
+	dashboardDir    string
 
 	reader        storage.StorageReader
 	clientManager *ClientManager
@@ -39,13 +40,22 @@ func NewServerHandler(
 	useAuthTokenMode bool,
 	enableLiveClusters bool,
 ) (*ServerHandler, error) {
+	maxLogLineBytes := c.MaxLogLineBytes
+	if maxLogLineBytes < 0 {
+		return nil, fmt.Errorf("max log line bytes must be positive, got %d", maxLogLineBytes)
+	}
+	if maxLogLineBytes == 0 {
+		maxLogLineBytes = DefaultMaxLogLineBytes
+	}
+
 	handler := &ServerHandler{
 		reader:        reader,
 		clientManager: clientManager,
 		sessionLoader: sessionLoader,
 
-		rootDir:      c.RootDir,
-		dashboardDir: dashboardDir,
+		rootDir:         c.RootDir,
+		dashboardDir:    dashboardDir,
+		maxLogLineBytes: maxLogLineBytes,
 		// TODO: make this configurable
 		maxClusters: 100,
 
