@@ -39,6 +39,11 @@ const (
 	// MAX_LOG_LIMIT is the maximum number of lines that can be requested.
 	// Requests exceeding this limit will be capped to this value.
 	MAX_LOG_LIMIT = 10000
+
+	// DefaultMaxLogLineBytes is the default Scanner buffer limit for log lines.
+	// The buffer must also accommodate line delimiters; this is not a limit on
+	// the memory used by an entire log request.
+	DefaultMaxLogLineBytes = 1024 * 1024
 )
 
 // ANSI escape code pattern for filtering colored output from logs
@@ -348,7 +353,12 @@ func (s *ServerHandler) _getNodeLogFile(clusterSessionKey, clusterLogPathPrefix,
 		maxLines = MAX_LOG_LIMIT
 	}
 
+	maxLogLineBytes := s.maxLogLineBytes
+	if maxLogLineBytes == 0 {
+		maxLogLineBytes = DefaultMaxLogLineBytes
+	}
 	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, min(64*1024, maxLogLineBytes)), maxLogLineBytes)
 	buffer := make([]string, maxLines)
 	index := 0
 	totalLines := 0

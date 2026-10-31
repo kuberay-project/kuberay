@@ -8,6 +8,9 @@ import (
 
 type RayHistoryServerConfig struct {
 	RootDir string
+	// MaxLogLineBytes limits the Scanner buffer for log lines, including delimiters.
+	// Zero uses the history server default. Negative values are invalid.
+	MaxLogLineBytes int
 }
 
 type RayCollectorConfig struct {

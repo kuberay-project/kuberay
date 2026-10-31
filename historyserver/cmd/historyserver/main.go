@@ -32,6 +32,7 @@ func main() {
 	sessionCacheSize := historyserver.DefaultSessionCacheSize
 	sessionCacheMaxMemory := historyserver.DefaultSessionCacheMaxMemory
 	sessionCacheTTL := historyserver.DefaultSessionCacheTTL
+	maxLogLineBytes := historyserver.DefaultMaxLogLineBytes
 	flag.StringVar(&storageBackend, "storage-backend", "", "Storage backend: s3 / gcs / azureblob / aliyunoss / localtest")
 	flag.StringVar(&storageRootDir, "storage-root-dir", "", "The root dir inside the bucket")
 	flag.StringVar(&kubeconfigs, "kubeconfigs", "", "Kubeconfig path; empty = in-cluster")
@@ -46,7 +47,12 @@ func main() {
 	flag.IntVar(&sessionCacheSize, "session-cache-size", historyserver.DefaultSessionCacheSize, "Max number of dead-session snapshots held in the LRU cache.")
 	flag.StringVar(&sessionCacheMaxMemory, "session-cache-max-memory", historyserver.DefaultSessionCacheMaxMemory, `Soft cap on memory held by cached snapshots, as a Kubernetes quantity (e.g. "1Gi"); tune under pod memory. "0" disables the bound.`)
 	flag.DurationVar(&sessionCacheTTL, "session-cache-ttl", historyserver.DefaultSessionCacheTTL, "How long a dead-session snapshot stays cached after last access. 0 disables TTL.")
+	flag.IntVar(&maxLogLineBytes, "max-log-line-bytes", historyserver.DefaultMaxLogLineBytes, "Maximum Scanner buffer size in bytes for log lines, including delimiters; must be > 0. Does not apply to lines=-1 or cap total request memory.")
 	flag.Parse()
+
+	if maxLogLineBytes <= 0 {
+		logrus.Fatalf("--max-log-line-bytes must be > 0, got %d", maxLogLineBytes)
+	}
 
 	if val := os.Getenv("STORAGE_BACKEND"); val != "" {
 		storageBackend = val
@@ -110,7 +116,8 @@ func main() {
 	}
 
 	globalConfig := types.RayHistoryServerConfig{
-		RootDir: storageRootDir,
+		RootDir:         storageRootDir,
+		MaxLogLineBytes: maxLogLineBytes,
 	}
 
 	reader, err := factory(&globalConfig, jsonData)
