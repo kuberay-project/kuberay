@@ -174,6 +174,10 @@ func (r *RayDashboardClient) GetJobInfo(ctx context.Context, jobId string) (*uti
 		return nil, fmt.Errorf("failed to read response when getting job info: %w", err)
 	}
 
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("GetJobInfo fail: %s %s", resp.Status, string(body))
+	}
+
 	var jobInfo utiltypes.RayJobInfo
 	if err = json.Unmarshal(body, &jobInfo); err != nil {
 		// Maybe body is not valid json, raise an error with the body.
