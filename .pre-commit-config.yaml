@@ -1,6 +1,6 @@
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
-exclude: _generated.go$|\.svg$|^third_party/|^proto/swagger/|^apiserver/pkg/swagger/datafile.go$|^docs/reference/api.md$|^config/grafana/|^dashboard/\.yarn/releases/yarn-.*\.cjs$
+exclude: _generated.go$|\.svg$|^third_party/|^proto/swagger/|^apiserver/pkg/swagger/datafile.go$|^docs/reference/api(-ray-docs)?\.md$|^config/grafana/|^dashboard/\.yarn/releases/yarn-.*\.cjs$
 
 default_language_version:
   golang: 1.26.0

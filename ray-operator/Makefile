@@ -186,6 +186,12 @@ api-docs: crd-ref-docs ## Generate CRD documentation.
     --source-path=./apis/ray \
     --renderer=markdown \
     --output-path=../docs/reference/api.md
+	$(CRD_REF_DOCS) \
+    --config=./hack/config.yaml \
+    --source-path=./apis/ray/v1 \
+    --renderer=markdown \
+    --templates-dir=./hack/api-docs-templates/ray-docs \
+    --output-path=../docs/reference/api-ray-docs.md
 
 certmanager:
 	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.19.4/cert-manager.yaml
