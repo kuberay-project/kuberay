@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -209,8 +211,39 @@ var (
 	ErrFQRayIPNotSet = errors.New("FQ_RAY_IP environment variable is not set")
 )
 
-// FetchCurrentNodeID performs a single non-blocking query to discover the active Ray NodeID for the current Pod IP.
+const rayletNodeIDFileName = "raylet_node_id"
+
+// rayletNodeIDRegex matches a complete Ray node ID: 28 bytes, hex-encoded.
+var rayletNodeIDRegex = regexp.MustCompile(`^[0-9a-fA-F]{56}$`)
+
+// ReadLocalNodeID reads the Ray node ID published at {RAY_TMP_ROOT}/raylet_node_id.
+// A lifecycle hook on the Ray container can publish the ID there by inspecting its
+// own raylet process, letting every collector discover its node ID without touching
+// the head dashboard: per-pod /api/v0/nodes lookups multiply with cluster size into
+// a sustained full-table query load that overloads the dashboard's StateHead.
+func ReadLocalNodeID() (string, error) {
+	path := filepath.Join(GetTmpRayRoot(), rayletNodeIDFileName)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	id := strings.TrimSpace(string(raw))
+	if !rayletNodeIDRegex.MatchString(id) {
+		return "", fmt.Errorf("%s does not contain a 56-hex ray node ID", path)
+	}
+	return strings.ToLower(id), nil
+}
+
+// FetchCurrentNodeID discovers the active Ray NodeID for the current Pod.
+// It prefers the locally published node ID file and only falls back to a dashboard
+// query when no publisher wrote one. The file is authoritative for the container's
+// lifetime: an in-process Ray restart that changes the node ID is out of scope,
+// matching the container-restart granularity of the publisher hook.
 func FetchCurrentNodeID() (string, error) {
+	if nodeID, err := ReadLocalNodeID(); err == nil {
+		return nodeID, nil
+	}
+
 	podIP := os.Getenv("POD_IP")
 	if podIP == "" {
 		return "", ErrPodIPNotSet
@@ -232,8 +265,20 @@ func FetchCurrentNodeID() (string, error) {
 		}
 		addr += ":" + port
 	}
-	endpoint := fmt.Sprintf("%s%s/api/v0/nodes?limit=10000", scheme, strings.TrimRight(addr, "/"))
-	client := &http.Client{Timeout: 1 * time.Second}
+	// Filter server-side so StateHead serializes one row instead of the whole
+	// node table; the client-side match below stays as defense in depth.
+	query := url.Values{}
+	query.Add("filter_keys", "node_ip")
+	query.Add("filter_predicates", "=")
+	query.Add("filter_values", podIP)
+	query.Add("filter_keys", "state")
+	query.Add("filter_predicates", "=")
+	query.Add("filter_values", "ALIVE")
+	query.Set("limit", "10")
+	endpoint := fmt.Sprintf("%s%s/api/v0/nodes?%s", scheme, strings.TrimRight(addr, "/"), query.Encode())
+	// A 1s timeout guaranteed failure on a busy dashboard and turned a slow head
+	// into a fleet-wide retry storm; give the fallback a realistic budget.
+	client := &http.Client{Timeout: 10 * time.Second}
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -279,9 +324,11 @@ func GetNodeRayIDWithFQIP() (string, error) {
 			errors.Is(err, errDashboardAuthFailed) || errors.Is(err, errRayAuthConfig) {
 			return "", err
 		}
-		logrus.Warnf("Attempt %d/12 to discover Ray NodeID failed: %v, retrying in 5s", i+1, err)
+		logrus.Warnf("Attempt %d/12 to discover Ray NodeID failed: %v, retrying in 5-10s", i+1, err)
 		lastErr = err
-		time.Sleep(5 * time.Second)
+		// Jitter desynchronizes the fleet: hundreds of workers starting together
+		// would otherwise retry against the dashboard in phase-locked waves.
+		time.Sleep(5*time.Second + rand.N(5*time.Second))
 	}
 	return "", fmt.Errorf("timeout: failed to discover Ray NodeID via HTTP endpoint for Pod IP %s: %w", os.Getenv("POD_IP"), lastErr)
 }
