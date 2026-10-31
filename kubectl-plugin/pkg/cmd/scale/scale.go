@@ -23,5 +23,6 @@ func NewScaleCommand(cmdFactory cmdutil.Factory, streams genericclioptions.IOStr
 	}
 
 	cmd.AddCommand(NewScaleClusterCommand(cmdFactory, streams))
+	cmd.AddCommand(NewScaleRayServiceCommand(cmdFactory, streams))
 	return cmd
 }
