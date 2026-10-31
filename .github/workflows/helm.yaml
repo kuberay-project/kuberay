@@ -57,7 +57,19 @@ jobs:
           python-version: 3.13
 
       - name: Install Helm unittest plugin
-        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git --version 0.8.1
+        run: |
+          for attempt in 1 2 3; do
+            if helm plugin install https://github.com/helm-unittest/helm-unittest.git --version 0.8.1; then
+              break
+            fi
+            if [[ "$attempt" == 3 ]]; then
+              echo "helm plugin install failed after ${attempt} attempts"
+              exit 1
+            fi
+            echo "helm plugin install failed (attempt ${attempt}/3), retrying in 5s..."
+            helm plugin uninstall unittest || true
+            sleep 5
+          done
 
       - name: Run Helm unittest
         run: helm unittest ${{ env.CHART_DIR }}/${{ matrix.chart }} --file "tests/**/*_test.yaml" --strict --debug
