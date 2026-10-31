@@ -432,26 +432,33 @@ func (options *ClusterLogOptions) downloadRayLogFiles(ctx context.Context, exec 
 		case tar.TypeReg:
 			// Check for overflow: G115
 			if header.Mode < 0 || header.Mode > math.MaxUint32 {
-				fmt.Fprintf(options.ioStreams.Out, "file mode out side of acceptable value %d skipping file\n", header.Mode)
-			}
-			// Create file and write contents
-			outFile, err := os.OpenFile(localFilePath, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode)) //nolint:gosec // overflow is guarded by bounds check above
-			if err != nil {
-				return fmt.Errorf("Error creating file: %w", err)
-			}
-			defer outFile.Close()
-			// This is to limit the copy size for a decompression bomb, currently set arbitrarily
-			for {
-				n, err := io.CopyN(outFile, tarReader, 1000000)
+				fmt.Fprintf(options.ioStreams.Out,
+					"Skipping file %q: mode value %d is outside the valid range for os.FileMode\n",
+					header.Name,
+					header.Mode)
+			} else if err := func() error {
+				outFile, err := os.OpenFile(localFilePath, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode)) //nolint:gosec // mode is range-checked above
 				if err != nil {
-					if errors.Is(err, io.EOF) {
+					return fmt.Errorf("Error creating file: %w", err)
+				}
+				defer outFile.Close()
+
+				// This is to limit the copy size for a decompression bomb, currently set arbitrarily
+				for {
+					n, err := io.CopyN(outFile, tarReader, 1000000)
+					if err != nil {
+						if errors.Is(err, io.EOF) {
+							break
+						}
+						return fmt.Errorf("failed while writing to file: %w", err)
+					}
+					if n == 0 {
 						break
 					}
-					return fmt.Errorf("failed while writing to file: %w", err)
 				}
-				if n == 0 {
-					break
-				}
+				return nil
+			}(); err != nil {
+				return err
 			}
 		default:
 			fmt.Printf("Ignoring unsupported file type: %b", header.Typeflag)
