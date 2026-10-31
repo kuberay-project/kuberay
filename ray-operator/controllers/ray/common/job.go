@@ -86,6 +86,13 @@ func getMetadataJSONForSubmitCommand(rayJobInstance *rayv1.RayJob, metadata map[
 	return pkgutils.ConvertByteSliceToString(metadataBytes), nil
 }
 
+// shellQuote wraps s in single quotes for the `bash -c` submitter command so that the shell passes it
+// through verbatim. Double quotes (strconv.Quote) would still let bash expand `$VAR`, `${VAR}` and
+// backticks inside JSON values such as runtime_env env_vars.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // BuildJobSubmitCommand builds the `ray job submit` command based on submission mode.
 func BuildJobSubmitCommand(rayJobInstance *rayv1.RayJob, submissionMode rayv1.JobSubmissionMode) ([]string, error) {
 	var address string
@@ -179,7 +186,7 @@ func BuildJobSubmitCommand(rayJobInstance *rayv1.RayJob, submissionMode rayv1.Jo
 		return nil, err
 	}
 	if len(runtimeEnvJson) > 0 {
-		cmd = append(cmd, "--runtime-env-json", strconv.Quote(runtimeEnvJson))
+		cmd = append(cmd, "--runtime-env-json", shellQuote(runtimeEnvJson))
 	}
 
 	if len(metadata) > 0 {
@@ -187,7 +194,7 @@ func BuildJobSubmitCommand(rayJobInstance *rayv1.RayJob, submissionMode rayv1.Jo
 		if err != nil {
 			return nil, err
 		}
-		cmd = append(cmd, "--metadata-json", strconv.Quote(metadataJson))
+		cmd = append(cmd, "--metadata-json", shellQuote(metadataJson))
 	}
 
 	if len(jobId) > 0 {
@@ -203,7 +210,7 @@ func BuildJobSubmitCommand(rayJobInstance *rayv1.RayJob, submissionMode rayv1.Jo
 	}
 
 	if len(entrypointResources) > 0 {
-		cmd = append(cmd, "--entrypoint-resources", strconv.Quote(entrypointResources))
+		cmd = append(cmd, "--entrypoint-resources", shellQuote(entrypointResources))
 	}
 
 	// "--" is used to separate the entrypoint from the Ray Job CLI command and its arguments.
