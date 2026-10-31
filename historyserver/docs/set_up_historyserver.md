@@ -246,7 +246,7 @@ curl -b ~/cookies.txt "http://localhost:8080/api/cluster_status"
 ### Live Cluster with prometheus and grafana
 
 ```bash
-# Install prometheus and grafana. ref: https://docs.ray.io/en/latest/cluster/kubernetes/k8s-ecosystem/prometheus-grafana.html#step-2-install-kubernetes-prometheus-stack-via-helm-chart
+# Install prometheus and grafana. ref: https://docs.ray.io/en/latest/kuberay/ecosystem/prometheus-grafana.html#step-2-install-kubernetes-prometheus-stack-via-helm-chart
 ./install/prometheus/install.sh --auto-load-dashboard true
 
 # Apply RayCluster with Grafana setting

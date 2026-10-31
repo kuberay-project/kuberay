@@ -28,7 +28,7 @@ upgradeStrategy: {}
   # Recreate | None
   # type: Recreate
 
-# See https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/kuberay-auth.html
+# See https://docs.ray.io/en/latest/kuberay/user-guides/auth.html
 # for more details.
 # -- Token authentication for the RayCluster.
 authOptions: {}
@@ -41,7 +41,7 @@ authOptions: {}
   # secretName: ray-cluster-token
 
 # gcsFaultTolerance specifies configuration for GCS fault tolerance.
-# See https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/kuberay-gcs-ft.html#kuberay-gcs-ft
+# See https://docs.ray.io/en/latest/kuberay/user-guides/gcs-ft.html#kuberay-gcs-ft
 # for more details.
 gcsFaultTolerance:
   enabled: false
@@ -144,7 +144,7 @@ head:
   # Ray pods should be sized to take up entire K8s nodes when possible.
   # Always set CPU and memory limits for Ray pods.
   # It is usually best to set requests equal to limits.
-  # See https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/config.html#resources
+  # See https://docs.ray.io/en/latest/kuberay/user-guides/config.html#resources
   # for further guidance.
   resources:
     limits:
@@ -234,7 +234,7 @@ head:
   #     - name: edns0
   topologySpreadConstraints: []
 
-  # https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html#set-the-raystartparams-and-the-resource-limits-for-the-ray-container
+  # https://docs.ray.io/en/latest/kuberay/user-guides/configuring-autoscaling.html#set-the-raystartparams-and-the-resource-limits-for-the-ray-container
   rayStartParams: {}
 
 worker:
@@ -286,7 +286,7 @@ worker:
   # Ray pods should be sized to take up entire K8s nodes when possible.
   # Always set CPU and memory limits for Ray pods.
   # It is usually best to set requests equal to limits.
-  # See https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/config.html#resources
+  # See https://docs.ray.io/en/latest/kuberay/user-guides/config.html#resources
   # for further guidance.
   resources:
     limits:
@@ -336,7 +336,7 @@ worker:
   args: []
   topologySpreadConstraints: []
 
-  # https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html#set-the-raystartparams-and-the-resource-limits-for-the-ray-container
+  # https://docs.ray.io/en/latest/kuberay/user-guides/configuring-autoscaling.html#set-the-raystartparams-and-the-resource-limits-for-the-ray-container
   rayStartParams: {}
 
   # Custom pod DNS configuration
@@ -397,7 +397,7 @@ additionalWorkerGroups:
     # Ray pods should be sized to take up entire K8s nodes when possible.
     # Always set CPU and memory limits for Ray pods.
     # It is usually best to set requests equal to limits.
-    # See https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/config.html#resources
+    # See https://docs.ray.io/en/latest/kuberay/user-guides/config.html#resources
     # for further guidance.
     resources:
       limits:
@@ -460,7 +460,7 @@ additionalWorkerGroups:
     #       value: "2"
     #     - name: edns0
 
-    # https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html#set-the-raystartparams-and-the-resource-limits-for-the-ray-container
+    # https://docs.ray.io/en/latest/kuberay/user-guides/configuring-autoscaling.html#set-the-raystartparams-and-the-resource-limits-for-the-ray-container
     rayStartParams: {}
 
 

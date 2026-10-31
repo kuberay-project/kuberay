@@ -23,7 +23,7 @@
 ## KubeRay
 
 > We have moved all documentation to the [ray-project/ray](https://github.com/ray-project/ray) repository.
-Please refer to the [Ray docs](https://docs.ray.io/en/latest/cluster/kubernetes/index.html) for the latest information.
+Please refer to the [Ray docs](https://docs.ray.io/en/latest/kuberay/index.html) for the latest information.
 The [ray-project/kuberay](https://github.com/ray-project/kuberay) repository hosts the KubeRay source code and community information.
 
 KubeRay is a powerful, open-source Kubernetes operator that simplifies the deployment and management of [Ray](https://github.com/ray-project/ray) applications on Kubernetes. It offers several key components:
@@ -40,7 +40,7 @@ KubeRay is a powerful, open-source Kubernetes operator that simplifies the deplo
 
 * **Kubectl Plugin** (Beta): Starting from KubeRay v1.3.0, you can use the `kubectl ray` plugin to simplify
 common workflows when deploying Ray on Kubernetes. If you aren’t familiar with Kubernetes, this
-plugin simplifies running Ray on Kubernetes. See [kubectl-plugin](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/kubectl-plugin.html#kubectl-plugin) for more details.
+plugin simplifies running Ray on Kubernetes. See [kubectl-plugin](https://docs.ray.io/en/latest/kuberay/user-guides/kubectl-plugin.html#kubectl-plugin) for more details.
 
 * **KubeRay APIServer** (Alpha): It provides a layer of simplified configuration for KubeRay resources. The KubeRay API server is used internally
 by some organizations to back user interfaces for KubeRay resource management.

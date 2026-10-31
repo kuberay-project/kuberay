@@ -76,7 +76,7 @@ Prometheus.
 ### Monitoring of the Ray Cluster created by the APIServer
 
 Ray provides
-[documentation](https://docs.ray.io/en/master/cluster/kubernetes/k8s-ecosystem/prometheus-grafana.html#kuberay-prometheus-grafana)
+[documentation](https://docs.ray.io/en/latest/kuberay/ecosystem/prometheus-grafana.html#kuberay-prometheus-grafana)
 describing how to monitor Ray clusters created using the KubeRay operator. As the APIServer is
 using the KubeRay operator to create the cluster, this documentation can be used directly.
 
@@ -92,7 +92,7 @@ kubectl apply -f apiserver/deploy/prometheus/ray_cluster_pod_monitor.yaml
 Now you can go back to the PromQL panel at `http://localhost:9090/`. Go to the Status > Targets
 pane from the top bar, and you should be able to see `podMonitor/prometheus-system/ray-workers-monitor/0` in the list.
 
-Also, take a look at the Ray [documentation](https://docs.ray.io/en/master/cluster/kubernetes/k8s-ecosystem/prometheus-grafana.html#kuberay-prometheus-grafana)
+Also, take a look at the Ray [documentation](https://docs.ray.io/en/latest/kuberay/ecosystem/prometheus-grafana.html#kuberay-prometheus-grafana)
 for additional monitoring features, including recording rules, alerts, and Grafana integration.
 
 ### Clean up

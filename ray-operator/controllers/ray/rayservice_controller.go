@@ -1634,7 +1634,7 @@ func (r *RayServiceReconciler) updateServeDeployment(ctx context.Context, raySer
 		err = fmt.Errorf(
 			"fail to create / update Serve applications. If you observe this error consistently, "+
 				"please check \"Issue 5: Fail to create / update Serve applications.\" in "+
-				"https://docs.ray.io/en/master/cluster/kubernetes/troubleshooting/rayservice-troubleshooting.html#kuberay-raysvc-troubleshoot for more details. "+
+				"https://docs.ray.io/en/latest/kuberay/troubleshooting/rayservice-troubleshooting.html#kuberay-raysvc-troubleshoot for more details. "+
 				"err: %v", err)
 		return err
 	}
@@ -1757,7 +1757,7 @@ func (r *RayServiceReconciler) applyServeTargetCapacity(ctx context.Context, ray
 		err = fmt.Errorf(
 			"fail to create / update Serve applications. If you observe this error consistently, "+
 				"please check \"Issue 5: Fail to create / update Serve applications.\" in "+
-				"https://docs.ray.io/en/master/cluster/kubernetes/troubleshooting/rayservice-troubleshooting.html#kuberay-raysvc-troubleshoot for more details. "+
+				"https://docs.ray.io/en/latest/kuberay/troubleshooting/rayservice-troubleshooting.html#kuberay-raysvc-troubleshoot for more details. "+
 				"err: %v", err)
 		return err
 	}
@@ -1879,7 +1879,7 @@ func getAndCheckServeStatus(ctx context.Context, dashboardClient dashboardclient
 	if serveAppStatuses, err = dashboardClient.GetMultiApplicationStatus(ctx); err != nil {
 		err = fmt.Errorf(
 			"failed to get Serve application statuses from the dashboard. "+
-				"If you observe this error consistently, please check https://docs.ray.io/en/latest/cluster/kubernetes/troubleshooting/rayservice-troubleshooting.html for more details. "+
+				"If you observe this error consistently, please check https://docs.ray.io/en/latest/kuberay/troubleshooting/rayservice-troubleshooting.html for more details. "+
 				"err: %v", err)
 		return false, nil, err
 	}

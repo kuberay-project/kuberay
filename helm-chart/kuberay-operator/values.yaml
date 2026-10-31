@@ -186,7 +186,7 @@ featureGates:
 
 # Configurations for KubeRay node event forwarder controller.
 # The controller forwards Kubernetes Node events to the corresponding RayCluster custom resources.
-# Ref: https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/k8s-events.html
+# Ref: https://docs.ray.io/en/latest/kuberay/user-guides/k8s-events.html
 # Note: Node event forwarding is not supported when singleNamespaceInstall is true.
 nodeEventForwarder:
   # -- Whether KubeRay operator should forward Kubernetes Node events to RayCluster custom resources. Note: not supported when singleNamespaceInstall is true.

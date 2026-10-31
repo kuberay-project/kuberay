@@ -170,5 +170,5 @@ make clean-cluster
 helm uninstall kuberay-apiserver
 ```
 
-[document]: https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html
+[document]: https://docs.ray.io/en/latest/kuberay/user-guides/configuring-autoscaling.html
 [ConfigMap]: test/cluster/cluster/detachedactor.yaml

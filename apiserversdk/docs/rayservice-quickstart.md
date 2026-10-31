@@ -1,7 +1,7 @@
 # RayService QuickStart
 
 This document explains how to manage and interact with RayService using KubeRay APIServer.
-See [this guide](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayservice-quick-start.html) for more details.
+See [this guide](https://docs.ray.io/en/latest/kuberay/getting-started/rayservice-quick-start.html) for more details.
 
 ## Step 1: Create a Kubernetes cluster
 
