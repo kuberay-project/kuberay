@@ -15,3 +15,6 @@ on the latest release branch. The "Latest Ray Release" will be pulled from Docke
 In the future, if we have a test needs the ray nightly to run, add a step to .buildkite/test-e2e.yaml that
 follows the other steps but sets KUBERAY_TEST_RAY_IMAGE env variable to "rayproject/ray:nightly".
 When ray releases a new version, you can change the step to just use the latest ray release.
+
+<!-- Dummy change to verify the Buildkite pipeline. Do not merge. -->
+<!-- Second dummy change to re-verify the Buildkite pipeline. -->
