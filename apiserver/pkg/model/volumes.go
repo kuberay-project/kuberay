@@ -39,7 +39,7 @@ func PopulateVolumes(podTemplate *corev1.PodTemplateSpec) []*api.Volume {
 			}
 			if len(vol.Secret.Items) > 0 {
 				items := make(map[string]string)
-				for _, element := range vol.ConfigMap.Items {
+				for _, element := range vol.Secret.Items {
 					items[element.Key] = element.Path
 				}
 				volume.Items = items
