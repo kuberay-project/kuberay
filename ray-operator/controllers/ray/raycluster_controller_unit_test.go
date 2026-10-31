@@ -2311,6 +2311,130 @@ func Test_TerminatedHead_RestartPolicy(t *testing.T) {
 	assert.Len(t, podList.Items, 1)
 }
 
+func Test_MultipleHeadPods_DeleteTerminalHeads(t *testing.T) {
+	setupTest(t)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+
+	// Build a second head Pod that shares the head labels with testPods[0].
+	newHeadPod := func(name string, phase corev1.PodPhase) *corev1.Pod {
+		pod := testPods[0].(*corev1.Pod).DeepCopy()
+		pod.Name = name
+		pod.Spec.RestartPolicy = corev1.RestartPolicyNever
+		pod.Status.Phase = phase
+		return pod
+	}
+
+	tests := []struct {
+		name          string
+		heads         []*corev1.Pod
+		wantRemaining []string
+		wantErr       bool
+	}{
+		{
+			name: "all head Pods terminal: delete all of them",
+			heads: []*corev1.Pod{
+				newHeadPod("head-a", corev1.PodFailed),
+				newHeadPod("head-b", corev1.PodFailed),
+			},
+			wantRemaining: []string{},
+			wantErr:       true,
+		},
+		{
+			name: "one healthy head and one failed head: delete only the failed one",
+			heads: []*corev1.Pod{
+				newHeadPod("head-a", corev1.PodRunning),
+				newHeadPod("head-b", corev1.PodFailed),
+			},
+			wantRemaining: []string{"head-a"},
+			wantErr:       true,
+		},
+		{
+			name: "all head Pods healthy: keep existing behavior and delete nothing",
+			heads: []*corev1.Pod{
+				newHeadPod("head-a", corev1.PodRunning),
+				newHeadPod("head-b", corev1.PodRunning),
+			},
+			wantRemaining: []string{"head-a", "head-b"},
+			wantErr:       true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			runtimeObjects := make([]runtime.Object, 0, len(tc.heads))
+			for _, pod := range tc.heads {
+				runtimeObjects = append(runtimeObjects, pod)
+			}
+			cluster := testRayCluster.DeepCopy()
+			cluster.Spec.WorkerGroupSpecs = nil
+			fakeClient := clientFake.NewClientBuilder().
+				WithScheme(newScheme).
+				WithRuntimeObjects(runtimeObjects...).
+				Build()
+			ctx := context.Background()
+
+			testRayClusterReconciler := &RayClusterReconciler{
+				Client:                     fakeClient,
+				Recorder:                   &events.FakeRecorder{},
+				Scheme:                     newScheme,
+				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+			}
+
+			err := testRayClusterReconciler.reconcilePods(ctx, cluster)
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			podList := corev1.PodList{}
+			err = fakeClient.List(ctx, &podList, client.InNamespace(namespaceStr))
+			require.NoError(t, err, "Fail to get pod list")
+			remaining := make([]string, 0, len(podList.Items))
+			for _, pod := range podList.Items {
+				remaining = append(remaining, pod.Name)
+			}
+			assert.ElementsMatch(t, tc.wantRemaining, remaining)
+		})
+	}
+
+	// After all terminal head Pods are removed, the next reconcile creates exactly one new head Pod.
+	t.Run("recovers by creating a single head Pod after terminal heads are deleted", func(t *testing.T) {
+		runtimeObjects := []runtime.Object{
+			newHeadPod("head-a", corev1.PodFailed),
+			newHeadPod("head-b", corev1.PodFailed),
+		}
+		cluster := testRayCluster.DeepCopy()
+		cluster.Spec.WorkerGroupSpecs = nil
+		fakeClient := clientFake.NewClientBuilder().
+			WithScheme(newScheme).
+			WithRuntimeObjects(runtimeObjects...).
+			Build()
+		ctx := context.Background()
+
+		testRayClusterReconciler := &RayClusterReconciler{
+			Client:                     fakeClient,
+			Recorder:                   &events.FakeRecorder{},
+			Scheme:                     newScheme,
+			rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+		}
+
+		err := testRayClusterReconciler.reconcilePods(ctx, cluster)
+		require.Error(t, err)
+
+		err = testRayClusterReconciler.reconcilePods(ctx, cluster)
+		require.NoError(t, err)
+		podList := corev1.PodList{}
+		err = fakeClient.List(ctx, &podList, client.InNamespace(namespaceStr))
+		require.NoError(t, err, "Fail to get pod list")
+		assert.Len(t, podList.Items, 1)
+		assert.NotContains(t, []string{"head-a", "head-b"}, podList.Items[0].Name)
+	})
+}
+
 func Test_RunningPods_RayContainerTerminated(t *testing.T) {
 	setupTest(t)
 
