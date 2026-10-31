@@ -866,15 +866,42 @@ func (s *ServerHandler) getJobs(req *restful.Request, resp *restful.Response) {
 	resp.Write(respData)
 }
 
-// formatJobForResponse will convert eventtypes.Job to the format expected by Ray Dashboard
-func formatJobForResponse(job eventtypes.Job) map[string]any {
-	// If SubmissionID is empty, try to get it from metadata
-	submissionID := job.SubmissionID
-	if submissionID == "" && job.Config.Metadata != nil {
-		if metaSubmissionID, ok := job.Config.Metadata["job_submission_id"]; ok {
-			submissionID = metaSubmissionID
+func getJobSubmissionID(job eventtypes.Job) string {
+	if job.SubmissionID != "" {
+		return job.SubmissionID
+	}
+	return job.Config.Metadata["job_submission_id"]
+}
+
+func findJobByID(jobs map[string]eventtypes.Job, id string) (eventtypes.Job, bool) {
+	if id == "" {
+		return eventtypes.Job{}, false
+	}
+	if job, found := jobs[id]; found {
+		return job, true
+	}
+
+	var result eventtypes.Job
+	var lastDriverID string
+	found := false
+	for coreID, job := range jobs {
+		if getJobSubmissionID(job) != id {
+			continue
+		}
+		// Ray Dashboard selects the last driver by ordered hex core job ID
+		// when multiple drivers belong to the same submission.
+		if !found || coreID > lastDriverID {
+			result = job
+			lastDriverID = coreID
+			found = true
 		}
 	}
+	return result, found
+}
+
+// formatJobForResponse will convert eventtypes.Job to the format expected by Ray Dashboard
+func formatJobForResponse(job eventtypes.Job) map[string]any {
+	submissionID := getJobSubmissionID(job)
 
 	// Determine job status. Prefer the latest StatusTransition (most accurate),
 	// then fall back to job.Status from the definition event, then infer from State.
@@ -953,7 +980,7 @@ func (s *ServerHandler) getJob(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	job, found := snap.Jobs[jobID]
+	job, found := findJobByID(snap.Jobs, jobID)
 	if !found {
 		responseString := fmt.Sprintf("Job %s does not exist", jobID)
 		resp.Write([]byte(responseString))
