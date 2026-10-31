@@ -50,7 +50,8 @@ git clone https://github.com/ray-project/kuberay.git
 cd kuberay
 
 # Spin up a kind cluster.
-kind create cluster --image=kindest/node:v1.29.0
+kind create cluster --image=kindest/node:v1.35.0
+
 
 # Build the KubeRay operator image.
 IMG=kuberay/operator:latest make -C ray-operator docker-build

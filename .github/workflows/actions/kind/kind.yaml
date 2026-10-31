@@ -2,7 +2,7 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
-    image: kindest/node:v1.29.0
+    image: kindest/node:v1.35.0
     kubeadmConfigPatches:
       - |
         kind: InitConfiguration
@@ -11,5 +11,5 @@ nodes:
             node-labels: "ingress-ready=true"
 containerdConfigPatches:
   - |-
-    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."${REGISTRY_ADDRESS}"]
-      endpoint = ["http://${REGISTRY_ADDRESS}"]
+    [plugins."io.containerd.cri.v1.images".registry]
+      config_path = "/etc/containerd/certs.d"
