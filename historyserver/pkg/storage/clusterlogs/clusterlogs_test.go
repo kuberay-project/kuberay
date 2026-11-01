@@ -20,7 +20,7 @@ func TestClusterLogsPaths(t *testing.T) {
 	jobID := "01000000"
 
 	wantPrefix := "cluster-history/rayjob/default/job-1/cluster-1"
-	if got := Prefix(rootDir, &utils.ClusterInfo{
+	if got := Prefix(rootDir, utils.ClusterInfo{
 		OwnerKind: ownerKind,
 		OwnerName: ownerName,
 		Namespace: ns,
@@ -30,7 +30,7 @@ func TestClusterLogsPaths(t *testing.T) {
 	}
 
 	wantSession := wantPrefix + "/session-1"
-	if got := SessionDir(rootDir, &utils.ClusterInfo{
+	if got := SessionDir(rootDir, utils.ClusterInfo{
 		OwnerKind:   ownerKind,
 		OwnerName:   ownerName,
 		Namespace:   ns,
@@ -46,7 +46,7 @@ func TestClusterLogsPaths(t *testing.T) {
 	}
 
 	wantNode := wantSession + "/node-1"
-	if got := NodeDir(rootDir, &utils.ClusterInfo{
+	if got := NodeDir(rootDir, utils.ClusterInfo{
 		OwnerKind:   ownerKind,
 		OwnerName:   ownerName,
 		Namespace:   ns,
@@ -57,7 +57,7 @@ func TestClusterLogsPaths(t *testing.T) {
 	}
 
 	wantLogs := wantNode + "/logs"
-	if got := LogsDir(rootDir, &utils.ClusterInfo{
+	if got := LogsDir(rootDir, utils.ClusterInfo{
 		OwnerKind:   ownerKind,
 		OwnerName:   ownerName,
 		Namespace:   ns,
@@ -68,7 +68,7 @@ func TestClusterLogsPaths(t *testing.T) {
 	}
 
 	wantNodeEvents := wantNode + "/node_events"
-	if got := NodeEventsDir(rootDir, &utils.ClusterInfo{
+	if got := NodeEventsDir(rootDir, utils.ClusterInfo{
 		OwnerKind:   ownerKind,
 		OwnerName:   ownerName,
 		Namespace:   ns,
@@ -79,7 +79,7 @@ func TestClusterLogsPaths(t *testing.T) {
 	}
 
 	wantJobEvents := wantNode + "/job_events/01000000"
-	if got := JobEventsDir(rootDir, &utils.ClusterInfo{
+	if got := JobEventsDir(rootDir, utils.ClusterInfo{
 		OwnerKind:   ownerKind,
 		OwnerName:   ownerName,
 		Namespace:   ns,
@@ -90,7 +90,7 @@ func TestClusterLogsPaths(t *testing.T) {
 	}
 
 	wantJobEventsNoID := wantNode + "/job_events"
-	if got := JobEventsDir(rootDir, &utils.ClusterInfo{
+	if got := JobEventsDir(rootDir, utils.ClusterInfo{
 		OwnerKind:   ownerKind,
 		OwnerName:   ownerName,
 		Namespace:   ns,

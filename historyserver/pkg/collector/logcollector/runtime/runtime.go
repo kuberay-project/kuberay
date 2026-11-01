@@ -54,7 +54,7 @@ func NewCollector(config *types.RayCollectorConfig, writer storage.StorageWriter
 
 	logDir := strings.TrimSpace(filepath.Join(config.SessionDir, utils.RAY_SESSIONDIR_LOGDIR_NAME))
 	handler.LogDir = logDir
-	clusterInfo := &utils.ClusterInfo{
+	clusterInfo := utils.ClusterInfo{
 		Name:      config.RayClusterName,
 		OwnerKind: config.OwnerKind,
 		OwnerName: config.OwnerName,

@@ -840,7 +840,7 @@ func (ec *EventCollector) buildEventStorageKey(task rotationTask) string {
 	fileName := fmt.Sprintf("%s-%s-%d%s", nodeID, hour, task.createdAt.UnixNano(), ext)
 
 	var dir string
-	clusterInfo := &utils.ClusterInfo{
+	clusterInfo := utils.ClusterInfo{
 		OwnerKind:   ec.ownerKind,
 		OwnerName:   ec.ownerName,
 		Namespace:   ec.clusterNamespace,

@@ -135,12 +135,10 @@ func testCollectorUploadOnGracefulShutdown(test Test, g *WithT, namespace *corev
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
-	clusterInfo := &utils.ClusterInfo{
+	clusterInfo := utils.ClusterInfo{
 		Namespace:   rayCluster.Namespace,
 		Name:        rayCluster.Name,
 		SessionName: sessionID,
-		OwnerKind:   "",
-		OwnerName:   "",
 	}
 	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
@@ -188,12 +186,10 @@ func testCollectorSeparatesFilesBySession(test Test, g *WithT, namespace *corev1
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
-	clusterInfo := &utils.ClusterInfo{
+	clusterInfo := utils.ClusterInfo{
 		Namespace:   rayCluster.Namespace,
 		Name:        rayCluster.Name,
 		SessionName: sessionID,
-		OwnerName:   "",
-		OwnerKind:   "",
 	}
 	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
@@ -238,12 +234,10 @@ func testCollectorResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 	// Use namespace name to ensure test isolation (avoid conflicts from previous test runs)
 	dummySessionID := fmt.Sprintf("test-recovery-session-%s", namespace.Name)
 	dummyNodeID := fmt.Sprintf("head-node-%s", namespace.Name)
-	clusterInfo := &utils.ClusterInfo{
+	clusterInfo := utils.ClusterInfo{
 		Namespace:   rayCluster.Namespace,
 		Name:        rayCluster.Name,
 		SessionName: dummySessionID,
-		OwnerName:   "",
-		OwnerKind:   "",
 	}
 	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
@@ -365,12 +359,10 @@ func testCollectorStoresClusterMetadata(test Test, g *WithT, namespace *corev1.N
 
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	storageKey := utils.EndpointPathToStorageKey("/api/v0/cluster_metadata")
-	clusterInfo := &utils.ClusterInfo{
+	clusterInfo := utils.ClusterInfo{
 		Namespace:   rayCluster.Namespace,
 		Name:        rayCluster.Name,
 		SessionName: sessionID,
-		OwnerName:   "",
-		OwnerKind:   "",
 	}
 	sessionDir := clusterlogs.SessionDir("", clusterInfo)
 	metaKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
@@ -424,12 +416,10 @@ func testCollectorStoresTimezone(test Test, g *WithT, namespace *corev1.Namespac
 func assertTimezoneStored(test Test, g *WithT, rayCluster *rayv1.RayCluster, s3Client *S3TestClient) {
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	storageKey := utils.EndpointPathToStorageKey(EndpointTimezone)
-	clusterInfo := &utils.ClusterInfo{
+	clusterInfo := utils.ClusterInfo{
 		Namespace:   rayCluster.Namespace,
 		Name:        rayCluster.Name,
 		SessionName: sessionID,
-		OwnerName:   "",
-		OwnerKind:   "",
 	}
 	sessionDir := clusterlogs.SessionDir("", clusterInfo)
 	timezoneKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
@@ -470,12 +460,10 @@ func testCollectorStoresPlacementGroups(test Test, g *WithT, namespace *corev1.N
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	// Matches placementGroupsEndpoint in the collector's poll.go, query params included.
 	storageKey := utils.EndpointPathToStorageKey("/api/v0/placement_groups?detail=1&limit=10000")
-	clusterInfo := &utils.ClusterInfo{
+	clusterInfo := utils.ClusterInfo{
 		Namespace:   rayCluster.Namespace,
 		Name:        rayCluster.Name,
 		SessionName: sessionID,
-		OwnerName:   "",
-		OwnerKind:   "",
 	}
 	sessionDir := clusterlogs.SessionDir("", clusterInfo)
 	pgKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
@@ -707,7 +695,7 @@ func getHistoryServerJSON(g Gomega, client *http.Client, url string) []byte {
 func testCollectorStoresServeApplications(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) {
 	rayService := ApplyRayServiceAndWaitForRunning(test, g, namespace)
 	clusterName := rayService.Status.ActiveServiceStatus.RayClusterName
-	clusterPrefix := clusterlogs.Prefix("", &utils.ClusterInfo{
+	clusterPrefix := clusterlogs.Prefix("", utils.ClusterInfo{
 		Namespace: namespace.Name,
 		Name:      clusterName,
 		OwnerName: rayService.Name,
@@ -771,7 +759,7 @@ func assertServeAppConverged(g Gomega, body []byte) {
 func testCollectorStoresDataDatasets(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) {
 	rayJob := ApplyRayDataJobAndWaitForCompletion(test, g, namespace)
 	clusterName := rayJob.Status.RayClusterName
-	clusterPrefix := clusterlogs.Prefix("", &utils.ClusterInfo{
+	clusterPrefix := clusterlogs.Prefix("", utils.ClusterInfo{
 		Namespace: namespace.Name,
 		Name:      clusterName,
 		OwnerName: rayJob.Name,

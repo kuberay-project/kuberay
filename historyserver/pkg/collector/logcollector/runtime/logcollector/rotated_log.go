@@ -134,7 +134,7 @@ func (r *RayLogHandler) rotatedObjectPrefix(sessionID, nodeID string) string {
 	if sessionID == "" || nodeID == "" {
 		return ""
 	}
-	clusterInfo := &utils.ClusterInfo{
+	clusterInfo := utils.ClusterInfo{
 		OwnerKind:   r.OwnerKind,
 		OwnerName:   r.OwnerName,
 		Namespace:   r.RayClusterNamespace,

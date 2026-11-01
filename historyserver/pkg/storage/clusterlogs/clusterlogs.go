@@ -27,7 +27,7 @@ const (
 // - raycluster: rootDir/cluster-history/raycluster/<namespace>/<cluster-name>
 // - rayjob:     rootDir/cluster-history/rayjob/<namespace>/<rayjob-name>/<cluster-name>
 // - rayservice: rootDir/cluster-history/rayservice/<namespace>/<rayservice-name>/<cluster-name>
-func Prefix(rootDir string, c *utils.ClusterInfo) string {
+func Prefix(rootDir string, c utils.ClusterInfo) string {
 	k := strings.ToLower(strings.TrimSpace(c.OwnerKind))
 	hasOwner := (k == utils.RayJobKind || k == utils.RayServiceKind) && strings.TrimSpace(c.OwnerName) != ""
 
@@ -47,7 +47,7 @@ func Prefix(rootDir string, c *utils.ClusterInfo) string {
 
 // SessionDir returns the path to a session's directory under a cluster:
 // <prefix>/<session-name>
-func SessionDir(rootDir string, c *utils.ClusterInfo) string {
+func SessionDir(rootDir string, c utils.ClusterInfo) string {
 	cp := Prefix(rootDir, c)
 	return path.Join(cp, c.SessionName)
 }
@@ -60,28 +60,28 @@ func FetchedEndpointsDir(prefix, sessionName string) string {
 
 // NodeDir returns the path to a node's directory under a session:
 // <prefix>/<session-name>/<node-name>
-func NodeDir(rootDir string, c *utils.ClusterInfo, nodeName string) string {
+func NodeDir(rootDir string, c utils.ClusterInfo, nodeName string) string {
 	sDir := SessionDir(rootDir, c)
 	return path.Join(sDir, nodeName)
 }
 
 // LogsDir returns the log directory for a specific node and session:
 // <prefix>/<session-name>/<node-name>/logs
-func LogsDir(rootDir string, c *utils.ClusterInfo, nodeName string) string {
+func LogsDir(rootDir string, c utils.ClusterInfo, nodeName string) string {
 	nDir := NodeDir(rootDir, c, nodeName)
 	return path.Join(nDir, LogsSubDir)
 }
 
 // NodeEventsDir returns the node_events directory for a specific node and session:
 // <prefix>/<session-name>/<node-name>/node_events
-func NodeEventsDir(rootDir string, c *utils.ClusterInfo, nodeName string) string {
+func NodeEventsDir(rootDir string, c utils.ClusterInfo, nodeName string) string {
 	nDir := NodeDir(rootDir, c, nodeName)
 	return path.Join(nDir, NodeEventsSubDir)
 }
 
 // JobEventsDir returns the job_events directory for a specific node and session (and optional jobID):
 // <prefix>/<session-name>/<node-name>/job_events/[jobID]
-func JobEventsDir(rootDir string, c *utils.ClusterInfo, nodeName, jobID string) string {
+func JobEventsDir(rootDir string, c utils.ClusterInfo, nodeName, jobID string) string {
 	nDir := NodeDir(rootDir, c, nodeName)
 	if jobID == "" {
 		return path.Join(nDir, JobEventsSubDir)
