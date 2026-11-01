@@ -48,8 +48,7 @@ func Prefix(rootDir string, c utils.ClusterInfo) string {
 // SessionDir returns the path to a session's directory under a cluster:
 // <prefix>/<session-name>
 func SessionDir(rootDir string, c utils.ClusterInfo) string {
-	cp := Prefix(rootDir, c)
-	return path.Join(cp, c.SessionName)
+	return path.Join(Prefix(rootDir, c), c.SessionName)
 }
 
 // FetchedEndpointsDir returns the directory containing dashboard endpoint snapshots:
@@ -61,32 +60,25 @@ func FetchedEndpointsDir(prefix, sessionName string) string {
 // NodeDir returns the path to a node's directory under a session:
 // <prefix>/<session-name>/<node-name>
 func NodeDir(rootDir string, c utils.ClusterInfo, nodeName string) string {
-	sDir := SessionDir(rootDir, c)
-	return path.Join(sDir, nodeName)
+	return path.Join(SessionDir(rootDir, c), nodeName)
 }
 
 // LogsDir returns the log directory for a specific node and session:
 // <prefix>/<session-name>/<node-name>/logs
 func LogsDir(rootDir string, c utils.ClusterInfo, nodeName string) string {
-	nDir := NodeDir(rootDir, c, nodeName)
-	return path.Join(nDir, LogsSubDir)
+	return path.Join(Prefix(rootDir, c), RelLogsDir(c.SessionName, nodeName))
 }
 
 // NodeEventsDir returns the node_events directory for a specific node and session:
 // <prefix>/<session-name>/<node-name>/node_events
 func NodeEventsDir(rootDir string, c utils.ClusterInfo, nodeName string) string {
-	nDir := NodeDir(rootDir, c, nodeName)
-	return path.Join(nDir, NodeEventsSubDir)
+	return path.Join(Prefix(rootDir, c), RelNodeEventsDir(c.SessionName, nodeName))
 }
 
 // JobEventsDir returns the job_events directory for a specific node and session (and optional jobID):
 // <prefix>/<session-name>/<node-name>/job_events/[jobID]
 func JobEventsDir(rootDir string, c utils.ClusterInfo, nodeName, jobID string) string {
-	nDir := NodeDir(rootDir, c, nodeName)
-	if jobID == "" {
-		return path.Join(nDir, JobEventsSubDir)
-	}
-	return path.Join(nDir, JobEventsSubDir, jobID)
+	return path.Join(Prefix(rootDir, c), RelJobEventsDir(c.SessionName, nodeName, jobID))
 }
 
 // RelLogsDir returns: <session-name>/<node-name>/logs
