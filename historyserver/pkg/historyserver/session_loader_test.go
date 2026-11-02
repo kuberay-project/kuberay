@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -671,7 +672,42 @@ func TestRevalidate_ReloadsAfterSecondDeadSighting(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "fresh", snap.SessionKey)
 	entry, _ := sl.cache.Peek(key)
+	entry.livenessMu.Lock()
+	defer entry.livenessMu.Unlock()
 	require.False(t, entry.needsRevalidation)
+}
+
+// TestReload_KeepsRevalidationUntilBackgroundReload verifies that a manual Reload
+// issued right after the RayCluster CR is deleted, while the collector may still
+// be uploading, does not end revalidation. Revalidate still reloads once more
+// after two NotFound sightings and only then marks the entry final.
+func TestReload_KeepsRevalidationUntilBackgroundReload(t *testing.T) {
+	var reloads atomic.Int32
+	sl, fp := newRunningBuiltLoader(t, func(context.Context) (SessionStatus, *eventserver.SessionSnapshot, error) {
+		return SessionStatusProcessed, testSnapshot(fmt.Sprintf("reload-%d", reloads.Add(1))), nil
+	})
+	fp.dead.Store(true)
+	key := testClusterSessionKey()
+
+	// Manual reload while the CR is already gone.
+	_, err := sl.Reload(context.Background(), testClusterInfo())
+	require.NoError(t, err)
+	snap, _ := sl.GetSnapshot(key)
+	require.Equal(t, "reload-1", snap.SessionKey)
+
+	// Two NotFound sightings still trigger the background reload.
+	expireLivenessThrottle(t, sl)
+	sl.Revalidate(context.Background(), key)
+	expireLivenessThrottle(t, sl)
+	sl.Revalidate(context.Background(), key)
+	sl.Wait()
+
+	snap, _ = sl.GetSnapshot(key)
+	require.Equal(t, "reload-2", snap.SessionKey)
+	entry, _ := sl.cache.Peek(key)
+	entry.livenessMu.Lock()
+	defer entry.livenessMu.Unlock()
+	require.False(t, entry.needsRevalidation, "background reload marks the entry final")
 }
 
 // TestRevalidate_ThrottlesLivenessChecks verifies that Revalidate sends at most

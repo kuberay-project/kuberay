@@ -75,13 +75,12 @@ type cacheEntry struct {
 
 	// info is kept so Revalidate can reload the session in the background.
 	info utils.ClusterInfo
+	// livenessMu guards needsRevalidation, lastLivenessCheck and seenDead.
+	livenessMu sync.Mutex
 	// needsRevalidation marks a snapshot taken while the RayCluster CR still existed,
 	// so the collector may upload more data. Revalidate reloads it once the cluster
-	// is gone and the reloaded entry has it unset, which ends revalidation.
+	// is gone and then clears it via markFinal, which ends revalidation.
 	needsRevalidation bool
-
-	// livenessMu guards lastLivenessCheck and seenDead.
-	livenessMu sync.Mutex
 	// lastLivenessCheck throttles Revalidate's Kubernetes GET.
 	lastLivenessCheck time.Time
 	// seenDead is set after one NotFound; a second consecutive one triggers the reload.
@@ -178,12 +177,12 @@ func (s *SessionLoader) Reload(ctx context.Context, info utils.ClusterInfo) (liv
 func (s *SessionLoader) Revalidate(ctx context.Context, clusterSessionKey string) {
 	// Peek: a liveness check must not count as a use for LRU ordering.
 	entry, ok := s.cache.Peek(clusterSessionKey)
-	if !ok || !entry.needsRevalidation {
+	if !ok {
 		return
 	}
 
 	entry.livenessMu.Lock()
-	due := time.Since(entry.lastLivenessCheck) >= livenessCheckInterval
+	due := entry.needsRevalidation && time.Since(entry.lastLivenessCheck) >= livenessCheckInterval
 	if due {
 		entry.lastLivenessCheck = time.Now()
 	}
@@ -221,8 +220,21 @@ func (s *SessionLoader) Revalidate(ctx context.Context, clusterSessionKey string
 			logrus.Warnf("Background reload of session %q failed, keeping stale snapshot: %v", clusterSessionKey, err)
 			return
 		}
+		s.markFinal(clusterSessionKey)
 		logrus.Infof("Reloaded session %q after its RayCluster was deleted", clusterSessionKey)
 	})
+}
+
+// markFinal ends revalidation for the entry. Revalidate calls it after reloading
+// on the second NotFound sighting, when the collector can no longer be uploading.
+func (s *SessionLoader) markFinal(clusterSessionKey string) {
+	entry, ok := s.cache.Peek(clusterSessionKey)
+	if !ok {
+		return
+	}
+	entry.livenessMu.Lock()
+	entry.needsRevalidation = false
+	entry.livenessMu.Unlock()
 }
 
 // Wait blocks until background reloads finish. Call at shutdown after
@@ -290,8 +302,16 @@ func (s *SessionLoader) doLoadSession(ctx context.Context, info utils.ClusterInf
 			return false, fmt.Errorf("unexpected nil snapshot for session status %v", status)
 		}
 		// A snapshot of a running cluster may still grow, so mark it for Revalidate on
-		// later requests. Otherwise the cluster is already gone and the snapshot is final.
-		if err := s.putSnapshot(clusterSessionKey, snap, info, status == SessionStatusProcessedRunning); err != nil {
+		// later requests. A forced reload also keeps the old entry's flag: the CR may
+		// be gone while the collector is still uploading, and only Revalidate knows
+		// when enough time has passed to call the snapshot final.
+		needsRevalidation := status == SessionStatusProcessedRunning
+		if old, ok := s.cache.Peek(clusterSessionKey); ok && force {
+			old.livenessMu.Lock()
+			needsRevalidation = needsRevalidation || old.needsRevalidation
+			old.livenessMu.Unlock()
+		}
+		if err := s.putSnapshot(clusterSessionKey, snap, info, needsRevalidation); err != nil {
 			return false, err
 		}
 		return false, nil
