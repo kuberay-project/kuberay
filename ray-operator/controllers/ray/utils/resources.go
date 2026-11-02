@@ -5,11 +5,7 @@ import (
 	"strings"
 )
 
-// draImplicitExtendedResourcePrefix is the prefix of the extended resource name that Kubernetes
-// derives for every DRA DeviceClass (KEP-5004): "deviceclass.resource.kubernetes.io/<DeviceClass name>".
-// A Pod can request devices of that class under this name in resources.limits without writing a
-// ResourceClaim. GPU DRA drivers do not set DeviceClass.spec.extendedResourceName by default, so this
-// implicit name is what their users write.
+// Prefix of the implicit extended resource name Kubernetes derives for every DRA DeviceClass (KEP-5004).
 const draImplicitExtendedResourcePrefix = "deviceclass.resource.kubernetes.io/"
 
 var nvidiaMIGResourceKeyRegexp = regexp.MustCompile(`nvidia\.com/mig-\d+g\.\d+gb$`)
@@ -24,12 +20,7 @@ func IsGPUResourceKey(key string) bool {
 	if nvidiaMIGResourceKeyRegexp.MatchString(key) {
 		return true
 	}
-	// DRA implicit extended resource name like "deviceclass.resource.kubernetes.io/gpu.nvidia.com".
-	// The known GPU DRA drivers name their DeviceClass "gpu.<vendor domain>" (gpu.nvidia.com, gpu.amd.com,
-	// gpu.intel.com, gpu.example.com), so only that shape is treated as a GPU. A DeviceClass named plainly
-	// "gpu" is already covered by the suffix check above. DRA MIG classes such as "mig.nvidia.com" are not
-	// recognized here (the device-plugin MIG names matched by the regexp above still are); whether one
-	// DRA MIG slice should count as one Ray GPU is a separate decision.
+	// DRA implicit extended resource name of a "gpu.<vendor>" DeviceClass like "deviceclass.resource.kubernetes.io/gpu.nvidia.com"
 	if className, ok := strings.CutPrefix(key, draImplicitExtendedResourcePrefix); ok {
 		return strings.HasPrefix(className, "gpu.")
 	}
