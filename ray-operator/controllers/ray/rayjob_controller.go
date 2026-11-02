@@ -211,6 +211,12 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
 		}
 
+		// A suspended RayCluster selected via clusterSelector never becomes ready by itself, so fail the RayJob
+		// instead of waiting forever.
+		if shouldUpdate := checkSelectedClusterSuspendedAndUpdateStatusIfNeeded(ctx, rayJobInstance, rayClusterInstance); shouldUpdate {
+			break
+		}
+
 		// Check the current status of RayCluster before submitting.
 		if clientURL := rayJobInstance.Status.DashboardURL; clientURL == "" {
 			if rayClusterInstance.Status.State != rayv1.Ready {
@@ -1264,6 +1270,28 @@ func checkPreRunningDeadlineAndUpdateStatusIfNeeded(ctx context.Context, rayJob 
 	rayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusFailed
 	rayJob.Status.Reason = rayv1.PreRunningDeadlineExceeded
 	rayJob.Status.Message = fmt.Sprintf("The RayJob has passed the preRunningDeadlineSeconds. StartTime: %v. PreRunningDeadlineSeconds: %d", rayJob.Status.StartTime, *rayJob.Spec.PreRunningDeadlineSeconds)
+	return true
+}
+
+func checkSelectedClusterSuspendedAndUpdateStatusIfNeeded(ctx context.Context, rayJob *rayv1.RayJob, rayCluster *rayv1.RayCluster) bool {
+	logger := ctrl.LoggerFrom(ctx)
+
+	if len(rayJob.Spec.ClusterSelector) == 0 || !utils.IsRayClusterSuspendOrIdleSuspend(rayCluster) {
+		return false
+	}
+
+	var suspendFields []string
+	if ptr.Deref(rayCluster.Spec.Suspend, false) {
+		suspendFields = append(suspendFields, "spec.suspend=true")
+	}
+	if ptr.Deref(rayCluster.Spec.IdleSuspend, false) {
+		suspendFields = append(suspendFields, "spec.idleSuspend=true")
+	}
+
+	logger.Info("The RayCluster selected by clusterSelector is suspended. Transition the status to `Failed`.", "RayCluster", rayCluster.Namespace+"/"+rayCluster.Name, "suspendFields", suspendFields)
+	rayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusFailed
+	rayJob.Status.Reason = rayv1.SelectedRayClusterSuspended
+	rayJob.Status.Message = fmt.Sprintf("The RayCluster %s/%s selected by clusterSelector is suspended (%s), so it cannot run the RayJob.", rayCluster.Namespace, rayCluster.Name, strings.Join(suspendFields, ", "))
 	return true
 }
 
