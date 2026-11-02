@@ -100,7 +100,7 @@ type SessionLoader struct {
 	sf             singleflight.Group
 	serverCtx      context.Context
 	processTimeout time.Duration
-	// wg tracks background reloads started by Revalidate.
+	// wg tracks background liveness checks and reloads started by Revalidate.
 	wg sync.WaitGroup
 }
 
@@ -172,9 +172,10 @@ func (s *SessionLoader) Reload(ctx context.Context, info utils.ClusterInfo) (liv
 
 // Revalidate refreshes a snapshot built while its RayCluster was running once
 // the cluster is gone, so users see the collector's final upload. It is called
-// on every dashboard request: it never blocks on the reload, and asks
-// Kubernetes at most once per livenessCheckInterval per entry.
-func (s *SessionLoader) Revalidate(ctx context.Context, clusterSessionKey string) {
+// on every dashboard request: the Kubernetes check and the reload both run in
+// the background, and the check happens at most once per livenessCheckInterval
+// per entry.
+func (s *SessionLoader) Revalidate(clusterSessionKey string) {
 	// Peek: a liveness check must not count as a use for LRU ordering.
 	entry, ok := s.cache.Peek(clusterSessionKey)
 	if !ok {
@@ -191,31 +192,31 @@ func (s *SessionLoader) Revalidate(ctx context.Context, clusterSessionKey string
 		return
 	}
 
-	checkCtx, cancel := context.WithTimeout(ctx, livenessCheckTimeout)
-	dead, err := s.processor.IsDead(checkCtx, entry.info)
-	cancel()
-	if err != nil {
-		// Keep seenDead value so a transient failure does not restart the grace period.
-		logrus.Warnf("Failed to check cluster state for session %q: %v", clusterSessionKey, err)
-		return
-	}
-
-	// Reload only on the second consecutive NotFound.
-	// By default, Kubernetes sends SIGKILL 30 seconds after a pod receives SIGTERM
-	// (terminationGracePeriodSeconds). Waiting another livenessCheckInterval (30s)
-	// lets the collector finish uploading to the object store (or be killed) before
-	// we reload, so we are unlikely to load partial data.
-	entry.livenessMu.Lock()
-	secondSighting := dead && entry.seenDead
-	entry.seenDead = dead
-	entry.livenessMu.Unlock()
-	if !secondSighting {
-		return
-	}
-
-	// Reload is singleflight, so concurrent calls join a single in-flight call.
-	// On failure the stale entry keeps seenDead set, so the next interval retries.
 	s.wg.Go(func() {
+		checkCtx, cancel := context.WithTimeout(s.serverCtx, livenessCheckTimeout)
+		dead, err := s.processor.IsDead(checkCtx, entry.info)
+		cancel()
+		if err != nil {
+			// Keep seenDead value so a transient failure does not restart the grace period.
+			logrus.Warnf("Failed to check cluster state for session %q: %v", clusterSessionKey, err)
+			return
+		}
+
+		// Reload only on the second consecutive NotFound.
+		// By default, Kubernetes sends SIGKILL 30 seconds after a pod receives SIGTERM
+		// (terminationGracePeriodSeconds). Waiting another livenessCheckInterval (30s)
+		// lets the collector finish uploading to the object store (or be killed) before
+		// we reload, so we are unlikely to load partial data.
+		entry.livenessMu.Lock()
+		secondSighting := dead && entry.seenDead
+		entry.seenDead = dead
+		entry.livenessMu.Unlock()
+		if !secondSighting {
+			return
+		}
+
+		// Reload is singleflight, so concurrent calls join a single in-flight call.
+		// On failure the stale entry keeps seenDead set, so the next interval retries.
 		if _, err := s.Reload(s.serverCtx, entry.info); err != nil {
 			logrus.Warnf("Background reload of session %q failed, keeping stale snapshot: %v", clusterSessionKey, err)
 			return

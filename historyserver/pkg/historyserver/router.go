@@ -2053,7 +2053,7 @@ func (s *ServerHandler) CookieHandle(req *restful.Request, resp *restful.Respons
 	}
 
 	if sessionName.Value != "live" {
-		s.sessionLoader.Revalidate(req.Request.Context(), utils.BuildClusterSessionKey(clusterName.Value, clusterNamespace.Value, sessionName.Value))
+		s.sessionLoader.Revalidate(utils.BuildClusterSessionKey(clusterName.Value, clusterNamespace.Value, sessionName.Value))
 	}
 
 	if sessionName.Value == "live" && !s.enableLiveClusters {

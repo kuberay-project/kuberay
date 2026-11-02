@@ -636,9 +636,11 @@ func newRunningBuiltLoader(t *testing.T, reloadFn func(ctx context.Context) (Ses
 }
 
 // expireLivenessThrottle makes the next Revalidate call check liveness, standing
-// in for livenessCheckInterval passing.
+// in for livenessCheckInterval passing. It first waits for the previous
+// background check, as a real interval would have.
 func expireLivenessThrottle(t *testing.T, sl *SessionLoader) *cacheEntry {
 	t.Helper()
+	sl.Wait()
 	entry, ok := sl.cache.Peek(testClusterSessionKey())
 	require.True(t, ok)
 	entry.livenessMu.Lock()
@@ -659,13 +661,13 @@ func TestRevalidate_ReloadsAfterSecondDeadSighting(t *testing.T) {
 
 	// First NotFound: grace period, ProcessSession is still at the initial load only.
 	expireLivenessThrottle(t, sl)
-	sl.Revalidate(context.Background(), key)
+	sl.Revalidate(key)
 	sl.Wait()
 	require.Equal(t, int32(1), fp.callCount(), "first dead sighting is a grace period, not a reload")
 
 	// Second NotFound: background reload replaces the entry.
 	expireLivenessThrottle(t, sl)
-	sl.Revalidate(context.Background(), key)
+	sl.Revalidate(key)
 	sl.Wait()
 
 	snap, ok := sl.GetSnapshot(key)
@@ -697,9 +699,9 @@ func TestReload_KeepsRevalidationUntilBackgroundReload(t *testing.T) {
 
 	// Two NotFound sightings still trigger the background reload.
 	expireLivenessThrottle(t, sl)
-	sl.Revalidate(context.Background(), key)
+	sl.Revalidate(key)
 	expireLivenessThrottle(t, sl)
-	sl.Revalidate(context.Background(), key)
+	sl.Revalidate(key)
 	sl.Wait()
 
 	snap, _ = sl.GetSnapshot(key)
@@ -717,14 +719,16 @@ func TestRevalidate_ThrottlesLivenessChecks(t *testing.T) {
 	key := testClusterSessionKey()
 
 	// A fresh entry was just checked by ProcessSession, so no GET yet.
-	sl.Revalidate(context.Background(), key)
+	sl.Revalidate(key)
+	sl.Wait()
 	require.Equal(t, int32(0), fp.deadCalls.Load())
 
 	// Once the interval passes, only the first of several requests checks.
 	expireLivenessThrottle(t, sl)
 	for range 3 {
-		sl.Revalidate(context.Background(), key)
+		sl.Revalidate(key)
 	}
+	sl.Wait()
 	require.Equal(t, int32(1), fp.deadCalls.Load())
 }
 
@@ -740,9 +744,9 @@ func TestRevalidate_ReloadFailureKeepsStaleSnapshot(t *testing.T) {
 
 	// Two NotFound sightings trigger a reload, which fails.
 	expireLivenessThrottle(t, sl)
-	sl.Revalidate(context.Background(), key)
+	sl.Revalidate(key)
 	expireLivenessThrottle(t, sl)
-	sl.Revalidate(context.Background(), key)
+	sl.Revalidate(key)
 	sl.Wait()
 
 	require.Equal(t, int32(2), fp.callCount(), "reload must have been attempted")
@@ -767,17 +771,18 @@ func TestRevalidate_CheckErrorKeepsGracePeriod(t *testing.T) {
 
 	// First NotFound, then a failed check.
 	expireLivenessThrottle(t, sl)
-	sl.Revalidate(context.Background(), key)
+	sl.Revalidate(key)
+	sl.Wait()
 	fp.deadErr = errors.New("apiserver unavailable")
 	expireLivenessThrottle(t, sl)
-	sl.Revalidate(context.Background(), key)
+	sl.Revalidate(key)
 	sl.Wait()
 	require.Equal(t, int32(1), fp.callCount(), "a failed check must not trigger a reload")
 
 	// The next NotFound is still the second sighting.
 	fp.deadErr = nil
 	expireLivenessThrottle(t, sl)
-	sl.Revalidate(context.Background(), key)
+	sl.Revalidate(key)
 	sl.Wait()
 
 	// Reload is still triggered, so we get fresh data.
