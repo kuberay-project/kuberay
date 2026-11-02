@@ -28,7 +28,7 @@ func IsGPUResourceKey(key string) bool {
 	// The known GPU DRA drivers name their DeviceClass "gpu.<vendor domain>" (gpu.nvidia.com, gpu.amd.com,
 	// gpu.intel.com, gpu.example.com), so only that shape is treated as a GPU. A DeviceClass named plainly
 	// "gpu" is already covered by the suffix check above. DRA MIG classes such as "mig.nvidia.com" are not
-	// recognised here (the device-plugin MIG names matched by the regexp above still are); whether one
+	// recognized here (the device-plugin MIG names matched by the regexp above still are); whether one
 	// DRA MIG slice should count as one Ray GPU is a separate decision.
 	if className, ok := strings.CutPrefix(key, draImplicitExtendedResourcePrefix); ok {
 		return strings.HasPrefix(className, "gpu.")
