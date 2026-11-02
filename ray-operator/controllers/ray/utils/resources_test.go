@@ -52,6 +52,51 @@ func TestIsGPUResourceKey(t *testing.T) {
 			resourceKey: "huawei.com/npu",
 			expected:    false,
 		},
+		{
+			name:        "DRA implicit extended resource name, NVIDIA DeviceClass",
+			resourceKey: "deviceclass.resource.kubernetes.io/gpu.nvidia.com",
+			expected:    true,
+		},
+		{
+			name:        "DRA implicit extended resource name, AMD DeviceClass",
+			resourceKey: "deviceclass.resource.kubernetes.io/gpu.amd.com",
+			expected:    true,
+		},
+		{
+			name:        "DRA implicit extended resource name, example driver DeviceClass",
+			resourceKey: "deviceclass.resource.kubernetes.io/gpu.example.com",
+			expected:    true,
+		},
+		{
+			name:        "DRA implicit extended resource name, DeviceClass named plainly gpu",
+			resourceKey: "deviceclass.resource.kubernetes.io/gpu",
+			expected:    true,
+		},
+		{
+			name:        "DRA implicit extended resource name, NVIDIA MIG DeviceClass is not counted",
+			resourceKey: "deviceclass.resource.kubernetes.io/mig.nvidia.com",
+			expected:    false,
+		},
+		{
+			name:        "DRA implicit extended resource name, gpu not at the start of the class name",
+			resourceKey: "deviceclass.resource.kubernetes.io/nvidia-gpu.example.com",
+			expected:    false,
+		},
+		{
+			name:        "DRA implicit extended resource name, TPU DeviceClass",
+			resourceKey: "deviceclass.resource.kubernetes.io/tpu.google.com",
+			expected:    false,
+		},
+		{
+			name:        "DRA implicit extended resource name, network DeviceClass",
+			resourceKey: "deviceclass.resource.kubernetes.io/net.example.com",
+			expected:    false,
+		},
+		{
+			name:        "custom vendor gpu name matched by suffix",
+			resourceKey: "example.com/gpu",
+			expected:    true,
+		},
 	}
 
 	for _, tt := range tests {
