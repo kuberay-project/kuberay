@@ -2801,6 +2801,77 @@ func TestEvents_RedisCleanup(t *testing.T) {
 	}
 }
 
+func Test_BuildRedisCleanupJob_PodAntiAffinity(t *testing.T) {
+	setupTest(t)
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = batchv1.AddToScheme(newScheme)
+
+	// Keeps the head Pod on a node pool that can reach Redis. The cleanup Job needs this too.
+	nodeAffinity := &corev1.NodeAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+				MatchExpressions: []corev1.NodeSelectorRequirement{{
+					Key:      "pool",
+					Operator: corev1.NodeSelectorOpIn,
+					Values:   []string{"redis-access"},
+				}},
+			}},
+		},
+	}
+	// One head Pod per node. GKE Autopilot rejects Pods with pod anti-affinity that
+	// request less than 500m CPU, and the cleanup Job requests 200m (#4721).
+	podAntiAffinity := &corev1.PodAntiAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+			LabelSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{utils.RayNodeTypeLabelKey: string(rayv1.HeadNode)},
+			},
+			TopologyKey: "kubernetes.io/hostname",
+		}},
+	}
+
+	tests := []struct {
+		headAffinity *corev1.Affinity
+		name         string
+	}{
+		{
+			name:         "No affinity",
+			headAffinity: nil,
+		},
+		{
+			name:         "Pod anti-affinity only",
+			headAffinity: &corev1.Affinity{PodAntiAffinity: podAntiAffinity},
+		},
+		{
+			name:         "Node affinity and pod anti-affinity",
+			headAffinity: &corev1.Affinity{NodeAffinity: nodeAffinity, PodAntiAffinity: podAntiAffinity},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cluster := testRayCluster.DeepCopy()
+			cluster.Spec.HeadGroupSpec.Template.Spec.Affinity = tc.headAffinity.DeepCopy()
+			original := cluster.DeepCopy()
+
+			r := &RayClusterReconciler{Scheme: newScheme}
+			job := r.buildRedisCleanupJob(context.Background(), *cluster)
+
+			jobAffinity := job.Spec.Template.Spec.Affinity
+			if tc.headAffinity == nil {
+				assert.Nil(t, jobAffinity)
+			} else {
+				require.NotNil(t, jobAffinity)
+				assert.Nil(t, jobAffinity.PodAntiAffinity, "the Redis cleanup Job must not inherit the head Pod's pod anti-affinity")
+				assert.Equal(t, tc.headAffinity.NodeAffinity, jobAffinity.NodeAffinity, "the Redis cleanup Job must keep the head Pod's node affinity")
+			}
+
+			// The Job is built from a copy of the head template; building it must not modify the RayCluster.
+			assert.Equal(t, original.Spec.HeadGroupSpec.Template.Spec.Affinity, cluster.Spec.HeadGroupSpec.Template.Spec.Affinity)
+		})
+	}
+}
+
 func Test_RedisCleanup(t *testing.T) {
 	setupTest(t)
 	newScheme := runtime.NewScheme()
