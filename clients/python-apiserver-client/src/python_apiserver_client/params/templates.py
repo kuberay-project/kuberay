@@ -163,9 +163,9 @@ class Template:
         if self.gpu > 0:
             dct["gpu"] = self.gpu
         if self.gpu_accelerator is not None:
-            dct["gpu accelerator"] = self.gpu_accelerator
+            dct["gpu_accelerator"] = self.gpu_accelerator
         if self.extended_resources is not None:
-            dct["extended resources"] = self.extended_resources
+            dct["extended_resources"] = self.extended_resources
         if self.tolerations is not None:
             dct["tolerations"] = [tl.to_dict() for tl in self.tolerations]
         return dct
