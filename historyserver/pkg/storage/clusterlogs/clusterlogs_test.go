@@ -3,6 +3,7 @@ package clusterlogs
 import (
 	"io"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
@@ -70,18 +71,24 @@ func TestClusterLogsPaths(t *testing.T) {
 }
 
 type mockStorageReader struct {
-	files map[string][]string
+	files   map[string][]string // dir -> entries
+	content map[string]string   // object path -> content
+	gets    []string            // GetContent calls, in order
 }
 
 func (m *mockStorageReader) List() []utils.ClusterInfo {
 	return nil
 }
 
-func (m *mockStorageReader) GetContent(clusterId string, fileName string) io.Reader {
+func (m *mockStorageReader) GetContent(_ string, fileName string) io.Reader {
+	m.gets = append(m.gets, fileName)
+	if content, ok := m.content[fileName]; ok {
+		return strings.NewReader(content)
+	}
 	return nil
 }
 
-func (m *mockStorageReader) ListFiles(clusterId string, dir string) []string {
+func (m *mockStorageReader) ListFiles(_ string, dir string) []string {
 	if entries, ok := m.files[dir]; ok {
 		return entries
 	}
@@ -130,6 +137,106 @@ func TestListSessionNodeDirs(t *testing.T) {
 			got := ListSessionNodeDirs(reader, "prefix", tc.sessionName)
 			if !slices.Equal(got, tc.expected) {
 				t.Errorf("ListSessionNodeDirs() = %v, want %v", got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestListLogFiles(t *testing.T) {
+	reader := &mockStorageReader{files: map[string][]string{
+		"logs": {"raylet.out", "job-driver-x.log.chunks/", "worker-a.out", "worker-a.out.chunks/", "events/"},
+	}}
+
+	got := ListLogFiles(reader, "prefix", "logs")
+
+	// Chunk directories are hidden; a chunk-only file appears once, as the file.
+	want := []string{"raylet.out", "job-driver-x.log", "worker-a.out", "events/"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("ListLogFiles() = %v, want %v", got, want)
+	}
+}
+
+func TestReadLogFile(t *testing.T) {
+	const logPath = "logs/job-driver-x.log"
+	chunk := func(name string) string { return logPath + ChunkDirSuffix + "/" + name }
+
+	tests := map[string]struct {
+		files   []string          // listing of the chunk directory
+		content map[string]string // objects in storage
+		want    string
+		wantNil bool
+	}{
+		"chunks win and the whole object is never fetched": {
+			files:   []string{"00000000000000000000"},
+			content: map[string]string{logPath: "whole", chunk("00000000000000000000"): "chunk"},
+			want:    "chunk",
+		},
+		"whole object is read when there are no chunks": {
+			content: map[string]string{logPath: "whole"},
+			want:    "whole",
+		},
+		"chunks are joined in offset order regardless of listing order": {
+			files: []string{"00000000000000000005", "00000000000000000000", "00000000000000000008"},
+			content: map[string]string{
+				chunk("00000000000000000000"): "line1",
+				chunk("00000000000000000005"): "lin",
+				chunk("00000000000000000008"): "e2",
+			},
+			want: "line1line2",
+		},
+		"stale chunks left by a collector restart are skipped, later chunks still join": {
+			// Chunk 0 was re-uploaded after a restart and covers [0,18); the
+			// chunks at 6 and 12 are from before the restart. The chunk at 18
+			// was written after the restart and must still be reached.
+			files: []string{"00000000000000000000", "00000000000000000006", "00000000000000000012", "00000000000000000018"},
+			content: map[string]string{
+				chunk("00000000000000000000"): "line1 line2 line3 ",
+				chunk("00000000000000000006"): "line2 ",
+				chunk("00000000000000000012"): "line3 ",
+				chunk("00000000000000000018"): "line4 ",
+			},
+			want: "line1 line2 line3 line4 ",
+		},
+		"a real gap stops the join": {
+			files: []string{"00000000000000000000", "00000000000000000010"},
+			content: map[string]string{
+				chunk("00000000000000000000"): "line1",
+				chunk("00000000000000000010"): "late",
+			},
+			want: "line1",
+		},
+		"neither whole file nor chunks": {
+			wantNil: true,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			reader := &mockStorageReader{
+				files:   map[string][]string{logPath + ChunkDirSuffix: tc.files},
+				content: tc.content,
+			}
+
+			got := ReadLogFile(reader, "prefix", logPath)
+
+			if tc.wantNil {
+				if got != nil {
+					t.Fatalf("ReadLogFile() = non-nil, want nil")
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("ReadLogFile() = nil, want %q", tc.want)
+			}
+			data, err := io.ReadAll(got)
+			if err != nil {
+				t.Fatalf("ReadAll: %v", err)
+			}
+			if string(data) != tc.want {
+				t.Fatalf("ReadLogFile() = %q, want %q", data, tc.want)
+			}
+			if len(tc.files) > 0 && slices.Contains(reader.gets, logPath) {
+				t.Fatalf("ReadLogFile() fetched the whole object although chunks exist: %v", reader.gets)
 			}
 		})
 	}

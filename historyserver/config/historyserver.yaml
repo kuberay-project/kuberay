@@ -37,15 +37,15 @@ spec:
           - name: S3DISABLE_SSL
             value: "true"
           - name: AWS_ACCESS_KEY_ID
-            value: minioadmin
+            value: rustfsadmin
           - name: AWS_SECRET_ACCESS_KEY
-            value: minioadmin
+            value: rustfsadmin
           - name: AWS_SESSION_TOKEN
             value: ""
           - name: S3_BUCKET
             value: "ray-historyserver"
           - name: S3_ENDPOINT
-            value: "minio-service.minio-dev:9000"
+            value: "rustfs-service.rustfs-dev:9000"
           - name: S3_REGION
             value: "test"
           - name: S3FORCE_PATH_STYLE

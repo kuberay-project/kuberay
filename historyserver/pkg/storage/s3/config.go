@@ -3,8 +3,6 @@ package s3
 import (
 	"os"
 
-	"github.com/aws/aws-sdk-go/aws"
-
 	"github.com/ray-project/kuberay/historyserver/pkg/collector/types"
 )
 
@@ -30,7 +28,7 @@ func getS3BucketWithDefault() string {
 	return bucket
 }
 
-func (c *config) complete(rcc *types.RayCollectorConfig, jd map[string]interface{}) {
+func (c *config) complete(rcc *types.RayCollectorConfig, jd map[string]any) {
 	c.RayCollectorConfig = *rcc
 	c.AccessKeyID = os.Getenv("AWS_ACCESS_KEY_ID")
 	c.SecretAccessKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
@@ -40,10 +38,10 @@ func (c *config) complete(rcc *types.RayCollectorConfig, jd map[string]interface
 		c.S3Endpoint = os.Getenv("S3_ENDPOINT")
 		c.S3Region = os.Getenv("S3_REGION")
 		if os.Getenv("S3FORCE_PATH_STYLE") != "" {
-			c.S3ForcePathStyle = aws.Bool(os.Getenv("S3FORCE_PATH_STYLE") == "true")
+			c.S3ForcePathStyle = new(os.Getenv("S3FORCE_PATH_STYLE") == "true")
 		}
 		if os.Getenv("S3DISABLE_SSL") != "" {
-			c.DisableSSL = aws.Bool(os.Getenv("S3DISABLE_SSL") == "true")
+			c.DisableSSL = new(os.Getenv("S3DISABLE_SSL") == "true")
 		}
 	} else {
 		if bucket, ok := jd["s3Bucket"]; ok {
@@ -56,15 +54,15 @@ func (c *config) complete(rcc *types.RayCollectorConfig, jd map[string]interface
 			c.S3Region = region.(string)
 		}
 		if forcePathStyle, ok := jd["s3ForcePathStyle"]; ok {
-			c.S3ForcePathStyle = aws.Bool(forcePathStyle.(string) == "true")
+			c.S3ForcePathStyle = new(forcePathStyle.(string) == "true")
 		}
 		if s3disableSSL, ok := jd["s3DisableSSL"]; ok {
-			c.DisableSSL = aws.Bool(s3disableSSL.(string) == "true")
+			c.DisableSSL = new(s3disableSSL.(string) == "true")
 		}
 	}
 }
 
-func (c *config) completeHSConfig(rcc *types.RayHistoryServerConfig, jd map[string]interface{}) {
+func (c *config) completeHSConfig(rcc *types.RayHistoryServerConfig, jd map[string]any) {
 	c.RayCollectorConfig = types.RayCollectorConfig{
 		RootDir: rcc.RootDir,
 	}
@@ -76,10 +74,10 @@ func (c *config) completeHSConfig(rcc *types.RayHistoryServerConfig, jd map[stri
 		c.S3Endpoint = os.Getenv("S3_ENDPOINT")
 		c.S3Region = os.Getenv("S3_REGION")
 		if os.Getenv("S3FORCE_PATH_STYLE") != "" {
-			c.S3ForcePathStyle = aws.Bool(os.Getenv("S3FORCE_PATH_STYLE") == "true")
+			c.S3ForcePathStyle = new(os.Getenv("S3FORCE_PATH_STYLE") == "true")
 		}
 		if os.Getenv("S3DISABLE_SSL") != "" {
-			c.DisableSSL = aws.Bool(os.Getenv("S3DISABLE_SSL") == "true")
+			c.DisableSSL = new(os.Getenv("S3DISABLE_SSL") == "true")
 		}
 	} else {
 		if bucket, ok := jd["s3Bucket"]; ok {
@@ -92,10 +90,10 @@ func (c *config) completeHSConfig(rcc *types.RayHistoryServerConfig, jd map[stri
 			c.S3Region = region.(string)
 		}
 		if forcePathStyle, ok := jd["s3ForcePathStyle"]; ok {
-			c.S3ForcePathStyle = aws.Bool(forcePathStyle.(string) == "true")
+			c.S3ForcePathStyle = new(forcePathStyle.(string) == "true")
 		}
 		if s3disableSSL, ok := jd["s3DisableSSL"]; ok {
-			c.DisableSSL = aws.Bool(s3disableSSL.(string) == "true")
+			c.DisableSSL = new(s3disableSSL.(string) == "true")
 		}
 	}
 }

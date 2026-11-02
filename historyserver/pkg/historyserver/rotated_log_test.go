@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/ray-project/kuberay/historyserver/pkg/eventserver"
 	eventtypes "github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
@@ -85,12 +87,12 @@ func TestFindWorkerLogFileIgnoresRotatedObjects(t *testing.T) {
 func TestResolveActorLogFilenameIgnoresRotatedObjects(t *testing.T) {
 	const clusterSessionKey = "raycluster_default_session"
 	loader := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheSize: 1})
-	loader.putSnapshot(clusterSessionKey, &eventserver.SessionSnapshot{Actors: map[string]eventtypes.Actor{
+	require.NoError(t, loader.putSnapshot(clusterSessionKey, &eventserver.SessionSnapshot{Actors: map[string]eventtypes.Actor{
 		"actor-id": {
 			ActorID: "actor-id",
 			Address: eventtypes.Address{NodeID: "abcd", WorkerID: "abc123"},
 		},
-	}})
+	}}))
 
 	reader := &taskLogStorageReader{files: []string{rotatedWorkerOut, canonicalWorkerOut}}
 	handler := &ServerHandler{sessionLoader: loader, reader: reader}
@@ -103,11 +105,11 @@ func TestResolveActorLogFilenameIgnoresRotatedObjects(t *testing.T) {
 func TestResolveTaskLogFilenameFallbackIgnoresRotatedObjects(t *testing.T) {
 	const clusterSessionKey = "raycluster_default_session"
 	loader := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheSize: 1})
-	loader.putSnapshot(clusterSessionKey, &eventserver.SessionSnapshot{Tasks: []eventtypes.Task{{
+	require.NoError(t, loader.putSnapshot(clusterSessionKey, &eventserver.SessionSnapshot{Tasks: []eventtypes.Task{{
 		TaskID:   "task-id",
 		NodeID:   "abcd",
 		WorkerID: "abc123",
-	}}})
+	}}}))
 
 	reader := &taskLogStorageReader{files: []string{rotatedWorkerOut, canonicalWorkerOut}}
 	handler := &ServerHandler{sessionLoader: loader, reader: reader}

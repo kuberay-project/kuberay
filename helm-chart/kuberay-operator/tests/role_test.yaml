@@ -56,3 +56,18 @@ tests:
               - patch
               - update
               - watch
+
+  - it: Should grant nodes get for the pods/binding webhook
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - nodes
+            verbs:
+              - get

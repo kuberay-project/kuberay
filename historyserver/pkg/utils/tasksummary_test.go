@@ -4,9 +4,10 @@ import (
 	"testing"
 	"time"
 
-	eventtypes "github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	eventtypes "github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
 )
 
 // --- Test helpers ---

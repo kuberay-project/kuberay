@@ -331,6 +331,10 @@ jobs:
         run: go mod download
         working-directory: ${{env.working-directory}}
 
+      - name: Lint
+        run: make lint
+        working-directory: ${{env.working-directory}}
+
       - name: Build
         run: make build
         working-directory: ${{env.working-directory}}

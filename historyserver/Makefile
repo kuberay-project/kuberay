@@ -1,7 +1,8 @@
 # Image URL to use all building/pushing image targets
-GOLANGCILINT_VERSION ?= v2.11.3
-GOBIN := $(shell go env GOPATH)/bin
-GOBIN_GOLANGCILINT := $(GOBIN)/golangci-lint
+GOLANGCI_LINT_VERSION ?= v2.11.4
+REPO_ROOT := $(shell dirname ${PWD})
+REPO_ROOT_BIN := $(REPO_ROOT)/bin
+GOLANGCI_LINT ?= $(REPO_ROOT_BIN)/golangci-lint
 
 DOCKERBUILDER_INSTANCE=historyserver
 OUT_DIR=output
@@ -141,41 +142,10 @@ export GOTOOLCHAIN := $(GOVERSION)+auto
 test:
 	go test -race -v ./pkg/... ./cmd/... -parallel 4
 
-.PHONY: alllint
-alllint: todolist issuelint ## Run go lint against code.
+.PHONY: golangci-lint
+golangci-lint: ## Download golangci-lint locally if necessary.
+	test -s $(GOLANGCI_LINT) || (curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | bash -s -- -b $(REPO_ROOT_BIN)/ $(GOLANGCI_LINT_VERSION))
 
-.PHONY: issuelint
-issuelint: install-golint
-	@echo ""
-	@echo "-------------------- show issues info, if has issuse, return error --------------------"
-	$(GOBIN_GOLANGCILINT) run -v --print-resources-usage -c .golangci.yaml
-
-.PHONY: todolist
-todolist: install-golint ## Run go lint against code.
-	@echo ""
-	@echo "-------------------- only show TODO list info --------------------"
-	$(GOBIN_GOLANGCILINT) run  --print-resources-usage -c .golangci.info.yaml --enable-only godox
-	@echo ""
-
-install-golint: ## check golint if not exist install golint tools
-ifneq ("$(wildcard $(GOBIN_GOLANGCILINT))","")
-ifeq (v$(shell $(GOBIN_GOLANGCILINT) version --short), $(GOLANGCILINT_VERSION))
-	@echo "golangci-lint version match"
-else
-	@echo "golangci-lint version do not match"
-	@{ \
-	set -e ;\
-	echo 'installing golangci-lint-$(GOLANGCILINT_VERSION)' ;\
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCILINT_VERSION) ;\
-	echo 'Successfully installed' ;\
-	}
-endif
-else
-	@echo "golangci-lint not exist"
-	@{ \
-	set -e ;\
-	echo 'installing golangci-lint-$(GOLANGCILINT_VERSION)' ;\
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCILINT_VERSION) ;\
-	echo 'Successfully installed' ;\
-	}
-endif
+.PHONY: lint
+lint: golangci-lint ## Run golangci-lint against code, using the repo-root .golangci.yml.
+	$(GOLANGCI_LINT) run --timeout 10m0s

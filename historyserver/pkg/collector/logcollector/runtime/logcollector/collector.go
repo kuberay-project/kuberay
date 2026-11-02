@@ -1,7 +1,6 @@
 package logcollector
 
 import (
-	"bytes"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -16,7 +15,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/ray-project/kuberay/historyserver/pkg/storage"
-	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/clustermetadata"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 )
@@ -44,12 +42,17 @@ type RayLogHandler struct {
 	DashboardAddress       string
 	AdditionalEndpoints    []string
 	EndpointPollInterval   time.Duration
-	RotatedLogScanInterval time.Duration
+	LogUploadInterval      time.Duration
 	mu                     sync.RWMutex
 	// rotatedMu serializes rotated log uploads so the periodic scan, shutdown
 	// and prev-logs paths cannot upload one generation twice.
 	rotatedMu       sync.Mutex
 	rotatedUploaded map[string]struct{}
+	// activeLogs is where the last upload stopped reading each chunked log.
+	// Guarded by activeMu as the periodic scan, the shutdown walk and the
+	// prev-logs walk may update it concurrently.
+	activeMu   sync.Mutex
+	activeLogs map[activeLogKey]tailState
 }
 
 func (r *RayLogHandler) GetRayNodeName() string {
@@ -88,10 +91,10 @@ func (r *RayLogHandler) Run(stop <-chan struct{}) error {
 	go r.WatchPrevLogsLoops()
 	go r.PollActiveSessionChanges()
 
-	rotatedScanStopped := make(chan struct{})
+	sessionScanStopped := make(chan struct{})
 	go func() {
-		defer close(rotatedScanStopped)
-		r.scanRotatedLogs(stop)
+		defer close(sessionScanStopped)
+		r.scanSessionLogs(stop)
 	}()
 	var periodicPollResults <-chan periodicPollResult
 	if r.IsHead {
@@ -119,7 +122,7 @@ func (r *RayLogHandler) Run(stop <-chan struct{}) error {
 		})
 	}
 	// Join the scanner before the final collection so no scan outlives the collector.
-	<-rotatedScanStopped
+	<-sessionScanStopped
 	r.processSessionLatestLogs()
 	wg.Wait()
 
@@ -145,21 +148,8 @@ func (r *RayLogHandler) processSessionLatestLogs() {
 	// Extract the real session ID from the resolved path
 	sessionID := filepath.Base(sessionRealDir)
 	if r.IsHead {
-		metafile := clustermetadata.EncodePath(
-			utils.ClusterInfo{
-				Name:      r.RayClusterName,
-				Namespace: r.RayClusterNamespace,
-				OwnerKind: r.OwnerKind,
-				OwnerName: r.OwnerName},
-			r.RootDir,
-			sessionID,
-		)
-		if err := r.Writer.CreateDirectory(path.Dir(metafile)); err != nil {
-			logrus.Errorf("Failed to create directory %s error %v", path.Dir(metafile), err)
-			return
-		}
-		if err := r.Writer.WriteFile(metafile, strings.NewReader("")); err != nil {
-			logrus.Errorf("Failed to write session file %s error %v", metafile, err)
+		if err := r.writeSessionMarker(sessionID); err != nil {
+			logrus.Errorf("Failed to write session marker for %s: %v", sessionID, err)
 			return
 		}
 	}
@@ -170,7 +160,7 @@ func (r *RayLogHandler) processSessionLatestLogs() {
 	// Process logs in session_latest/logs
 	logsDir := filepath.Join(sessionLatestDir, utils.RAY_SESSIONDIR_LOGDIR_NAME)
 	dirExist := false
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if _, err := os.Stat(logsDir); os.IsNotExist(err) {
 			logrus.Warnf("Logs directory does not exist: %s", logsDir)
 			time.Sleep(time.Millisecond * 10)
@@ -202,9 +192,9 @@ func (r *RayLogHandler) processSessionLatestLogs() {
 			return nil
 		}
 
-		// Process log file with the real session ID and node ID
-		if err := r.processSessionLatestLogFile(path, sessionID, nodeID); err != nil {
-			logrus.Errorf("Failed to process session_latest log file %s: %v", path, err)
+		// Only upload the tail of chunked files; upload others in full.
+		if err := r.collectActiveLog(path, logsDir, sessionID, nodeID); err != nil {
+			logrus.Errorf("Failed to upload session_latest log file %s: %v", path, err)
 		}
 
 		return nil
@@ -214,54 +204,6 @@ func (r *RayLogHandler) processSessionLatestLogs() {
 	}
 
 	logrus.Info("Finished processing session_latest logs")
-}
-
-// processSessionLatestLogFile processes a single log file from session_latest
-func (r *RayLogHandler) processSessionLatestLogFile(absoluteLogPathName, sessionID, nodeID string) error {
-	// Calculate relative path within logs directory
-	// The logsDir is the configured session_latest/logs directory.
-	sessionLatestDir := utils.GetRaySessionLatestPath()
-	logsDir := filepath.Join(sessionLatestDir, utils.RAY_SESSIONDIR_LOGDIR_NAME)
-	relativePath, err := filepath.Rel(logsDir, absoluteLogPathName)
-	if err != nil {
-		return fmt.Errorf("failed to get relative path for %s: %w", absoluteLogPathName, err)
-	}
-
-	// Split relative path into subdirectory and filename
-	subdir, _ := filepath.Split(relativePath)
-
-	// Build the object name using the standard path structure
-	logDir := clusterlogs.LogsDir(r.RootDir, r.OwnerKind, r.OwnerName, r.RayClusterNamespace, r.RayClusterName, sessionID, nodeID)
-
-	if subdir != "" && subdir != "." {
-		// Remove trailing separator if present
-		subdir = strings.TrimSuffix(subdir, string(filepath.Separator))
-		dirName := path.Join(logDir, subdir)
-		if err := r.Writer.CreateDirectory(dirName); err != nil {
-			logrus.Errorf("Failed to create directory '%s': %v", dirName, err)
-			return err
-		}
-	}
-
-	objectName := path.Join(logDir, relativePath)
-	logrus.Infof("Processing session_latest log file %s (object: %s)", absoluteLogPathName, objectName)
-
-	// Read the entire file content
-	content, err := os.ReadFile(absoluteLogPathName)
-	if err != nil {
-		logrus.Errorf("Failed to read file %s: %v", absoluteLogPathName, err)
-		return err
-	}
-
-	// Write to storage
-	err = r.Writer.WriteFile(objectName, bytes.NewReader(content))
-	if err != nil {
-		logrus.Errorf("Failed to write object %s: %v", objectName, err)
-		return err
-	}
-
-	logrus.Infof("Successfully wrote object %s, size: %d bytes", objectName, len(content))
-	return nil
 }
 
 func (r *RayLogHandler) WatchPrevLogsLoops() {
@@ -499,20 +441,8 @@ func (r *RayLogHandler) processSessionPrevLogs(sessionDir string) {
 	sessionID := parts[0]
 	logrus.Infof("Processing all node logs for session: %s", sessionID)
 	if r.IsHead {
-		metafile := clustermetadata.EncodePath(
-			utils.ClusterInfo{
-				Name:      r.RayClusterName,
-				Namespace: r.RayClusterNamespace,
-				OwnerKind: r.OwnerKind,
-				OwnerName: r.OwnerName},
-			r.RootDir,
-			sessionID)
-		if err := r.Writer.CreateDirectory(path.Dir(metafile)); err != nil {
-			logrus.Errorf("Failed to create directory %s error %v", path.Dir(metafile), err)
-			return
-		}
-		if err := r.Writer.WriteFile(metafile, strings.NewReader("")); err != nil {
-			logrus.Errorf("Failed to write session file %s error %v", metafile, err)
+		if err := r.writeSessionMarker(sessionID); err != nil {
+			logrus.Errorf("Failed to write session marker for %s: %v", sessionID, err)
 			return
 		}
 	}
@@ -602,7 +532,7 @@ func (r *RayLogHandler) processPrevLogsDir(sessionNodeDir string) {
 
 	logsDir := filepath.Join(sessionNodeDir, utils.RAY_SESSIONDIR_LOGDIR_NAME)
 	dirExist := false
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if _, err := os.Stat(logsDir); os.IsNotExist(err) {
 			logrus.Warnf("Logs directory does not exist: %s", logsDir)
 			time.Sleep(time.Millisecond * 10)
@@ -664,49 +594,20 @@ func (r *RayLogHandler) processPrevLogsDir(sessionNodeDir string) {
 	r.pruneRotatedUploaded(rotatedObjectPrefix, nil)
 }
 
-// processPrevLogFile processes a single log file from prev-logs
+// processPrevLogFile uploads one prev-log file (chunked files only their tail,
+// others in full) and then moves it to persist-complete-logs so a collector
+// restart skips it.
 func (r *RayLogHandler) processPrevLogFile(absoluteLogPathName, localLogDir, sessionID, nodeID string) error {
-	// Calculate relative path within logs directory
+	if err := r.collectActiveLog(absoluteLogPathName, localLogDir, sessionID, nodeID); err != nil {
+		return err
+	}
+
 	// The localLogDir is /tmp/ray/prev-logs/{sessionid}/{nodeid}/logs
 	relativePath, err := filepath.Rel(localLogDir, absoluteLogPathName)
 	if err != nil {
 		return fmt.Errorf("failed to get relative path for %s: %w", absoluteLogPathName, err)
 	}
-
-	// Split relative path into subdirectory and filename
 	subdir, _ := filepath.Split(relativePath)
-
-	// Build the object name using the standard path structure
-	logDir := clusterlogs.LogsDir(r.RootDir, r.OwnerKind, r.OwnerName, r.RayClusterNamespace, r.RayClusterName, sessionID, nodeID)
-
-	if subdir != "" && subdir != "." {
-		// Remove trailing separator if present
-		subdir = strings.TrimSuffix(subdir, string(filepath.Separator))
-		dirName := path.Join(logDir, subdir)
-		if err := r.Writer.CreateDirectory(dirName); err != nil {
-			logrus.Errorf("Failed to create directory '%s': %v", dirName, err)
-			return err
-		}
-	}
-
-	objectName := path.Join(logDir, relativePath)
-	logrus.Infof("Processing prev-log file %s (object: %s)", absoluteLogPathName, objectName)
-
-	// Read the entire file content
-	content, err := os.ReadFile(absoluteLogPathName)
-	if err != nil {
-		logrus.Errorf("Failed to read file %s: %v", absoluteLogPathName, err)
-		return err
-	}
-
-	// Write to storage
-	err = r.Writer.WriteFile(objectName, bytes.NewReader(content))
-	if err != nil {
-		logrus.Errorf("Failed to write object %s: %v", objectName, err)
-		return err
-	}
-
-	logrus.Infof("Successfully wrote object %s, size: %d bytes", objectName, len(content))
 
 	// Move the processed file to persist-complete-logs directory to avoid re-uploading
 	completeBaseDir := filepath.Join(r.persistCompleteLogsDir, sessionID, nodeID)
@@ -775,6 +676,14 @@ func (r *RayLogHandler) WatchSessionLatestLoops() {
 		return
 	}
 
+	// Write the marker for the session that already exists when the collector
+	// starts up; the watcher below only sees sessions created after it.
+	if sessionDir, err := filepath.EvalSymlinks(sessionLatestSymlink); err == nil {
+		if err := r.writeSessionMarker(filepath.Base(sessionDir)); err != nil {
+			logrus.Errorf("Failed to write session marker for %s: %v", sessionDir, err)
+		}
+	}
+
 	logrus.Infof("Started watching session_latest directory: %s", sessionLatestDir)
 	for {
 		select {
@@ -803,22 +712,8 @@ func (r *RayLogHandler) WatchSessionLatestLoops() {
 
 			// Handle changes to the symlink
 			if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
-				sessionID := filepath.Base(event.Name)
-				metafile := clustermetadata.EncodePath(
-					utils.ClusterInfo{
-						Name:      r.RayClusterName,
-						Namespace: r.RayClusterNamespace,
-						OwnerKind: r.OwnerKind,
-						OwnerName: r.OwnerName},
-					r.RootDir,
-					sessionID,
-				)
-				if err := r.Writer.CreateDirectory(path.Dir(metafile)); err != nil {
-					logrus.Errorf("Failed to create directory %s error %v", path.Dir(metafile), err)
-					return
-				}
-				if err := r.Writer.WriteFile(metafile, strings.NewReader("")); err != nil {
-					logrus.Errorf("Failed to write session file %s error %v", metafile, err)
+				if err := r.writeSessionMarker(filepath.Base(event.Name)); err != nil {
+					logrus.Errorf("Failed to write session marker for %s: %v", event.Name, err)
 					return
 				}
 			}
@@ -830,6 +725,28 @@ func (r *RayLogHandler) WatchSessionLatestLoops() {
 			logrus.Errorf("Session latest watcher error: %v", err)
 		}
 	}
+}
+
+// writeSessionMarker writes the empty object the History Server lists sessions
+// by (see clustermetadata.EncodePath).
+func (r *RayLogHandler) writeSessionMarker(sessionID string) error {
+	metafile := clustermetadata.EncodePath(
+		utils.ClusterInfo{
+			Name:      r.RayClusterName,
+			Namespace: r.RayClusterNamespace,
+			OwnerKind: r.OwnerKind,
+			OwnerName: r.OwnerName,
+		},
+		r.RootDir,
+		sessionID,
+	)
+	if err := r.Writer.CreateDirectory(path.Dir(metafile)); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", path.Dir(metafile), err)
+	}
+	if err := r.Writer.WriteFile(metafile, strings.NewReader("")); err != nil {
+		return fmt.Errorf("failed to write session file %s: %w", metafile, err)
+	}
+	return nil
 }
 
 // Polls if the active session changes, when it does, it moves the old session logs to a prev-logs/ folder.

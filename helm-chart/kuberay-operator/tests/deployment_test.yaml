@@ -305,6 +305,20 @@ tests:
         path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
         content: "--burst=150"
 
+  - it: Should use custom collector image when set
+    set:
+      collectorImage: my-registry.io/kuberay/collector:v1.7.0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--collector-image=my-registry.io/kuberay/collector:v1.7.0"
+
+  - it: Should not add the collector image arg when collectorImage is not set
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--collector-image="
+
   - it: Should enable Kubernetes WAS batch scheduler when the KubernetesWAS feature gate is set
     set:
       featureGates:
@@ -496,3 +510,46 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "nodeEventForwarder is not supported when singleNamespaceInstall is true because Node events are cluster-scoped and recorded in 'default' or 'kube-system', which requires permissions outside a single namespace."
+
+  - it: Should fail if `webhooks.enabled` and `singleNamespaceInstall` are both true
+    set:
+      singleNamespaceInstall: true
+      webhooks:
+        enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "webhooks are not supported when singleNamespaceInstall is true because the webhook configurations and Node reads are cluster-scoped."
+
+  - it: Should not enable webhooks by default
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="ENABLE_WEBHOOKS")]
+      - notExists:
+          path: spec.template.spec.containers[0].ports[?(@.name=="webhook-server")]
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name=="cert")]
+
+  - it: Should enable webhooks and mount the serving certificate if `webhooks.enabled` is true
+    set:
+      webhooks:
+        enabled: true
+      env:
+        - name: FOO
+          value: bar
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: ENABLE_WEBHOOKS
+              value: "true"
+            - name: FOO
+              value: bar
+      - equal:
+          path: spec.template.spec.containers[0].ports[?(@.name=="webhook-server")].containerPort
+          value: 9443
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[?(@.name=="cert")].mountPath
+          value: /tmp/k8s-webhook-server/serving-certs
+      - equal:
+          path: spec.template.spec.volumes[?(@.name=="cert")].secret.secretName
+          value: kuberay-operator-webhook-server-cert

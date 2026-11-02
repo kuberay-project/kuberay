@@ -7,6 +7,12 @@ repo_name: ray-project/kuberay
 repo_url: https://github.com/ray-project/kuberay
 edit_uri: ""
 
+# Copyright
+copyright: >-
+  Copyright KubeRay a Series of LF Projects, LLC<br>
+  For website terms of use, trademark policy and other project policies please see
+  <a href="https://lfprojects.org/policies/">lfprojects.org/policies/</a>.
+
 # Configuration
 theme:
   name: material

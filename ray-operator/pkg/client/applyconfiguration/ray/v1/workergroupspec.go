@@ -47,10 +47,12 @@ type WorkerGroupSpecApplyConfiguration struct {
 	ScaleStrategy *ScaleStrategyApplyConfiguration `json:"scaleStrategy,omitempty"`
 	// NumOfHosts denotes the number of hosts to create per replica. The default value is 1.
 	NumOfHosts *int32 `json:"numOfHosts,omitempty"`
-	// Topology delivers labels of the node each worker pod is bound to as Ray node labels.
-	// While its primary use would be for topology-aware scheduling, any allowed node label can be mapped.
-	// Requires the operator to run with `ENABLE_WEBHOOKS` enabled and Ray 2.45.0 or later (`--labels-file`).
-	Topology *TopologySpecApplyConfiguration `json:"topology,omitempty"`
+	// LabelRefs delivers labels of the node each worker pod is bound to as Ray node labels.
+	// This enables Ray scheduling based on node attributes, such as topology placement (e.g., rack, zone, or topology domain).
+	// Only allowlisted node labels can be delivered. Every referenced label must exist on the node or pod startup fails.
+	// Empty means no labels are delivered.
+	// Requires the `NodeLabelDelivery` feature gate and `ENABLE_WEBHOOKS` enabled on the operator, and Ray 2.45.0 or later (`--labels-file`).
+	LabelRefs []LabelRefApplyConfiguration `json:"labelRefs,omitempty"`
 }
 
 // WorkerGroupSpecApplyConfiguration constructs a declarative configuration of the WorkerGroupSpec type for use with
@@ -181,10 +183,15 @@ func (b *WorkerGroupSpecApplyConfiguration) WithNumOfHosts(value int32) *WorkerG
 	return b
 }
 
-// WithTopology sets the Topology field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Topology field is set to the value of the last call.
-func (b *WorkerGroupSpecApplyConfiguration) WithTopology(value *TopologySpecApplyConfiguration) *WorkerGroupSpecApplyConfiguration {
-	b.Topology = value
+// WithLabelRefs adds the given value to the LabelRefs field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the LabelRefs field.
+func (b *WorkerGroupSpecApplyConfiguration) WithLabelRefs(values ...*LabelRefApplyConfiguration) *WorkerGroupSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithLabelRefs")
+		}
+		b.LabelRefs = append(b.LabelRefs, *values[i])
+	}
 	return b
 }

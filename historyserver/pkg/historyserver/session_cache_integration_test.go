@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/emicklei/go-restful/v3"
-
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -53,7 +52,7 @@ func TestSessionCache_ReadEndpointsRoundTripIsLossless(t *testing.T) {
 			return SessionStatusProcessed, richSnapshot(key), nil
 		},
 	}
-	handler.sessionLoader = NewSessionLoader(fp, context.Background(), DefaultSessionProcessTimeout, DefaultSessionCacheSize, defaultSessionCacheMaxBytes, DefaultSessionCacheTTL)
+	handler.sessionLoader = NewSessionLoader(context.Background(), fp, DefaultSessionProcessTimeout, DefaultSessionCacheSize, defaultSessionCacheMaxBytes, DefaultSessionCacheTTL)
 
 	routerRayClusterSet(handler)
 	routerNodes(handler)
@@ -63,7 +62,7 @@ func TestSessionCache_ReadEndpointsRoundTripIsLossless(t *testing.T) {
 	container := restful.DefaultContainer
 
 	enterURL := "/enter_cluster/" + ns + "/raycluster/" + name + "/" + session
-	enterReq := httptest.NewRequest(http.MethodGet, enterURL, nil)
+	enterReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, enterURL, nil)
 	enterResp := httptest.NewRecorder()
 	container.ServeHTTP(enterResp, enterReq)
 	if enterResp.Code != http.StatusOK {
@@ -84,7 +83,7 @@ func TestSessionCache_ReadEndpointsRoundTripIsLossless(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tc.url, nil)
 			for _, c := range cookies {
 				req.AddCookie(c)
 			}

@@ -5,5 +5,5 @@ metadata:
   name: {{ include "kuberay-operator.clusterRole.name" . }}
   labels:
     {{- include "kuberay-operator.labels" . | nindent 4 }}
-{{ include "role.consistentRules" (dict "batchSchedulerEnabled" .Values.batchScheduler.enabled "batchSchedulerName" .Values.batchScheduler.name "kubernetesWASEnabled" (include "kuberay.kubernetesWASEnabled" .)) }}
+{{ include "role.consistentRules" (dict "clusterScoped" true "batchSchedulerEnabled" .Values.batchScheduler.enabled "batchSchedulerName" .Values.batchScheduler.name "kubernetesWASEnabled" (include "kuberay.kubernetesWASEnabled" .)) }}
 {{- end }}

@@ -17,12 +17,11 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-
 	"github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 	. "github.com/ray-project/kuberay/historyserver/test/support"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	. "github.com/ray-project/kuberay/ray-operator/test/support"
 )
 
@@ -267,7 +266,7 @@ func testCollectorResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 	// Verify that file2.log was actually uploaded to S3.
 	// file1.log should NOT be uploaded because it was already marked as "completed" in persist-complete-logs.
 	// file2.log should be uploaded because it was in prev-logs (pending upload).
-	LogWithTimestamp(test.T(), "Verifying file2.log was uploaded to S3 (idempotency check)")
+	LogWithTimestamp(test.T(), "Verifying file2.log was uploaded to S3 as a chunk (idempotency check)")
 	g.Eventually(func(gg Gomega) {
 		// List all objects under the session logs prefix
 		uploadedKeys, err := s3Client.ListObjectKeys(S3BucketName, sessionPrefix)
@@ -275,9 +274,11 @@ func testCollectorResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 		LogWithTimestamp(test.T(), "Found uploaded objects: %v", uploadedKeys)
 
 		// Verify file2.log exists in S3 (it was in prev-logs, so it should be uploaded)
+		// Append-only logs are uploaded by chunk, so file2.log lands under
+		// "file2.log.chunks/<offset>" rather than as a whole object.
 		hasFile2 := false
 		for _, key := range uploadedKeys {
-			if strings.HasSuffix(key, "file2.log") {
+			if strings.Contains(key, "/file2.log"+clusterlogs.ChunkDirSuffix+"/") {
 				hasFile2 = true
 				break
 			}
@@ -355,14 +356,14 @@ func testCollectorStoresClusterMetadata(test Test, g *WithT, namespace *corev1.N
 		gg.Expect(body).NotTo(BeEmpty(), "Cluster metadata file should not be empty")
 
 		// Verify it is valid JSON
-		var metadata map[string]interface{}
+		var metadata map[string]any
 		err = json.Unmarshal(body, &metadata)
 		gg.Expect(err).NotTo(HaveOccurred(), "Cluster metadata should be valid JSON")
 
 		// The Ray dashboard returns {"result": true, "data": {"rayVersion": ..., "pythonVersion": ...}}.
 		// Verify the "data" sub-object contains expected fields.
 		gg.Expect(metadata).To(HaveKey("data"), "Cluster metadata should contain data field")
-		data, ok := metadata["data"].(map[string]interface{})
+		data, ok := metadata["data"].(map[string]any)
 		gg.Expect(ok).To(BeTrue(), "data field should be a JSON object")
 		gg.Expect(data).To(HaveKey("rayVersion"), "Cluster metadata should contain rayVersion")
 		gg.Expect(data).To(HaveKey("pythonVersion"), "Cluster metadata should contain pythonVersion")
@@ -407,7 +408,7 @@ func assertTimezoneStored(test Test, g *WithT, rayCluster *rayv1.RayCluster, s3C
 		gg.Expect(body).NotTo(BeEmpty(), "Timezone file should not be empty")
 
 		// Verify it is valid JSON
-		var timezone map[string]interface{}
+		var timezone map[string]any
 		err = json.Unmarshal(body, &timezone)
 		gg.Expect(err).NotTo(HaveOccurred(), "Timezone data should be valid JSON")
 
@@ -557,7 +558,9 @@ func loadRayEventsFromS3(s3Client *S3TestClient, bucket string, prefix string) (
 	return events, nil
 }
 
-// assertFileExist verifies that a file object exists under the given log directory prefix.
+// assertFileExist verifies that fileName exists under nodeLogDirPrefix, either
+// as a whole object or as at least one chunk under "<fileName>.chunks/" (the
+// collector uploads append-only logs by chunk).
 // For a Ray cluster with one head node and one worker node, there are two log directories to verify:
 //   - logs/<headNodeID>/
 //   - logs/<workerNodeID>/
@@ -565,8 +568,22 @@ func assertFileExist(test Test, g *WithT, s3Client *S3TestClient, nodeLogDirPref
 	fileKey := fmt.Sprintf("%s/%s", nodeLogDirPrefix, fileName)
 	LogWithTimestamp(test.T(), "Verifying file %s exists", fileKey)
 	g.Eventually(func(gg Gomega) {
-		gg.Expect(s3Client.StatObject(S3BucketName, fileKey)).To(Succeed())
-		LogWithTimestamp(test.T(), "Verified file %s exists", fileKey)
+		if s3Client.StatObject(S3BucketName, fileKey) == nil {
+			LogWithTimestamp(test.T(), "Verified file %s exists", fileKey)
+			return
+		}
+		keys, err := s3Client.ListObjectKeys(S3BucketName, fileKey+clusterlogs.ChunkDirSuffix+"/")
+		gg.Expect(err).NotTo(HaveOccurred())
+		// The collector writes a "<file>.chunks/" directory marker before the
+		// first chunk; only count real chunk objects.
+		chunks := 0
+		for _, key := range keys {
+			if !strings.HasSuffix(key, "/") {
+				chunks++
+			}
+		}
+		gg.Expect(chunks).NotTo(BeZero(), "neither %s nor any chunk under %s%s/ exists", fileKey, fileKey, clusterlogs.ChunkDirSuffix)
+		LogWithTimestamp(test.T(), "Verified file %s exists as %d chunk(s)", fileKey, chunks)
 	}, TestTimeoutMedium).Should(Succeed(), "Failed to verify file %s exists", fileKey)
 }
 
@@ -607,8 +624,7 @@ func listFetchedEndpoints(g Gomega, s3Client *S3TestClient, clusterPrefix, stora
 
 	var keys []string
 	for _, key := range allKeys {
-		idx := strings.Index(key, marker)
-		if idx >= 0 && strings.HasPrefix(key[idx+len(marker):], storageKeyPrefix) {
+		if _, after, ok := strings.Cut(key, marker); ok && strings.HasPrefix(after, storageKeyPrefix) {
 			keys = append(keys, key)
 		}
 	}

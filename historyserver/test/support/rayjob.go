@@ -17,7 +17,7 @@ const (
 
 // ApplyRayJobAndWaitForCompletion applies a Ray job to the existing Ray cluster and waits for it to complete successfully.
 // In the RayJob manifest, the clusterSelector is set to the existing Ray cluster, raycluster-historyserver.
-func ApplyRayJobAndWaitForCompletion(test Test, g *WithT, namespace *corev1.Namespace, rayCluster *rayv1.RayCluster) *rayv1.RayJob {
+func ApplyRayJobAndWaitForCompletion(test Test, g *WithT, namespace *corev1.Namespace, _ *rayv1.RayCluster) *rayv1.RayJob {
 	rayJobFromYaml := DeserializeRayJobYAML(test, rayJobManifestPath)
 	rayJobFromYaml.Namespace = namespace.Name
 

@@ -45,7 +45,7 @@ const (
 type RayErrorInfo struct {
 	// More detailed error context for various error types.
 	// TODO(jiangjiawei1103): Add error context.
-	Error interface{} `json:"error"`
+	Error any `json:"error"`
 
 	ErrorMessage string `json:"errorMessage"`
 

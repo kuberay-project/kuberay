@@ -1,7 +1,7 @@
 # KubeRay People
 
-This page lists the people in each KubeRay role. See [GOVERNANCE.md](GOVERNANCE.md) for how each role is
-granted, and [COMMUNITY.md](COMMUNITY.md) for how to participate.
+This page lists the people in each KubeRay role. See [GOVERNANCE.md](../../GOVERNANCE.md) for how each role is
+granted, and [community.md](community.md) for how to participate.
 
 ## Triagers
 

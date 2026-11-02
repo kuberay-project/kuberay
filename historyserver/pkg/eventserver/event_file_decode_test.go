@@ -24,7 +24,6 @@ func TestIsValidEventFile(t *testing.T) {
 		{"wrong hour", "node-abcd-2026-05-13-1", false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, isValidEventFile(tc.fileName))
 		})

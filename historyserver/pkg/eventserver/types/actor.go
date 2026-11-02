@@ -1,6 +1,7 @@
 package types
 
 import (
+	"maps"
 	"sync"
 	"time"
 )
@@ -179,15 +180,11 @@ func (a Actor) DeepCopy() Actor {
 	}
 	if len(a.RequiredResources) > 0 {
 		cp.RequiredResources = make(map[string]float64, len(a.RequiredResources))
-		for k, v := range a.RequiredResources {
-			cp.RequiredResources[k] = v
-		}
+		maps.Copy(cp.RequiredResources, a.RequiredResources)
 	}
 	if len(a.LabelSelector) > 0 {
 		cp.LabelSelector = make(map[string]string, len(a.LabelSelector))
-		for k, v := range a.LabelSelector {
-			cp.LabelSelector[k] = v
-		}
+		maps.Copy(cp.LabelSelector, a.LabelSelector)
 	}
 	return cp
 }

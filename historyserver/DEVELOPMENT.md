@@ -1,6 +1,6 @@
 # History Server - Local Development with Ray Dashboard
 
-This guide walks through how to develop the History Server locally with MinIO as the
+This guide walks through how to develop the History Server locally with RustFS as the
 S3-compatible object store, and browse the UI through the Ray Dashboard's middleware
 (from [ray-project/ray#61295](https://github.com/ray-project/ray/pull/61295)).
 
@@ -9,7 +9,7 @@ S3-compatible object store, and browse the UI through the Ray Dashboard's middle
 - [Prerequisites](#prerequisites)
 - [Step 1: Set Up Kind and KubeRay Operator](#step-1-set-up-kind-and-kuberay-operator)
 - [Step 2: Build and Load Images](#step-2-build-and-load-images)
-- [Step 3: Deploy MinIO](#step-3-deploy-minio)
+- [Step 3: Deploy RustFS](#step-3-deploy-rustfs)
 - [Step 4: Generate a Dead Session](#step-4-generate-a-dead-session)
 - [Step 5: Deploy History Server](#step-5-deploy-history-server)
 - [Step 6: Access the Local Ray Dashboard](#step-6-access-the-local-ray-dashboard)
@@ -61,16 +61,16 @@ kind load docker-image historyserver:v0.1.0
 docker exec -it kind-control-plane crictl images | grep -E 'collector|historyserver'
 ```
 
-## Step 3: Deploy MinIO
+## Step 3: Deploy RustFS
 
 ```bash
-kubectl apply -f historyserver/config/minio.yaml
+kubectl apply -f historyserver/config/rustfs.yaml
 ```
 
 Port forward the console and API ports:
 
 ```bash
-kubectl -n minio-dev port-forward svc/minio-service 9001:9001 9000:9000
+kubectl -n rustfs-dev port-forward svc/rustfs-service 9001:9001 9000:9000
 ```
 
 ## Step 4: Generate a Dead Session
@@ -92,7 +92,7 @@ kubectl delete -f historyserver/config/rayjob.yaml
 ```
 
 > [!NOTE]
-> Open `http://localhost:9001/browser`, log in with `minioadmin` / `minioadmin`, and confirm the `ray-historyserver`
+> Open `http://localhost:9001/rustfs/console/`, log in with `rustfsadmin` / `rustfsadmin`, and confirm the `ray-historyserver`
 > bucket exists.
 
 ## Step 5: Deploy History Server
@@ -117,11 +117,11 @@ To access the local Ray Dashboard, you have to port forward the History Server s
 kubectl port-forward svc/historyserver 8080:30080
 ```
 
-Install Ray locally. Make sure to use at least Ray `v2.55`.
+Install Ray locally. Make sure to use at least Ray `v2.58`.
 
 ```bash
 pip uninstall -y ray
-pip install -U "ray[default]==2.56.0"
+pip install -U "ray[default]==2.58.0"
 ```
 
 Run the `ray start` command:
@@ -191,7 +191,7 @@ call to the live RayCluster's head dashboard service, so you see real-time state
 kubectl delete -f historyserver/config/rayjob.yaml --ignore-not-found
 kubectl delete -f historyserver/config/historyserver.yaml
 kubectl delete -f historyserver/config/service_account.yaml
-kubectl delete -f historyserver/config/minio.yaml
+kubectl delete -f historyserver/config/rustfs.yaml
 
 # Or delete the whole cluster directly.
 # kind delete cluster

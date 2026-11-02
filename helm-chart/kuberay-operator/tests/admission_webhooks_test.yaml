@@ -1,0 +1,122 @@
+suite: Test admission webhooks
+
+templates:
+  - admission-webhooks/service.yaml
+  - admission-webhooks/issuer.yaml
+  - admission-webhooks/certificate.yaml
+  - admission-webhooks/mutating-webhook.yaml
+  - admission-webhooks/validating-webhook.yaml
+
+release:
+  name: kuberay-operator
+  namespace: kuberay-system
+
+tests:
+  - it: Should render nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should render the Service, cert-manager objects and the validating webhooks if `webhooks.enabled` is true, but not the pod webhooks without the NodeLabelDelivery gate
+    set:
+      webhooks:
+        enabled: true
+    asserts:
+      - containsDocument:
+          apiVersion: v1
+          kind: Service
+          name: kuberay-operator-webhook
+          namespace: kuberay-system
+        template: admission-webhooks/service.yaml
+      - containsDocument:
+          apiVersion: cert-manager.io/v1
+          kind: Issuer
+          name: kuberay-operator-selfsigned-issuer
+          namespace: kuberay-system
+        template: admission-webhooks/issuer.yaml
+      - containsDocument:
+          apiVersion: cert-manager.io/v1
+          kind: Certificate
+          name: kuberay-operator-serving-cert
+          namespace: kuberay-system
+        template: admission-webhooks/certificate.yaml
+      - containsDocument:
+          apiVersion: admissionregistration.k8s.io/v1
+          kind: ValidatingWebhookConfiguration
+          name: kuberay-operator-validating-webhook-configuration
+        template: admission-webhooks/validating-webhook.yaml
+      - hasDocuments:
+          count: 0
+        template: admission-webhooks/mutating-webhook.yaml
+
+  - it: Should point the Certificate at the webhook Service and the secret the Deployment mounts
+    template: admission-webhooks/certificate.yaml
+    set:
+      webhooks:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.dnsNames
+          value:
+            - kuberay-operator-webhook.kuberay-system.svc
+            - kuberay-operator-webhook.kuberay-system.svc.cluster.local
+      - equal:
+          path: spec.secretName
+          value: kuberay-operator-webhook-server-cert
+      - equal:
+          path: spec.subject.organizations
+          value: [kuberay]
+
+  - it: Should render the pod webhooks when the NodeLabelDelivery gate is enabled, scoped to Ray worker pods and with the CA injected
+    template: admission-webhooks/mutating-webhook.yaml
+    set:
+      webhooks:
+        enabled: true
+      featureGates:
+        - name: NodeLabelDelivery
+          enabled: true
+    asserts:
+      - containsDocument:
+          apiVersion: admissionregistration.k8s.io/v1
+          kind: MutatingWebhookConfiguration
+          name: kuberay-operator-mutating-webhook-configuration
+      - equal:
+          path: metadata.annotations["cert-manager.io/inject-ca-from"]
+          value: kuberay-system/kuberay-operator-serving-cert
+      - equal:
+          path: webhooks[?(@.name=="mpod.kb.io")].failurePolicy
+          value: Fail
+      - equal:
+          path: webhooks[?(@.name=="mpod.kb.io")].objectSelector.matchLabels["ray.io/node-type"]
+          value: worker
+      - equal:
+          path: webhooks[?(@.name=="mpodbinding.kb.io")].failurePolicy
+          value: Ignore
+      - equal:
+          path: webhooks[?(@.name=="mpodbinding.kb.io")].timeoutSeconds
+          value: 5
+      - equal:
+          path: webhooks[?(@.name=="mpodbinding.kb.io")].rules[0].resources
+          value: ["pods/binding"]
+      - equal:
+          path: webhooks[*].clientConfig.service.name
+          value: kuberay-operator-webhook
+
+  - it: Should validate RayCluster, RayJob and RayService
+    template: admission-webhooks/validating-webhook.yaml
+    set:
+      webhooks:
+        enabled: true
+    asserts:
+      - lengthEqual:
+          path: webhooks
+          count: 3
+      - equal:
+          path: webhooks[0].name
+          value: vraycluster.kb.io
+      - equal:
+          path: webhooks[1].name
+          value: vrayjob.kb.io
+      - equal:
+          path: webhooks[2].name
+          value: vrayservice.kb.io

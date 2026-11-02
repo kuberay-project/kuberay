@@ -1,6 +1,7 @@
 package historyserver
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -51,7 +52,7 @@ func serveThroughCookieHandle(handler *ServerHandler, cookies map[string]string)
 	}).Filter(handler.CookieHandle))
 	container.Add(ws)
 
-	req := httptest.NewRequest("GET", "/probe", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/probe", nil)
 	for name, value := range cookies {
 		req.AddCookie(&http.Cookie{Name: name, Value: value})
 	}

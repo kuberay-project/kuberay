@@ -10,7 +10,7 @@ import (
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/s3"
 )
 
-type WriterRegistry map[string]func(globalData *types.RayCollectorConfig, data map[string]interface{}) (storage.StorageWriter, error)
+type WriterRegistry map[string]func(globalData *types.RayCollectorConfig, data map[string]any) (storage.StorageWriter, error)
 
 func GetWriterRegistry() WriterRegistry {
 	return writerRegistry
@@ -23,7 +23,7 @@ var writerRegistry = WriterRegistry{
 	"gcs":       gcs.NewWriter,
 }
 
-type ReaderRegistry map[string]func(globalData *types.RayHistoryServerConfig, data map[string]interface{}) (storage.StorageReader, error)
+type ReaderRegistry map[string]func(globalData *types.RayHistoryServerConfig, data map[string]any) (storage.StorageReader, error)
 
 func GetReaderRegistry() ReaderRegistry {
 	return readerRegistry

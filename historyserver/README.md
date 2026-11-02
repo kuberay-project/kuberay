@@ -69,7 +69,9 @@ The history server can be configured using command-line flags:
 - `--dashboard-dir`: Directory containing dashboard assets (default: "/dashboard")
 - `--storage-backend-config-path`: Path to storage backend configuration file
 - `--enable-live-clusters`: Serve RayClusters that are still running by reverse-proxying to their
-  head dashboard (default: `false`)
+  head dashboard (default: `false`). When disabled, a running RayCluster is served from storage
+  using whatever the collector has uploaded so far. The cached snapshot does not refresh on its
+  own; enter the cluster with `?reload=true` to re-read it.
 
 > [!WARNING]
 > The history server does not authenticate its own callers, and the RayCluster it proxies to is
@@ -93,8 +95,19 @@ The collector can be configured using command-line flags:
 
 And using environment variables:
 
-- `RAY_COLLECTOR_ROTATED_LOG_SCAN_INTERVAL`: How often the collector scans the active session
-  log directory for completed Ray log rotation backups (default: `30s`)
+- `RAY_COLLECTOR_LOG_UPLOAD_INTERVAL`: How often the collector uploads rotated log backups
+  and new active log content (default: `5m`). Shorter intervals produce more log chunks for
+  the History Server to merge on read.
+
+#### Active log upload
+
+On the same schedule the collector also uploads the active logs of a running cluster.
+`debug_state.txt` is rewritten by Ray on every dump and is re-uploaded in full each pass. Every
+other log under `logs/` is append-only and uploads only the bytes added since the previous pass,
+as one object per pass under `<file>.chunks/<offset>`.
+
+The History Server joins the chunks when reading. On shutdown and on a session change the collector uploads
+the remaining tail as one more chunk. Ray log rotation is not supported for chunked uploads yet.
 
 #### Rotated log collection
 
@@ -104,7 +117,7 @@ scans the active session for those backups and uploads each one before Ray can o
 highest rotation index first because that is the generation Ray evicts next.
 
 Collection is best effort: a backup Ray removes before the collector reaches it is lost, so set
-`RAY_COLLECTOR_ROTATED_LOG_SCAN_INTERVAL` shorter than the time Ray takes to cycle through its
+`RAY_COLLECTOR_LOG_UPLOAD_INTERVAL` shorter than the time Ray takes to cycle through its
 rotation backups. That time depends on `RAY_ROTATION_MAX_BYTES`, `RAY_ROTATION_BACKUP_COUNT` and
 how fast the node writes logs; see the
 [Ray log rotation docs](https://docs.ray.io/en/latest/ray-observability/user-guides/configure-logging.html#log-rotation).
@@ -119,7 +132,7 @@ canonical active log, since one worker stream can span several generations.
 
 History Server supports multiple storage backends:
 
-1. **S3/MinIO**: For AWS S3 or MinIO compatible storage
+1. **S3**: For AWS S3 or S3-compatible storage (e.g. RustFS)
 2. **Aliyun OSS**: For Alibaba Cloud Object Storage Service
 3. **Local Test**: For local testing and development
 
@@ -168,17 +181,17 @@ make test
 To run lint checks:
 
 ```bash
-make alllint
+make lint
 ```
 
 ## Smoke Tests
 
 ### 1. Deploy History Server
 
-Apply MinIO and the History Server manifests:
+Apply RustFS and the History Server manifests:
 
 ```bash
-kubectl apply -f historyserver/config/minio.yaml
+kubectl apply -f historyserver/config/rustfs.yaml
 kubectl apply -f historyserver/config/service_account.yaml
 kubectl apply -f historyserver/config/historyserver.yaml
 ```
@@ -246,5 +259,5 @@ per first-time cold-path call. Warm-path calls produce no parse log lines.
 
 ## Deployment
 
-History Server can be deployed in Kubernetes using the manifests in the `config/samples/` directory.
-Examples are provided for different storage backends including MinIO and Aliyun OSS.
+History Server can be deployed in Kubernetes using the manifests in the `config/` directory.
+Examples are provided for different storage backends including S3 (RustFS) and Aliyun OSS.

@@ -10,9 +10,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 )
 
 func newFakeK8sClient(t *testing.T, rc *rayv1.RayCluster) client.Client {
@@ -59,7 +58,7 @@ func TestIsDead(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			k := newFakeK8sClient(t, tc.cr)
-			p := NewSessionProcessor(nil, k)
+			p := NewSessionProcessor(nil, k, false)
 
 			info := utils.ClusterInfo{Namespace: ns, Name: name, SessionName: queriedSession}
 			gotDead, err := p.isDead(context.Background(), info)
@@ -68,6 +67,45 @@ func TestIsDead(t *testing.T) {
 			}
 			if gotDead != tc.wantDead {
 				t.Fatalf("isDead = %v, want %v", gotDead, tc.wantDead)
+			}
+		})
+	}
+}
+
+func TestProcessSession_ServeRunningClusters(t *testing.T) {
+	const (
+		ns      = "default"
+		name    = "raycluster-test"
+		session = "session_2026-04-22_10-00-00_000000_1"
+	)
+	info := utils.ClusterInfo{Namespace: ns, Name: name, SessionName: session}
+
+	tests := []struct {
+		name         string
+		serveRunning bool
+		cr           *rayv1.RayCluster
+		wantStatus   SessionStatus
+		wantSnapshot bool
+	}{
+		{"flag off, CR present -> live, no snapshot", false, rayCluster(ns, name), SessionStatusLive, false},
+		{"flag off, CR absent -> processed", false, nil, SessionStatusProcessed, true},
+		{"flag on, CR present -> processed from storage", true, rayCluster(ns, name), SessionStatusProcessed, true},
+		{"flag on, CR absent -> processed", true, nil, SessionStatusProcessed, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := NewSessionProcessor(&mockStorageReader{}, newFakeK8sClient(t, tc.cr), tc.serveRunning)
+
+			status, snap, err := p.ProcessSession(context.Background(), info)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if status != tc.wantStatus {
+				t.Fatalf("status = %v, want %v", status, tc.wantStatus)
+			}
+			if (snap != nil) != tc.wantSnapshot {
+				t.Fatalf("snapshot != nil is %v, want %v", snap != nil, tc.wantSnapshot)
 			}
 		})
 	}
