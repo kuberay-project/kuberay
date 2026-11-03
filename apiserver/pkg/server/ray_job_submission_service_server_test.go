@@ -18,6 +18,7 @@ import (
 	"github.com/ray-project/kuberay/apiserver/pkg/util"
 	api "github.com/ray-project/kuberay/proto/go_client"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils/dashboardclient"
 	utiltypes "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils/types"
 	fakeclientset "github.com/ray-project/kuberay/ray-operator/pkg/client/clientset/versioned/fake"
 )
@@ -218,4 +219,146 @@ func TestConvertNodeInfo(t *testing.T) {
 	result := convertNodeInfo(&rayJobInfo)
 
 	assert.Equal(t, expected, result)
+}
+
+func TestSubmitRayJobForwardsEntrypointResources(t *testing.T) {
+	dashboardClient := &recordingDashboardClient{}
+	rayJobSubmissionService := newRayJobSubmissionServiceForTest(t, dashboardClient)
+
+	reply, err := rayJobSubmissionService.SubmitRayJob(context.Background(), &api.SubmitRayJobRequest{
+		Namespace:   "test-namespace",
+		Clustername: "test-raycluster",
+		Jobsubmission: &api.RayJobSubmission{
+			Entrypoint: "python job.py",
+			EntrypointResources: map[string]string{
+				"custom-resource": "2.5",
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "submission-id", reply.SubmissionId)
+	require.Equal(t, 1, dashboardClient.submitJobReqCalls)
+	assert.Equal(t, map[string]float32{"custom-resource": 2.5}, dashboardClient.request.Resources)
+}
+
+func TestSubmitRayJobRejectsInvalidEntrypointResources(t *testing.T) {
+	dashboardClient := &recordingDashboardClient{}
+	rayJobSubmissionService := newRayJobSubmissionServiceForTest(t, dashboardClient)
+
+	reply, err := rayJobSubmissionService.SubmitRayJob(context.Background(), &api.SubmitRayJobRequest{
+		Namespace:   "test-namespace",
+		Clustername: "test-raycluster",
+		Jobsubmission: &api.RayJobSubmission{
+			Entrypoint: "python job.py",
+			EntrypointResources: map[string]string{
+				"custom-resource": "not-a-number",
+			},
+		},
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, reply)
+	assert.Zero(t, dashboardClient.submitJobReqCalls)
+}
+
+func newRayJobSubmissionServiceForTest(t *testing.T, dashboardClient dashboardclient.RayDashboardClientInterface) *RayJobSubmissionServiceServer {
+	t.Helper()
+
+	const namespace = "test-namespace"
+	const clusterName = "test-raycluster"
+
+	rayCluster := &rayv1.RayCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      clusterName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				util.KubernetesManagedByLabelKey: util.ComponentName,
+			},
+		},
+		Status: rayv1.RayClusterStatus{State: rayv1.Ready},
+		Spec: rayv1.RayClusterSpec{
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "test", Image: "test"}},
+					},
+				},
+			},
+		},
+	}
+
+	ctrl := gomock.NewController(t)
+	mockClientManager := manager.NewMockClientManagerInterface(ctrl)
+	mockClusterClient := client.NewMockClusterClientInterface(ctrl)
+	fakeClient := fakeclientset.NewSimpleClientset(rayCluster)
+	fakeRayCluster := fakeClient.RayV1().RayClusters(namespace)
+	mockClusterClient.EXPECT().RayClusterClient(namespace).Return(fakeRayCluster).MinTimes(1).MaxTimes(2)
+	mockClientManager.EXPECT().ClusterClient().Return(mockClusterClient).MinTimes(1).MaxTimes(2)
+
+	expectedEvent := &eventsv1.Event{ObjectMeta: metav1.ObjectMeta{Name: "ray-event-1", Namespace: namespace}}
+	mockKubeClient := client.NewMockKubernetesClientInterface(ctrl)
+	fakeKubeClient := kubernetesfake.NewClientset(expectedEvent)
+	mockKubeClient.EXPECT().EventsClient(namespace).Return(fakeKubeClient.EventsV1().Events(namespace)).MaxTimes(1)
+	mockClientManager.EXPECT().KubernetesClient().Return(mockKubeClient).MaxTimes(1)
+
+	rayJobSubmissionService := NewRayJobSubmissionServiceServer(
+		&ClusterServer{
+			resourceManager: manager.NewResourceManager(mockClientManager),
+			options:         &ClusterServerOptions{},
+		},
+		&RayJobSubmissionServiceServerOptions{},
+	)
+	rayJobSubmissionService.dashboardClientFunc = func(*rayv1.RayCluster, string) (dashboardclient.RayDashboardClientInterface, error) {
+		return dashboardClient, nil
+	}
+
+	return rayJobSubmissionService
+}
+
+type recordingDashboardClient struct {
+	request           *utiltypes.RayJobRequest
+	submitJobReqCalls int
+}
+
+func (c *recordingDashboardClient) UpdateDeployments(context.Context, []byte) error {
+	return nil
+}
+
+func (c *recordingDashboardClient) GetServeDetails(context.Context) (*utiltypes.ServeDetails, error) {
+	return nil, nil
+}
+
+func (c *recordingDashboardClient) GetMultiApplicationStatus(context.Context) (map[string]*utiltypes.ServeApplicationStatus, error) {
+	return nil, nil
+}
+
+func (c *recordingDashboardClient) GetJobInfo(context.Context, string) (*utiltypes.RayJobInfo, error) {
+	return nil, nil
+}
+
+func (c *recordingDashboardClient) ListJobs(context.Context) (*[]utiltypes.RayJobInfo, error) {
+	return nil, nil
+}
+
+func (c *recordingDashboardClient) SubmitJob(context.Context, *rayv1.RayJob) (string, error) {
+	return "", nil
+}
+
+func (c *recordingDashboardClient) SubmitJobReq(_ context.Context, request *utiltypes.RayJobRequest) (string, error) {
+	c.submitJobReqCalls++
+	c.request = request
+	return "submission-id", nil
+}
+
+func (c *recordingDashboardClient) GetJobLog(context.Context, string) (*string, error) {
+	return nil, nil
+}
+
+func (c *recordingDashboardClient) StopJob(context.Context, string) error {
+	return nil
+}
+
+func (c *recordingDashboardClient) DeleteJob(context.Context, string) error {
+	return nil
 }
