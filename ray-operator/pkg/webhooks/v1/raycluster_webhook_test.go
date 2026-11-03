@@ -114,7 +114,7 @@ var _ = Describe("RayCluster validating webhook", func() {
 			err := k8sClient.Create(context.TODO(), &rayCluster)
 			Expect(err).To(HaveOccurred())
 
-			Expect(err.Error()).To(ContainSubstring("worker group names must be unique"))
+			Expect(err.Error()).To(ContainSubstring("Duplicate value: {\"groupName\":\"group1\"}"))
 		})
 	})
 })
