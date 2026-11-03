@@ -92,6 +92,13 @@ func NewSessionLoader(serverCtx context.Context, p processor, processTimeout tim
 	}
 }
 
+// ProcessTimeout returns the configured per-session cold-load timeout. Callers
+// such as the HTTP server use it to derive a response write timeout that never
+// cuts off a session load that the loader itself still allows.
+func (s *SessionLoader) ProcessTimeout() time.Duration {
+	return s.processTimeout
+}
+
 // GetSnapshot returns the decoded snapshot. It is shared by concurrent callers
 // and must be treated as read-only.
 func (s *SessionLoader) GetSnapshot(clusterSessionKey string) (*eventserver.SessionSnapshot, bool) {
