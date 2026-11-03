@@ -2,6 +2,7 @@ package compression
 
 import (
 	"bytes"
+	"compress/gzip"
 	"io"
 	"os"
 	"testing"
@@ -15,7 +16,14 @@ func compressBytesForTest(data []byte) ([]byte, error) {
 
 func decompressBytesForTest(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
-	err := DecompressStream(&buf, bytes.NewReader(data))
+	r, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	_, err = io.Copy(&buf, r)
+	if closeErr := r.Close(); err == nil {
+		err = closeErr
+	}
 	return buf.Bytes(), err
 }
 
@@ -27,13 +35,13 @@ func TestCompressDecompressStream(t *testing.T) {
 		t.Fatalf("CompressStream failed: %v", err)
 	}
 
-	var decompressedBuf bytes.Buffer
-	if err := DecompressStream(&decompressedBuf, &compressedBuf); err != nil {
-		t.Fatalf("DecompressStream failed: %v", err)
+	decompressed, err := decompressBytesForTest(compressedBuf.Bytes())
+	if err != nil {
+		t.Fatalf("gzip decompression failed: %v", err)
 	}
 
-	if !bytes.Equal(originalData, decompressedBuf.Bytes()) {
-		t.Fatalf("Stream decompressed data mismatch.\nExpected: %s\nGot: %s", originalData, decompressedBuf.Bytes())
+	if !bytes.Equal(originalData, decompressed) {
+		t.Fatalf("Stream decompressed data mismatch.\nExpected: %s\nGot: %s", originalData, decompressed)
 	}
 }
 

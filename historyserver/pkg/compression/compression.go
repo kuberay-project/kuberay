@@ -22,22 +22,6 @@ func CompressStream(dst io.Writer, src io.Reader) error {
 	return w.Close()
 }
 
-// DecompressStream stream data in fixed chunks from src to dst through gzip.
-func DecompressStream(dst io.Writer, src io.Reader) error {
-	r, err := gzip.NewReader(src)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := r.Close(); err != nil {
-			logrus.Warnf("compression: failed to close gzip reader: %v", err)
-		}
-	}()
-
-	_, err = io.Copy(dst, r)
-	return err
-}
-
 // StorageWriter defines the duck-typed interface for storage handlers to avoid cyclic dependencies
 type StorageWriter interface {
 	WriteFile(file string, reader io.ReadSeeker) error

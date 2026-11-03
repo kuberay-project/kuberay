@@ -141,10 +141,6 @@ linters:
         text: '^G101:'
 
       - linters: [gosec]
-        path: '^historyserver/pkg/compression/compression\.go$'
-        text: '^G110:'
-
-      - linters: [gosec]
         path: '^historyserver/pkg/collector/eventcollector/eventcollector\.go$'
         text: '^G(114|122):'
 
