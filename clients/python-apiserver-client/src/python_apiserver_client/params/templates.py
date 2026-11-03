@@ -206,8 +206,8 @@ def template_decoder(dct: dict[str, Any]) -> Template:
         cpu=int(dct.get("cpu", "0")),
         memory=int(dct.get("memory", "0")),
         gpu=int(dct.get("gpu", "0")),
-        gpu_accelerator=dct.get("gpu_accelerator"),
-        extended_resources=dct.get("extended_resources"),
+        gpu_accelerator=dct.get("gpu_accelerator", dct.get("gpuAccelerator")),
+        extended_resources=dct.get("extended_resources", dct.get("extendedResources")),
         tolerations=tolerations,
     )
 
