@@ -1,0 +1,70 @@
+# This sample configures a RayCluster for TPU7x dynamic sub-slicing (2x2x2) managed by Kueue TAS on GKE.
+#
+# Prerequisites and required components:
+# 1. For general concepts and cluster setup, see GKE Dynamic Slicing documentation:
+#    https://docs.cloud.google.com/kubernetes-engine/docs/how-to/use-gke-dynamic-slicing
+# 2. Install Kueue (v0.18.2 or later):
+#    https://kueue.sigs.k8s.io/docs/installation/
+# 3. Deploy the Kueue ClusterQueue, LocalQueue, ResourceFlavor, and Topology:
+#    https://github.com/GoogleCloudPlatform/kubernetes-engine-samples/blob/main/ai-ml/gke-tpu-dynamic-slicing/dynamic-slice-topology.yaml
+# 4. Deploy the Kueue Slice Controller:
+#    https://github.com/GoogleCloudPlatform/kubernetes-engine-samples/blob/main/ai-ml/gke-tpu-dynamic-slicing/slice-controller.yaml
+# 5. Install the Ray TPU webhook:
+#    https://github.com/GoogleCloudPlatform/kuberay-tpu-webhook
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-tpu7x-dynamic-slice
+  labels:
+    # Target the Kueue LocalQueue
+    kueue.x-k8s.io/queue-name: lq
+spec:
+  rayVersion: '2.58.0'
+  # Suspend cluster until Kueue provisions and admits the dynamic slice
+  suspend: true
+  headGroupSpec:
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:nightly-py312
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: "1"
+              memory: 2Gi
+  workerGroupSpecs:
+  - groupName: tpu-workers
+    replicas: 1
+    minReplicas: 1
+    maxReplicas: 1
+    numOfHosts: 2
+    rayStartParams: {}
+    template:
+      metadata:
+        annotations:
+          # Request the specific GKE TPU subslice topology
+          cloud.google.com/gke-tpu-slice-topology: 2x2x2
+          # REQUIRED FOR SUB-SLICING: Tell Kueue TAS to bin-pack at the 2x2x2 partition level
+          kueue.x-k8s.io/podset-required-topology: cloud.google.com/gke-tpu-partition-2x2x2-id
+        labels:
+          app.kubernetes.io/name: kuberay
+      spec:
+        nodeSelector:
+          cloud.google.com/gke-tpu-accelerator: tpu7x
+        tolerations:
+        - key: "google.com/tpu"
+          operator: "Equal"
+          value: "present"
+          effect: "NoSchedule"
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:nightly-py312-tpu
+          resources:
+            limits:
+              google.com/tpu: 4
+            requests:
+              google.com/tpu: 4
