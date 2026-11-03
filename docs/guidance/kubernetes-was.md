@@ -100,8 +100,9 @@ gang as non-preempting (`Never`) so it waits for capacity rather than evicting o
 
 This is controlled through a Kubernetes `PriorityClass`: KubeRay copies the head pod's `priorityClassName` onto the
 Workload and PodGroup. When creating either resource, if the head template omits `preemptionPolicy`, KubeRay looks up
-the class and copies its policy as well. This works around an upstream defaulting bug that otherwise rejects `Never`
-classes. Kubernetes admission resolves the PodGroup's numeric priority and validates that its policy matches the class.
+the class and copies its policy as well. This works around a Kubernetes 1.37.0 defaulting bug that rejects `Never`
+classes, which is fixed in Kubernetes 1.38.0 and later. Kubernetes admission resolves the PodGroup's numeric priority
+and validates that its policy matches the class.
 To use it:
 
 1. Enable the Kubernetes `PodGroupPreemptionPolicy` feature gate on the kube-apiserver and kube-scheduler
