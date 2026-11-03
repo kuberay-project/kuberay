@@ -1019,69 +1019,77 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 	// Reconcile head Pod
 	if !r.rayClusterScaleExpectation.IsSatisfied(ctx, instance.Namespace, instance.Name, expectations.HeadGroup) {
 		logger.Info("reconcilePods", "Expectation", "NotSatisfiedHeadExpectations, reconcile head later")
-	} else if len(headPods.Items) == 1 {
-		headPod := headPods.Items[0]
-		logger.Info("reconcilePods", "Found 1 head Pod", headPod.Name, "Pod status", headPod.Status.Phase,
-			"Pod status reason", headPod.Status.Reason,
-			"Pod restart policy", headPod.Spec.RestartPolicy,
-			"Ray container terminated status", getRayContainerStateTerminated(headPod))
-
-		shouldDelete, reason := shouldDeletePod(headPod, rayv1.HeadNode)
-		logger.Info("reconcilePods", "head Pod", headPod.Name, "shouldDelete", shouldDelete, "reason", reason)
-		if shouldDelete {
-			if err := r.Delete(ctx, &headPod); err != nil {
-				r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteHeadPod), string(utils.DeleteAction),
-					"Failed deleting head Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v, %v",
-					headPod.Namespace, headPod.Name, headPod.Status.Phase, headPod.Spec.RestartPolicy, getRayContainerStateTerminated(headPod), err)
-				return errstd.Join(utils.ErrFailedDeleteHeadPod, err)
+	} else {
+		// Delete every head Pod that cannot recover on its own, then act on the number of remaining head Pods.
+		// Normally there is at most one head Pod, but duplicates can appear without user action (e.g. a creation
+		// request that timed out but was persisted, retried before the informer cache caught up); deleting the
+		// terminal ones here keeps the RayCluster from being stuck forever. Healthy head Pods are never deleted.
+		numDeletedHeadPods := 0
+		for _, headPod := range headPods.Items {
+			shouldDelete, reason := shouldDeletePod(headPod, rayv1.HeadNode)
+			logger.Info("reconcilePods", "head Pod", headPod.Name, "Pod status", headPod.Status.Phase,
+				"Pod status reason", headPod.Status.Reason,
+				"Pod restart policy", headPod.Spec.RestartPolicy,
+				"shouldDelete", shouldDelete, "reason", reason)
+			if !shouldDelete {
+				continue
 			}
-			r.rayClusterScaleExpectation.ExpectScalePod(headPod.Namespace, instance.Name, expectations.HeadGroup, headPod.Name, expectations.Delete)
-			r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedHeadPod), string(utils.DeleteAction),
-				"Deleted head Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v",
-				headPod.Namespace, headPod.Name, headPod.Status.Phase, headPod.Spec.RestartPolicy, getRayContainerStateTerminated(headPod))
-			return errstd.New(reason)
+			if err := r.deleteHeadPod(ctx, instance, headPod); err != nil {
+				return err
+			}
+			numDeletedHeadPods++
 		}
-	} else if len(headPods.Items) == 0 {
-		if meta.IsStatusConditionTrue(instance.Status.Conditions, string(rayv1.RayClusterProvisioned)) &&
-			shouldSkipHeadPodRestart(instance) {
-			// Recreating the head Pod if the RayCluster created by RayJob is provisioned doesn't help RayJob.
-			//
-			// Case 1: GCS fault tolerance is disabled
-			//
-			// In this case, the worker Pods will be killed by the new head Pod when it is created, so the new Ray job will not be running in
-			// a "provisioned" cluster.
-			//
-			// Case 2: GCS fault tolerance is enabled
-			//
-			// In this case, the worker Pods will not be killed by the new head Pod when it is created, but the submission ID has already been
-			// used by the old Ray job, so the new Ray job will fail.
-			logger.Info(
-				"reconcilePods: Found 0 head Pods for the RayCluster; Skipped head recreation due to ray.io/disable-provisioned-head-restart",
-				"rayCluster", instance.Name,
+		if numDeletedHeadPods > 0 {
+			// Requeue so the deletions are observed before a new head Pod is created.
+			return fmt.Errorf("deleted %d head Pod(s)", numDeletedHeadPods)
+		}
+
+		switch len(headPods.Items) {
+		case 0:
+			if meta.IsStatusConditionTrue(instance.Status.Conditions, string(rayv1.RayClusterProvisioned)) &&
+				shouldSkipHeadPodRestart(instance) {
+				// Recreating the head Pod if the RayCluster created by RayJob is provisioned doesn't help RayJob.
+				//
+				// Case 1: GCS fault tolerance is disabled
+				//
+				// In this case, the worker Pods will be killed by the new head Pod when it is created, so the new Ray job will not be running in
+				// a "provisioned" cluster.
+				//
+				// Case 2: GCS fault tolerance is enabled
+				//
+				// In this case, the worker Pods will not be killed by the new head Pod when it is created, but the submission ID has already been
+				// used by the old Ray job, so the new Ray job will fail.
+				logger.Info(
+					"reconcilePods: Found 0 head Pods for the RayCluster; Skipped head recreation due to ray.io/disable-provisioned-head-restart",
+					"rayCluster", instance.Name,
+				)
+				return nil
+			}
+			// Create head Pod if it does not exist.
+			logger.Info("reconcilePods: Found 0 head Pods; creating a head Pod for the RayCluster.")
+			if utils.IsTLSEnabled(&instance.Spec) {
+				if err := r.checkMTLSSecretsReady(ctx, instance); err != nil {
+					logger.Info("mTLS secrets not ready, requeuing before head pod creation", "error", err.Error())
+					return fmt.Errorf("mTLS secrets not ready: %w", err)
+				}
+			}
+			if err := r.createHeadPod(ctx, *instance, clusterHash); err != nil {
+				return errstd.Join(utils.ErrFailedCreateHeadPod, err)
+			}
+		case 1:
+			// The single head Pod is healthy; nothing to do.
+		default:
+			// Only healthy head Pods are left, so KubeRay cannot pick one to delete.
+			// This protects against the case that users manually created extra head Pods.
+			headPodNames := make([]string, len(headPods.Items))
+			for i, pod := range headPods.Items {
+				headPodNames[i] = pod.Name
+			}
+			logger.Info("Multiple head pods found, it should only exist one head pod. Please delete extra head pods.",
+				"found pods", headPodNames,
 			)
-			return nil
+			return fmt.Errorf("%d head pods found %v. Please delete extra head pods", len(headPods.Items), headPodNames)
 		}
-		// Create head Pod if it does not exist.
-		logger.Info("reconcilePods: Found 0 head Pods; creating a head Pod for the RayCluster.")
-		if utils.IsTLSEnabled(&instance.Spec) {
-			if err := r.checkMTLSSecretsReady(ctx, instance); err != nil {
-				logger.Info("mTLS secrets not ready, requeuing before head pod creation", "error", err.Error())
-				return fmt.Errorf("mTLS secrets not ready: %w", err)
-			}
-		}
-		if err := r.createHeadPod(ctx, *instance, clusterHash); err != nil {
-			return errstd.Join(utils.ErrFailedCreateHeadPod, err)
-		}
-	} else if len(headPods.Items) > 1 { // This should never happen. This protects against the case that users manually create headpod.
-		headPodNames := make([]string, len(headPods.Items))
-		for i, pod := range headPods.Items {
-			headPodNames[i] = pod.Name
-		}
-
-		logger.Info("Multiple head pods found, it should only exist one head pod. Please delete extra head pods.",
-			"found pods", headPodNames,
-		)
-		return fmt.Errorf("%d head pods found %v. Please delete extra head pods", len(headPods.Items), headPodNames)
 	}
 
 	// Reconcile worker pods now
@@ -1514,6 +1522,22 @@ func (r *RayClusterReconciler) shouldRecreatePodsForUpgrade(ctx context.Context,
 		}
 	}
 	return false
+}
+
+// deleteHeadPod deletes the given head Pod, records a Delete expectation for it, and emits the corresponding event.
+func (r *RayClusterReconciler) deleteHeadPod(ctx context.Context, instance *rayv1.RayCluster, headPod corev1.Pod) error {
+	rayContainerTerminated := getRayContainerStateTerminated(headPod)
+	if err := r.Delete(ctx, &headPod); err != nil {
+		r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteHeadPod), string(utils.DeleteAction),
+			"Failed deleting head Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v, %v",
+			headPod.Namespace, headPod.Name, headPod.Status.Phase, headPod.Spec.RestartPolicy, rayContainerTerminated, err)
+		return errstd.Join(utils.ErrFailedDeleteHeadPod, err)
+	}
+	r.rayClusterScaleExpectation.ExpectScalePod(headPod.Namespace, instance.Name, expectations.HeadGroup, headPod.Name, expectations.Delete)
+	r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedHeadPod), string(utils.DeleteAction),
+		"Deleted head Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v",
+		headPod.Namespace, headPod.Name, headPod.Status.Phase, headPod.Spec.RestartPolicy, rayContainerTerminated)
+	return nil
 }
 
 // shouldDeletePod returns whether the Pod should be deleted and the reason
