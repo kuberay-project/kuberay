@@ -422,7 +422,21 @@ func (options *ClusterLogOptions) downloadRayLogFiles(ctx context.Context, exec 
 		}
 
 		// Construct the full local path and a directory for the tmp file logs
-		localFilePath := filepath.Join(path.Clean(options.outputDir), path.Clean(rayNode.Name), path.Clean(header.Name))
+		basePath := filepath.Join(path.Clean(options.outputDir), path.Clean(rayNode.Name))
+		localFilePath := filepath.Join(basePath, path.Clean(header.Name))
+
+		// Ensure the path is within the intended output directory to prevent directory traversal
+		absBasePath, err := filepath.Abs(basePath)
+		if err != nil {
+			return fmt.Errorf("error resolving absolute path for base directory: %w", err)
+		}
+		absLocalFilePath, err := filepath.Abs(localFilePath)
+		if err != nil {
+			return fmt.Errorf("error resolving absolute path for file %s: %w", header.Name, err)
+		}
+		if absLocalFilePath != absBasePath && !strings.HasPrefix(absLocalFilePath, absBasePath+string(filepath.Separator)) {
+			return fmt.Errorf("illegal file path in tar archive: %s", header.Name)
+		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:

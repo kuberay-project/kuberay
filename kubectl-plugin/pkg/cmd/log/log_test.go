@@ -484,6 +484,62 @@ func TestDownloadRayLogFiles(t *testing.T) {
 	}
 }
 
+// createTraversalTarFile creates a fake tar file containing a path traversal file entry.
+func createTraversalTarFile(path string) (*bytes.Buffer, error) {
+	tarbuff := new(bytes.Buffer)
+	tw := tar.NewWriter(tarbuff)
+
+	hdr := &tar.Header{
+		Name:     path,
+		Mode:     0o644,
+		ModTime:  time.Now(),
+		Size:     int64(len("traversal content\n")),
+		Typeflag: tar.TypeReg,
+	}
+
+	if err := tw.WriteHeader(hdr); err != nil {
+		return nil, err
+	}
+	if _, err := tw.Write([]byte("traversal content\n")); err != nil {
+		return nil, err
+	}
+
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	return tarbuff, nil
+}
+
+func TestDownloadRayLogFiles_TraversalPrevention(t *testing.T) {
+	fakeDir, err := os.MkdirTemp("", "fake-directory")
+	require.NoError(t, err)
+	defer os.RemoveAll(fakeDir)
+
+	testStreams, _, _, _ := genericiooptions.NewTestIOStreams()
+	cmdFactory := cmdutil.NewFactory(genericclioptions.NewConfigFlags(true))
+
+	fakeClusterLogOptions := NewClusterLogOptions(cmdFactory, testStreams)
+	fakeClusterLogOptions.ResourceName = "test-cluster"
+	fakeClusterLogOptions.outputDir = fakeDir
+
+	// create malicious tar file targeting ../outside.txt
+	fakeTar, err := createTraversalTarFile("../outside.txt")
+	require.NoError(t, err)
+
+	rayHead := v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-cluster-kuberay-head-1",
+			Namespace: "test",
+		},
+	}
+
+	executor, _ := fakeNewSPDYExecutor("GET", &url.URL{}, fakeTar)
+
+	err = fakeClusterLogOptions.downloadRayLogFiles(context.Background(), executor, rayHead)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "illegal file path in tar archive")
+}
+
 // createTempKubeConfigFile creates a temporary kubeconfig file with the given current context.
 func createTempKubeConfigFile(t *testing.T, currentContext string) (string, error) {
 	tmpDir := t.TempDir()
