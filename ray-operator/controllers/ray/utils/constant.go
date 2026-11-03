@@ -110,14 +110,16 @@ const (
 	DefaultGcsServerPort            = 6379
 	DefaultDashboardPort            = 8265
 	DefaultMetricsPort              = 8080
+	DefaultAutoscalerMetricsPort    = 44217
 	DefaultDashboardAgentListenPort = 52365
 	DefaultServingPort              = 8000
 
-	ClientPortName    = "client"
-	GcsServerPortName = "gcs-server"
-	DashboardPortName = "dashboard"
-	MetricsPortName   = "metrics"
-	ServingPortName   = "serve"
+	ClientPortName            = "client"
+	GcsServerPortName         = "gcs-server"
+	DashboardPortName         = "dashboard"
+	MetricsPortName           = "metrics"
+	AutoscalerMetricsPortName = "as-metrics"
+	ServingPortName           = "serve"
 
 	// Gateway defaults for HTTP protocol
 	GatewayListenerPortName    = "http"
