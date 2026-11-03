@@ -382,7 +382,7 @@ func configureTokenAuth(clusterName string, podTemplate *corev1.PodTemplateSpec,
 
 	// Configure auth token for wait-gcs-ready init container if it exists
 	for i, initContainer := range podTemplate.Spec.InitContainers {
-		if initContainer.Name != "wait-gcs-ready" {
+		if initContainer.Name != utils.WaitGCSReadyInitContainerName {
 			continue
 		}
 
@@ -489,7 +489,7 @@ func configureTLS(podTemplate *corev1.PodTemplateSpec, instance rayv1.RayCluster
 
 	// Inject into the wait-gcs-ready init container only (not user-defined init containers).
 	for i := range podTemplate.Spec.InitContainers {
-		if podTemplate.Spec.InitContainers[i].Name != "wait-gcs-ready" {
+		if podTemplate.Spec.InitContainers[i].Name != utils.WaitGCSReadyInitContainerName {
 			continue
 		}
 		SetContainerTLSConfig(&podTemplate.Spec.InitContainers[i])
@@ -636,7 +636,7 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 		// Do not modify `deepCopyRayContainer` anywhere.
 		deepCopyRayContainer := podTemplate.Spec.Containers[utils.RayContainerIndex].DeepCopy()
 		initContainer := corev1.Container{
-			Name:            "wait-gcs-ready",
+			Name:            utils.WaitGCSReadyInitContainerName,
 			Image:           podTemplate.Spec.Containers[utils.RayContainerIndex].Image,
 			ImagePullPolicy: podTemplate.Spec.Containers[utils.RayContainerIndex].ImagePullPolicy,
 			Command:         utils.GetContainerCommand([]string{}),

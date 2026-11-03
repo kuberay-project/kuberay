@@ -381,6 +381,8 @@ with urllib.request.urlopen(health_url, timeout=%d) as response:
 
 	// SubmitterContainerName is the default name of the job submit container injected into the head Pod in SidecarMode.
 	SubmitterContainerName = "ray-job-submitter"
+	// WaitGCSReadyInitContainerName is the KubeRay-injected init container that waits for Ray GCS before worker Pods start.
+	WaitGCSReadyInitContainerName = "wait-gcs-ready"
 
 	// CollectorContainerName is the default name of the history server collector container.
 	CollectorContainerName = "ray-history-collector"

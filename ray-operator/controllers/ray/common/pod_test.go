@@ -1037,7 +1037,7 @@ func TestBuildPod_WithEnableK8sTokenAuth_InitContainer(t *testing.T) {
 
 	foundInitContainer := false
 	for _, container := range pod.Spec.InitContainers {
-		if container.Name == "wait-gcs-ready" {
+		if container.Name == utils.WaitGCSReadyInitContainerName {
 			foundInitContainer = true
 			foundVolumeMount := false
 			for _, vm := range container.VolumeMounts {
@@ -1047,12 +1047,12 @@ func TestBuildPod_WithEnableK8sTokenAuth_InitContainer(t *testing.T) {
 				}
 			}
 			if !foundVolumeMount {
-				t.Errorf("wait-gcs-ready init container should have the ray-token volume mount")
+				t.Errorf("%s init container should have the ray-token volume mount", utils.WaitGCSReadyInitContainerName)
 			}
 		}
 	}
 	if !foundInitContainer {
-		t.Errorf("wait-gcs-ready init container should be present")
+		t.Errorf("%s init container should be present", utils.WaitGCSReadyInitContainerName)
 	}
 }
 
@@ -1245,7 +1245,7 @@ func TestBuildPod_WithLoginBash(t *testing.T) {
 			// Verify init container command
 			initContainers := workerPod.Spec.InitContainers
 			for _, initContainer := range initContainers {
-				if initContainer.Name == "wait-gcs-ready" {
+				if initContainer.Name == utils.WaitGCSReadyInitContainerName {
 					assert.Equal(t, tc.expectedCmd, initContainer.Command)
 				}
 			}
@@ -2962,7 +2962,7 @@ func TestConfigureTLS_AutoGenerate_WorkerPod(t *testing.T) {
 	// wait-gcs-ready should exist and have TLS config.
 	var gcsReadyContainer *corev1.Container
 	for i := range podTemplate.Spec.InitContainers {
-		if podTemplate.Spec.InitContainers[i].Name == "wait-gcs-ready" {
+		if podTemplate.Spec.InitContainers[i].Name == utils.WaitGCSReadyInitContainerName {
 			gcsReadyContainer = &podTemplate.Spec.InitContainers[i]
 			break
 		}
