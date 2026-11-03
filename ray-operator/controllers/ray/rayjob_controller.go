@@ -129,11 +129,15 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			}
 		}
 
-		logger.Info("Remove the finalizer no matter StopJob() succeeds or not.", "finalizer", utils.RayJobStopJobFinalizer)
-		controllerutil.RemoveFinalizer(rayJobInstance, utils.RayJobStopJobFinalizer)
-		if err := r.Update(ctx, rayJobInstance); err != nil {
-			logger.Error(err, "Failed to remove finalizer for RayJob")
-			return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
+		// Only remove our finalizer to prevent reconcile bumping resourceVersion
+		// and conflicting with other controllers' finalizers. See #1626.
+		if controllerutil.ContainsFinalizer(rayJobInstance, utils.RayJobStopJobFinalizer) {
+			logger.Info("Removing the RayJob finalizer", "finalizer", utils.RayJobStopJobFinalizer)
+			controllerutil.RemoveFinalizer(rayJobInstance, utils.RayJobStopJobFinalizer)
+			if err := r.Update(ctx, rayJobInstance); err != nil {
+				logger.Error(err, "Failed to remove finalizer for RayJob")
+				return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
+			}
 		}
 		return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
 	}
