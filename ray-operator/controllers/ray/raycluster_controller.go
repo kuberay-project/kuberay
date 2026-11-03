@@ -343,7 +343,7 @@ func (r *RayClusterReconciler) rayClusterReconcile(ctx context.Context, instance
 						logger.Info(
 							"The Redis cleanup Job has failed, requeue the RayCluster CR after 5 minute. "+
 								"You should manually delete the storage namespace in Redis and remove the RayCluster's finalizer. "+
-								"Please check https://docs.ray.io/en/master/cluster/kubernetes/user-guides/kuberay-gcs-ft.html for more details.",
+								"Please check https://docs.ray.io/en/latest/kuberay/user-guides/gcs-ft.html for more details.",
 							"redisCleanupJobName", redisCleanupJob.Name,
 							"redisStorageNamespace", redisCleanupJob.Annotations[utils.RayExternalStorageNSAnnotationKey],
 						)
@@ -1841,7 +1841,7 @@ func (r *RayClusterReconciler) buildRedisCleanupJob(ctx context.Context, instanc
 
 	pod.Spec.Containers[utils.RayContainerIndex].Command = utils.GetContainerCommand([]string{})
 	pod.Spec.Containers[utils.RayContainerIndex].Args = []string{
-		"echo \"To get more information about manually deleting the storage namespace in Redis and removing the RayCluster's finalizer, please check https://docs.ray.io/en/master/cluster/kubernetes/user-guides/kuberay-gcs-ft.html for more details.\" && " +
+		"echo \"To get more information about manually deleting the storage namespace in Redis and removing the RayCluster's finalizer, please check https://docs.ray.io/en/latest/kuberay/user-guides/gcs-ft.html for more details.\" && " +
 			"python -c " +
 			"\"from ray._private.gcs_utils import cleanup_redis_storage; " +
 			"from urllib.parse import urlparse; " +

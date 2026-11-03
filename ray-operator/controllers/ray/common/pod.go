@@ -655,7 +655,7 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 								echo "GCS is ready. Any error messages above can be safely ignored."
 								break
 							fi
-							echo "$SECONDS seconds elapsed: Still waiting for GCS to be ready. For troubleshooting, refer to the FAQ at https://docs.ray.io/en/master/cluster/kubernetes/troubleshooting.html."
+							echo "$SECONDS seconds elapsed: Still waiting for GCS to be ready. For troubleshooting, refer to the FAQ at https://docs.ray.io/en/latest/kuberay/troubleshooting/index.html."
 						fi
 						sleep 5
 					done

@@ -5,7 +5,7 @@
 
 One of the issues with long-running Ray applications (e.g., RayServe) is that if the Ray head node
 dies, the whole cluster has to be restarted. Fortunately, the KubeRay cluster solves this by
-introducing the [Fault Tolerance Ray Cluster](https://docs.ray.io/en/master/cluster/kubernetes/user-guides/kuberay-gcs-ft.html).
+introducing the [Fault Tolerance Ray Cluster](https://docs.ray.io/en/latest/kuberay/user-guides/gcs-ft.html).
 
 The RayCluster with high availability can also be created with the APIServer, which aims to
 ensure high availability of Global Control Service (GCS) data. The GCS manages

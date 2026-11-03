@@ -32,7 +32,7 @@ kind create cluster --image=kindest/node:v1.29.0
 
 #### Install KubeRay Operator
 
-Refer to [this document](https://docs.ray.io/en/master/cluster/kubernetes/getting-started/kuberay-operator-installation.html#kuberay-operator-deploy) to install the latest stable KubeRay operator.
+Refer to [this document](https://docs.ray.io/en/latest/kuberay/getting-started/operator-installation.html#kuberay-operator-deploy) to install the latest stable KubeRay operator.
 
 #### Install KubeRay APIServer
 

@@ -43,5 +43,5 @@ commands against a Kubernetes cluster where you have deployed the [KubeRay Opera
 [download-go]: https://golang.org/dl/
 [VS Code Go extension]: https://marketplace.visualstudio.com/items?itemName=golang.Go
 [VS Code Go documentation]: https://github.com/golang/vscode-go/blob/master/README.md#setting-up-your-workspace
-[KubeRay Operator]: https://docs.ray.io/en/latest/cluster/kubernetes/index.html
+[KubeRay Operator]: https://docs.ray.io/en/latest/kuberay/index.html
 [Krew]: https://krew.sigs.k8s.io/

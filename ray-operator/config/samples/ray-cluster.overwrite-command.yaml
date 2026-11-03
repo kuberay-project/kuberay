@@ -1,5 +1,5 @@
 # This example config is used to describe how does the annotation "ray.io/overwrite-container-cmd" work.
-# See https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/pod-command.html#kuberay-pod-command for more details.
+# See https://docs.ray.io/en/latest/kuberay/user-guides/pod-command.html#kuberay-pod-command for more details.
 apiVersion: ray.io/v1
 kind: RayCluster
 metadata:

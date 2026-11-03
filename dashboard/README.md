@@ -32,7 +32,7 @@ Open [http://localhost:3000/jobs](http://localhost:3000/jobs). The tables are em
   `kubectl apply -f ray-operator/config/samples/ray-cluster.sample.yaml`
   and open `/clusters`. A RayJob also creates a cluster, so the job sample appears there too.
 - **History**: This UI still has a `/history` tab, but the supported path is the
-  [Ray Dashboard + History Server](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/kuberay-history-server.html).
+  [Ray Dashboard + History Server](https://docs.ray.io/en/latest/kuberay/user-guides/history-server.html).
 
 ## What works
 

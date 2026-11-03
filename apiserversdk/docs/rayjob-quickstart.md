@@ -1,7 +1,7 @@
 # RayJob QuickStart
 
 This document explains how to manage and interact with RayJob using KubeRay APIServer.
-See [this guide](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayjob-quick-start.html) for more details.
+See [this guide](https://docs.ray.io/en/latest/kuberay/getting-started/rayjob-quick-start.html) for more details.
 
 ## Step 1: Create a Kubernetes cluster
 
