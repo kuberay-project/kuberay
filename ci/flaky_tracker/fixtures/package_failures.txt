@@ -1,0 +1,6 @@
+# github.com/ray-project/kuberay/ray-operator/controllers/ray
+controllers/ray/controller.go:10:2: undefined: missingSymbol
+FAIL github.com/ray-project/kuberay/ray-operator/controllers/ray [build failed]
+# github.com/ray-project/kuberay/ray-operator/test/e2e
+test/e2e/suite_test.go:12: malformed import path
+FAIL github.com/ray-project/kuberay/ray-operator/test/e2e [setup failed]
