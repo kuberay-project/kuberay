@@ -125,8 +125,8 @@ To use it:
    ```
 
 All pods in the gang must use the **same** `PriorityClass` — the Kubernetes scheduler requires every pod in a PodGroup
-to have the PodGroup's priority. If the Kubernetes `PodGroupPreemptionPolicy` gate is off, the PodGroup's
-`preemptionPolicy` is left unset and the gang uses the default `PreemptLowerPriority`.
+to have the PodGroup's priority. If the Kubernetes `PodGroupPreemptionPolicy` gate is off, the scheduler determines
+the gang's preemption policy from its member pods instead.
 
 ## Limitations
 
@@ -169,10 +169,13 @@ by pod, and no scheduling group is set on its pods.
 
 ### The gang's preemption policy is not applied
 
-If a gang still preempts (or the PodGroup's `preemptionPolicy` is unset) when you expected `Never`, check that the
-Kubernetes `PodGroupPreemptionPolicy` gate is enabled on the kube-apiserver and kube-scheduler, and that **every** Ray
-pod (head and all worker groups) references the same `PriorityClass`. If the pods carry different priorities the
-scheduler rejects the gang, since a PodGroup requires a uniform priority.
+If a gang still preempts when you expected `Never`, check that **every** Ray pod (head and all worker groups)
+references the same `PriorityClass` with `preemptionPolicy: Never`. Pods in a gang must have matching priorities and
+preemption policies.
+
+If the PodGroup's `preemptionPolicy` is unset, check whether the Kubernetes `PodGroupPreemptionPolicy` gate is enabled
+on the kube-apiserver and kube-scheduler. With the gate off, the scheduler uses the member pods' policies, so an unset
+PodGroup policy does not by itself mean the gang can preempt.
 
 [kep-4671]: https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/4671-gang-scheduling
 [kep-5832]: https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/5832-decouple-podgroup-api
