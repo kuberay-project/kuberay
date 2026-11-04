@@ -1321,6 +1321,136 @@ func TestCalculatePodResourceDoesNotMutateInput(t *testing.T) {
 	assert.Equal(t, wantRequests, podSpec.Containers[0].Resources.Requests)
 }
 
+func TestCalculatePodResourceInitContainersAndOverhead(t *testing.T) {
+	always := corev1.ContainerRestartPolicyAlways
+	requests := func(cpu, memory string) corev1.ResourceRequirements {
+		list := corev1.ResourceList{}
+		if cpu != "" {
+			list[corev1.ResourceCPU] = resource.MustParse(cpu)
+		}
+		if memory != "" {
+			list[corev1.ResourceMemory] = resource.MustParse(memory)
+		}
+		return corev1.ResourceRequirements{Requests: list}
+	}
+
+	tests := []struct {
+		name     string
+		podSpec  corev1.PodSpec
+		expected corev1.ResourceList
+	}{
+		{
+			name: "regular containers are summed with request falling back to limit",
+			podSpec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("200Mi"),
+						},
+					}},
+					{Resources: requests("2", "100Mi")},
+				},
+			},
+			expected: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("3"),
+				corev1.ResourceMemory: resource.MustParse("300Mi"),
+			},
+		},
+		{
+			name: "pod overhead is added to the total",
+			podSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: requests("1", "100Mi")}},
+				Overhead: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("50Mi"),
+				},
+			},
+			expected: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("150Mi"),
+			},
+		},
+		{
+			name: "native sidecar is folded into the sum",
+			podSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: requests("1", "100Mi")}},
+				InitContainers: []corev1.Container{
+					{RestartPolicy: &always, Resources: requests("1", "50Mi")},
+				},
+			},
+			expected: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("150Mi"),
+			},
+		},
+		{
+			name: "plain init container larger than the running sum wins via max",
+			podSpec: corev1.PodSpec{
+				Containers:     []corev1.Container{{Resources: requests("1", "100Mi")}},
+				InitContainers: []corev1.Container{{Resources: requests("4", "")}},
+			},
+			expected: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("100Mi"),
+			},
+		},
+		{
+			name: "plain init container smaller than the running sum is ignored",
+			podSpec: corev1.PodSpec{
+				Containers:     []corev1.Container{{Resources: requests("2", "200Mi")}},
+				InitContainers: []corev1.Container{{Resources: requests("1", "50Mi")}},
+			},
+			expected: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("200Mi"),
+			},
+		},
+		{
+			name: "init container request falls back to its limit",
+			podSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: requests("1", "")}},
+				InitContainers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5")},
+				}}},
+			},
+			expected: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("5"),
+			},
+		},
+		{
+			name: "sidecar sum, plain init max, and overhead combined",
+			podSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: requests("1", "100Mi")}},
+				InitContainers: []corev1.Container{
+					{RestartPolicy: &always, Resources: requests("1", "50Mi")},
+					{Resources: requests("5", "20Mi")},
+				},
+				Overhead: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("10Mi"),
+				},
+			},
+			expected: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("7"),
+				corev1.ResourceMemory: resource.MustParse("160Mi"),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := CalculatePodResource(tc.podSpec)
+			assert.Len(t, got, len(tc.expected))
+			for name, quantity := range tc.expected {
+				actual := got[name]
+				assert.Equal(t, quantity.String(), actual.String(), "resource %s", name)
+			}
+		})
+	}
+}
+
 func TestCalculateResources(t *testing.T) {
 	headStruct := struct {
 		cpu    string
