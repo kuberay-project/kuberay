@@ -211,7 +211,7 @@ func fetchDataDatasets(ctx context.Context, client *http.Client, dashboardAddres
 }
 
 func fetchEndpoint(ctx context.Context, client *http.Client, dashboardAddress, endpoint string) ([]byte, error) {
-	url := dashboardAddress + endpoint
+	url := path.Join(dashboardAddress, endpoint)
 
 	reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
