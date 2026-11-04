@@ -9,7 +9,7 @@ import (
 // event state. It is cached and shared across requests, so treat it as
 // immutable and clone a field before modifying it.
 type SessionSnapshot struct {
-	SessionKey string `json:"sessionKey"`
+	ClusterSessionKey string `json:"clusterSessionKey"`
 
 	Tasks            []types.Task                `json:"tasks"`
 	Actors           map[string]types.Actor      `json:"actors"`
@@ -22,11 +22,11 @@ type SessionSnapshot struct {
 func (h *EventHandler) BuildSnapshot(session utils.ClusterInfo) *SessionSnapshot {
 	clusterSessionKey := utils.BuildClusterSessionKey(session.Name, session.Namespace, session.SessionName)
 	return &SessionSnapshot{
-		SessionKey:       clusterSessionKey,
-		Tasks:            h.getTasks(clusterSessionKey),
-		Actors:           h.getActorsMap(clusterSessionKey),
-		Jobs:             h.getJobsMap(clusterSessionKey),
-		Nodes:            h.getNodeMap(clusterSessionKey),
-		LogEventsByJobID: h.getLogEventsByJobID(clusterSessionKey),
+		ClusterSessionKey: clusterSessionKey,
+		Tasks:             h.getTasks(clusterSessionKey),
+		Actors:            h.getActorsMap(clusterSessionKey),
+		Jobs:              h.getJobsMap(clusterSessionKey),
+		Nodes:             h.getNodeMap(clusterSessionKey),
+		LogEventsByJobID:  h.getLogEventsByJobID(clusterSessionKey),
 	}
 }

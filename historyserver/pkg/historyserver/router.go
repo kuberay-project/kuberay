@@ -37,7 +37,7 @@ const (
 	COOKIE_DASHBOARD_VERSION_KEY = "dashboard_version"
 
 	ATTRIBUTE_SERVICE_NAME = "cluster_service_name"
-	ATTRIBUTE_AUTH_TOKEN   = "cluster_auth_token"
+	ATTRIBUTE_AUTH_TOKEN   = "cluster_auth_token" //nolint:gosec // G101: request attribute key, not a credential
 )
 
 // handleMissingSnapshot responds 503 when the session snapshot is not in the cache.

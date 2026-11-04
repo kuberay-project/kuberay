@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -201,7 +202,7 @@ func main() {
 
 	jsonData := make(map[string]any)
 	if storageBackendConfigPath != "" {
-		data, err := os.ReadFile(storageBackendConfigPath)
+		data, err := os.ReadFile(filepath.Clean(storageBackendConfigPath))
 		if err != nil {
 			logrus.Fatalf("Failed to read storage backend config from %s: %v", storageBackendConfigPath, err)
 		}
