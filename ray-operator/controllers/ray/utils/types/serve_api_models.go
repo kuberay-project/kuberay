@@ -36,7 +36,26 @@ type ServeApplicationDetails struct {
 	DocsPath    string `json:"docs_path,omitempty"`
 }
 
+// ServeProxyStatusHealthy and ServeProxyStatusStarting are statuses of a Serve proxy.
+// Reference to https://docs.ray.io/en/latest/serve/api/doc/ray.serve.schema.ProxyStatus.html
+const (
+	ServeProxyStatusHealthy  = "HEALTHY"
+	ServeProxyStatusStarting = "STARTING"
+)
+
+// ServeProxyDetails describes a Serve proxy actor. Only the fields that KubeRay uses are listed.
+// Reference to https://docs.ray.io/en/latest/serve/api/doc/ray.serve.schema.ProxyDetails.html
+type ServeProxyDetails struct {
+	NodeID string `json:"node_id,omitempty"`
+	NodeIP string `json:"node_ip,omitempty"`
+	// NodeInstanceID is the Pod name on KubeRay. It is only reported by Ray 2.52 and later.
+	NodeInstanceID string `json:"node_instance_id,omitempty"`
+	Status         string `json:"status,omitempty"`
+}
+
 type ServeDetails struct {
 	Applications map[string]ServeApplicationDetails `json:"applications"`
-	DeployMode   string                             `json:"deploy_mode,omitempty"`
+	// Proxies maps a Ray node ID to the Serve proxy actor running on that node.
+	Proxies    map[string]ServeProxyDetails `json:"proxies,omitempty"`
+	DeployMode string                       `json:"deploy_mode,omitempty"`
 }
