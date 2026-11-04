@@ -776,6 +776,10 @@ func ValidateRayServiceSpec(rayService *rayv1.RayService) error {
 		return fmt.Errorf("The RayService spec is invalid: spec.rayClusterConfig.headGroupSpec.headService.metadata.name should not be set")
 	}
 
+	if serveSvc := rayService.Spec.ServeService; serveSvc != nil && serveSvc.Name != "" {
+		return fmt.Errorf("The RayService spec is invalid: spec.serveService.metadata.name should not be set")
+	}
+
 	// only NewClusterWithIncrementalUpgrade, NewCluster, and None are valid upgradeType
 	if rayService.Spec.UpgradeStrategy != nil &&
 		rayService.Spec.UpgradeStrategy.Type != nil &&

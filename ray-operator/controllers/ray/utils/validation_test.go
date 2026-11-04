@@ -2404,6 +2404,18 @@ func TestValidateRayServiceSpec(t *testing.T) {
 			expectError: true,
 		},
 		{
+			name: "spec.serveService.metadata.name should not be set",
+			spec: rayv1.RayServiceSpec{
+				ServeService: &corev1.Service{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "my-serve-service",
+					},
+				},
+				RayClusterSpec: *createBasicRayClusterSpec(),
+			},
+			expectError: true,
+		},
+		{
 			name: "The RayService spec is valid.",
 			spec: rayv1.RayServiceSpec{
 				RayClusterSpec: *createBasicRayClusterSpec(),

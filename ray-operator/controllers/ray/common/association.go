@@ -140,12 +140,7 @@ func RayServiceRayClustersAssociationOptions(rayService *rayv1.RayService) Assoc
 }
 
 func RayServiceServeServiceNamespacedName(rayService *rayv1.RayService) types.NamespacedName {
-	if rayService.Spec.ServeService != nil && rayService.Spec.ServeService.Name != "" {
-		return types.NamespacedName{
-			Namespace: rayService.Namespace, // We do not respect s.Spec.ServeService.Namespace intentionally. Ref: https://github.com/ray-project/kuberay/blob/f6b4c3126654d1ef42965abc781846624b8e5dfc/ray-operator/controllers/ray/common/service.go#L298
-			Name:      rayService.Spec.ServeService.Name,
-		}
-	}
+	// We intentionally do not respect s.Spec.ServceService.Namespace or s.Spec.ServceService.Name
 	return types.NamespacedName{
 		Namespace: rayService.Namespace,
 		Name:      utils.GenerateServeServiceName(rayService.Name),
