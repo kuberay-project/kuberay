@@ -3,7 +3,6 @@ package v1
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -116,7 +115,7 @@ func (w *PodBindingWebhook) Handle(ctx context.Context, req admission.Request) a
 		w.withhold(req, podMeta, nodeName, fmt.Errorf("cannot read node %s: %w", nodeName, err))
 		return admission.Allowed("node labels withheld")
 	}
-	labels, err := buildNodeLabels(nodeMeta.Labels, group.LabelRefs, w.AllowedNodeLabels)
+	labels, err := utils.ResolveNodeLabels(nodeMeta.Labels, group.LabelRefs, w.AllowedNodeLabels)
 	if err != nil {
 		w.withhold(req, podMeta, nodeName, err)
 		return admission.Allowed("node labels withheld")
@@ -164,36 +163,6 @@ func (w *PodBindingWebhook) labelRefsGroup(ctx context.Context, namespace, clust
 		return group, nil
 	}
 	return nil, nil
-}
-
-func buildNodeLabels(nodeLabels map[string]string, refs []rayv1.LabelRef, allowed sets.Set[string]) (map[string]string, error) {
-	labels := make(map[string]string, len(refs))
-	var errList []string
-	for _, ref := range refs {
-		nodeLabel, err := utils.NodeLabelKey(ref.ValueFrom.NodeRef.FieldPath)
-		if err != nil {
-			errList = append(errList, err.Error())
-			continue
-		}
-		value, ok := nodeLabels[nodeLabel]
-		switch {
-		case !allowed.Has(nodeLabel):
-			errList = append(errList, fmt.Sprintf("node label %q is not in the operator's allowedNodeLabels", nodeLabel))
-		case !ok:
-			errList = append(errList, fmt.Sprintf("node lacks label %q", nodeLabel))
-		default:
-			// name defaults to the node label key
-			key := ref.Name
-			if key == "" {
-				key = nodeLabel
-			}
-			labels[key] = value
-		}
-	}
-	if len(errList) > 0 {
-		return nil, errors.New(strings.Join(errList, "; "))
-	}
-	return labels, nil
 }
 
 func (w *PodBindingWebhook) getPodMetadata(ctx context.Context, key types.NamespacedName) (*metav1.ObjectMeta, error) {

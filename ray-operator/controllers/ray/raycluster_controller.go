@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -1176,8 +1177,8 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 				}
 				r.rayClusterScaleExpectation.ExpectScalePod(workerPod.Namespace, instance.Name, worker.GroupName, workerPod.Name, expectations.Delete)
 				r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedWorkerPod), string(utils.DeleteAction),
-					"Deleted worker Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v",
-					workerPod.Namespace, workerPod.Name, workerPod.Status.Phase, workerPod.Spec.RestartPolicy, getRayContainerStateTerminated(workerPod))
+					"Deleted worker Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v; reason: %s",
+					workerPod.Namespace, workerPod.Name, workerPod.Status.Phase, workerPod.Spec.RestartPolicy, getRayContainerStateTerminated(workerPod), reason)
 			}
 		}
 
@@ -1621,45 +1622,33 @@ func shouldDeletePod(pod corev1.Pod, nodeType rayv1.RayNodeType) (bool, string) 
 // once the bound Node carries all requested and allowed labelRefs, the Pod is deleted so it can be recreated.
 func (r *RayClusterReconciler) shouldDeleteWorkerPod(ctx context.Context, pod corev1.Pod, worker *rayv1.WorkerGroupSpec) (bool, string) {
 	shouldDelete, reason := shouldDeletePod(pod, rayv1.WorkerNode)
-	if features.Enabled(features.NodeLabelDelivery) &&
+	if shouldDelete || !missedNodeLabelDelivery(pod, worker) {
+		return shouldDelete, reason
+	}
+	node := &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
+	if err := r.Get(ctx, client.ObjectKey{Name: pod.Spec.NodeName}, node); err != nil {
+		return false, fmt.Sprintf(
+			"The worker Pod %s/%s terminated without the %s annotation, and bound Node %s could not be read: %v.",
+			pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, pod.Spec.NodeName, err)
+	}
+	if _, err := utils.ResolveNodeLabels(node.Labels, worker.LabelRefs, sets.New(r.options.AllowedNodeLabels...)); err != nil {
+		return false, fmt.Sprintf(
+			"The worker Pod %s/%s terminated without the %s annotation, and bound Node %s cannot satisfy labelRefs: %v.",
+			pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, pod.Spec.NodeName, err)
+	}
+	return true, fmt.Sprintf(
+		"The worker Pod %s/%s terminated without the %s annotation while bound Node %s carries all requested labelRefs.",
+		pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, pod.Spec.NodeName)
+}
+
+func missedNodeLabelDelivery(pod corev1.Pod, worker *rayv1.WorkerGroupSpec) bool {
+	return features.Enabled(features.NodeLabelDelivery) &&
 		worker != nil && len(worker.LabelRefs) > 0 &&
 		worker.Template.Spec.NodeName == "" &&
 		pod.Spec.NodeName != "" &&
 		pod.Annotations[utils.RayNodeLabelsAnnotationKey] == "" &&
 		hasRayContainerLabelsEnv(pod) &&
-		hasRayContainerTerminated(pod) {
-		node := &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
-		if err := r.Get(ctx, client.ObjectKey{Name: pod.Spec.NodeName}, node); err != nil {
-			if errors.IsNotFound(err) {
-				return shouldDelete, reason
-			}
-			return false, fmt.Sprintf(
-				"The worker Pod %s/%s terminated without the %s annotation, and bound Node %s could not be read: %v.",
-				pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, pod.Spec.NodeName, err)
-		}
-		for _, ref := range worker.LabelRefs {
-			nodeLabel, err := utils.NodeLabelKey(ref.ValueFrom.NodeRef.FieldPath)
-			if err != nil {
-				return false, fmt.Sprintf(
-					"The worker Pod %s/%s terminated without the %s annotation, and labelRef fieldPath %q is invalid: %v.",
-					pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, ref.ValueFrom.NodeRef.FieldPath, err)
-			}
-			if !slices.Contains(r.options.AllowedNodeLabels, nodeLabel) {
-				return false, fmt.Sprintf(
-					"The worker Pod %s/%s terminated without the %s annotation, and requested node label %q is not in allowedNodeLabels.",
-					pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, nodeLabel)
-			}
-			if _, ok := node.Labels[nodeLabel]; !ok {
-				return false, fmt.Sprintf(
-					"The worker Pod %s/%s terminated without the %s annotation, but bound Node %s still lacks label %q.",
-					pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, pod.Spec.NodeName, nodeLabel)
-			}
-		}
-		return true, fmt.Sprintf(
-			"The worker Pod %s/%s terminated without the %s annotation while bound Node %s carries all requested labelRefs.",
-			pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, pod.Spec.NodeName)
-	}
-	return shouldDelete, reason
+		hasRayContainerTerminated(pod)
 }
 
 func hasRayContainerLabelsEnv(pod corev1.Pod) bool {

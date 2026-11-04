@@ -5073,11 +5073,16 @@ func TestShouldDeleteWorkerPod_MissingNodeLabelsSelfHealing(t *testing.T) {
 		RestartCount: 1,
 	}}
 
-	// Case 1: Bound node lacks the requested label -> do not delete the pod yet.
+	// Case 1: Bound node lacks the requested label (or is not yet found in cache) -> do not delete the pod yet.
 	pod.Spec.NodeName = unlabeledNode.Name
 	shouldDel, reason := r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
 	assert.False(t, shouldDel)
-	assert.Contains(t, reason, "still lacks label")
+	assert.Contains(t, reason, "node lacks label")
+
+	pod.Spec.NodeName = "missing-node"
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "could not be read")
 
 	// Case 2: Bound node carries all requested and allowed labels -> self-heal by deleting the pod so it can be recreated.
 	pod.Spec.NodeName = readyNode.Name
@@ -5087,11 +5092,13 @@ func TestShouldDeleteWorkerPod_MissingNodeLabelsSelfHealing(t *testing.T) {
 
 	// Case 3: Label is not in AllowedNodeLabels ([]string{} or nil) -> do not delete the pod (avoid infinite delete/recreate loop).
 	r.options.AllowedNodeLabels = []string{}
-	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
 	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "not in the operator's allowedNodeLabels")
 	r.options.AllowedNodeLabels = nil
-	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
 	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "not in the operator's allowedNodeLabels")
 	r.options.AllowedNodeLabels = []string{"cloud.google.com/gke-tpu-node-slice-coordinates"}
 
 	// Case 4: Pod already carries ray.io/node-labels -> preserve standard RestartPolicy: Always behavior.
@@ -5115,7 +5122,9 @@ func TestShouldDeleteWorkerPod_MissingNodeLabelsSelfHealing(t *testing.T) {
 	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *startingPod, workerSpec)
 	assert.False(t, shouldDel)
 
-	// Case 6: RestartPolicy: Never / PodFailed holds off while node lacks label or allowlist rejects, and deletes once ready or node is deleted.
+	// Case 6: RestartPolicy: Never / PodFailed (or PodRunning with a live sidecar and terminated Ray container)
+	// always preserves existing shouldDeletePod deletion behavior, even if the bound node lacks the label or the
+	// label is not in AllowedNodeLabels.
 	neverPod := pod.DeepCopy()
 	neverPod.Spec.RestartPolicy = corev1.RestartPolicyNever
 	neverPod.Status.Phase = corev1.PodFailed
@@ -5124,19 +5133,29 @@ func TestShouldDeleteWorkerPod_MissingNodeLabelsSelfHealing(t *testing.T) {
 		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}},
 	}}
 	neverPod.Spec.NodeName = unlabeledNode.Name
-	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
-	assert.False(t, shouldDel)
-	assert.Contains(t, reason, "still lacks label")
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
+	assert.True(t, shouldDel)
+
+	neverRunningWithSidecar := neverPod.DeepCopy()
+	neverRunningWithSidecar.Status.Phase = corev1.PodRunning
+	neverRunningWithSidecar.Status.ContainerStatuses = []corev1.ContainerStatus{
+		{
+			Name:  pod.Spec.Containers[utils.RayContainerIndex].Name,
+			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}},
+		},
+		{
+			Name:  "sidecar",
+			State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+		},
+	}
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverRunningWithSidecar, workerSpec)
+	assert.True(t, shouldDel)
 
 	r.options.AllowedNodeLabels = nil
 	neverPod.Spec.NodeName = readyNode.Name
-	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
-	assert.False(t, shouldDel)
-	assert.Contains(t, reason, "not in allowedNodeLabels")
-	r.options.AllowedNodeLabels = []string{"cloud.google.com/gke-tpu-node-slice-coordinates"}
-
 	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
 	assert.True(t, shouldDel)
+	r.options.AllowedNodeLabels = []string{"cloud.google.com/gke-tpu-node-slice-coordinates"}
 
 	neverPod.Spec.NodeName = "deleted-node"
 	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1" //nolint:gosec // We are not using this for security purposes
 	"encoding/base32"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/apimachinery/pkg/util/sets"
 	utilversion "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/discovery"
@@ -1289,4 +1291,36 @@ func NodeLabelKey(fieldPath string) (string, error) {
 		return "", fmt.Errorf("unsupported fieldPath %q, only metadata.labels['<key>'] is supported", fieldPath)
 	}
 	return m[1], nil
+}
+
+// ResolveNodeLabels resolves the requested worker group labelRefs against a bound Node's labels
+// and the operator's allowedNodeLabels allowlist.
+func ResolveNodeLabels(nodeLabels map[string]string, refs []rayv1.LabelRef, allowed sets.Set[string]) (map[string]string, error) {
+	labels := make(map[string]string, len(refs))
+	var errList []string
+	for _, ref := range refs {
+		nodeLabel, err := NodeLabelKey(ref.ValueFrom.NodeRef.FieldPath)
+		if err != nil {
+			errList = append(errList, err.Error())
+			continue
+		}
+		value, ok := nodeLabels[nodeLabel]
+		switch {
+		case !allowed.Has(nodeLabel):
+			errList = append(errList, fmt.Sprintf("node label %q is not in the operator's allowedNodeLabels", nodeLabel))
+		case !ok:
+			errList = append(errList, fmt.Sprintf("node lacks label %q", nodeLabel))
+		default:
+			// name defaults to the node label key
+			key := ref.Name
+			if key == "" {
+				key = nodeLabel
+			}
+			labels[key] = value
+		}
+	}
+	if len(errList) > 0 {
+		return nil, errors.New(strings.Join(errList, "; "))
+	}
+	return labels, nil
 }

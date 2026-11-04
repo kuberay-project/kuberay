@@ -23,22 +23,6 @@ import (
 	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
-func TestBuildNodeLabels(t *testing.T) {
-	allowed := sets.New("topology.kubernetes.io/zone", "nvidia.com/gpu.clique")
-	refs := []rayv1.LabelRef{nodeLabelRef("topology.kubernetes.io/zone", ""), nodeLabelRef("nvidia.com/gpu.clique", "ray.io/accelerator-domain")}
-	nodeLabels := map[string]string{"topology.kubernetes.io/zone": "us-central1-a", "nvidia.com/gpu.clique": "abc.0", "unrelated": "x"}
-
-	labels, err := buildNodeLabels(nodeLabels, refs, allowed)
-	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"topology.kubernetes.io/zone": "us-central1-a", "ray.io/accelerator-domain": "abc.0"}, labels)
-
-	_, err = buildNodeLabels(map[string]string{"topology.kubernetes.io/zone": "us-central1-a"}, refs, allowed)
-	require.ErrorContains(t, err, `node lacks label "nvidia.com/gpu.clique"`)
-
-	_, err = buildNodeLabels(nodeLabels, refs, sets.New("topology.kubernetes.io/zone"))
-	require.ErrorContains(t, err, `node label "nvidia.com/gpu.clique" is not in the operator's allowedNodeLabels`)
-}
-
 func newBinding(podName, nodeName string) *corev1.Binding {
 	return &corev1.Binding{
 		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: "default"},

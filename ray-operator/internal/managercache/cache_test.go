@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 )
 
-func TestK8sControllerRuntimeCacheSelectors_StripsNodeManagedFields(t *testing.T) {
+func TestK8sControllerRuntimeCacheSelectors_StripsNodeManagedFieldsAndAnnotations(t *testing.T) {
 	selectors, err := K8sControllerRuntimeCacheSelectors()
 	require.NoError(t, err)
 
@@ -29,8 +29,9 @@ func TestK8sControllerRuntimeCacheSelectors_StripsNodeManagedFields(t *testing.T
 
 	nodeMeta := &metav1.PartialObjectMetadata{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "node-1",
-			Labels: map[string]string{"topology.kubernetes.io/zone": "us-central1-a"},
+			Name:        "node-1",
+			Labels:      map[string]string{"topology.kubernetes.io/zone": "us-central1-a"},
+			Annotations: map[string]string{"csi.volume.kubernetes.io/nodeid": `{"pd.csi.storage.gke.io":"node-1"}`},
 			ManagedFields: []metav1.ManagedFieldsEntry{
 				{Manager: "kubelet", Operation: metav1.ManagedFieldsOperationUpdate},
 			},
@@ -41,6 +42,7 @@ func TestK8sControllerRuntimeCacheSelectors_StripsNodeManagedFields(t *testing.T
 	transformedMeta, ok := transformed.(*metav1.PartialObjectMetadata)
 	require.True(t, ok)
 	assert.Nil(t, transformedMeta.ManagedFields)
+	assert.Nil(t, transformedMeta.Annotations)
 	assert.Equal(t, "us-central1-a", transformedMeta.Labels["topology.kubernetes.io/zone"])
 }
 
