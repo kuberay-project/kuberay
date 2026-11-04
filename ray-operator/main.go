@@ -355,6 +355,7 @@ func main() {
 		DefaultContainerEnvs:     config.DefaultContainerEnvs,
 		DefaultPodAnnotations:    config.DefaultPodAnnotations,
 		DefaultPodLabels:         config.DefaultPodLabels,
+		AllowedNodeLabels:        config.AllowedNodeLabels,
 		CollectorImage:           config.CollectorImage,
 		CertManagerAvailable:     certManagerAvailable,
 	}

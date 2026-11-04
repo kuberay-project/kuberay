@@ -5013,3 +5013,131 @@ func TestReconcile_TLSAutoGenerate_RejectsWithoutCertManager(t *testing.T) {
 	}
 	assert.True(t, foundEvent, "expected a warning event about cert-manager")
 }
+
+func TestShouldDeleteWorkerPod_MissingNodeLabelsSelfHealing(t *testing.T) {
+	setupTest(t)
+	features.SetFeatureGateDuringTest(t, features.NodeLabelDelivery, true)
+	ctx := context.Background()
+
+	cluster := testRayCluster.DeepCopy()
+	workerSpec := &cluster.Spec.WorkerGroupSpecs[0]
+	workerSpec.LabelRefs = []rayv1.LabelRef{{
+		Name: "tpu-coords",
+		ValueFrom: rayv1.LabelRefSource{
+			NodeRef: rayv1.NodeFieldRef{FieldPath: "metadata.labels['cloud.google.com/gke-tpu-node-slice-coordinates']"},
+		},
+	}}
+
+	readyNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "tpu-node-ready",
+			Labels: map[string]string{"cloud.google.com/gke-tpu-node-slice-coordinates": "0,0,0"},
+		},
+	}
+	unlabeledNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "tpu-node-unlabeled",
+			Labels: map[string]string{},
+		},
+	}
+
+	require.NoError(t, corev1.AddToScheme(scheme.Scheme))
+	fakeClient := clientFake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(readyNode, unlabeledNode).Build()
+	r := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   events.NewFakeRecorder(10),
+		Scheme:                     scheme.Scheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+		options: RayClusterReconcilerOptions{
+			AllowedNodeLabels: []string{"cloud.google.com/gke-tpu-node-slice-coordinates"},
+		},
+	}
+
+	pod := r.buildWorkerPod(ctx, *cluster, *workerSpec, "", 0, 0)
+	pod.Spec.Containers[utils.RayContainerIndex].Env = append(pod.Spec.Containers[utils.RayContainerIndex].Env, corev1.EnvVar{
+		Name: utils.RAY_NODE_LABELS_JSON,
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "metadata.annotations['" + utils.RayNodeLabelsAnnotationKey + "']",
+			},
+		},
+	})
+	pod.Name = "worker-0"
+	pod.Status.Phase = corev1.PodRunning
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name: pod.Spec.Containers[utils.RayContainerIndex].Name,
+		LastTerminationState: corev1.ContainerState{
+			Terminated: &corev1.ContainerStateTerminated{ExitCode: 1},
+		},
+		RestartCount: 1,
+	}}
+
+	// Case 1: Bound node lacks the requested label -> do not delete the pod yet.
+	pod.Spec.NodeName = unlabeledNode.Name
+	shouldDel, reason := r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "still lacks label")
+
+	// Case 2: Bound node carries all requested and allowed labels -> self-heal by deleting the pod so it can be recreated.
+	pod.Spec.NodeName = readyNode.Name
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.True(t, shouldDel)
+	assert.Contains(t, reason, utils.RayNodeLabelsAnnotationKey)
+
+	// Case 3: Label is not in AllowedNodeLabels ([]string{} or nil) -> do not delete the pod (avoid infinite delete/recreate loop).
+	r.options.AllowedNodeLabels = []string{}
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.False(t, shouldDel)
+	r.options.AllowedNodeLabels = nil
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.False(t, shouldDel)
+	r.options.AllowedNodeLabels = []string{"cloud.google.com/gke-tpu-node-slice-coordinates"}
+
+	// Case 4: Pod already carries ray.io/node-labels -> preserve standard RestartPolicy: Always behavior.
+	annotatedPod := pod.DeepCopy()
+	annotatedPod.Annotations = map[string]string{utils.RayNodeLabelsAnnotationKey: `{"tpu-coords":"0,0,0"}`}
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *annotatedPod, workerSpec)
+	assert.False(t, shouldDel)
+
+	// Case 5: Ray container has not terminated yet (even if a sidecar at ContainerStatuses[0] terminated) -> do not delete.
+	startingPod := pod.DeepCopy()
+	startingPod.Status.ContainerStatuses = []corev1.ContainerStatus{
+		{
+			Name:  "sidecar",
+			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}},
+		},
+		{
+			Name:  pod.Spec.Containers[utils.RayContainerIndex].Name,
+			State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+		},
+	}
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *startingPod, workerSpec)
+	assert.False(t, shouldDel)
+
+	// Case 6: RestartPolicy: Never / PodFailed holds off while node lacks label or allowlist rejects, and deletes once ready or node is deleted.
+	neverPod := pod.DeepCopy()
+	neverPod.Spec.RestartPolicy = corev1.RestartPolicyNever
+	neverPod.Status.Phase = corev1.PodFailed
+	neverPod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:  pod.Spec.Containers[utils.RayContainerIndex].Name,
+		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}},
+	}}
+	neverPod.Spec.NodeName = unlabeledNode.Name
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
+	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "still lacks label")
+
+	r.options.AllowedNodeLabels = nil
+	neverPod.Spec.NodeName = readyNode.Name
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
+	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "not in allowedNodeLabels")
+	r.options.AllowedNodeLabels = []string{"cloud.google.com/gke-tpu-node-slice-coordinates"}
+
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
+	assert.True(t, shouldDel)
+
+	neverPod.Spec.NodeName = "deleted-node"
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
+	assert.True(t, shouldDel)
+}

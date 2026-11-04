@@ -140,12 +140,28 @@ func TestPodBindingWebhookHandle(t *testing.T) {
 		assert.Contains(t, recorded[0], cause)
 	}
 
-	t.Run("delivers the mapped labels on the binding", func(t *testing.T) {
+	t.Run("delivers the mapped labels on the binding from the informer cache without an API read", func(t *testing.T) {
 		handler, recorder := newHandler("topology.kubernetes.io/zone")
+		before := apiReader.gets
 		resp := handler.Handle(ctx, newBindingRequest(t, newBinding(topoPod.Name, "node-a"), false))
 		require.True(t, resp.Allowed, resp.Result)
 		assert.Equal(t, map[string]string{"topology.kubernetes.io/zone": "us-central1-a"}, deliveredLabels(t, resp))
 		assert.Empty(t, drainEvents(recorder))
+		assert.Equal(t, before, apiReader.gets, "cached node read must not hit APIReader")
+	})
+
+	t.Run("falls back to APIReader when the bound node is not yet in the informer cache", func(t *testing.T) {
+		uncachedNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-uncached", Labels: map[string]string{"topology.kubernetes.io/zone": "us-east1-b"}}}
+		apiBackend := fake.NewClientBuilder().WithScheme(scheme).WithObjects(uncachedNode).Build()
+		fallbackReader := &countingReader{Reader: apiBackend}
+		handler, recorder := newHandler("topology.kubernetes.io/zone")
+		handler.APIReader = fallbackReader
+
+		resp := handler.Handle(ctx, newBindingRequest(t, newBinding(topoPod.Name, "node-uncached"), false))
+		require.True(t, resp.Allowed, resp.Result)
+		assert.Equal(t, map[string]string{"topology.kubernetes.io/zone": "us-east1-b"}, deliveredLabels(t, resp))
+		assert.Empty(t, drainEvents(recorder))
+		assert.Equal(t, 1, fallbackReader.gets, "uncached node must fall back to APIReader")
 	})
 
 	t.Run("resolves the group from the pod labels when name prefixes collide", func(t *testing.T) {
@@ -156,14 +172,18 @@ func TestPodBindingWebhookHandle(t *testing.T) {
 		assert.Empty(t, drainEvents(recorder))
 	})
 
-	t.Run("withholds and records an event when the node lacks a label", func(t *testing.T) {
+	t.Run("withholds and records an event when the node lacks a label without hitting APIReader", func(t *testing.T) {
 		handler, recorder := newHandler("topology.kubernetes.io/zone")
+		before := apiReader.gets
 		withheld(t, handler.Handle(ctx, newBindingRequest(t, newBinding(topoPod.Name, "node-b"), false)), recorder, `node lacks label "topology.kubernetes.io/zone"`)
+		assert.Equal(t, before, apiReader.gets, "cached unlabeled node must not hit APIReader")
 	})
 
-	t.Run("withholds when a mapped label is not allowlisted", func(t *testing.T) {
+	t.Run("withholds when a mapped label is not allowlisted without hitting APIReader", func(t *testing.T) {
 		handler, recorder := newHandler()
+		before := apiReader.gets
 		withheld(t, handler.Handle(ctx, newBindingRequest(t, newBinding(topoPod.Name, "node-a"), false)), recorder, "not in the operator's allowedNodeLabels")
+		assert.Equal(t, before, apiReader.gets, "non-allowlisted label must not hit APIReader")
 	})
 
 	t.Run("dry run records no event", func(t *testing.T) {

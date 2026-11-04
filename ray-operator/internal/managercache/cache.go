@@ -36,6 +36,7 @@ func K8sControllerRuntimeCacheSelectors() (map[client.Object]cache.ByObject, err
 	return map[client.Object]cache.ByObject{
 		&batchv1.Job{}: {Label: jobSelector},
 		&corev1.Pod{}:  {Label: podSelector},
+		&corev1.Node{}: {Transform: cache.TransformStripManagedFields()},
 	}, nil
 }
 
