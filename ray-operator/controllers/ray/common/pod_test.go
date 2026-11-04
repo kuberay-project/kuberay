@@ -823,7 +823,7 @@ func TestBuildPod_WithUlimitOverride(t *testing.T) {
 	pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), "", nil, "")
 
 	// The generated command arg still uses ${RAY_START_ULIMIT_OPEN_FILES:-65536} because the shell resolves it at runtime.
-	expectedCommandArg := splitAndSort("ulimit -n ${RAY_START_ULIMIT_OPEN_FILES:-65536}; ray start --head --block --dashboard-agent-listen-port=52365 --memory=1073741824 --num-cpus=1 --metrics-export-port=8080 --dashboard-host=0.0.0.0")
+	expectedCommandArg := splitAndSort("ulimit -n ${RAY_START_ULIMIT_OPEN_FILES:-65536}; ray start --head --block --dashboard-agent-listen-port=52365 --memory=1073741824 --num-cpus=1 --num-gpus=0 --metrics-export-port=8080 --dashboard-host=0.0.0.0")
 	actualCommandArg := splitAndSort(pod.Spec.Containers[0].Args[0])
 	assert.Equal(t, expectedCommandArg, actualCommandArg)
 
@@ -1085,7 +1085,7 @@ func TestBuildPod_WithNoCPULimits(t *testing.T) {
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
 	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
 	pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), "", nil, "")
-	expectedCommandArg := splitAndSort("ulimit -n ${RAY_START_ULIMIT_OPEN_FILES:-65536}; ray start --head --block --dashboard-agent-listen-port=52365 --memory=1073741824 --num-cpus=2 --metrics-export-port=8080 --dashboard-host=0.0.0.0")
+	expectedCommandArg := splitAndSort("ulimit -n ${RAY_START_ULIMIT_OPEN_FILES:-65536}; ray start --head --block --dashboard-agent-listen-port=52365 --memory=1073741824 --num-cpus=2 --num-gpus=0 --metrics-export-port=8080 --dashboard-host=0.0.0.0")
 	actualCommandArg := splitAndSort(pod.Spec.Containers[0].Args[0])
 	assert.Equal(t, expectedCommandArg, actualCommandArg)
 
@@ -2415,7 +2415,7 @@ func TestGenerateRayStartCommand(t *testing.T) {
 				"include-log-monitor": "false",
 			},
 			resource: corev1.ResourceRequirements{},
-			expected: "ray start --head  --include-log-monitor=false ",
+			expected: "ray start --head  --include-log-monitor=false  --num-gpus=0 ",
 		},
 		{
 			name:     "HeadNode with include-log-monitor=true",
@@ -2424,7 +2424,7 @@ func TestGenerateRayStartCommand(t *testing.T) {
 				"include-log-monitor": "true",
 			},
 			resource: corev1.ResourceRequirements{},
-			expected: "ray start --head  --include-log-monitor=true ",
+			expected: "ray start --head  --include-log-monitor=true  --num-gpus=0 ",
 		},
 		{
 			name:           "WorkerNode with Ascend910B NPU",
@@ -2505,6 +2505,111 @@ func TestGenerateRayStartCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := generateRayStartCommand(context.TODO(), tt.nodeType, tt.rayStartParams, tt.resource)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestGenerateRayStartCommandDefaultNumGPUs(t *testing.T) {
+	tests := []struct {
+		rayStartParams map[string]string
+		name           string
+		expected       string
+		resource       corev1.ResourceRequirements
+		featureEnabled bool
+	}{
+		{
+			name:           "no GPU limit gets num-gpus=0",
+			featureEnabled: true,
+			rayStartParams: map[string]string{},
+			resource: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+			},
+			expected: "ray start --head  --memory=1073741824  --num-cpus=1  --num-gpus=0 ",
+		},
+		{
+			name:           "no resources at all gets num-gpus=0",
+			featureEnabled: true,
+			rayStartParams: map[string]string{},
+			resource:       corev1.ResourceRequirements{},
+			expected:       "ray start --head  --num-gpus=0 ",
+		},
+		{
+			name:           "zero GPU limit gets num-gpus=0",
+			featureEnabled: true,
+			rayStartParams: map[string]string{},
+			resource: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					"nvidia.com/gpu": resource.MustParse("0"),
+				},
+			},
+			expected: "ray start --head  --num-gpus=0 ",
+		},
+		{
+			name:           "GPU limit is unchanged",
+			featureEnabled: true,
+			rayStartParams: map[string]string{},
+			resource: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					"nvidia.com/gpu": resource.MustParse("2"),
+				},
+			},
+			expected: "ray start --head  --num-gpus=2 ",
+		},
+		{
+			name:           "user-set num-gpus is unchanged",
+			featureEnabled: true,
+			rayStartParams: map[string]string{"num-gpus": "4"},
+			resource:       corev1.ResourceRequirements{},
+			expected:       "ray start --head  --num-gpus=4 ",
+		},
+		{
+			name:           "extended resource KubeRay does not map to GPUs keeps auto-detection",
+			featureEnabled: true,
+			rayStartParams: map[string]string{},
+			resource: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					"gpu.intel.com/i915": resource.MustParse("1"),
+				},
+			},
+			expected: "ray start --head ",
+		},
+		{
+			name:           "DRA resource claim keeps auto-detection",
+			featureEnabled: true,
+			rayStartParams: map[string]string{},
+			resource: corev1.ResourceRequirements{
+				Claims: []corev1.ResourceClaim{{Name: "gpu"}},
+			},
+			expected: "ray start --head ",
+		},
+		{
+			name:           "feature disabled leaves num-gpus unset",
+			featureEnabled: false,
+			rayStartParams: map[string]string{},
+			resource:       corev1.ResourceRequirements{},
+			expected:       "ray start --head ",
+		},
+		{
+			name:           "feature disabled still sets num-gpus from GPU limit",
+			featureEnabled: false,
+			rayStartParams: map[string]string{},
+			resource: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					"nvidia.com/gpu": resource.MustParse("1"),
+				},
+			},
+			expected: "ray start --head  --num-gpus=1 ",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DefaultNumGPUsZero, tt.featureEnabled)
+			result := generateRayStartCommand(context.TODO(), rayv1.HeadNode, tt.rayStartParams, tt.resource)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
