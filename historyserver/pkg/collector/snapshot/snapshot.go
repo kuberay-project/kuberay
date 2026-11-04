@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -123,44 +122,25 @@ func Run(ctx context.Context, cfg Config, writer storage.StorageWriter) error {
 	return nil
 }
 
-const nodesViewSummaryEndpoint = "/nodes?view=summary"
+const versionEndpoint = "/api/version"
 
 func discoverSessionName(ctx context.Context, client *http.Client, dashboardAddress string) (string, error) {
-	body, err := fetchEndpoint(ctx, client, dashboardAddress, nodesViewSummaryEndpoint)
+	body, err := fetchEndpoint(ctx, client, dashboardAddress, versionEndpoint)
 	if err != nil {
 		return "", fmt.Errorf("dashboard unreachable: %w", err)
 	}
 
 	var resp struct {
-		Data struct {
-			Summary []struct {
-				Raylet struct {
-					RayletSocketName string `json:"rayletSocketName"`
-				} `json:"raylet"`
-			} `json:"summary"`
-		} `json:"data"`
+		SessionName string `json:"session_name"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", fmt.Errorf("failed to parse %s response: %w", nodesViewSummaryEndpoint, err)
+		return "", fmt.Errorf("failed to parse %s response: %w", versionEndpoint, err)
 	}
 
-	for _, node := range resp.Data.Summary {
-		name := sessionNameFromSocketPath(node.Raylet.RayletSocketName)
-		if name != "" {
-			return name, nil
-		}
+	if resp.SessionName == "" {
+		return "", fmt.Errorf("%s response did not include session_name", versionEndpoint)
 	}
-	return "", fmt.Errorf("no node in %s has a rayletSocketName containing a session_ directory", nodesViewSummaryEndpoint)
-}
-
-func sessionNameFromSocketPath(socketPath string) string {
-	for dir := socketPath; dir != "/" && dir != "."; dir = filepath.Dir(dir) {
-		base := filepath.Base(dir)
-		if strings.HasPrefix(base, "session_") {
-			return base
-		}
-	}
-	return ""
+	return resp.SessionName, nil
 }
 
 func fetchAndStore(ctx context.Context, client *http.Client, dashboardAddress, endpoint, clusterDir, sessionName string, writer storage.StorageWriter) (bool, error) {
@@ -211,7 +191,7 @@ func fetchDataDatasets(ctx context.Context, client *http.Client, dashboardAddres
 }
 
 func fetchEndpoint(ctx context.Context, client *http.Client, dashboardAddress, endpoint string) ([]byte, error) {
-	url := path.Join(dashboardAddress, endpoint)
+	url := dashboardAddress + endpoint
 
 	reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()

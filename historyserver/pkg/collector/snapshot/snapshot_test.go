@@ -45,19 +45,10 @@ func writeJSON(t *testing.T, w http.ResponseWriter, v any) {
 	require.NoError(t, json.NewEncoder(w).Encode(v))
 }
 
-func nodesViewSummaryResponse(sessionName string) map[string]any {
+func versionResponse(sessionName string) map[string]any {
 	return map[string]any{
-		"result": true,
-		"msg":    "Node summary fetched.",
-		"data": map[string]any{
-			"summary": []any{
-				map[string]any{
-					"raylet": map[string]any{
-						"rayletSocketName": "/tmp/ray/" + sessionName + "/sockets/raylet",
-					},
-				},
-			},
-		},
+		"version":      "2.54.0",
+		"session_name": sessionName,
 	}
 }
 
@@ -79,7 +70,7 @@ func TestRunSnapshot(t *testing.T) {
 	datasets01 := map[string]any{"datasets": []any{map[string]any{"id": "ds1"}}}
 	tasks := map[string]any{"result": []any{}}
 	actors := []any{}
-	nodesSummary := nodesViewSummaryResponse("session_2026-08-17_10-30-00_123456")
+	nodesSummary := map[string]any{"result": true, "data": map[string]any{"summary": []any{}}}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -91,6 +82,8 @@ func TestRunSnapshot(t *testing.T) {
 
 		var resp any
 		switch {
+		case full == "/api/version":
+			resp = versionResponse("session_2026-08-17_10-30-00_123456")
 		case full == "/nodes?view=summary":
 			resp = nodesSummary
 		case full == "/api/v0/cluster_metadata":
@@ -150,10 +143,7 @@ func TestRunSnapshot(t *testing.T) {
 
 func TestRunSnapshotMissingSessionInfo(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(t, w, map[string]any{
-			"result": true,
-			"data":   map[string]any{"summary": []any{}},
-		})
+		writeJSON(t, w, map[string]any{"version": "2.54.0"})
 	}))
 	defer srv.Close()
 
@@ -172,13 +162,9 @@ func TestRunSnapshotMissingSessionInfo(t *testing.T) {
 
 func TestRunSnapshotWithOwner(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		full := r.URL.Path
-		if r.URL.RawQuery != "" {
-			full += "?" + r.URL.RawQuery
-		}
 		switch {
-		case full == "/nodes?view=summary":
-			writeJSON(t, w, nodesViewSummaryResponse("session_2026-08-17_10-30-00_123456"))
+		case r.URL.Path == "/api/version":
+			writeJSON(t, w, versionResponse("session_2026-08-17_10-30-00_123456"))
 		case r.URL.Path == "/api/jobs/":
 			writeJSON(t, w, []any{})
 		default:
@@ -219,7 +205,7 @@ func TestRunSnapshotWithOwner(t *testing.T) {
 
 func TestRunSnapshotCancelation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(t, w, nodesViewSummaryResponse("session_2026-08-17_10-30-00_123456"))
+		writeJSON(t, w, versionResponse("session_2026-08-17_10-30-00_123456"))
 	}))
 	defer srv.Close()
 
@@ -239,68 +225,15 @@ func TestRunSnapshotCancelation(t *testing.T) {
 }
 
 func TestDiscoverSessionName(t *testing.T) {
-	tests := []struct {
-		name     string
-		response map[string]any
-		wantName string
-	}{
-		{
-			name:     "from rayletSocketName",
-			response: nodesViewSummaryResponse("session_2026-01-01_12-00-00_000000"),
-			wantName: "session_2026-01-01_12-00-00_000000",
-		},
-		{
-			name: "from custom ray tmp root",
-			response: map[string]any{
-				"result": true,
-				"data": map[string]any{
-					"summary": []any{
-						map[string]any{
-							"raylet": map[string]any{
-								"rayletSocketName": "/custom/ray/session_2026-02-01_13-00-00_111111/sockets/raylet",
-							},
-						},
-					},
-				},
-			},
-			wantName: "session_2026-02-01_13-00-00_111111",
-		},
-		{
-			name: "picks first node with valid session",
-			response: map[string]any{
-				"result": true,
-				"data": map[string]any{
-					"summary": []any{
-						map[string]any{
-							"raylet": map[string]any{
-								"rayletSocketName": "/tmp/ray/session_2026-03-01_14-00-00_222222/sockets/raylet",
-							},
-						},
-						map[string]any{
-							"raylet": map[string]any{
-								"rayletSocketName": "/tmp/ray/session_2026-03-01_14-00-00_222222/sockets/raylet",
-							},
-						},
-					},
-				},
-			},
-			wantName: "session_2026-03-01_14-00-00_222222",
-		},
-	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, versionResponse("session_2026-01-01_12-00-00_000000"))
+	}))
+	defer srv.Close()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				writeJSON(t, w, tt.response)
-			}))
-			defer srv.Close()
-
-			client := &http.Client{}
-			name, err := discoverSessionName(context.Background(), client, srv.URL)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantName, name)
-		})
-	}
+	client := &http.Client{}
+	name, err := discoverSessionName(context.Background(), client, srv.URL)
+	require.NoError(t, err)
+	assert.Equal(t, "session_2026-01-01_12-00-00_000000", name)
 }
 
 func TestDiscoverSessionNameDashboardUnreachable(t *testing.T) {
@@ -317,32 +250,21 @@ func TestDiscoverSessionNameDashboardUnreachable(t *testing.T) {
 
 func TestDiscoverSessionNameNoSessionInfo(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(t, w, map[string]any{
-			"result": true,
-			"data":   map[string]any{"summary": []any{}},
-		})
+		writeJSON(t, w, map[string]any{"version": "2.54.0"})
 	}))
 	defer srv.Close()
 
 	client := &http.Client{}
 	_, err := discoverSessionName(context.Background(), client, srv.URL)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no node in")
+	assert.Contains(t, err.Error(), "did not include session_name")
 }
 
 func TestRunSnapshotTotalScrapeFailure(t *testing.T) {
-	nodesCallCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		full := r.URL.Path
-		if r.URL.RawQuery != "" {
-			full += "?" + r.URL.RawQuery
-		}
-		if full == "/nodes?view=summary" {
-			nodesCallCount++
-			if nodesCallCount == 1 {
-				writeJSON(t, w, nodesViewSummaryResponse("session_2026-08-17_10-30-00_123456"))
-				return
-			}
+		if r.URL.Path == "/api/version" {
+			writeJSON(t, w, versionResponse("session_2026-08-17_10-30-00_123456"))
+			return
 		}
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}))
@@ -368,13 +290,9 @@ func TestRunSnapshotTotalScrapeFailure(t *testing.T) {
 func TestRunSnapshotLateCancelation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		full := r.URL.Path
-		if r.URL.RawQuery != "" {
-			full += "?" + r.URL.RawQuery
-		}
 		switch {
-		case full == "/nodes?view=summary":
-			writeJSON(t, w, nodesViewSummaryResponse("session_2026-08-17_10-30-00_123456"))
+		case r.URL.Path == "/api/version":
+			writeJSON(t, w, versionResponse("session_2026-08-17_10-30-00_123456"))
 		case r.URL.Path == "/api/jobs/":
 			cancel()
 			writeJSON(t, w, []any{})
