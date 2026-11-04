@@ -1433,7 +1433,7 @@ func (r *RayJobReconciler) handleDeletionRules(ctx context.Context, rayJob *rayv
 		rules = append([]rayv1.DeletionRule{{
 			Policy: rayv1.DeleteCluster,
 			Condition: rayv1.DeletionCondition{
-				JobDeploymentStatus: ptr.To(rayJob.Status.JobDeploymentStatus),
+				JobDeploymentStatus: new(rayJob.Status.JobDeploymentStatus),
 				TTLSeconds:          rayJob.Spec.TTLSecondsAfterFinished,
 			},
 		}}, rules...)
