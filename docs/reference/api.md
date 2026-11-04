@@ -628,7 +628,7 @@ RayCluster is the Schema for the RayClusters API
 | `apiVersion` _string_ | `ray.io/v1` | | |
 | `kind` _string_ | `RayCluster` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `spec` _[RayClusterSpec](#rayclusterspec)_ | Specification of the desired behavior of the RayCluster. |  |  |
+| `spec` _[RayClusterSpec](#rayclusterspec)_ | Specification of the desired behavior of the RayCluster.<br />The has() guards keep the rule valid when workerGroupSpecs is unset or an empty list,<br />so updates that omit the field (e.g. controller finalizer writes) are not rejected. |  |  |
 
 
 
@@ -663,7 +663,7 @@ _Appears in:_
 | `tlsOptions` _[TLSOptions](#tlsoptions)_ | TLSOptions specifies optional TLS encryption settings for the RayCluster.<br />If omitted or Enabled is false, TLS is disabled. When Enabled is true,<br />the operator enables mTLS using cert-manager to provision and manage certificates.<br />Requires the RayClusterMTLS feature gate on the operator. |  |  |
 | `headGroupSpec` _[HeadGroupSpec](#headgroupspec)_ | HeadGroupSpec is the spec for the head pod |  |  |
 | `rayVersion` _string_ | RayVersion is used to determine the command for the Kubernetes Job managed by RayJob |  |  |
-| `workerGroupSpecs` _[WorkerGroupSpec](#workergroupspec) array_ | WorkerGroupSpecs are the specs for the worker pods |  |  |
+| `workerGroupSpecs` _[WorkerGroupSpec](#workergroupspec) array_ | WorkerGroupSpecs are the specs for the worker pods<br />MaxItems is load-bearing: it caps the worker group removal validation rule's CEL cost so the CRD stays installable. Do not remove. |  | MaxItems: 100 <br /> |
 
 
 #### RayClusterUpgradeStrategy
@@ -1014,7 +1014,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `suspend` _boolean_ | Suspend indicates whether a worker group should be suspended.<br />A suspended worker group will have all pods deleted.<br />This is not a user-facing API and is only used by RayJob DeletionStrategy. |  |  |
-| `groupName` _string_ | we can have multiple worker groups, we distinguish them by name |  |  |
+| `groupName` _string_ | we can have multiple worker groups, we distinguish them by name<br />MaxLength is load-bearing: it caps the worker group removal validation rule's CEL cost so the CRD stays installable. Do not remove. |  | MaxLength: 63 <br /> |
 | `replicas` _integer_ | Replicas is the number of desired Pods for this worker group. See https://github.com/ray-project/kuberay/pull/1443 for more details about the reason for making this field optional. | 0 |  |
 | `minReplicas` _integer_ | MinReplicas denotes the minimum number of desired Pods for this worker group. | 0 |  |
 | `maxReplicas` _integer_ | MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32. | 2147483647 |  |
@@ -1112,7 +1112,7 @@ and existing RayClusters.
 | `apiVersion` _string_ | `ray.io/v1alpha1` | | |
 | `kind` _string_ | `RayCluster` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `spec` _[RayClusterSpec](#rayclusterspec)_ | Specification of the desired behavior of the RayCluster. |  |  |
+| `spec` _[RayClusterSpec](#rayclusterspec)_ | Specification of the desired behavior of the RayCluster.<br />The has() guards keep the rule valid when workerGroupSpecs is unset or an empty list,<br />so updates that omit the field (e.g. controller finalizer writes) are not rejected. |  |  |
 
 
 #### RayClusterSpec
@@ -1136,7 +1136,7 @@ _Appears in:_
 | `headServiceAnnotations` _object (keys:string, values:string)_ |  |  |  |
 | `headGroupSpec` _[HeadGroupSpec](#headgroupspec)_ | HeadGroupSpec is the spec for the head pod |  |  |
 | `rayVersion` _string_ | RayVersion is used to determine the command for the Kubernetes Job managed by RayJob |  |  |
-| `workerGroupSpecs` _[WorkerGroupSpec](#workergroupspec) array_ | WorkerGroupSpecs are the specs for the worker pods |  |  |
+| `workerGroupSpecs` _[WorkerGroupSpec](#workergroupspec) array_ | WorkerGroupSpecs are the specs for the worker pods<br />MaxItems is load-bearing: it caps the worker group removal validation rule's CEL cost so the CRD stays installable. Do not remove. |  | MaxItems: 100 <br /> |
 
 
 #### RayJob
@@ -1280,7 +1280,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `groupName` _string_ | we can have multiple worker groups, we distinguish them by name |  |  |
+| `groupName` _string_ | we can have multiple worker groups, we distinguish them by name<br />MaxLength is load-bearing: it caps the worker group removal validation rule's CEL cost so the CRD stays installable. Do not remove. |  | MaxLength: 63 <br /> |
 | `replicas` _integer_ | Replicas is the number of desired Pods for this worker group. See https://github.com/ray-project/kuberay/pull/1443 for more details about the reason for making this field optional. | 0 |  |
 | `minReplicas` _integer_ | MinReplicas denotes the minimum number of desired Pods for this worker group. | 0 |  |
 | `maxReplicas` _integer_ | MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32. | 2147483647 |  |
