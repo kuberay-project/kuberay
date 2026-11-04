@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/common"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/expectations"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/metrics/mocks"
@@ -5146,4 +5147,151 @@ func TestShouldDeleteWorkerPod_MissingNodeLabelsSelfHealing(t *testing.T) {
 	pinnedWorkerSpec.Template.Spec.NodeName = readyNode.Name
 	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, pod, pinnedWorkerSpec)
 	assert.False(t, shouldDel)
+}
+
+// TestReconcilePodsCleansUpBatchSchedulerOnSuspend is a regression test for
+// https://github.com/ray-project/kuberay/issues/5183: every suspend early-return in reconcilePods
+// must release the batch scheduler reservation.
+func TestReconcilePodsCleansUpBatchSchedulerOnSuspend(t *testing.T) {
+	setupTest(t)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+
+	trueCondition := func(condType rayv1.RayClusterConditionType) []metav1.Condition {
+		return []metav1.Condition{{
+			Type:               string(condType),
+			Status:             metav1.ConditionTrue,
+			Reason:             string(condType),
+			LastTransitionTime: metav1.Now(),
+		}}
+	}
+
+	tests := []struct {
+		name                string
+		cleanupErr          error
+		conditions          []metav1.Condition
+		pods                []runtime.Object
+		statusConditions    bool
+		suspend             bool
+		expectCleanupCalled bool
+		expectErr           bool
+	}{
+		{
+			name:                "suspending releases the reserved capacity",
+			statusConditions:    true,
+			suspend:             true,
+			conditions:          trueCondition(rayv1.RayClusterSuspending),
+			expectCleanupCalled: true,
+		},
+		{
+			// Terminating Pods still hold node capacity; releasing now would over-admit the queue.
+			name:                "suspending keeps the reservation while Pods are still around",
+			statusConditions:    true,
+			suspend:             true,
+			conditions:          trueCondition(rayv1.RayClusterSuspending),
+			pods:                testPods,
+			expectCleanupCalled: false,
+		},
+		{
+			// A cluster suspended before this operator started never goes through the Suspending branch.
+			name:                "already suspended releases the reserved capacity",
+			statusConditions:    true,
+			suspend:             true,
+			conditions:          trueCondition(rayv1.RayClusterSuspended),
+			expectCleanupCalled: true,
+		},
+		{
+			name:                "suspended with the status condition gate disabled",
+			statusConditions:    false,
+			suspend:             true,
+			expectCleanupCalled: true,
+		},
+		{
+			name:                "a failure is surfaced so the reconcile is requeued",
+			statusConditions:    true,
+			suspend:             true,
+			conditions:          trueCondition(rayv1.RayClusterSuspended),
+			cleanupErr:          errors.New("failed to update PodGroup"),
+			expectCleanupCalled: true,
+			expectErr:           true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.RayClusterStatusConditions, tc.statusConditions)
+
+			cluster := testRayCluster.DeepCopy()
+			cluster.Spec.Suspend = new(tc.suspend)
+			cluster.Status.Conditions = tc.conditions
+
+			runtimeObjects := []runtime.Object{cluster}
+			for _, pod := range tc.pods {
+				runtimeObjects = append(runtimeObjects, pod.DeepCopyObject())
+			}
+			fakeClient := clientFake.NewClientBuilder().
+				WithScheme(newScheme).
+				WithRuntimeObjects(runtimeObjects...).
+				Build()
+
+			fakeScheduler := &fakeBatchScheduler{cleanupDidUpdate: true, cleanupErr: tc.cleanupErr}
+			reconciler := &RayClusterReconciler{
+				Client:                     fakeClient,
+				Recorder:                   events.NewFakeRecorder(100),
+				Scheme:                     newScheme,
+				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+				options: RayClusterReconcilerOptions{
+					BatchSchedulerManager: batchscheduler.NewSchedulerManagerForTest(fakeScheduler),
+				},
+			}
+
+			err := reconciler.reconcilePods(context.Background(), cluster)
+			if tc.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			assert.Equal(t, tc.expectCleanupCalled, fakeScheduler.cleanupCalled)
+			if tc.expectCleanupCalled {
+				require.NotNil(t, fakeScheduler.cleanupObject)
+				assert.Equal(t, cluster.Name, fakeScheduler.cleanupObject.GetName())
+				assert.Equal(t, cluster.Namespace, fakeScheduler.cleanupObject.GetNamespace())
+			}
+		})
+	}
+}
+
+// TestReconcilePodsKeepsBatchSchedulerReservationWhenRunning checks that a running RayCluster keeps
+// its batch scheduler reservation.
+func TestReconcilePodsKeepsBatchSchedulerReservationWhenRunning(t *testing.T) {
+	setupTest(t)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+
+	cluster := testRayCluster.DeepCopy()
+	cluster.Spec.Suspend = new(false)
+
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(newScheme).
+		WithRuntimeObjects(cluster).
+		Build()
+
+	fakeScheduler := &fakeBatchScheduler{cleanupDidUpdate: true}
+	reconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   events.NewFakeRecorder(100),
+		Scheme:                     newScheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+		options: RayClusterReconcilerOptions{
+			BatchSchedulerManager: batchscheduler.NewSchedulerManagerForTest(fakeScheduler),
+		},
+	}
+
+	require.NoError(t, reconciler.reconcilePods(context.Background(), cluster))
+	assert.False(t, fakeScheduler.cleanupCalled, "a running RayCluster must keep its reserved capacity")
 }

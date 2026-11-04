@@ -206,7 +206,7 @@ func TestAddMetadataToChildResourceSkipsSchedulingGroupWhenAutoscalingEnabled(t 
 	assert.Empty(t, pod.Spec.SchedulerName)
 }
 
-func TestCleanupOnCompletionDeletesSchedulingResourcesInDependencyOrder(t *testing.T) {
+func TestDeleteSchedulingResourcesInDependencyOrder(t *testing.T) {
 	ctx := context.Background()
 	scheme := newTestScheme(t)
 	rayCluster := newTestRayCluster(newWorkerGroup())
@@ -220,7 +220,7 @@ func TestCleanupOnCompletionDeletesSchedulingResourcesInDependencyOrder(t *testi
 	fakeClient := clientFake.NewClientBuilder().WithScheme(scheme).WithObjects(existingWorkload, existingPodGroup).Build()
 	scheduler := &KubernetesWASV1Alpha3Scheduler{cli: fakeClient}
 
-	didCleanup, err := scheduler.CleanupOnCompletion(ctx, rayCluster)
+	didCleanup, err := scheduler.deleteSchedulingResources(ctx, rayCluster)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "waiting for PodGroup default/test-cluster-cluster")
 	assert.True(t, didCleanup)
@@ -229,7 +229,7 @@ func TestCleanupOnCompletionDeletesSchedulingResourcesInDependencyOrder(t *testi
 	assert.True(t, apierrors.IsNotFound(err))
 	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: rayCluster.Name, Namespace: rayCluster.Namespace}, &schedulingv1alpha3.Workload{}))
 
-	didCleanup, err = scheduler.CleanupOnCompletion(ctx, rayCluster)
+	didCleanup, err = scheduler.deleteSchedulingResources(ctx, rayCluster)
 	require.NoError(t, err)
 	assert.True(t, didCleanup)
 
@@ -237,7 +237,7 @@ func TestCleanupOnCompletionDeletesSchedulingResourcesInDependencyOrder(t *testi
 	assert.True(t, apierrors.IsNotFound(err))
 }
 
-func TestCleanupOnCompletionSkipsForeignPodGroupAndDeletesOwnedWorkload(t *testing.T) {
+func TestDeleteSchedulingResourcesSkipsForeignPodGroupAndDeletesOwnedWorkload(t *testing.T) {
 	ctx := context.Background()
 	scheme := newTestScheme(t)
 	rayCluster := newTestRayCluster(newWorkerGroup())
@@ -255,7 +255,7 @@ func TestCleanupOnCompletionSkipsForeignPodGroupAndDeletesOwnedWorkload(t *testi
 	fakeClient := clientFake.NewClientBuilder().WithScheme(scheme).WithObjects(ownedWorkload, foreignPodGroup).Build()
 	scheduler := &KubernetesWASV1Alpha3Scheduler{cli: fakeClient}
 
-	didCleanup, err := scheduler.CleanupOnCompletion(ctx, rayCluster)
+	didCleanup, err := scheduler.deleteSchedulingResources(ctx, rayCluster)
 	require.NoError(t, err)
 	assert.True(t, didCleanup)
 
@@ -267,7 +267,7 @@ func TestCleanupOnCompletionSkipsForeignPodGroupAndDeletesOwnedWorkload(t *testi
 	assert.Contains(t, podGroup.Finalizers, podGroupProtectionFinalizer)
 }
 
-func TestCleanupOnCompletionSkipsForeignWorkloadAndDeletesOwnedPodGroup(t *testing.T) {
+func TestDeleteSchedulingResourcesSkipsForeignWorkloadAndDeletesOwnedPodGroup(t *testing.T) {
 	ctx := context.Background()
 	scheme := newTestScheme(t)
 	rayCluster := newTestRayCluster(newWorkerGroup())
@@ -287,7 +287,7 @@ func TestCleanupOnCompletionSkipsForeignWorkloadAndDeletesOwnedPodGroup(t *testi
 
 	// The owned PodGroup is deleted first, so cleanup reports it is waiting for the
 	// deletion to finish; the same-named foreign Workload is left untouched.
-	didCleanup, err := scheduler.CleanupOnCompletion(ctx, rayCluster)
+	didCleanup, err := scheduler.deleteSchedulingResources(ctx, rayCluster)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "waiting for PodGroup")
 	assert.True(t, didCleanup)
@@ -297,7 +297,7 @@ func TestCleanupOnCompletionSkipsForeignWorkloadAndDeletesOwnedPodGroup(t *testi
 	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: foreignWorkload.Name, Namespace: foreignWorkload.Namespace}, &schedulingv1alpha3.Workload{}))
 }
 
-func TestCleanupOnCompletionWaitsForPodGroupsBeforeDeletingWorkload(t *testing.T) {
+func TestDeleteSchedulingResourcesWaitsForPodGroupsBeforeDeletingWorkload(t *testing.T) {
 	ctx := context.Background()
 	scheme := newTestScheme(t)
 	rayCluster := newTestRayCluster(newWorkerGroup())
@@ -312,7 +312,7 @@ func TestCleanupOnCompletionWaitsForPodGroupsBeforeDeletingWorkload(t *testing.T
 	fakeClient := clientFake.NewClientBuilder().WithScheme(scheme).WithObjects(existingWorkload, existingPodGroup).Build()
 	scheduler := &KubernetesWASV1Alpha3Scheduler{cli: fakeClient}
 
-	didCleanup, err := scheduler.CleanupOnCompletion(ctx, rayCluster)
+	didCleanup, err := scheduler.deleteSchedulingResources(ctx, rayCluster)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "waiting for PodGroup default/test-cluster-cluster")
 	assert.True(t, didCleanup)
@@ -327,13 +327,13 @@ func TestCleanupOnCompletionWaitsForPodGroupsBeforeDeletingWorkload(t *testing.T
 	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: existingWorkload.Name, Namespace: existingWorkload.Namespace}, &schedulingv1alpha3.Workload{}))
 }
 
-func TestCleanupOnCompletionNotFoundIsNoop(t *testing.T) {
+func TestDeleteSchedulingResourcesNotFoundIsNoop(t *testing.T) {
 	ctx := context.Background()
 	scheme := newTestScheme(t)
 	fakeClient := clientFake.NewClientBuilder().WithScheme(scheme).Build()
 	scheduler := &KubernetesWASV1Alpha3Scheduler{cli: fakeClient}
 
-	didCleanup, err := scheduler.CleanupOnCompletion(ctx, newTestRayCluster(newWorkerGroup()))
+	didCleanup, err := scheduler.deleteSchedulingResources(ctx, newTestRayCluster(newWorkerGroup()))
 
 	require.NoError(t, err)
 	assert.False(t, didCleanup)

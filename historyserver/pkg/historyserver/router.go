@@ -118,6 +118,16 @@ func routerAPI(s *ServerHandler) {
 	ws := new(restful.WebService)
 	defer restful.Add(ws)
 	ws.Path("/api").Consumes(restful.MIME_JSON).Produces(restful.MIME_JSON).Filter(RequestLogFilter) //.Filter(s.loginWrapper)
+	// Return 404 so the local Ray Dashboard handles its own authentication endpoints.
+	// These routes must not require cluster cookies.
+	fallbackToDashboard := func(_ *restful.Request, resp *restful.Response) {
+		resp.WriteHeader(http.StatusNotFound)
+	}
+	ws.Route(ws.GET("/authentication_mode").To(fallbackToDashboard).
+		Doc("defer authentication mode to the local Ray Dashboard"))
+	ws.Route(ws.POST("/authenticate").To(fallbackToDashboard).
+		Doc("defer token authentication to the local Ray Dashboard"))
+
 	ws.Route(ws.GET("/cluster_status").To(s.getClusterStatus).Filter(s.CookieHandle).
 		Doc("get clusters status").Param(ws.QueryParameter("format", "such as 1")).
 		Writes("")) // Placeholder for specific return type
@@ -341,10 +351,12 @@ func routerRayClusterSet(s *ServerHandler) {
 				return
 			}
 			// User add reload=true parameter to trigger snapshot refresh.
+			var live bool
 			if r1.QueryParameter("reload") == "true" {
-				s.sessionLoader.Invalidate(utils.BuildClusterSessionKey(resolvedName, namespace, resolvedSession))
+				live, err = s.sessionLoader.Reload(r1.Request.Context(), resolvedClusterInfo)
+			} else {
+				live, err = s.sessionLoader.LoadSession(r1.Request.Context(), resolvedClusterInfo)
 			}
-			live, err := s.sessionLoader.LoadSession(r1.Request.Context(), resolvedClusterInfo)
 			if err != nil {
 				logrus.Errorf("Failed to load session %s/%s/%s: %v", namespace, resolvedName, resolvedSession, err)
 				r2.WriteErrorString(http.StatusInternalServerError, err.Error())
@@ -2048,6 +2060,10 @@ func (s *ServerHandler) CookieHandle(req *restful.Request, resp *restful.Respons
 	if ownerName.Value != "" && !fs.ValidPath(ownerName.Value) {
 		resp.WriteHeaderAndEntity(http.StatusBadRequest, fmt.Sprintf("invalid cookie values: path traversal not allowed (owner_name=%s)", ownerName.Value))
 		return
+	}
+
+	if sessionName.Value != "live" {
+		s.sessionLoader.Revalidate(utils.BuildClusterSessionKey(clusterName.Value, clusterNamespace.Value, sessionName.Value))
 	}
 
 	if sessionName.Value == "live" && !s.enableLiveClusters {
