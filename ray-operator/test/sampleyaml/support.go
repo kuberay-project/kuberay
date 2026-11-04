@@ -36,6 +36,10 @@ func SubmitJobsToAllPods(t Test, rayCluster *rayv1.RayCluster) func(Gomega) {
 			"import ray; ray.init(); print(ray.cluster_resources())",
 		}
 		for _, pod := range pods {
+			// The dedicated autoscaler Pod is not a Ray node; skip it.
+			if pod.Labels[utils.RayNodeTypeLabelKey] == string(rayv1.AutoscalerNode) {
+				continue
+			}
 			container := pod.Spec.Containers[utils.RayContainerIndex] // Directly access the Ray container
 			ExecPodCmd(t, &pod, container.Name, cmd)
 		}

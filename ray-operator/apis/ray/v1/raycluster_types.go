@@ -656,6 +656,33 @@ type AutoscalerOptions struct {
 	// Optional to overwrite the default args of the autoscaler container.
 	// +optional
 	Args []string `json:"args,omitempty"`
+	// Standalone controls where the autoscaler runs. When unset or false (the
+	// default), the autoscaler runs as a sidecar container in the head Pod
+	// (legacy layout). Set to true to run the autoscaler as a dedicated Pod
+	// managed by the KubeRay operator, so the head Pod no longer needs the
+	// autoscaler's Kubernetes RBAC permissions. A TLS-enabled cluster with a
+	// dedicated autoscaler requires a Ray image supporting `--gcs-address`; TLS
+	// with Ray images that lack it is not supported.
+	// +optional
+	Standalone *bool `json:"standalone,omitempty"`
+	// GCSForwarding controls how the dedicated autoscaler Pod reaches the head GCS.
+	// It has no effect when Standalone is unset or false.
+	//   - unset or true (default without TLS): a TCP forwarding (socat) container
+	//     is added so the autoscaler reaches GCS via its own Pod IP, which works
+	//     with any Ray version. Incompatible with TLS (rejected by validation
+	//     when TLS is enabled): the forwarding path cannot pass certificate
+	//     hostname verification.
+	//   - false: the autoscaler connects directly via --gcs-address, which
+	//     requires a Ray image containing
+	//     https://github.com/ray-project/ray/pull/65894 (master/nightly only;
+	//     no released Ray version includes it yet). This is the only mode used
+	//     with TLS.
+	// +optional
+	GCSForwarding *bool `json:"gcsForwarding,omitempty"`
+	// GCSForwardingImage overrides the image of the GCS forwarding container.
+	// Defaults to "alpine/socat:1.8.0.1".
+	// +optional
+	GCSForwardingImage *string `json:"gcsForwardingImage,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=Default;Aggressive;Conservative
@@ -798,6 +825,9 @@ type RayNodeType string
 const (
 	HeadNode   RayNodeType = "head"
 	WorkerNode RayNodeType = "worker"
+	// AutoscalerNode is a dedicated Pod running the Ray autoscaler, created when
+	// autoscaling is enabled and the autoscaler is not injected into the head Pod.
+	AutoscalerNode RayNodeType = "autoscaler"
 	// RedisCleanupNode is a Pod managed by a Kubernetes Job that cleans up Redis data after
 	// a RayCluster with GCS fault tolerance enabled is deleted.
 	RedisCleanupNode RayNodeType = "redis-cleanup"

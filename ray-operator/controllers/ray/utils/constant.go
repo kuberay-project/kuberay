@@ -185,6 +185,8 @@ const (
 	RayWorkerCertPrefix       = "ray-worker-cert"
 	RayHeadSecretPrefix       = "ray-head-secret"
 	RayWorkerSecretPrefix     = "ray-worker-secret" //nolint:gosec // G101 -- secret name prefix, not a credential
+	RayAutoscalerCertPrefix   = "ray-autoscaler-cert"
+	RayAutoscalerSecretPrefix = "ray-autoscaler-secret" //nolint:gosec // G101 -- secret name prefix, not a credential
 	RayCASecretPrefix         = "ca-secret"
 
 	// Environment variables for RayJob submitter Kubernetes Job.
@@ -379,6 +381,19 @@ with urllib.request.urlopen(health_url, timeout=%d) as response:
 	RayNodeHeadGroupLabelValue      = "headgroup"
 	RayNodeSubmitterGroupLabelValue = "submittergroup"
 
+	// RayNodeAutoscalerGroupLabelValue is the value for the RayNodeGroupLabelKey label on a
+	// dedicated autoscaler node.
+	RayNodeAutoscalerGroupLabelValue = "autoscaler"
+
+	// GCSForwardContainerName is the name of the TCP forwarding container injected into a
+	// standalone autoscaler Pod when gcsForwarding is enabled.
+	GCSForwardContainerName = "gcs-forward"
+	// DefaultGCSForwardingImage is the default image of the GCS forwarding container.
+	DefaultGCSForwardingImage = "alpine/socat:1.8.0.1"
+	// KUBERAY_GCS_FORWARDING_IMAGE_ENV overrides DefaultGCSForwardingImage at the operator
+	// level, e.g. for distributions whose clusters cannot pull from the public registry.
+	KUBERAY_GCS_FORWARDING_IMAGE_ENV = "KUBERAY_GCS_FORWARDING_IMAGE"
+
 	// SubmitterContainerName is the default name of the job submit container injected into the head Pod in SidecarMode.
 	SubmitterContainerName = "ray-job-submitter"
 
@@ -441,6 +456,9 @@ var (
 	ErrFailedCreateHeadPod   = &errRayClusterReplicaFailure{reason: "FailedCreateHeadPod"}
 	ErrFailedDeleteWorkerPod = &errRayClusterReplicaFailure{reason: "FailedDeleteWorkerPod"}
 	ErrFailedCreateWorkerPod = &errRayClusterReplicaFailure{reason: "FailedCreateWorkerPod"}
+	// Dedicated autoscaler Pod errors.
+	ErrFailedDeleteAutoscalerPod = &errRayClusterReplicaFailure{reason: "FailedDeleteAutoscalerPod"}
+	ErrFailedCreateAutoscalerPod = &errRayClusterReplicaFailure{reason: "FailedCreateAutoscalerPod"}
 )
 
 func RayClusterReplicaFailureReason(err error) string {
@@ -465,6 +483,12 @@ const (
 	FailedToCreateHeadPod K8sEventType = "FailedToCreateHeadPod"
 	DeletedHeadPod        K8sEventType = "DeletedHeadPod"
 	FailedToDeleteHeadPod K8sEventType = "FailedToDeleteHeadPod"
+
+	// Autoscaler Pod event list
+	CreatedAutoscalerPod        K8sEventType = "CreatedAutoscalerPod"
+	FailedToCreateAutoscalerPod K8sEventType = "FailedToCreateAutoscalerPod"
+	DeletedAutoscalerPod        K8sEventType = "DeletedAutoscalerPod"
+	FailedToDeleteAutoscalerPod K8sEventType = "FailedToDeleteAutoscalerPod"
 
 	// Worker Pod event list
 	CreatedWorkerPod                  K8sEventType = "CreatedWorkerPod"

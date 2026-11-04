@@ -249,6 +249,10 @@
     - kubectl wait --timeout=90s --for=condition=Available=true deployment kuberay-operator
     # Run mTLS e2e tests and print KubeRay operator logs if tests fail
     - echo "--- START:Running RayCluster mTLS E2E (nightly operator) tests"
+    # The dedicated autoscaler connects to GCS via `--gcs-address` when TLS is enabled
+    # (the TCP forwarding path cannot pass certificate hostname verification), and the
+    # flag is only available on Ray master/nightly images (ray-project/ray#65894).
+    - export KUBERAY_TEST_RAY_IMAGE=rayproject/ray:nightly
     - if [ -n "$${KUBERAY_TEST_RAY_IMAGE}" ]; then echo "Using Ray Image $${KUBERAY_TEST_RAY_IMAGE}"; fi
     - set -o pipefail
     - mkdir -p "$(pwd)/tmp" && export KUBERAY_TEST_OUTPUT_DIR=$(pwd)/tmp

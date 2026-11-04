@@ -192,6 +192,10 @@ spec:
                           x-kubernetes-map-type: atomic
                       type: object
                     type: array
+                  gcsForwarding:
+                    type: boolean
+                  gcsForwardingImage:
+                    type: string
                   idleTimeoutSeconds:
                     format: int32
                     type: integer
@@ -304,6 +308,8 @@ spec:
                             type: string
                         type: object
                     type: object
+                  standalone:
+                    type: boolean
                   upscalingMode:
                     enum:
                     - Default

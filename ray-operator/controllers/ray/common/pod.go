@@ -266,41 +266,48 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 
 	initTemplateAnnotations(instance, &podTemplate)
 
-	// if in-tree autoscaling is enabled, then autoscaler container should be injected into head pod.
+	// if in-tree autoscaling is enabled, the monitor process on the head is disabled and
+	// the KubeRay autoscaler takes over. It runs as a sidecar container in the head Pod
+	// (the default) or as a dedicated Pod reconciled by the RayCluster controller when
+	// autoscalerOptions.standalone is true (see reconcileAutoscalerPods).
 	if utils.IsAutoscalingEnabled(&instance.Spec) {
 		// The default autoscaler is not compatible with Kubernetes. As a result, we disable
-		// the monitor process by default and inject a KubeRay autoscaler side container into the head pod.
+		// the monitor process by default and use the KubeRay autoscaler instead.
 		headSpec.RayStartParams["no-monitor"] = "true"
-		// set custom service account with proper roles bound.
-		// utils.CheckName clips the name to match the behavior of reconcileAutoscalerServiceAccount
-		podTemplate.Spec.ServiceAccountName = utils.CheckName(utils.GetHeadGroupServiceAccountName(&instance))
-		// Use the same image as Ray head container by default.
-		autoscalerImage := podTemplate.Spec.Containers[utils.RayContainerIndex].Image
-		// inject autoscaler container into head pod
-		autoscalerContainer := BuildAutoscalerContainer(autoscalerImage)
 
-		// Configure RAY_AUTH_TOKEN and RAY_AUTH_MODE if auth is enabled.
-		if utils.IsAuthEnabled(&instance.Spec) {
-			SetContainerTokenAuthEnvVars(instance.Name, &autoscalerContainer, instance.Spec.AuthOptions)
+		if !utils.IsAutoscalerStandalone(&instance.Spec) {
+			// Legacy layout: inject the autoscaler sidecar container into the head Pod.
+			// set custom service account with proper roles bound.
+			// utils.CheckName clips the name to match the behavior of reconcileAutoscalerServiceAccount
+			podTemplate.Spec.ServiceAccountName = utils.CheckName(utils.GetHeadGroupServiceAccountName(&instance))
+			// Use the same image as Ray head container by default.
+			autoscalerImage := podTemplate.Spec.Containers[utils.RayContainerIndex].Image
+			// inject autoscaler container into head pod
+			autoscalerContainer := BuildAutoscalerContainer(autoscalerImage, "")
+
+			// Configure RAY_AUTH_TOKEN and RAY_AUTH_MODE if auth is enabled.
+			if utils.IsAuthEnabled(&instance.Spec) {
+				SetContainerTokenAuthEnvVars(instance.Name, &autoscalerContainer, instance.Spec.AuthOptions)
+			}
+
+			// Configure mTLS env vars and volume mount for the autoscaler sidecar.
+			// validateTLSOptions rejects forbidden TLS env vars in autoscalerOptions.env,
+			// preventing the user from overriding these via the merge below.
+			//
+			// GCS address alignment: the autoscaler co-located in the head pod reaches GCS
+			// via localhost (127.0.0.1) or the head pod IP. Both are always present in the
+			// head certificate SANs — 127.0.0.1 is added unconditionally, and the pod IP
+			// SAN is guaranteed by the wait-for-tls-ip-san init container (injected by
+			// configureTLS below) before any containers, including this sidecar, start.
+			// No additional RAY_ADDRESS injection is required.
+			if utils.IsTLSEnabled(&instance.Spec) {
+				SetContainerTLSConfig(&autoscalerContainer)
+			}
+
+			// Merge the user overrides from autoscalerOptions into the autoscaler container config.
+			mergeAutoscalerOverrides(&autoscalerContainer, instance.Spec.AutoscalerOptions)
+			podTemplate.Spec.Containers = append(podTemplate.Spec.Containers, autoscalerContainer)
 		}
-
-		// Configure mTLS env vars and volume mount for the autoscaler sidecar.
-		// validateTLSOptions rejects forbidden TLS env vars in autoscalerOptions.env,
-		// preventing the user from overriding these via the merge below.
-		//
-		// GCS address alignment: the autoscaler co-located in the head pod reaches GCS
-		// via localhost (127.0.0.1) or the head pod IP. Both are always present in the
-		// head certificate SANs — 127.0.0.1 is added unconditionally, and the pod IP
-		// SAN is guaranteed by the wait-for-tls-ip-san init container (injected by
-		// configureTLS below) before any containers, including this sidecar, start.
-		// No additional RAY_ADDRESS injection is required.
-		if utils.IsTLSEnabled(&instance.Spec) {
-			SetContainerTLSConfig(&autoscalerContainer)
-		}
-
-		// Merge the user overrides from autoscalerOptions into the autoscaler container config.
-		mergeAutoscalerOverrides(&autoscalerContainer, instance.Spec.AutoscalerOptions)
-		podTemplate.Spec.Containers = append(podTemplate.Spec.Containers, autoscalerContainer)
 
 		if utils.IsAutoscalingV2Enabled(&instance.Spec) {
 			setAutoscalerV2EnvVars(&podTemplate)
@@ -894,9 +901,12 @@ func BuildPod(ctx context.Context, podTemplateSpec corev1.PodTemplateSpec, rayNo
 		// We need a shared log volume to enable this information flow.
 		// Specifically, this is required for the event-logging functionality
 		// introduced in https://github.com/ray-project/ray/pull/13434.
-		autoscalerContainerIndex := getAutoscalerContainerIndex(pod)
-		addEmptyDir(ctx, &pod.Spec.Containers[utils.RayContainerIndex], &pod, RayLogVolumeName, RayLogVolumeMountPath, corev1.StorageMediumDefault)
-		addEmptyDir(ctx, &pod.Spec.Containers[autoscalerContainerIndex], &pod, RayLogVolumeName, RayLogVolumeMountPath, corev1.StorageMediumDefault)
+		// When the autoscaler runs as a dedicated Pod, the head pod has no autoscaler
+		// container and no shared log volume is needed.
+		if autoscalerContainerIndex := getAutoscalerContainerIndex(pod); autoscalerContainerIndex != -1 {
+			addEmptyDir(ctx, &pod.Spec.Containers[utils.RayContainerIndex], &pod, RayLogVolumeName, RayLogVolumeMountPath, corev1.StorageMediumDefault)
+			addEmptyDir(ctx, &pod.Spec.Containers[autoscalerContainerIndex], &pod, RayLogVolumeName, RayLogVolumeMountPath, corev1.StorageMediumDefault)
+		}
 	}
 	if features.Enabled(features.RayClusterHistoryServer) {
 		if collectorContainerIndex := getCollectorContainerIndex(pod); collectorContainerIndex != -1 {
@@ -962,13 +972,21 @@ func BuildPod(ctx context.Context, podTemplateSpec corev1.PodTemplateSpec, rayNo
 }
 
 // BuildAutoscalerContainer builds a Ray autoscaler container which can be appended to the head pod.
-func BuildAutoscalerContainer(autoscalerImage string) corev1.Container {
+// When gcsAddress is non-empty (e.g. "<head-service-fqdn>:6379"), the generated start command
+// connects to that GCS address via `--gcs-address`; otherwise the autoscaler connects to the
+// Pod IP on port 6379, which only works when the container shares the head pod network or a
+// GCS forwarder listens on the Pod IP. `--gcs-address` requires a Ray image containing
+// https://github.com/ray-project/ray/pull/65894 (master/nightly only).
+func BuildAutoscalerContainer(autoscalerImage string, gcsAddress string) corev1.Container {
 	// autoscalerStartCmd is the command KubeRay generates to start the autoscaler process.
 	// It is stored in the KUBERAY_GEN_AUTOSCALER_START_CMD environment variable so that users
 	// who override Args via AutoscalerOptions can still reference the generated command, e.g.:
 	//   args: ["ulimit -n 65536; $KUBERAY_GEN_AUTOSCALER_START_CMD"]
 	// This mirrors the KUBERAY_GEN_RAY_START_CMD pattern for Ray head/worker containers.
 	autoscalerStartCmd := "ray kuberay-autoscaler --cluster-name $(RAY_CLUSTER_NAME) --cluster-namespace $(RAY_CLUSTER_NAMESPACE)"
+	if gcsAddress != "" {
+		autoscalerStartCmd += " --gcs-address " + gcsAddress
+	}
 
 	container := corev1.Container{
 		Name:            AutoscalerContainerName,
@@ -1063,6 +1081,188 @@ func mergeAutoscalerOverrides(autoscalerContainer *corev1.Container, autoscalerO
 	}
 }
 
+// BuildAutoscalerPod builds a dedicated Pod running the Ray autoscaler, used when
+// autoscalerOptions.standalone is true. The Pod:
+//   - uses the same ServiceAccount the operator binds the autoscaler Role to, so the existing
+//     reconcileAutoscalerServiceAccount/Role/RoleBinding machinery applies unchanged;
+//   - reuses the head group's scheduling fields (nodeSelector, affinity, tolerations, ...)
+//     so it can be placed wherever the head could be placed;
+//   - connects to the head GCS through a local TCP forwarding container listening on
+//     the Pod IP by default (works with any Ray version), or directly via
+//     --gcs-address when TLS is enabled or autoscalerOptions.gcsForwarding is
+//     false (see utils.IsGCSForwardingEnabled).
+func BuildAutoscalerPod(ctx context.Context, instance rayv1.RayCluster, headPort string) corev1.Pod {
+	fqdnRayIP := utils.GenerateFQDNServiceName(ctx, instance, instance.Namespace)
+	gcsAddress := fmt.Sprintf("%s:%s", fqdnRayIP, headPort)
+	forwarding := utils.IsGCSForwardingEnabled(&instance.Spec)
+
+	// Use the same image as the Ray head container by default.
+	autoscalerImage := instance.Spec.HeadGroupSpec.Template.Spec.Containers[utils.RayContainerIndex].Image
+	gcsAddressFlag := ""
+	if !forwarding {
+		gcsAddressFlag = gcsAddress
+	}
+	autoscalerContainer := BuildAutoscalerContainer(autoscalerImage, gcsAddressFlag)
+
+	// The dedicated Pod defaults to a smaller footprint than the sidecar (250m CPU / 256Mi
+	// memory) because it does not share the head Pod's budget. Requests equal limits so the
+	// Pod is Guaranteed instead of BestEffort, which Kubernetes evicts first under node
+	// pressure. Measured steady-state usage is ~110Mi and <10m CPU for a small cluster;
+	// autoscalerOptions.resources overrides these defaults via the merge below, which large
+	// clusters (many nodes tracked in autoscaler state) should use to raise them.
+	if instance.Spec.AutoscalerOptions == nil || instance.Spec.AutoscalerOptions.Resources == nil {
+		defaultResources := corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		}
+		autoscalerContainer.Resources = corev1.ResourceRequirements{
+			Requests: defaultResources.DeepCopy(),
+			Limits:   defaultResources,
+		}
+	}
+
+	// RAY_HEAD_POD_NAME is populated from the Pod's own name, which is meaningless in a
+	// dedicated Pod and has no consumer in Ray; drop it to avoid confusion.
+	filteredEnv := autoscalerContainer.Env[:0]
+	for _, env := range autoscalerContainer.Env {
+		if env.Name != "RAY_HEAD_POD_NAME" {
+			filteredEnv = append(filteredEnv, env)
+		}
+	}
+	autoscalerContainer.Env = filteredEnv
+
+	// Mount a dedicated log volume so monitor logs survive container restarts. Ray derives
+	// the monitor log dir from the head's temp dir (/tmp/ray), matching this path.
+	autoscalerContainer.VolumeMounts = append(autoscalerContainer.VolumeMounts, corev1.VolumeMount{
+		Name:      RayLogVolumeName,
+		MountPath: RayLogVolumeMountPath,
+	})
+
+	// Configure RAY_AUTH_TOKEN and RAY_AUTH_MODE if auth is enabled.
+	if utils.IsAuthEnabled(&instance.Spec) {
+		SetContainerTokenAuthEnvVars(instance.Name, &autoscalerContainer, instance.Spec.AuthOptions)
+	}
+
+	// Configure mTLS env vars and volume mount. The autoscaler acts as a TLS client of the
+	// head GCS and connects via the head service FQDN, which is a DNS SAN of the head
+	// certificate; its own dedicated client certificate needs no SANs.
+	if utils.IsTLSEnabled(&instance.Spec) {
+		SetContainerTLSConfig(&autoscalerContainer)
+	}
+
+	// Merge the user overrides from autoscalerOptions into the autoscaler container config.
+	mergeAutoscalerOverrides(&autoscalerContainer, instance.Spec.AutoscalerOptions)
+
+	headPodSpec := instance.Spec.HeadGroupSpec.Template.Spec
+	pod := corev1.Pod{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Pod",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			// Exactly one autoscaler Pod exists per cluster, so it gets a deterministic name
+			// (<cluster>-autoscaler) rather than a generated one: the name stays stable across
+			// recreations, which keeps `kubectl logs <cluster>-autoscaler`, metrics and any
+			// name-based tooling predictable. utils.PodName truncates long cluster names to keep
+			// the result within the 63-character limit. A name conflict means the previous Pod is
+			// still terminating; createAutoscalerPod treats AlreadyExists as "wait for the
+			// deletion event" instead of an error.
+			Name:      utils.PodName(instance.Name, rayv1.AutoscalerNode, false),
+			Namespace: instance.Namespace,
+			Labels:    labelPod(rayv1.AutoscalerNode, instance.Name, utils.RayNodeAutoscalerGroupLabelValue, nil),
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{autoscalerContainer},
+			// The same ServiceAccount the operator binds the autoscaler Role to.
+			ServiceAccountName: utils.CheckName(utils.GetHeadGroupServiceAccountName(&instance)),
+			// Reuse the head group's scheduling fields so the autoscaler Pod can be placed
+			// wherever the head could be placed (e.g. tainted node pools).
+			NodeSelector:                  headPodSpec.NodeSelector,
+			Affinity:                      headPodSpec.Affinity,
+			Tolerations:                   headPodSpec.Tolerations,
+			SchedulerName:                 headPodSpec.SchedulerName,
+			PriorityClassName:             headPodSpec.PriorityClassName,
+			RuntimeClassName:              headPodSpec.RuntimeClassName,
+			ImagePullSecrets:              headPodSpec.ImagePullSecrets,
+			TopologySpreadConstraints:     headPodSpec.TopologySpreadConstraints,
+			SecurityContext:               headPodSpec.SecurityContext,
+			TerminationGracePeriodSeconds: headPodSpec.TerminationGracePeriodSeconds,
+			Volumes: []corev1.Volume{
+				{
+					Name:         RayLogVolumeName,
+					VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+				},
+			},
+		},
+	}
+
+	if utils.IsTLSEnabled(&instance.Spec) {
+		// The autoscaler acts as a TLS client of the head GCS; mount its dedicated
+		// client certificate, which carries ClientAuth usage only so it cannot
+		// impersonate a GCS server.
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: utils.RayTLSVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: utils.GetTLSSecretName(instance.Name, rayv1.AutoscalerNode),
+				},
+			},
+		})
+	}
+
+	if utils.IsAuthEnabled(&instance.Spec) && utils.IsK8sAuthEnabled(instance.Spec.AuthOptions) {
+		AddRayTokenVolume(&pod.Spec)
+	}
+
+	if forwarding {
+		forwardImage := utils.DefaultGCSForwardingImage
+		if image := os.Getenv(utils.KUBERAY_GCS_FORWARDING_IMAGE_ENV); image != "" {
+			forwardImage = image
+		}
+		if options := instance.Spec.AutoscalerOptions; options != nil && options.GCSForwardingImage != nil && *options.GCSForwardingImage != "" {
+			forwardImage = *options.GCSForwardingImage
+		}
+		// Ray without --gcs-address support hardcodes the GCS address to <pod-ip>:6379, so
+		// the listen port must stay 6379 regardless of the actual head port.
+		pod.Spec.Containers = append(pod.Spec.Containers, corev1.Container{
+			Name:            utils.GCSForwardContainerName,
+			Image:           forwardImage,
+			ImagePullPolicy: corev1.PullIfNotPresent,
+			Args: []string{
+				"TCP-LISTEN:6379,fork,reuseaddr",
+				fmt.Sprintf("TCP:%s", gcsAddress),
+			},
+			Resources: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("100m"),
+					corev1.ResourceMemory: resource.MustParse("32Mi"),
+				},
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("10m"),
+					corev1.ResourceMemory: resource.MustParse("16Mi"),
+				},
+			},
+		})
+	}
+
+	// Give user-provided autoscalerOptions.volumeMounts (merged above) their volumes from
+	// the head group template, so mounts that work for the sidecar layout keep working
+	// for the dedicated Pod. Operator-managed volumes take precedence on name conflicts.
+	for _, mount := range autoscalerContainer.VolumeMounts {
+		if utils.VolumeExists(mount.Name, pod.Spec.Volumes) {
+			continue
+		}
+		for _, volume := range headPodSpec.Volumes {
+			if volume.Name == mount.Name {
+				pod.Spec.Volumes = append(pod.Spec.Volumes, volume)
+				break
+			}
+		}
+	}
+
+	return pod
+}
+
 func convertCmdToString(cmdArr []string) (cmd string) {
 	cmdAggr := new(bytes.Buffer)
 	for _, v := range cmdArr {
@@ -1071,6 +1271,9 @@ func convertCmdToString(cmdArr []string) (cmd string) {
 	return cmdAggr.String()
 }
 
+// getAutoscalerContainerIndex returns the index of the autoscaler container, or -1 if
+// the pod has none (the autoscaler runs as a dedicated Pod when autoscalerOptions.standalone
+// is true).
 func getAutoscalerContainerIndex(pod corev1.Pod) (autoscalerContainerIndex int) {
 	// we identify the autoscaler container based on its name
 	for i, container := range pod.Spec.Containers {
@@ -1078,9 +1281,13 @@ func getAutoscalerContainerIndex(pod corev1.Pod) (autoscalerContainerIndex int) 
 			return i
 		}
 	}
+	return -1
+}
 
-	// This should be unreachable.
-	panic("Autoscaler container not found!")
+// HasAutoscalerContainer returns true if the pod carries the Ray autoscaler container,
+// i.e. the autoscaler runs as a sidecar in the head Pod (legacy layout).
+func HasAutoscalerContainer(pod *corev1.Pod) bool {
+	return pod != nil && getAutoscalerContainerIndex(*pod) != -1
 }
 
 // getCollectorContainerIndex returns the index of the collector container, or -1 if not found.
