@@ -1,3 +1,4 @@
+import os
 import time
 
 import requests
@@ -28,16 +29,19 @@ class KubeRayAPIs:
     """
     def __init__(
             self,
-            server_url: str = "http://localhost:31888",
+            server_url: str = None,
             token: str = None,
             wait_interval: int = 2
     ) -> None:
         """
         Initialization
-        :param server_url: API server url
+        :param server_url: API server url. If not provided, uses the E2E_API_SERVER_URL
+                           environment variable, defaulting to http://localhost:31888.
         :param token: token, only used for API server with security enabled
         :param wait_interval: wait interval
         """
+        if server_url is None:
+            server_url = os.environ.get("E2E_API_SERVER_URL", "http://localhost:31888")
         self.base = server_url
         if token is not None:
             _headers["Authorization"] = token

@@ -42,3 +42,55 @@
     - set -o pipefail
     - pytest kuberay_client_test/ -v || (kubectl logs --tail=50 -l app.kubernetes.io/name=kuberay && exit 1)
     - echo "--- END:Python client tests finished"
+
+- label: 'Test Python API Server Client (E2E)'
+  instance_size: large
+  image: golang:1.26-bookworm
+  commands:
+    - source .buildkite/setup-env.sh
+    - kind create cluster --wait 900s --config ./ci/kind-config-buildkite.yml
+    - kubectl config set clusters.kind-kind.server https://docker:6443
+    # Build nightly KubeRay operator image
+    - pushd ray-operator
+    - |
+      for attempt in 1 2; do
+        if bash ../.buildkite/build-start-operator.sh; then
+          break
+        fi
+        if [ "$attempt" -eq 2 ]; then
+          echo "--- ERROR: build-start-operator.sh failed twice"
+          exit 1
+        fi
+        echo "--- WARN: build-start-operator.sh failed; retrying in 20s"
+        sleep 20
+      done
+    - |
+      if ! kubectl wait --timeout=180s --for=condition=Available=true deployment kuberay-operator; then
+        echo "--- kuberay-operator not ready within 180s; collecting diagnostics"
+        kubectl get pods -A -o wide || true
+        kubectl describe deployment kuberay-operator || true
+        kubectl logs --tail=200 -l app.kubernetes.io/name=kuberay || true
+        echo "--- retrying kuberay-operator readiness wait once"
+        kubectl wait --timeout=180s --for=condition=Available=true deployment kuberay-operator
+      fi
+    - popd
+    # Build and start apiserver
+    - pushd apiserver
+    - KIND_CLUSTER_NAME=kind KIND=kind make install-apiserver-e2e
+    - kubectl wait --namespace ray-system --for=condition=Available --timeout=90s deployment/kuberay-apiserver -n ray-system
+    - popd
+    # Port-forward the apiserver (ClusterIP service) to localhost
+    - kubectl port-forward -n ray-system svc/kuberay-apiserver 31888:8888 &
+    - sleep 3
+    # Setup Python environment and install Python API server client
+    - echo "--- START:Setting up Python environment"
+    - pushd clients/python-apiserver-client
+    - python3 -m venv venv
+    - source venv/bin/activate
+    - pip install -e .
+    - pip install pytest
+    # Run Python API server client e2e tests
+    - echo "--- START:Running Python API server client e2e tests"
+    - set -o pipefail
+    - E2E_API_SERVER_URL="http://localhost:31888" pytest test/kuberay_api_test.py -v || (kubectl logs --tail=50 -l app.kubernetes.io/component=kuberay-apiserver --namespace ray-system && exit 1)
+    - echo "--- END:Python API server client e2e tests finished"
