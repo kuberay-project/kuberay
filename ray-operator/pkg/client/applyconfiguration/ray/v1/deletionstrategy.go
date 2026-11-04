@@ -12,34 +12,43 @@ package v1
 // - Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds instead).
 //
 // Semantics:
-// - A non-empty deletionRules selects rules mode; empty lists are treated as unset.
-// - Legacy requires both onSuccess and onFailure; specifying only one is invalid.
-// - Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true; therefore it cannot be used with rules mode or with legacy alone (no shutdown).
+// - The deletionRules list is the primary mechanism for cleanup; it must be non-empty when this block is present.
+// - DeletionStrategy is mutually exclusive with spec.shutdownAfterJobFinishes.
+// - Global spec.ttlSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true;
+// therefore it cannot be used with DeletionStrategy (use condition.ttlSeconds within rules instead).
 // - Feature gate RayJobDeletionPolicy must be enabled when this block is present.
 //
 // Validation:
-// - CRD XValidations prevent mixing legacy fields with deletionRules and enforce legacy completeness.
 // - Controller logic enforces rules vs shutdown exclusivity and TTL constraints.
-// - onSuccess/onFailure are deprecated; migration to deletionRules is encouraged.
+// - Cross-field validation (CEL) ensures deletionRules is provided when the strategy is set.
 type DeletionStrategyApplyConfiguration struct {
-	// OnSuccess is the deletion policy for a successful RayJob.
-	// Deprecated: Use `deletionRules` instead for more flexible, multi-stage deletion strategies.
-	// This field will be removed in release 1.6.0.
-	OnSuccess *DeletionPolicyApplyConfiguration `json:"onSuccess,omitempty"`
-	// OnFailure is the deletion policy for a failed RayJob.
-	// Deprecated: Use `deletionRules` instead for more flexible, multi-stage deletion strategies.
-	// This field will be removed in release 1.6.0.
-	OnFailure *DeletionPolicyApplyConfiguration `json:"onFailure,omitempty"`
 	// DeletionRules is a list of deletion rules, processed based on their trigger conditions.
-	// While the rules can be used to define a sequence, if multiple rules are overdue (e.g., due to controller downtime),
-	// the most impactful rule (e.g., DeleteSelf) will be executed first to prioritize resource cleanup.
 	DeletionRules []DeletionRuleApplyConfiguration `json:"deletionRules,omitempty"`
+	// OnSuccess is deprecated; use deletionRules instead.
+	// This field is for backward compatibility but is no longer functional.
+	OnSuccess *DeletionPolicyApplyConfiguration `json:"onSuccess,omitempty"`
+	// OnFailure is deprecated; use deletionRules instead.
+	// This field is for backward compatibility but is no longer functional.
+	OnFailure *DeletionPolicyApplyConfiguration `json:"onFailure,omitempty"`
 }
 
 // DeletionStrategyApplyConfiguration constructs a declarative configuration of the DeletionStrategy type for use with
 // apply.
 func DeletionStrategy() *DeletionStrategyApplyConfiguration {
 	return &DeletionStrategyApplyConfiguration{}
+}
+
+// WithDeletionRules adds the given value to the DeletionRules field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the DeletionRules field.
+func (b *DeletionStrategyApplyConfiguration) WithDeletionRules(values ...*DeletionRuleApplyConfiguration) *DeletionStrategyApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithDeletionRules")
+		}
+		b.DeletionRules = append(b.DeletionRules, *values[i])
+	}
+	return b
 }
 
 // WithOnSuccess sets the OnSuccess field in the declarative configuration to the given value
@@ -55,18 +64,5 @@ func (b *DeletionStrategyApplyConfiguration) WithOnSuccess(value *DeletionPolicy
 // If called multiple times, the OnFailure field is set to the value of the last call.
 func (b *DeletionStrategyApplyConfiguration) WithOnFailure(value *DeletionPolicyApplyConfiguration) *DeletionStrategyApplyConfiguration {
 	b.OnFailure = value
-	return b
-}
-
-// WithDeletionRules adds the given value to the DeletionRules field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the DeletionRules field.
-func (b *DeletionStrategyApplyConfiguration) WithDeletionRules(values ...*DeletionRuleApplyConfiguration) *DeletionStrategyApplyConfiguration {
-	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithDeletionRules")
-		}
-		b.DeletionRules = append(b.DeletionRules, *values[i])
-	}
 	return b
 }

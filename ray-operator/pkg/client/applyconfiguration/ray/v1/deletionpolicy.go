@@ -8,13 +8,7 @@ import (
 
 // DeletionPolicyApplyConfiguration represents a declarative configuration of the DeletionPolicy type for use
 // with apply.
-//
-// DeletionPolicy is the legacy single-stage deletion policy.
-// Deprecated: This struct is part of the legacy API. Use DeletionRule for new configurations.
 type DeletionPolicyApplyConfiguration struct {
-	// Policy is the action to take when the condition is met.
-	// This field is logically required when using the legacy OnSuccess/OnFailure policies.
-	// It is marked as '+optional' at the API level to allow the 'deletionRules' field to be used instead.
 	Policy *rayv1.DeletionPolicyType `json:"policy,omitempty"`
 }
 

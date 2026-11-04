@@ -98,37 +98,23 @@ spec:
                       - condition
                       - policy
                       type: object
-                    minItems: 1
                     type: array
                     x-kubernetes-list-type: atomic
                   onFailure:
                     properties:
                       policy:
-                        enum:
-                        - DeleteCluster
-                        - DeleteWorkers
-                        - DeleteSelf
-                        - DeleteNone
                         type: string
                     type: object
                   onSuccess:
                     properties:
                       policy:
-                        enum:
-                        - DeleteCluster
-                        - DeleteWorkers
-                        - DeleteSelf
-                        - DeleteNone
                         type: string
                     type: object
                 type: object
                 x-kubernetes-validations:
-                - message: legacy policies (onSuccess/onFailure) and deletionRules
-                    cannot be used together within the same deletionStrategy
-                  rule: '!((has(self.onSuccess) || has(self.onFailure)) && has(self.deletionRules))'
-                - message: deletionStrategy requires either BOTH onSuccess and onFailure,
-                    OR the deletionRules field (cannot be empty)
-                  rule: ((has(self.onSuccess) && has(self.onFailure)) || has(self.deletionRules))
+                - message: deletionRules is required and cannot be empty when deletionStrategy
+                    is set
+                  rule: has(self.deletionRules) && size(self.deletionRules) > 0
               entrypoint:
                 type: string
               entrypointNumCpus:
