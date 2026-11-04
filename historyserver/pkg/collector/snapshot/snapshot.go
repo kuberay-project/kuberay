@@ -90,9 +90,8 @@ func Run(ctx context.Context, cfg Config, writer storage.StorageWriter) error {
 		}
 	}
 
-	if err := fetchDataDatasets(ctx, client, cfg.DashboardAddress, clusterDir, sessionName, writer); err != nil {
-		logrus.Warnf("Failed to fetch data datasets: %v", err)
-	}
+	datasetErrors := fetchDataDatasets(ctx, client, cfg.DashboardAddress, clusterDir, sessionName, writer)
+	fetchErrors = append(fetchErrors, datasetErrors...)
 
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -162,32 +161,36 @@ func fetchAndStore(ctx context.Context, client *http.Client, dashboardAddress, e
 	return true, nil
 }
 
-func fetchDataDatasets(ctx context.Context, client *http.Client, dashboardAddress, clusterDir, sessionName string, writer storage.StorageWriter) error {
+func fetchDataDatasets(ctx context.Context, client *http.Client, dashboardAddress, clusterDir, sessionName string, writer storage.StorageWriter) []string {
 	body, err := fetchEndpoint(ctx, client, dashboardAddress, jobsEndpoint)
 	if err != nil {
-		return fmt.Errorf("failed to fetch %s: %w", jobsEndpoint, err)
+		logrus.Warnf("Failed to fetch job list for dataset discovery: %v", err)
+		return nil
 	}
 
 	var jobs []struct {
 		JobID string `json:"job_id"`
 	}
 	if err := json.Unmarshal(body, &jobs); err != nil {
-		return fmt.Errorf("failed to parse %s response: %w", jobsEndpoint, err)
+		logrus.Warnf("Failed to parse job list for dataset discovery: %v", err)
+		return nil
 	}
 
+	var errs []string
 	for _, job := range jobs {
 		if job.JobID == "" {
 			continue
 		}
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return errs
 		}
 		endpoint := dataDatasetsEndpointPrefix + job.JobID
 		if _, err := fetchAndStore(ctx, client, dashboardAddress, endpoint, clusterDir, sessionName, writer); err != nil {
 			logrus.Warnf("Failed to fetch dataset for job %s: %v", job.JobID, err)
+			errs = append(errs, fmt.Sprintf("%s: %v", endpoint, err))
 		}
 	}
-	return nil
+	return errs
 }
 
 func fetchEndpoint(ctx context.Context, client *http.Client, dashboardAddress, endpoint string) ([]byte, error) {

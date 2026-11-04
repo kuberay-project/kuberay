@@ -318,6 +318,41 @@ func TestRunSnapshotLateCancelation(t *testing.T) {
 	}
 }
 
+func TestRunSnapshotDatasetErrors(t *testing.T) {
+	jobs := []map[string]any{
+		{"job_id": "01000000", "status": "SUCCEEDED"},
+		{"job_id": "02000000", "status": "RUNNING"},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/version":
+			writeJSON(t, w, versionResponse("session_2026-08-17_10-30-00_123456"))
+		case r.URL.Path == "/api/jobs/":
+			writeJSON(t, w, jobs)
+		case strings.HasPrefix(r.URL.Path, "/api/data/datasets/"):
+			http.Error(w, "not found", http.StatusNotFound)
+		default:
+			writeJSON(t, w, map[string]any{})
+		}
+	}))
+	defer srv.Close()
+
+	writer := newMemWriter()
+	cfg := Config{
+		DashboardAddress:    srv.URL,
+		StorageRootDir:      "root",
+		RayClusterName:      "my-cluster",
+		RayClusterNamespace: "default",
+	}
+
+	err := Run(context.Background(), cfg, writer)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "/api/data/datasets/01000000")
+	assert.Contains(t, err.Error(), "/api/data/datasets/02000000")
+	assert.Contains(t, err.Error(), "endpoint errors")
+}
+
 func TestDedup(t *testing.T) {
 	result := dedup(
 		[]string{"/a", "/b", "/c"},
