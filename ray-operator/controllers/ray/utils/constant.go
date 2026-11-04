@@ -56,6 +56,11 @@ const (
 	RayPriorityClassName     = "ray.io/priority-class-name"
 	RayGangSchedulingEnabled = "ray.io/gang-scheduling-enabled"
 
+	// ResourceReservationTimeoutReason is the Pod status reason set by Apache YuniKorn
+	// when a hard-gang placeholderTimeoutInSeconds expires. Recreating Pods after this
+	// reason would target a terminated YuniKorn applicationId (#5301).
+	ResourceReservationTimeoutReason = "ResourceReservationTimeout"
+
 	// Ray GCS FT related annotations
 	RayFTEnabledAnnotationKey         = "ray.io/ft-enabled"
 	RayExternalStorageNSAnnotationKey = "ray.io/external-storage-namespace"
@@ -497,6 +502,7 @@ const (
 	// Batch scheduler event list
 	BatchSchedulerCleanedUp       K8sEventType = "BatchSchedulerCleanedUp"
 	FailedToCleanupBatchScheduler K8sEventType = "FailedToCleanupBatchScheduler"
+	BatchSchedulingFailed         K8sEventType = "BatchSchedulingFailed"
 
 	// RayCronJob event list
 	InvalidRayCronJobSpec K8sEventType = "InvalidRayCronJobSpec"

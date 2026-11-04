@@ -778,6 +778,9 @@ const (
 	RayClusterSuspending RayClusterConditionType = "RayClusterSuspending"
 	// RayClusterSuspended is set to true when all Pods belonging to a suspending RayCluster are deleted. Note that RayClusterSuspending and RayClusterSuspended cannot both be true at the same time.
 	RayClusterSuspended RayClusterConditionType = "RayClusterSuspended"
+	// RayClusterBatchSchedulingFailed indicates the batch scheduler terminally rejected
+	// the RayCluster gang (e.g. YuniKorn ResourceReservationTimeout under hard-gang).
+	RayClusterBatchSchedulingFailed RayClusterConditionType = "BatchSchedulingFailed"
 )
 
 // HeadInfo gives info about head
