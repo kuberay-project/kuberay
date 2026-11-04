@@ -1288,7 +1288,13 @@ func (s *ServerHandler) getClusterLogPathPrefix(req *restful.Request) string {
 	clusterNamespace, _ := req.Attribute(COOKIE_CLUSTER_NAMESPACE_KEY).(string)
 	ownerKind, _ := req.Attribute(COOKIE_OWNER_KIND_KEY).(string)
 	ownerName, _ := req.Attribute(COOKIE_OWNER_NAME_KEY).(string)
-	return clusterlogs.Prefix("", ownerKind, ownerName, clusterNamespace, clusterName)
+	clusterInfo := utils.ClusterInfo{
+		OwnerKind: ownerKind,
+		OwnerName: ownerName,
+		Name:      clusterName,
+		Namespace: clusterNamespace,
+	}
+	return clusterlogs.Prefix("", clusterInfo)
 }
 
 func (s *ServerHandler) getNodeLogs(req *restful.Request, resp *restful.Response) {

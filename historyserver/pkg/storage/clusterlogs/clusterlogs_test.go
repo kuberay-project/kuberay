@@ -20,12 +20,23 @@ func TestClusterLogsPaths(t *testing.T) {
 	jobID := "01000000"
 
 	wantPrefix := "cluster-history/rayjob/default/job-1/cluster-1"
-	if got := Prefix(rootDir, ownerKind, ownerName, ns, cluster); got != wantPrefix {
+	if got := Prefix(rootDir, utils.ClusterInfo{
+		OwnerKind: ownerKind,
+		OwnerName: ownerName,
+		Namespace: ns,
+		Name:      cluster,
+	}); got != wantPrefix {
 		t.Errorf("Prefix() = %q, want %q", got, wantPrefix)
 	}
 
 	wantSession := wantPrefix + "/session-1"
-	if got := SessionDir(rootDir, ownerKind, ownerName, ns, cluster, session); got != wantSession {
+	if got := SessionDir(rootDir, utils.ClusterInfo{
+		OwnerKind:   ownerKind,
+		OwnerName:   ownerName,
+		Namespace:   ns,
+		Name:        cluster,
+		SessionName: session,
+	}); got != wantSession {
 		t.Errorf("SessionDir() = %q, want %q", got, wantSession)
 	}
 
@@ -35,27 +46,57 @@ func TestClusterLogsPaths(t *testing.T) {
 	}
 
 	wantNode := wantSession + "/node-1"
-	if got := NodeDir(rootDir, ownerKind, ownerName, ns, cluster, session, node); got != wantNode {
+	if got := NodeDir(rootDir, utils.ClusterInfo{
+		OwnerKind:   ownerKind,
+		OwnerName:   ownerName,
+		Namespace:   ns,
+		Name:        cluster,
+		SessionName: session,
+	}, node); got != wantNode {
 		t.Errorf("NodeDir() = %q, want %q", got, wantNode)
 	}
 
 	wantLogs := wantNode + "/logs"
-	if got := LogsDir(rootDir, ownerKind, ownerName, ns, cluster, session, node); got != wantLogs {
+	if got := LogsDir(rootDir, utils.ClusterInfo{
+		OwnerKind:   ownerKind,
+		OwnerName:   ownerName,
+		Namespace:   ns,
+		Name:        cluster,
+		SessionName: session,
+	}, node); got != wantLogs {
 		t.Errorf("LogsDir() = %q, want %q", got, wantLogs)
 	}
 
 	wantNodeEvents := wantNode + "/node_events"
-	if got := NodeEventsDir(rootDir, ownerKind, ownerName, ns, cluster, session, node); got != wantNodeEvents {
+	if got := NodeEventsDir(rootDir, utils.ClusterInfo{
+		OwnerKind:   ownerKind,
+		OwnerName:   ownerName,
+		Namespace:   ns,
+		Name:        cluster,
+		SessionName: session,
+	}, node); got != wantNodeEvents {
 		t.Errorf("NodeEventsDir() = %q, want %q", got, wantNodeEvents)
 	}
 
 	wantJobEvents := wantNode + "/job_events/01000000"
-	if got := JobEventsDir(rootDir, ownerKind, ownerName, ns, cluster, session, node, jobID); got != wantJobEvents {
+	if got := JobEventsDir(rootDir, utils.ClusterInfo{
+		OwnerKind:   ownerKind,
+		OwnerName:   ownerName,
+		Namespace:   ns,
+		Name:        cluster,
+		SessionName: session,
+	}, node, jobID); got != wantJobEvents {
 		t.Errorf("JobEventsDir() = %q, want %q", got, wantJobEvents)
 	}
 
 	wantJobEventsNoID := wantNode + "/job_events"
-	if got := JobEventsDir(rootDir, ownerKind, ownerName, ns, cluster, session, node, ""); got != wantJobEventsNoID {
+	if got := JobEventsDir(rootDir, utils.ClusterInfo{
+		OwnerKind:   ownerKind,
+		OwnerName:   ownerName,
+		Namespace:   ns,
+		Name:        cluster,
+		SessionName: session,
+	}, node, ""); got != wantJobEventsNoID {
 		t.Errorf("JobEventsDir(no jobID) = %q, want %q", got, wantJobEventsNoID)
 	}
 

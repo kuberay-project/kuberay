@@ -134,7 +134,14 @@ func (r *RayLogHandler) rotatedObjectPrefix(sessionID, nodeID string) string {
 	if sessionID == "" || nodeID == "" {
 		return ""
 	}
-	return clusterlogs.LogsDir(r.RootDir, r.OwnerKind, r.OwnerName, r.RayClusterNamespace, r.RayClusterName, sessionID, nodeID)
+	clusterInfo := utils.ClusterInfo{
+		OwnerKind:   r.OwnerKind,
+		OwnerName:   r.OwnerName,
+		Namespace:   r.RayClusterNamespace,
+		Name:        r.RayClusterName,
+		SessionName: sessionID,
+	}
+	return clusterlogs.LogsDir(r.RootDir, clusterInfo, nodeID)
 }
 
 // buildRotatedCandidate derives the object key of an already opened rotation
