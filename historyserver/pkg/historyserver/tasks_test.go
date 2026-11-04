@@ -72,7 +72,7 @@ func TestGetTaskLogFileUsesStoredBasename(t *testing.T) {
 			StdoutFile: "/tmp/ray/session_latest/logs/worker-abc-123.out",
 			StdoutEnd:  int64(len("Processing 1\n")),
 		},
-	}}}))
+	}}}, utils.ClusterInfo{}, false))
 
 	reader := &taskLogStorageReader{content: "Processing 1\n"}
 	handler := &ServerHandler{sessionLoader: loader, reader: reader}
@@ -111,7 +111,7 @@ func TestGetTaskLogFileAppliesRangeBeforeLineLimit(t *testing.T) {
 			StdoutStart: start,
 			StdoutEnd:   end,
 		},
-	}}}))
+	}}}, utils.ClusterInfo{}, false))
 
 	reader := &taskLogStorageReader{content: content}
 	handler := &ServerHandler{sessionLoader: loader, reader: reader}
@@ -138,7 +138,7 @@ func TestGetTaskLogFileRejectsIncompleteTaskLogInfo(t *testing.T) {
 		NodeID:      "aa",
 		WorkerID:    "bb",
 		TaskLogInfo: &eventtypes.TaskLogInfo{StdoutEnd: 20},
-	}}}))
+	}}}, utils.ClusterInfo{}, false))
 
 	reader := &taskLogStorageReader{
 		content: "other task\ntarget task\n",
@@ -168,7 +168,7 @@ func TestGetTaskLogFileRejectsAmbiguousZeroEnd(t *testing.T) {
 		TaskAttempt: 0,
 		NodeID:      "node-id",
 		TaskLogInfo: &eventtypes.TaskLogInfo{StdoutFile: "worker.out"},
-	}}}))
+	}}}, utils.ClusterInfo{}, false))
 
 	handler := &ServerHandler{sessionLoader: loader, reader: &taskLogStorageReader{content: "other task\n"}}
 	_, err := handler._getNodeLogFile(

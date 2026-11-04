@@ -92,7 +92,7 @@ func TestResolveActorLogFilenameIgnoresRotatedObjects(t *testing.T) {
 			ActorID: "actor-id",
 			Address: eventtypes.Address{NodeID: "abcd", WorkerID: "abc123"},
 		},
-	}}))
+	}}, utils.ClusterInfo{}, false))
 
 	reader := &taskLogStorageReader{files: []string{rotatedWorkerOut, canonicalWorkerOut}}
 	handler := &ServerHandler{sessionLoader: loader, reader: reader}
@@ -109,7 +109,7 @@ func TestResolveTaskLogFilenameFallbackIgnoresRotatedObjects(t *testing.T) {
 		TaskID:   "task-id",
 		NodeID:   "abcd",
 		WorkerID: "abc123",
-	}}}))
+	}}}, utils.ClusterInfo{}, false))
 
 	reader := &taskLogStorageReader{files: []string{rotatedWorkerOut, canonicalWorkerOut}}
 	handler := &ServerHandler{sessionLoader: loader, reader: reader}
