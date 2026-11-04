@@ -118,6 +118,16 @@ func routerAPI(s *ServerHandler) {
 	ws := new(restful.WebService)
 	defer restful.Add(ws)
 	ws.Path("/api").Consumes(restful.MIME_JSON).Produces(restful.MIME_JSON).Filter(RequestLogFilter) //.Filter(s.loginWrapper)
+	// Return 404 so the local Ray Dashboard handles its own authentication endpoints.
+	// These routes must not require cluster cookies.
+	fallbackToDashboard := func(_ *restful.Request, resp *restful.Response) {
+		resp.WriteHeader(http.StatusNotFound)
+	}
+	ws.Route(ws.GET("/authentication_mode").To(fallbackToDashboard).
+		Doc("defer authentication mode to the local Ray Dashboard"))
+	ws.Route(ws.POST("/authenticate").To(fallbackToDashboard).
+		Doc("defer token authentication to the local Ray Dashboard"))
+
 	ws.Route(ws.GET("/cluster_status").To(s.getClusterStatus).Filter(s.CookieHandle).
 		Doc("get clusters status").Param(ws.QueryParameter("format", "such as 1")).
 		Writes("")) // Placeholder for specific return type
