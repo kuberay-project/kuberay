@@ -5140,4 +5140,10 @@ func TestShouldDeleteWorkerPod_MissingNodeLabelsSelfHealing(t *testing.T) {
 	neverPod.Spec.NodeName = "deleted-node"
 	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
 	assert.True(t, shouldDel)
+
+	// Case 7: Worker group with static template.spec.nodeName skips self-healing (since pods/binding does not run).
+	pinnedWorkerSpec := workerSpec.DeepCopy()
+	pinnedWorkerSpec.Template.Spec.NodeName = readyNode.Name
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, pod, pinnedWorkerSpec)
+	assert.False(t, shouldDel)
 }

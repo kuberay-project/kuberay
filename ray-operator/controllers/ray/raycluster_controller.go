@@ -1587,6 +1587,7 @@ func (r *RayClusterReconciler) shouldDeleteWorkerPod(ctx context.Context, pod co
 	shouldDelete, reason := shouldDeletePod(pod, rayv1.WorkerNode)
 	if features.Enabled(features.NodeLabelDelivery) &&
 		worker != nil && len(worker.LabelRefs) > 0 &&
+		worker.Template.Spec.NodeName == "" &&
 		pod.Spec.NodeName != "" &&
 		pod.Annotations[utils.RayNodeLabelsAnnotationKey] == "" &&
 		hasRayContainerLabelsEnv(pod) &&
@@ -1596,12 +1597,16 @@ func (r *RayClusterReconciler) shouldDeleteWorkerPod(ctx context.Context, pod co
 			if errors.IsNotFound(err) {
 				return shouldDelete, reason
 			}
-			return false, reason
+			return false, fmt.Sprintf(
+				"The worker Pod %s/%s terminated without the %s annotation, and bound Node %s could not be read: %v.",
+				pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, pod.Spec.NodeName, err)
 		}
 		for _, ref := range worker.LabelRefs {
 			nodeLabel, err := utils.NodeLabelKey(ref.ValueFrom.NodeRef.FieldPath)
 			if err != nil {
-				return false, reason
+				return false, fmt.Sprintf(
+					"The worker Pod %s/%s terminated without the %s annotation, and labelRef fieldPath %q is invalid: %v.",
+					pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, ref.ValueFrom.NodeRef.FieldPath, err)
 			}
 			if !slices.Contains(r.options.AllowedNodeLabels, nodeLabel) {
 				return false, fmt.Sprintf(
