@@ -731,7 +731,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `jobTemplate` _[RayJobSpec](#rayjobspec)_ | JobTemplate defines the job spec that will be created by cron scheduling |  |  |
+| `jobTemplate` _[RayJobTemplateSpec](#rayjobtemplatespec)_ | JobTemplate defines the RayJob that will be created by cron scheduling |  |  |
 | `schedule` _string_ | Schedule is the cron schedule string |  |  |
 | `timeZone` _string_ | TimeZone is the time zone name for the given schedule. If not specified, default to the local time zone of the<br />KubeRay operator. Empty string is not allowed.<br />The bundled version of the time zone database is used. |  | MinLength: 1 <br /> |
 | `suspend` _boolean_ | Suspend tells the controller to suspend the scheduling, it does not apply to<br />scheduled RayJob. |  |  |
@@ -764,8 +764,8 @@ RayJobSpec defines the desired state of RayJob
 
 
 _Appears in:_
-- [RayCronJobSpec](#raycronjobspec)
 - [RayJob](#rayjob)
+- [RayJobTemplateSpec](#rayjobtemplatespec)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -791,6 +791,23 @@ _Appears in:_
 | `suspend` _boolean_ | suspend specifies whether the RayJob controller should create a RayCluster instance<br />If a job is applied with the suspend field set to true,<br />the RayCluster will not be created and will wait for the transition to false.<br />If the RayCluster is already created, it will be deleted.<br />In case of transition to false a new RayCluster will be created. |  |  |
 
 
+
+
+#### RayJobTemplateSpec
+
+
+
+RayJobTemplateSpec describes the data a RayJob should have when created from a template
+
+
+
+_Appears in:_
+- [RayCronJobSpec](#raycronjobspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[RayJobSpec](#rayjobspec)_ | Specification of the desired behavior of the RayJob |  |  |
 
 
 
