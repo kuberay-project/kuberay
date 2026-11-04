@@ -61,9 +61,9 @@ reflect those changes.
 
 [pre-commit]: https://pre-commit.com/
 [kubectl plugin]: https://kubernetes.io/docs/tasks/extend-kubectl/kubectl-plugins/
-[Kubectl Plugin Development Guide]: ../../kubectl-plugin/DEVELOPMENT.md
-[Python Client]: https://github.com/ray-project/kuberay/blob/master/components/pythonclient.md
-[Python API Client]: https://github.com/ray-project/kuberay/blob/master/components/pythonapiclient.md
+[Kubectl Plugin Development Guide]: https://github.com/ray-project/kuberay/blob/master/kubectl-plugin/DEVELOPMENT.md
+[Python Client]: https://github.com/ray-project/kuberay/blob/master/clients/kuberay-client/README.md
+[Python API Client]: https://github.com/ray-project/kuberay/blob/master/clients/python-apiserver-client/README.md
 [APIServer Development Guide]: https://github.com/ray-project/kuberay/blob/master/apiserver/DEVELOPMENT.md
 [Proto and OpenAPI Development Guide]: https://github.com/ray-project/kuberay/blob/master/proto/README.md
 [Operator Development Guide]: https://github.com/ray-project/kuberay/blob/master/ray-operator/DEVELOPMENT.md
