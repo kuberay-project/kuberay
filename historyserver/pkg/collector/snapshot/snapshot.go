@@ -57,7 +57,38 @@ const (
 // Run performs a one-shot scrape of the Ray Dashboard API and writes all
 // responses to object storage. It returns nil on full success, or an error
 // describing which endpoints failed.
-func Run(ctx context.Context, cfg Config, writer storage.StorageWriter) error {
+func Run(ctx context.Context, cfg Config, writer storage.StorageWriter) (retErr error) {
+	start := time.Now()
+
+	log := logrus.WithFields(logrus.Fields{
+		"cluster":   cfg.RayClusterName,
+		"namespace": cfg.RayClusterNamespace,
+	})
+
+	var (
+		storedCount, skippedCount, failedCount int
+		markerWritten                          bool
+	)
+	defer func() {
+		outcome := "complete"
+		if retErr != nil {
+			outcome = "failed"
+			if markerWritten {
+				outcome = "partial"
+			}
+		}
+		log.WithFields(logrus.Fields{
+			"outcome":        outcome,
+			"stored":         storedCount,
+			"skipped":        skippedCount,
+			"failed":         failedCount,
+			"marker_written": markerWritten,
+			"duration":       time.Since(start).Round(time.Millisecond).String(),
+		}).Info("Snapshot finished")
+	}()
+
+	log.Info("Snapshot starting")
+
 	client := &http.Client{
 		Transport: &http.Transport{
 			MaxIdleConns:    10,
@@ -69,29 +100,35 @@ func Run(ctx context.Context, cfg Config, writer storage.StorageWriter) error {
 	if err != nil {
 		return fmt.Errorf("failed to discover session name: %w", err)
 	}
-	logrus.Infof("Using session name: %s", sessionName)
+	log = log.WithField("session", sessionName)
+	log.Info("Session discovered")
 
 	clusterDir := clusterlogs.Prefix(cfg.StorageRootDir, cfg.OwnerKind, cfg.OwnerName, cfg.RayClusterNamespace, cfg.RayClusterName)
 
 	endpoints := dedup(servedEndpoints, preservationEndpoints, cfg.AdditionalEndpoints)
 
 	var fetchErrors []string
-	storedCount := 0
 	for _, endpoint := range endpoints {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		stored, err := fetchAndStore(ctx, client, cfg.DashboardAddress, endpoint, clusterDir, sessionName, writer)
 		if err != nil {
-			logrus.Warnf("Failed to fetch endpoint %s: %v", endpoint, err)
+			failedCount++
+			log.WithField("endpoint", endpoint).Warnf("Endpoint fetch failed: %v", err)
 			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %v", endpoint, err))
 		} else if stored {
 			storedCount++
+		} else {
+			skippedCount++
 		}
 	}
 
-	datasetErrors := fetchDataDatasets(ctx, client, cfg.DashboardAddress, clusterDir, sessionName, writer)
-	fetchErrors = append(fetchErrors, datasetErrors...)
+	dsStored, dsSkipped, dsErrors := fetchDataDatasets(ctx, client, cfg.DashboardAddress, clusterDir, sessionName, log, writer)
+	storedCount += dsStored
+	skippedCount += dsSkipped
+	failedCount += len(dsErrors)
+	fetchErrors = append(fetchErrors, dsErrors...)
 
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -111,13 +148,13 @@ func Run(ctx context.Context, cfg Config, writer storage.StorageWriter) error {
 	if err := writer.WriteFile(markerPath, bytes.NewReader([]byte{})); err != nil {
 		return fmt.Errorf("failed to write cluster metadata marker at %s: %w", markerPath, err)
 	}
-	logrus.Infof("Wrote cluster metadata marker at %s", markerPath)
+	markerWritten = true
+	log.WithField("path", markerPath).Info("Session marker written")
 
 	if len(fetchErrors) > 0 {
 		return fmt.Errorf("snapshot completed with %d endpoint errors: %s", len(fetchErrors), strings.Join(fetchErrors, "; "))
 	}
 
-	logrus.Info("Snapshot completed successfully")
 	return nil
 }
 
@@ -161,36 +198,40 @@ func fetchAndStore(ctx context.Context, client *http.Client, dashboardAddress, e
 	return true, nil
 }
 
-func fetchDataDatasets(ctx context.Context, client *http.Client, dashboardAddress, clusterDir, sessionName string, writer storage.StorageWriter) []string {
+func fetchDataDatasets(ctx context.Context, client *http.Client, dashboardAddress, clusterDir, sessionName string, log *logrus.Entry, writer storage.StorageWriter) (stored, skipped int, errs []string) {
 	body, err := fetchEndpoint(ctx, client, dashboardAddress, jobsEndpoint)
 	if err != nil {
-		logrus.Warnf("Failed to fetch job list for dataset discovery: %v", err)
-		return nil
+		errs = append(errs, fmt.Sprintf("dataset discovery: failed to fetch job list: %v", err))
+		return
 	}
 
 	var jobs []struct {
 		JobID string `json:"job_id"`
 	}
 	if err := json.Unmarshal(body, &jobs); err != nil {
-		logrus.Warnf("Failed to parse job list for dataset discovery: %v", err)
-		return nil
+		errs = append(errs, fmt.Sprintf("dataset discovery: failed to parse job list: %v", err))
+		return
 	}
 
-	var errs []string
 	for _, job := range jobs {
 		if job.JobID == "" {
 			continue
 		}
 		if ctx.Err() != nil {
-			return errs
+			return
 		}
 		endpoint := dataDatasetsEndpointPrefix + job.JobID
-		if _, err := fetchAndStore(ctx, client, dashboardAddress, endpoint, clusterDir, sessionName, writer); err != nil {
-			logrus.Warnf("Failed to fetch dataset for job %s: %v", job.JobID, err)
-			errs = append(errs, fmt.Sprintf("%s: %v", endpoint, err))
+		ok, fetchErr := fetchAndStore(ctx, client, dashboardAddress, endpoint, clusterDir, sessionName, writer)
+		if fetchErr != nil {
+			log.WithField("endpoint", endpoint).Warnf("Dataset fetch failed: %v", fetchErr)
+			errs = append(errs, fmt.Sprintf("%s: %v", endpoint, fetchErr))
+		} else if ok {
+			stored++
+		} else {
+			skipped++
 		}
 	}
-	return errs
+	return
 }
 
 func fetchEndpoint(ctx context.Context, client *http.Client, dashboardAddress, endpoint string) ([]byte, error) {
