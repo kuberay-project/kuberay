@@ -46,7 +46,7 @@ var preservationEndpoints = []string{
 	jobsEndpoint,
 	"/api/v0/tasks?detail=1&limit=10000",
 	"/logical/actors",
-	"/nodes",
+	"/nodes?view=summary",
 }
 
 const (
@@ -101,10 +101,6 @@ func Run(ctx context.Context, cfg Config, writer storage.StorageWriter) error {
 
 	if storedCount == 0 {
 		return fmt.Errorf("snapshot failed: no endpoints were stored successfully (errors: %s)", strings.Join(fetchErrors, "; "))
-	}
-
-	if ctx.Err() != nil {
-		return ctx.Err()
 	}
 
 	info := utils.ClusterInfo{

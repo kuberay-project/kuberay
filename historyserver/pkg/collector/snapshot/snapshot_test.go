@@ -79,7 +79,6 @@ func TestRunSnapshot(t *testing.T) {
 	datasets01 := map[string]any{"datasets": []any{map[string]any{"id": "ds1"}}}
 	tasks := map[string]any{"result": []any{}}
 	actors := []any{}
-	nodes := []any{}
 	nodesSummary := nodesViewSummaryResponse("session_2026-08-17_10-30-00_123456")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -108,8 +107,6 @@ func TestRunSnapshot(t *testing.T) {
 			resp = tasks
 		case full == "/logical/actors":
 			resp = actors
-		case full == "/nodes":
-			resp = nodes
 		case strings.HasPrefix(path, "/api/data/datasets/"):
 			jobID := strings.TrimPrefix(path, "/api/data/datasets/")
 			if jobID == "01000000" {
@@ -334,14 +331,18 @@ func TestDiscoverSessionNameNoSessionInfo(t *testing.T) {
 }
 
 func TestRunSnapshotTotalScrapeFailure(t *testing.T) {
+	nodesCallCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		full := r.URL.Path
 		if r.URL.RawQuery != "" {
 			full += "?" + r.URL.RawQuery
 		}
 		if full == "/nodes?view=summary" {
-			writeJSON(t, w, nodesViewSummaryResponse("session_2026-08-17_10-30-00_123456"))
-			return
+			nodesCallCount++
+			if nodesCallCount == 1 {
+				writeJSON(t, w, nodesViewSummaryResponse("session_2026-08-17_10-30-00_123456"))
+				return
+			}
 		}
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}))
