@@ -33,7 +33,7 @@ func NewCollector(config *types.RayCollectorConfig, writer storage.StorageWriter
 		AdditionalEndpoints:  config.AdditionalEndpoints,
 		EndpointPollInterval: config.EndpointPollInterval,
 
-		RotatedLogScanInterval: config.RotatedLogScanInterval,
+		LogUploadInterval: config.LogUploadInterval,
 
 		HttpClient: &http.Client{
 			Transport: &http.Transport{

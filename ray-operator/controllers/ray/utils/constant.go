@@ -32,7 +32,8 @@ const (
 	RayJobSubmissionModeLabelKey             = "ray.io/job-submission-mode"
 	// DisableProvisionedHeadRestartAnnotationKey marks RayClusters created for sidecar-mode RayJobs to skip head Pod recreation after provisioning.
 	DisableProvisionedHeadRestartAnnotationKey = "ray.io/disable-provisioned-head-restart"
-
+	// Finalizer for Idle Termination cleanup
+	IdleTerminationCleanupFinalizer = "ray.io/idle-termination-cleanup-finalizer"
 	// Labels for feature RayMultihostIndexing
 	//
 	// RayWorkerReplicaNameKey label is the unique name for the replica in a specific worker group. It is made up
@@ -458,6 +459,7 @@ const (
 	InvalidRayClusterStatus   K8sEventType = "InvalidRayClusterStatus"
 	InvalidRayClusterSpec     K8sEventType = "InvalidRayClusterSpec"
 	InvalidRayClusterMetadata K8sEventType = "InvalidRayClusterMetadata"
+	DeletedIdleRayCluster     K8sEventType = "DeletedIdleRayCluster"
 	// Head Pod event list
 	CreatedHeadPod        K8sEventType = "CreatedHeadPod"
 	FailedToCreateHeadPod K8sEventType = "FailedToCreateHeadPod"

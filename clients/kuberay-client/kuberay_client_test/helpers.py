@@ -1,5 +1,5 @@
 import time
-from python_client import constants
+from kuberay_client import constants
 
 
 def create_job_with_cluster_selector(

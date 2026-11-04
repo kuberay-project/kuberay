@@ -18,7 +18,7 @@ sibling_dirs = [
 for sibling_dir in sibling_dirs:
     sys.path.append(os.path.join(parent_dir, sibling_dir))
 """
-from python_client import kuberay_cluster_api
+from kuberay_client import kuberay_cluster_api
 
 cluster_body: dict = {
     "apiVersion": "ray.io/v1",

@@ -4862,6 +4862,22 @@ spec:
                             type: object
                         type: object
                     type: object
+                  idleSuspend:
+                    type: boolean
+                  idleTerminationOptions:
+                    properties:
+                      policy:
+                        default: Suspend
+                        enum:
+                        - Delete
+                        - Suspend
+                        type: string
+                      timeoutSeconds:
+                        format: int32
+                        type: integer
+                    required:
+                    - timeoutSeconds
+                    type: object
                   managedBy:
                     type: string
                     x-kubernetes-validations:

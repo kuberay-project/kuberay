@@ -95,7 +95,7 @@ type Configuration struct {
 
 	// UseKubernetesProxy indicates that the services/proxy and pods/proxy subresource should be used
 	// when connecting to the Ray Head node. This is useful when network policies disallow
-	// ingress traffic to the Ray cluster from other pods or Kuberay is running in a network without
+	// ingress traffic to the Ray cluster from other pods or KubeRay is running in a network without
 	// connectivity to Pods.
 	UseKubernetesProxy bool `json:"useKubernetesProxy,omitempty"`
 

@@ -150,7 +150,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `image` _string_ | Image is the collector container image to be used (e.g. quay.io/kuberay/collector:latest). |  |  |
+| `image` _string_ | Image is the collector container image to be used (e.g. quay.io/kuberay/collector:v1.7.0). |  |  |
 | `imagePullPolicy` _[PullPolicy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#pullpolicy-v1-core)_ | ImagePullPolicy is the pull policy for the collector image. |  |  |
 | `resources` _[ResourceRequirements](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcerequirements-v1-core)_ | Resources specifies computing resource requirements. |  |  |
 | `env` _[EnvVar](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#envvar-v1-core) array_ | Env allows injecting custom environment variables into the collector container. |  |  |
@@ -238,7 +238,7 @@ DeletionStrategy configures automated cleanup after the RayJob reaches a termina
 Two mutually exclusive styles are supported:
 
   - Legacy: provide both onSuccess and onFailure (deprecated; removal planned for 1.6.0). May be combined with shutdownAfterJobFinishes and (optionally) global TTLSecondsAfterFinished.
-  - Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per‑rule condition.ttlSeconds instead).
+  - Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds instead).
 
 Semantics:
   - A non-empty deletionRules selects rules mode; empty lists are treated as unset.
@@ -409,6 +409,41 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `collectorOptions` _[CollectorOptions](#collectoroptions)_ | CollectorOptions used for collector sidecar configuration |  |  |
+
+
+#### IdleTerminationOptions
+
+
+
+
+
+
+
+_Appears in:_
+- [RayClusterSpec](#rayclusterspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `timeoutSeconds` _integer_ | TimeoutSeconds denotes the number of seconds to wait before the v2 autoscaler terminates an idle RayCluster. |  |  |
+| `policy` _[IdleTerminationPolicy](#idleterminationpolicy)_ | Policy is the action taken once the RayCluster has been idle for TimeoutSeconds. | Suspend | Enum: [Delete Suspend] <br /> |
+
+
+#### IdleTerminationPolicy
+
+_Underlying type:_ _string_
+
+
+
+_Validation:_
+- Enum: [Delete Suspend]
+
+_Appears in:_
+- [IdleTerminationOptions](#idleterminationoptions)
+
+| Field | Description |
+| --- | --- |
+| `Suspend` |  |
+| `Delete` |  |
 
 
 #### IngressOptions
@@ -616,6 +651,8 @@ _Appears in:_
 | `upgradeStrategy` _[RayClusterUpgradeStrategy](#rayclusterupgradestrategy)_ | UpgradeStrategy defines the scaling policy used when upgrading the RayCluster |  |  |
 | `authOptions` _[AuthOptions](#authoptions)_ | AuthOptions specifies the authentication options for the RayCluster. |  |  |
 | `suspend` _boolean_ | Suspend indicates whether a RayCluster should be suspended.<br />A suspended RayCluster will have head pods and worker pods deleted. |  |  |
+| `idleSuspend` _boolean_ | IdleSuspend indicates whether a RayCluster should be suspended due to idleness.<br />An idle-suspended RayCluster will have head pods and worker pods deleted. |  |  |
+| `idleTerminationOptions` _[IdleTerminationOptions](#idleterminationoptions)_ | IdleTerminationOptions specifies optional configuration for terminating an idle RayCluster.<br />A RayCluster is considered idle when no Ray driver is connected. |  |  |
 | `managedBy` _string_ | ManagedBy is an optional configuration for the controller or entity that manages a RayCluster.<br />The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.<br />The kuberay-operator reconciles a RayCluster which doesn't have this field at all or<br />the field value is the reserved string 'ray.io/kuberay-operator',<br />but delegates reconciling the RayCluster with 'kueue.x-k8s.io/multikueue' to the Kueue.<br />The field is immutable. |  |  |
 | `autoscalerOptions` _[AutoscalerOptions](#autoscaleroptions)_ | AutoscalerOptions specifies optional configuration for the Ray autoscaler. |  |  |
 | `headServiceAnnotations` _object (keys:string, values:string)_ |  |  |  |
@@ -696,7 +733,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `jobTemplate` _[RayJobTemplateSpec](#rayjobtemplatespec)_ | JobTemplate defines the RayJob that will be created by cron scheduling |  |  |
 | `schedule` _string_ | Schedule is the cron schedule string |  |  |
-| `timeZone` _string_ | TimeZone is the time zone name for the given schedule. If not specified, default to the local time zone of the<br />Kuberay Operator. Empty string is not allowed.<br />The bundled version of the time zone database is used. |  | MinLength: 1 <br /> |
+| `timeZone` _string_ | TimeZone is the time zone name for the given schedule. If not specified, default to the local time zone of the<br />KubeRay operator. Empty string is not allowed.<br />The bundled version of the time zone database is used. |  | MinLength: 1 <br /> |
 | `suspend` _boolean_ | Suspend tells the controller to suspend the scheduling, it does not apply to<br />scheduled RayJob. |  |  |
 
 
