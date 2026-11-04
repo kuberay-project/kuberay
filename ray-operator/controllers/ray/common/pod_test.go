@@ -796,7 +796,7 @@ func TestBuildPod(t *testing.T) {
 	workerRayStartCommandEnv := getEnvVar(rayContainer, utils.KUBERAY_GEN_RAY_START_CMD)
 	assert.Contains(t, workerRayStartCommandEnv.Value, "ray start")
 
-	expectedCommandArg := splitAndSort("ulimit -n ${RAY_START_ULIMIT_OPEN_FILES:-65536}; ray start --block --dashboard-agent-listen-port=52365 --memory=1073741824 --num-cpus=1 --num-gpus=3 --address=raycluster-sample-head-svc.default.svc.cluster.local:6379 --port=6379 --metrics-export-port=8080")
+	expectedCommandArg := splitAndSort("ulimit -n ${RAY_START_ULIMIT_OPEN_FILES:-65536}; ray start --block --dashboard-agent-listen-port=52365 --memory=1073741824 --num-cpus=1 --num-gpus=3 --address=raycluster-sample-head-svc.default.svc.cluster.local:6379 --port=6379 --metrics-export-port=8080 & ray_start_pid=$!; trap 'kill -TERM $ray_start_pid 2>/dev/null; wait $ray_start_pid; exit 0' TERM; wait $ray_start_pid")
 	actualCommandArg := splitAndSort(pod.Spec.Containers[0].Args[0])
 	assert.Equal(t, expectedCommandArg, actualCommandArg)
 
@@ -806,6 +806,58 @@ func TestBuildPod(t *testing.T) {
 
 	// Test default environment variables injection in ray pods
 	checkContainerEnv(t, rayContainer, "TEST_DEFAULT_ENV_NAME", "TEST_ENV_VALUE")
+}
+
+func TestBuildPod_GracefulTerminationWrapper(t *testing.T) {
+	// Regression test for https://github.com/ray-project/kuberay/issues/3442.
+	// The generated `ray start` command must be wrapped so that a SIGTERM from Kubernetes
+	// on Pod deletion (autoscaler scale-down or `kubectl delete pod`) is forwarded to the
+	// Ray process and the container exits 0 instead of 143 (which shows up as `Error`).
+	ctx := context.Background()
+	cluster := instance.DeepCopy()
+
+	assertWrapped := func(t *testing.T, args string) {
+		t.Helper()
+		// The blocking `ray start` runs in the background and its PID is captured.
+		assert.Contains(t, args, "ray start")
+		assert.Contains(t, args, "& ray_start_pid=$!")
+		// A TERM trap forwards the signal to the Ray process and forces a clean exit.
+		assert.Contains(t, args, "trap 'kill -TERM $ray_start_pid 2>/dev/null; wait $ray_start_pid; exit 0' TERM")
+		// bash blocks on the Ray process; its natural (possibly non-zero) exit is preserved
+		// when the trap does not fire, so genuine failures still surface as `Error`.
+		assert.Contains(t, args, "wait $ray_start_pid")
+	}
+
+	// Head pod.
+	headName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
+	headTemplate := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, headName, "6379")
+	headPod := BuildPod(ctx, headTemplate, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), "", nil, "")
+	require.Len(t, headPod.Spec.Containers[utils.RayContainerIndex].Args, 1)
+	assertWrapped(t, headPod.Spec.Containers[utils.RayContainerIndex].Args[0])
+
+	// Worker pod.
+	worker := cluster.Spec.WorkerGroupSpecs[0]
+	workerName := cluster.Name + utils.DashSymbol + string(rayv1.WorkerNode) + utils.DashSymbol + worker.GroupName + utils.DashSymbol + utils.FormatInt32(0)
+	fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
+	workerTemplate := DefaultWorkerPodTemplate(ctx, *cluster, worker, workerName, fqdnRayIP, "6379", "", 0, 0)
+	workerPod := BuildPod(ctx, workerTemplate, rayv1.WorkerNode, worker.RayStartParams, "6379", false, utils.GetCRDType(""), fqdnRayIP, nil, "")
+	require.Len(t, workerPod.Spec.Containers[utils.RayContainerIndex].Args, 1)
+	assertWrapped(t, workerPod.Spec.Containers[utils.RayContainerIndex].Args[0])
+
+	// When the user overrides the container command, KubeRay must not inject the wrapper.
+	overrideCluster := instance.DeepCopy()
+	overrideWorker := overrideCluster.Spec.WorkerGroupSpecs[0]
+	if overrideWorker.Template.ObjectMeta.Annotations == nil {
+		overrideWorker.Template.ObjectMeta.Annotations = map[string]string{}
+	}
+	overrideWorker.Template.ObjectMeta.Annotations[utils.RayOverwriteContainerCmdAnnotationKey] = "true"
+	overrideWorker.Template.Spec.Containers[utils.RayContainerIndex].Command = []string{"echo"}
+	overrideWorker.Template.Spec.Containers[utils.RayContainerIndex].Args = []string{"hello"}
+	overrideName := overrideCluster.Name + utils.DashSymbol + string(rayv1.WorkerNode) + utils.DashSymbol + overrideWorker.GroupName + utils.DashSymbol + utils.FormatInt32(0)
+	overrideTemplate := DefaultWorkerPodTemplate(ctx, *overrideCluster, overrideWorker, overrideName, fqdnRayIP, "6379", "", 0, 0)
+	overridePod := BuildPod(ctx, overrideTemplate, rayv1.WorkerNode, overrideWorker.RayStartParams, "6379", false, utils.GetCRDType(""), fqdnRayIP, nil, "")
+	assert.NotContains(t, strings.Join(overridePod.Spec.Containers[utils.RayContainerIndex].Args, " "), "ray_start_pid",
+		"wrapper must not be injected when the user overrides the container command")
 }
 
 func TestBuildPod_WithUlimitOverride(t *testing.T) {
@@ -823,7 +875,7 @@ func TestBuildPod_WithUlimitOverride(t *testing.T) {
 	pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), "", nil, "")
 
 	// The generated command arg still uses ${RAY_START_ULIMIT_OPEN_FILES:-65536} because the shell resolves it at runtime.
-	expectedCommandArg := splitAndSort("ulimit -n ${RAY_START_ULIMIT_OPEN_FILES:-65536}; ray start --head --block --dashboard-agent-listen-port=52365 --memory=1073741824 --num-cpus=1 --metrics-export-port=8080 --dashboard-host=0.0.0.0")
+	expectedCommandArg := splitAndSort("ulimit -n ${RAY_START_ULIMIT_OPEN_FILES:-65536}; ray start --head --block --dashboard-agent-listen-port=52365 --memory=1073741824 --num-cpus=1 --metrics-export-port=8080 --dashboard-host=0.0.0.0 & ray_start_pid=$!; trap 'kill -TERM $ray_start_pid 2>/dev/null; wait $ray_start_pid; exit 0' TERM; wait $ray_start_pid")
 	actualCommandArg := splitAndSort(pod.Spec.Containers[0].Args[0])
 	assert.Equal(t, expectedCommandArg, actualCommandArg)
 
@@ -1085,7 +1137,7 @@ func TestBuildPod_WithNoCPULimits(t *testing.T) {
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
 	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
 	pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), "", nil, "")
-	expectedCommandArg := splitAndSort("ulimit -n ${RAY_START_ULIMIT_OPEN_FILES:-65536}; ray start --head --block --dashboard-agent-listen-port=52365 --memory=1073741824 --num-cpus=2 --metrics-export-port=8080 --dashboard-host=0.0.0.0")
+	expectedCommandArg := splitAndSort("ulimit -n ${RAY_START_ULIMIT_OPEN_FILES:-65536}; ray start --head --block --dashboard-agent-listen-port=52365 --memory=1073741824 --num-cpus=2 --metrics-export-port=8080 --dashboard-host=0.0.0.0 & ray_start_pid=$!; trap 'kill -TERM $ray_start_pid 2>/dev/null; wait $ray_start_pid; exit 0' TERM; wait $ray_start_pid")
 	actualCommandArg := splitAndSort(pod.Spec.Containers[0].Args[0])
 	assert.Equal(t, expectedCommandArg, actualCommandArg)
 
@@ -1095,7 +1147,7 @@ func TestBuildPod_WithNoCPULimits(t *testing.T) {
 	fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
 	podTemplateSpec = DefaultWorkerPodTemplate(ctx, *cluster, worker, podName, fqdnRayIP, "6379", "", 0, 0)
 	pod = BuildPod(ctx, podTemplateSpec, rayv1.WorkerNode, worker.RayStartParams, "6379", false, utils.GetCRDType(""), fqdnRayIP, nil, "")
-	expectedCommandArg = splitAndSort("ulimit -n ${RAY_START_ULIMIT_OPEN_FILES:-65536}; ray start --block --dashboard-agent-listen-port=52365 --memory=1073741824 --num-cpus=2 --num-gpus=3 --address=raycluster-sample-head-svc.default.svc.cluster.local:6379 --port=6379 --metrics-export-port=8080")
+	expectedCommandArg = splitAndSort("ulimit -n ${RAY_START_ULIMIT_OPEN_FILES:-65536}; ray start --block --dashboard-agent-listen-port=52365 --memory=1073741824 --num-cpus=2 --num-gpus=3 --address=raycluster-sample-head-svc.default.svc.cluster.local:6379 --port=6379 --metrics-export-port=8080 & ray_start_pid=$!; trap 'kill -TERM $ray_start_pid 2>/dev/null; wait $ray_start_pid; exit 0' TERM; wait $ray_start_pid")
 	actualCommandArg = splitAndSort(pod.Spec.Containers[0].Args[0])
 	assert.Equal(t, expectedCommandArg, actualCommandArg)
 }

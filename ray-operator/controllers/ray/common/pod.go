@@ -927,7 +927,12 @@ func BuildPod(ctx context.Context, podTemplateSpec corev1.PodTemplateSpec, rayNo
 
 	// TODO (kevin85421): Consider removing the check for the "ray start" string in the future.
 	if !isOverwriteRayContainerCmd && !strings.Contains(cmd, "ray start") {
-		generatedCmd := fmt.Sprintf("%s; %s", ulimitCmd, rayStartCmd)
+		// Wrap the blocking `ray start` command so that a SIGTERM sent by Kubernetes on Pod
+		// deletion (e.g. autoscaler scale-down or `kubectl delete pod`) is forwarded to the
+		// Ray process and the container exits with status 0 instead of 143. Otherwise the
+		// graceful shutdown is misreported as an `Error` container status.
+		// See https://github.com/ray-project/kuberay/issues/3442.
+		generatedCmd := fmt.Sprintf("%s; %s", ulimitCmd, wrapCommandForGracefulTermination(rayStartCmd))
 		log.Info("BuildPod", "rayNodeType", rayNodeType, "generatedCmd", generatedCmd)
 		// replacing the old command
 		pod.Spec.Containers[utils.RayContainerIndex].Command = utils.GetContainerCommand([]string{})
@@ -1475,6 +1480,10 @@ func generateRayStartCommand(ctx context.Context, nodeType rayv1.RayNodeType, ra
 	}
 	log.Info("generateRayStartCommand", "rayStartCmd", rayStartCmd)
 	return rayStartCmd
+}
+
+func wrapCommandForGracefulTermination(blockingCmd string) string {
+	return fmt.Sprintf("%s & ray_start_pid=$!; trap 'kill -TERM $ray_start_pid 2>/dev/null; wait $ray_start_pid; exit 0' TERM; wait $ray_start_pid", blockingCmd)
 }
 
 func addWellKnownAcceleratorResources(rayStartParams map[string]string, resourceLimits corev1.ResourceList) error {
