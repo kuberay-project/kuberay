@@ -59,7 +59,7 @@ func (k *KubernetesWASV1Alpha3Scheduler) DoBatchSchedulingOnSubmission(ctx conte
 
 	if reason := schedulingSkipReason(rayCluster); reason != "" {
 		ctrl.LoggerFrom(ctx).WithName(kuberneteswas.GetPluginName()).Info("Skipping Kubernetes workload-aware scheduling", "reason", reason)
-		_, err := k.CleanupOnCompletion(ctx, rayCluster)
+		_, err := k.deleteSchedulingResources(ctx, rayCluster)
 		return err
 	}
 
@@ -77,12 +77,16 @@ func (k *KubernetesWASV1Alpha3Scheduler) AddMetadataToChildResource(_ context.Co
 	setSchedulingGroup(child, clusterPodGroupName(rayCluster.Name))
 }
 
-func (k *KubernetesWASV1Alpha3Scheduler) CleanupOnCompletion(ctx context.Context, object metav1.Object) (bool, error) {
-	rayCluster, ok := object.(*rayv1.RayCluster)
-	if !ok {
-		return false, nil
-	}
-	return k.deleteSchedulingResources(ctx, rayCluster)
+// CleanupOnCompletion is a no-op because the Workload and PodGroup
+// are kept for reuse when the RayCluster resumes.
+//
+// TODO: once KubeRay supports the Beta WAS API, delete the PodGroup on suspend
+// to release its scheduler and DRA state, and keep only the Workload, as the
+// Job controller does in Beta:
+// https://github.com/kubernetes/enhancements/tree/master/keps/sig-apps/5547-integrate-workload-with-job#suspend-and-resume
+// Tracked in https://github.com/kuberay-project/kuberay/issues/5497.
+func (k *KubernetesWASV1Alpha3Scheduler) CleanupOnCompletion(_ context.Context, _ metav1.Object) (bool, error) {
+	return false, nil
 }
 
 // The methods below adapt this package to kuberneteswas.Provider.
