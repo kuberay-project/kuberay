@@ -6,6 +6,7 @@ import (
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/aliyunoss/ray"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/azureblob"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/gcs"
+	"github.com/ray-project/kuberay/historyserver/pkg/storage/localfs"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/localtest"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/s3"
 )
@@ -21,6 +22,7 @@ var writerRegistry = WriterRegistry{
 	"azureblob": azureblob.NewWriter,
 	"s3":        s3.NewWriter,
 	"gcs":       gcs.NewWriter,
+	"localfs":   localfs.NewWriter,
 }
 
 type ReaderRegistry map[string]func(globalData *types.RayHistoryServerConfig, data map[string]any) (storage.StorageReader, error)
@@ -35,4 +37,5 @@ var readerRegistry = ReaderRegistry{
 	"localtest": localtest.NewReader,
 	"s3":        s3.NewReader,
 	"gcs":       gcs.NewReader,
+	"localfs":   localfs.NewReader,
 }
