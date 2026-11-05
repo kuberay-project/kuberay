@@ -762,6 +762,8 @@ const (
 	HeadPodNotFound                = "HeadPodNotFound"
 	HeadPodRunningAndReady         = "HeadPodRunningAndReady"
 	RayClusterIdleSuspended        = "RayClusterIdleSuspended"
+	// OrphanedWorkerGroupPodsFound says that Pods exist for a worker group that is no longer in spec.workerGroupSpecs.
+	OrphanedWorkerGroupPodsFound = "OrphanedWorkerGroupPodsFound"
 	// UnknownReason says that the reason for the condition is unknown.
 	UnknownReason = "Unknown"
 )
@@ -778,6 +780,10 @@ const (
 	RayClusterSuspending RayClusterConditionType = "RayClusterSuspending"
 	// RayClusterSuspended is set to true when all Pods belonging to a suspending RayCluster are deleted. Note that RayClusterSuspending and RayClusterSuspended cannot both be true at the same time.
 	RayClusterSuspended RayClusterConditionType = "RayClusterSuspended"
+	// RayClusterOrphanedWorkerGroup is set to true when Pods exist whose ray.io/group label references a worker group
+	// that is no longer present in spec.workerGroupSpecs. The controller only reconciles worker groups still in the
+	// spec, so these Pods are never reconciled or scaled and can stall the head autoscaler.
+	RayClusterOrphanedWorkerGroup RayClusterConditionType = "OrphanedWorkerGroup"
 )
 
 // HeadInfo gives info about head
