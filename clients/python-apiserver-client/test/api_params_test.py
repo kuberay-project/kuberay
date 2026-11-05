@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from python_apiserver_client.params import (
     DEFAULT_HEAD_START_PARAMS,
     DEFAULT_WORKER_START_PARAMS,
@@ -425,3 +427,41 @@ def test_submission():
     """
     job_info = RayJobInfo(json.loads(info_json))
     print(job_info.to_string())
+
+
+@pytest.mark.parametrize("resources", [{}, {"vpc.amazonaws.com/efa": 32}])
+def test_template_device_resources_use_api_json_names(resources):
+    template = Template(
+        name="template", namespace="default", cpu=2, memory=8, gpu=1,
+        gpu_accelerator="amd.com/gpu", extended_resources=resources,
+    )
+    payload = json.loads(json.dumps(template.to_dict()))
+    assert payload["gpuAccelerator"] == "amd.com/gpu"
+    assert payload["extendedResources"] == resources
+    assert "gpu accelerator" not in payload
+    assert "extended resources" not in payload
+    decoded = template_decoder(payload)
+    assert decoded.gpu_accelerator == template.gpu_accelerator
+    assert decoded.extended_resources == resources
+
+
+@pytest.mark.parametrize("field_names", [
+    ("gpuAccelerator", "extendedResources"),
+    ("gpu_accelerator", "extended_resources"),
+])
+def test_template_device_resources_decode(field_names):
+    accelerator_key, resources_key = field_names
+    template = template_decoder({
+        "name": "template", "namespace": "default", "cpu": 2, "memory": 8,
+        accelerator_key: "amd.com/gpu", resources_key: {"vpc.amazonaws.com/efa": 32},
+    })
+    assert template.gpu_accelerator == "amd.com/gpu"
+    assert template.extended_resources == {"vpc.amazonaws.com/efa": 32}
+
+
+def test_template_device_resources_absent():
+    template = template_decoder({"name": "template", "namespace": "default", "cpu": 2, "memory": 8})
+    assert template.gpu_accelerator is None
+    assert template.extended_resources is None
+    assert "gpuAccelerator" not in template.to_dict()
+    assert "extendedResources" not in template.to_dict()
