@@ -1279,6 +1279,125 @@ func TestReconcile_AutoscalerRoleBinding(t *testing.T) {
 	require.NoError(t, err, "Fail to get autoscaler RoleBinding after reconciliation")
 }
 
+func TestReconcile_AutoscalerRoleUpdatesRules(t *testing.T) {
+	setupTest(t)
+	ctx := context.Background()
+
+	newCluster := func(name string) *rayv1.RayCluster {
+		cluster := testRayCluster.DeepCopy()
+		cluster.Name = name
+		cluster.UID = types.UID(name + "-uid")
+		return cluster
+	}
+	// staleRules are the autoscaler Role rules created by KubeRay before pods/resize and the
+	// rayclusters delete verb were added.
+	staleRules := []rbacv1.PolicyRule{
+		{
+			APIGroups: []string{""},
+			Resources: []string{"pods"},
+			Verbs:     []string{"get", "list", "watch", "patch"},
+		},
+		{
+			APIGroups: []string{"ray.io"},
+			Resources: []string{"rayclusters"},
+			Verbs:     []string{"get", "patch"},
+		},
+	}
+	newRole := func(cluster *rayv1.RayCluster, rules []rbacv1.PolicyRule, owned bool) *rbacv1.Role {
+		role := &rbacv1.Role{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      utils.CheckName(cluster.Name),
+				Namespace: cluster.Namespace,
+			},
+			Rules: rules,
+		}
+		if owned {
+			require.NoError(t, controllerutil.SetControllerReference(cluster, role, scheme.Scheme))
+		}
+		return role
+	}
+
+	tests := []struct {
+		name          string
+		clusterName   string
+		existingRules []rbacv1.PolicyRule
+		owned         bool
+		expectUpdate  bool
+	}{
+		{
+			name:          "stale rules on an owned Role are updated",
+			clusterName:   instanceName,
+			existingRules: staleRules,
+			owned:         true,
+			expectUpdate:  true,
+		},
+		{
+			name:          "stale rules on an owned Role with a clipped name are updated",
+			clusterName:   "long-raycluster-name-that-is-longer-than-fifty-chars",
+			existingRules: staleRules,
+			owned:         true,
+			expectUpdate:  true,
+		},
+		{
+			name:          "a Role that is not controlled by the RayCluster is left alone",
+			clusterName:   instanceName,
+			existingRules: staleRules,
+			owned:         false,
+			expectUpdate:  false,
+		},
+		{
+			name:         "an up-to-date Role is not updated",
+			clusterName:  instanceName,
+			owned:        true,
+			expectUpdate: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cluster := newCluster(tc.clusterName)
+			desiredRole, err := common.BuildRole(cluster)
+			require.NoError(t, err)
+			existingRules := tc.existingRules
+			if existingRules == nil {
+				existingRules = desiredRole.Rules
+			}
+			existingRole := newRole(cluster, existingRules, tc.owned)
+
+			updates := 0
+			fakeClient := clientFake.NewClientBuilder().
+				WithObjects(existingRole).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						updates++
+						return c.Update(ctx, obj, opts...)
+					},
+				}).
+				Build()
+			recorder := events.NewFakeRecorder(10)
+			r := &RayClusterReconciler{
+				Client:   fakeClient,
+				Recorder: recorder,
+				Scheme:   scheme.Scheme,
+			}
+
+			require.NoError(t, r.reconcileAutoscalerRole(ctx, cluster))
+
+			role := rbacv1.Role{}
+			require.NoError(t, fakeClient.Get(ctx, client.ObjectKeyFromObject(existingRole), &role))
+			if tc.expectUpdate {
+				assert.Equal(t, 1, updates)
+				assert.Equal(t, desiredRole.Rules, role.Rules)
+				require.Len(t, recorder.Events, 1)
+				assert.Contains(t, <-recorder.Events, string(utils.UpdatedRole))
+			} else {
+				assert.Equal(t, 0, updates)
+				assert.Equal(t, existingRules, role.Rules)
+			}
+		})
+	}
+}
+
 func TestReconcile_UpdateClusterReason(t *testing.T) {
 	setupTest(t)
 
