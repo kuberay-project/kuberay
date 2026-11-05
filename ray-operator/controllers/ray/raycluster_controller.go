@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1135,6 +1136,38 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			return err
 		}
 
+		activeWorkerPods := make([]corev1.Pod, 0, len(workerPods.Items))
+		scaleWorkerPods := make([]corev1.Pod, 0, len(workerPods.Items))
+		replicaIndicesInUse := getReplicaIndicesInUse(workerPods.Items)
+		deletedWorkers := make(map[string]struct{})
+		scaleDeletedWorkers := make(map[string]struct{})
+		deleted := struct{}{}
+		terminatingPodNames := make([]string, 0)
+		stuckPodNames := make([]string, 0)
+		for _, workerPod := range workerPods.Items {
+			if workerPod.DeletionTimestamp.IsZero() {
+				activeWorkerPods = append(activeWorkerPods, workerPod)
+				scaleWorkerPods = append(scaleWorkerPods, workerPod)
+				continue
+			}
+			deletedWorkers[workerPod.Name] = deleted
+			terminatingPodNames = append(terminatingPodNames, workerPod.Name)
+			if isStuckTerminatingPod(&workerPod) {
+				stuckPodNames = append(stuckPodNames, workerPod.Name)
+			} else {
+				scaleWorkerPods = append(scaleWorkerPods, workerPod)
+			}
+		}
+		if len(terminatingPodNames) > 0 {
+			sort.Strings(terminatingPodNames)
+			logger.Info("reconcilePods", "worker group", worker.GroupName,
+				"terminatingPods", len(terminatingPodNames), "terminatingPodNames", terminatingPodNames)
+		}
+		if len(stuckPodNames) > 0 {
+			sort.Strings(stuckPodNames)
+			logger.Info("reconcilePods", "worker group", worker.GroupName,
+				"stuckTerminatingPods", len(stuckPodNames), "stuckTerminatingPodNames", stuckPodNames)
+		}
 		// Delete all workers if worker group is suspended and skip reconcile
 		if worker.Suspend != nil && *worker.Suspend {
 			if _, err := r.deleteAllPods(ctx, common.RayClusterGroupPodsAssociationOptions(instance, worker.GroupName)); err != nil {
@@ -1149,7 +1182,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 
 		isRayMultiHostIndexing := worker.NumOfHosts > 1 && features.Enabled(features.RayMultiHostIndexing)
 		if isRayMultiHostIndexing {
-			if err := r.reconcileMultiHostWorkerGroup(ctx, instance, &worker, workerPods.Items); err != nil {
+			if err := r.reconcileMultiHostWorkerGroup(ctx, instance, &worker, workerPods.Items, activeWorkerPods, scaleWorkerPods); err != nil {
 				return err
 			}
 			// Skip to the next worker as we've already handled multi-host reconciliation.
@@ -1157,15 +1190,14 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		}
 
 		// Delete unhealthy worker Pods.
-		deletedWorkers := make(map[string]struct{})
-		deleted := struct{}{}
 		numDeletedUnhealthyWorkerPods := 0
-		for _, workerPod := range workerPods.Items {
+		for _, workerPod := range activeWorkerPods {
 			shouldDelete, reason := shouldDeletePod(workerPod, rayv1.WorkerNode)
 			logger.Info("reconcilePods", "worker Pod", workerPod.Name, "shouldDelete", shouldDelete, "reason", reason)
 			if shouldDelete {
 				numDeletedUnhealthyWorkerPods++
 				deletedWorkers[workerPod.Name] = deleted
+				scaleDeletedWorkers[workerPod.Name] = deleted
 				if err := r.Delete(ctx, &workerPod); err != nil {
 					r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteWorkerPod), string(utils.DeleteAction),
 						"Failed deleting worker Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v, %v",
@@ -1188,6 +1220,9 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		// Essentially WorkersToDelete has to be deleted to meet the expectations of the Autoscaler.
 		logger.Info("reconcilePods", "removing the pods in the scaleStrategy of", worker.GroupName)
 		for _, podsToDelete := range worker.ScaleStrategy.WorkersToDelete {
+			if _, alreadyDeleted := deletedWorkers[podsToDelete]; alreadyDeleted {
+				continue
+			}
 			pod := corev1.Pod{}
 			pod.Name = podsToDelete
 			pod.Namespace = utils.GetNamespace(instance.ObjectMeta)
@@ -1202,13 +1237,14 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			} else {
 				r.rayClusterScaleExpectation.ExpectScalePod(pod.Namespace, instance.Name, worker.GroupName, pod.Name, expectations.Delete)
 				deletedWorkers[pod.Name] = deleted
+				scaleDeletedWorkers[pod.Name] = deleted
 				r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedWorkerPod), string(utils.DeleteAction), "Deleted pod %s/%s", pod.Namespace, pod.Name)
 			}
 		}
 
 		runningPods := corev1.PodList{}
-		for _, pod := range workerPods.Items {
-			if _, ok := deletedWorkers[pod.Name]; !ok {
+		for _, pod := range scaleWorkerPods {
+			if _, deletedThisReconcile := scaleDeletedWorkers[pod.Name]; !deletedThisReconcile {
 				runningPods.Items = append(runningPods.Items, pod)
 			}
 		}
@@ -1225,13 +1261,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		// Support replica indices for single-host, multi-slice environments.
 		validReplicaIndices := make(map[int]bool)
 		if features.Enabled(features.RayMultiHostIndexing) {
-			for _, pod := range runningPods.Items {
-				if indexStr, ok := pod.Labels[utils.RayWorkerReplicaIndexKey]; ok {
-					if index, err := strconv.Atoi(indexStr); err == nil {
-						validReplicaIndices[index] = true
-					}
-				}
-			}
+			validReplicaIndices = replicaIndicesInUse
 			logger.Info("reconcilePods: found existing replica indices", "group", worker.GroupName, "indices", validReplicaIndices)
 		}
 		if diff > 0 {
@@ -1317,6 +1347,9 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 func (r *RayClusterReconciler) deletePods(ctx context.Context, instance *rayv1.RayCluster, podsToDelete []corev1.Pod, groupName string, reason string) error {
 	for i := range podsToDelete {
 		pod := podsToDelete[i]
+		if !pod.DeletionTimestamp.IsZero() {
+			continue
+		}
 		if err := r.Delete(ctx, &pod); err != nil {
 			if errors.IsNotFound(err) {
 				continue
@@ -1333,17 +1366,34 @@ func (r *RayClusterReconciler) deletePods(ctx context.Context, instance *rayv1.R
 	return nil
 }
 
+func getReplicaIndicesInUse(pods []corev1.Pod) map[int]bool {
+	replicaIndices := make(map[int]bool)
+	for _, pod := range pods {
+		if indexStr, ok := pod.Labels[utils.RayWorkerReplicaIndexKey]; ok {
+			if index, err := strconv.Atoi(indexStr); err == nil {
+				replicaIndices[index] = true
+			}
+		}
+	}
+	return replicaIndices
+}
+
+func isStuckTerminatingPod(pod *corev1.Pod) bool {
+	return !pod.DeletionTimestamp.IsZero() &&
+		time.Now().After(pod.DeletionTimestamp.Time.Add(expectations.ExpectationsTimeout))
+}
+
 // reconcileMultiHostWorkerGroup handles reconciliation and Pod deletion for worker groups with NumOfHosts > 1 when
 // the RayMultihostIndexing feature is enabled. This function is responsible for:
 // 1. Deleting incomplete or unhealthy multi-host groups atomically.
 // 2. Explicit deletes of entire multi-host groups for the autoscaler.
 // 3. Scale up/down of multi-host groups.
-func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context, instance *rayv1.RayCluster, worker *rayv1.WorkerGroupSpec, workerPods []corev1.Pod) error {
+func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context, instance *rayv1.RayCluster, worker *rayv1.WorkerGroupSpec, allWorkerPods, activeWorkerPods, scaleWorkerPods []corev1.Pod) error {
 	logger := ctrl.LoggerFrom(ctx)
 
 	// 1. Group existing pods by ray.io/worker-group-replica-index.
 	replicaMap := make(map[string][]corev1.Pod)
-	for _, pod := range workerPods {
+	for _, pod := range scaleWorkerPods {
 		if replicaName, ok := pod.Labels[utils.RayWorkerReplicaNameKey]; ok {
 			replicaMap[replicaName] = append(replicaMap[replicaName], pod)
 		}
@@ -1353,7 +1403,13 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 	for replicaName, podList := range replicaMap {
 		if len(podList) < int(worker.NumOfHosts) {
 			logger.Info("Found incomplete multi-host replica group, deleting all remaining pods to maintain atomicity.", "group", worker.GroupName, "replica", replicaName, "found", len(podList), "expected", worker.NumOfHosts)
-			if err := r.deletePods(ctx, instance, podList, worker.GroupName, "cleanup of incomplete multi-host group"); err != nil {
+			activePodsToDelete := make([]corev1.Pod, 0, len(podList))
+			for _, pod := range podList {
+				if pod.DeletionTimestamp.IsZero() {
+					activePodsToDelete = append(activePodsToDelete, pod)
+				}
+			}
+			if err := r.deletePods(ctx, instance, activePodsToDelete, worker.GroupName, "cleanup of incomplete multi-host group"); err != nil {
 				return err
 			}
 			// Requeue to avoid creating new Pods on this reconciliation.
@@ -1363,7 +1419,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 
 	// 3. Delete unhealthy replica groups.
 	deletedPods := make(map[string]struct{})
-	for _, pod := range workerPods {
+	for _, pod := range activeWorkerPods {
 		if _, alreadyDeleted := deletedPods[pod.Name]; alreadyDeleted {
 			continue
 		}
@@ -1389,7 +1445,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 	if len(worker.ScaleStrategy.WorkersToDelete) > 0 {
 		podsToDeleteFromStrategy := make(map[string]corev1.Pod)
 		for _, podName := range worker.ScaleStrategy.WorkersToDelete {
-			for _, pod := range workerPods {
+			for _, pod := range activeWorkerPods {
 				if pod.Name == podName {
 					replicaName := pod.Labels[utils.RayWorkerReplicaNameKey]
 					for _, p := range replicaMap[replicaName] {
@@ -1440,17 +1496,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 	replicasToCreate := numExpectedReplicas - numRunningReplicas
 
 	// Track full replica groups to determine next replica index to assign to.
-	validReplicaIndices := make(map[int]bool)
-	for replicaName := range validReplicaGroups {
-		if len(replicaMap[replicaName]) > 0 {
-			pod := replicaMap[replicaName][0]
-			if indexStr, ok := pod.Labels[utils.RayWorkerReplicaIndexKey]; ok {
-				if index, err := strconv.Atoi(indexStr); err == nil {
-					validReplicaIndices[index] = true
-				}
-			}
-		}
-	}
+	validReplicaIndices := getReplicaIndicesInUse(allWorkerPods)
 	logger.Info("Reconciling multi-host group", "group", worker.GroupName, "expectedReplicas", numExpectedReplicas, "runningReplicas", numRunningReplicas, "replicasToCreate", replicasToCreate, "inUseIndices", validReplicaIndices)
 	if replicasToCreate > 0 {
 		logger.Info("Scaling up multi-host group", "group", worker.GroupName, "replicasToCreate", replicasToCreate)

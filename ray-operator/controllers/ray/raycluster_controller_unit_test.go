@@ -950,6 +950,248 @@ func TestReconcile_PodCrash_DiffLess0_OK(t *testing.T) {
 	}
 }
 
+func TestReconcilePodsStuckDeleteContinuesScaling(t *testing.T) {
+	setupTest(t)
+
+	runtimeObjects := make([]runtime.Object, 0, len(testPods))
+	for _, object := range testPods {
+		pod := object.(*corev1.Pod).DeepCopy()
+		if pod.Name == "pod1" {
+			deletionTimestamp := metav1.NewTime(time.Now().Add(-time.Second))
+			pod.DeletionTimestamp = &deletionTimestamp
+			pod.Finalizers = append(pod.Finalizers, "test-finalizer")
+			pod.Status.Phase = corev1.PodFailed
+		}
+		runtimeObjects = append(runtimeObjects, pod)
+	}
+
+	stuckDeleteCalled := false
+	fakeClient := clientFake.NewClientBuilder().
+		WithRuntimeObjects(runtimeObjects...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(ctx context.Context, next client.WithWatch, object client.Object, options ...client.DeleteOption) error {
+				if object.GetName() == "pod1" {
+					stuckDeleteCalled = true
+					return nil
+				}
+				return next.Delete(ctx, object, options...)
+			},
+		}).
+		Build()
+
+	cluster := testRayCluster.DeepCopy()
+	cluster.Spec.EnableInTreeAutoscaling = nil
+	cluster.Spec.WorkerGroupSpecs[0].ScaleStrategy.WorkersToDelete = nil
+
+	originalTimeout := expectations.ExpectationsTimeout
+	expectations.ExpectationsTimeout = 0
+	defer func() { expectations.ExpectationsTimeout = originalTimeout }()
+
+	testRayClusterReconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   &events.FakeRecorder{},
+		Scheme:                     scheme.Scheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}
+	testRayClusterReconciler.rayClusterScaleExpectation.ExpectScalePod(
+		namespaceStr, instanceName, groupNameStr, "pod1", expectations.Delete)
+
+	require.NoError(t, testRayClusterReconciler.reconcilePods(context.Background(), cluster))
+	assert.False(t, stuckDeleteCalled)
+
+	podList := corev1.PodList{}
+	require.NoError(t, fakeClient.List(context.Background(), &podList, &client.ListOptions{
+		LabelSelector: workerSelector,
+		Namespace:     namespaceStr,
+	}))
+
+	activeWorkers := 0
+	for _, pod := range podList.Items {
+		if pod.DeletionTimestamp.IsZero() {
+			activeWorkers++
+		}
+	}
+	assert.Len(t, podList.Items, 4)
+	assert.Equal(t, 3, activeWorkers)
+}
+
+func TestReconcilePodsNormalDeleteWaitsForTermination(t *testing.T) {
+	setupTest(t)
+	features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, true)
+
+	runtimeObjects := make([]runtime.Object, 0, 4)
+	terminatingPod := &corev1.Pod{}
+	replicaIndexByPodName := map[string]string{
+		"pod1": "0",
+		"pod2": "1",
+		"pod3": "2",
+	}
+	for _, object := range testPods {
+		pod := object.(*corev1.Pod).DeepCopy()
+		replicaIndex, ok := replicaIndexByPodName[pod.Name]
+		if pod.Name != headNodeName && !ok {
+			continue
+		}
+		if ok {
+			pod.Labels[utils.RayWorkerReplicaIndexKey] = replicaIndex
+		}
+		if pod.Name == "pod2" {
+			deletionTimestamp := metav1.Now()
+			pod.DeletionTimestamp = &deletionTimestamp
+			pod.Finalizers = append(pod.Finalizers, "test-finalizer")
+			terminatingPod = pod.DeepCopy()
+		}
+		runtimeObjects = append(runtimeObjects, pod)
+	}
+
+	fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(runtimeObjects...).Build()
+	cluster := testRayCluster.DeepCopy()
+	cluster.Spec.EnableInTreeAutoscaling = nil
+	cluster.Spec.WorkerGroupSpecs[0].ScaleStrategy.WorkersToDelete = nil
+	testRayClusterReconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   &events.FakeRecorder{},
+		Scheme:                     scheme.Scheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}
+
+	ctx := context.Background()
+	require.NoError(t, testRayClusterReconciler.reconcilePods(ctx, cluster))
+	workerPods := corev1.PodList{}
+	require.NoError(t, fakeClient.List(ctx, &workerPods, &client.ListOptions{
+		LabelSelector: workerSelector,
+		Namespace:     namespaceStr,
+	}))
+	assert.Len(t, workerPods.Items, 3, "a normally terminating Pod should keep occupying its replica until it is gone")
+
+	storedPod := &corev1.Pod{}
+	require.NoError(t, fakeClient.Get(ctx, client.ObjectKeyFromObject(terminatingPod), storedPod))
+	storedPod.Finalizers = nil
+	require.NoError(t, fakeClient.Update(ctx, storedPod))
+	if err := fakeClient.Delete(ctx, terminatingPod); err != nil {
+		require.True(t, k8serrors.IsNotFound(err), "failed to remove terminating Pod: %v", err)
+	}
+	require.NoError(t, testRayClusterReconciler.reconcilePods(ctx, cluster))
+	require.NoError(t, fakeClient.List(ctx, &workerPods, &client.ListOptions{
+		LabelSelector: workerSelector,
+		Namespace:     namespaceStr,
+	}))
+	assert.Len(t, workerPods.Items, 3)
+
+	replacementFound := false
+	replicaIndices := make(map[string]bool)
+	for _, pod := range workerPods.Items {
+		replicaIndex := pod.Labels[utils.RayWorkerReplicaIndexKey]
+		replicaIndices[replicaIndex] = true
+		if replicaIndex == "1" && pod.Name != terminatingPod.Name {
+			replacementFound = true
+		}
+	}
+	assert.True(t, replacementFound, "the replacement should reuse the freed replica index")
+	assert.Equal(t, map[string]bool{"0": true, "1": true, "2": true}, replicaIndices)
+}
+
+func TestReconcilePodsStuckDeleteDoesNotReuseReplicaIndex(t *testing.T) {
+	tests := []struct {
+		name        string
+		numOfHosts  int32
+		replicas    int32
+		createdPods int
+	}{
+		{
+			name:        "single host",
+			numOfHosts:  1,
+			replicas:    2,
+			createdPods: 2,
+		},
+		{
+			name:        "multi host",
+			numOfHosts:  2,
+			replicas:    2,
+			createdPods: 4,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setupTest(t)
+			features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, true)
+
+			headPod := testPods[0].(*corev1.Pod).DeepCopy()
+			stuckPod := testPods[1].(*corev1.Pod).DeepCopy()
+			deletionTimestamp := metav1.NewTime(time.Now().Add(-expectations.ExpectationsTimeout - time.Second))
+			stuckPod.DeletionTimestamp = &deletionTimestamp
+			stuckPod.Finalizers = append(stuckPod.Finalizers, "test-finalizer")
+			stuckPod.Status.Phase = corev1.PodFailed
+			stuckPod.Labels[utils.RayWorkerReplicaIndexKey] = "0"
+			if tc.numOfHosts > 1 {
+				stuckPod.Labels[utils.RayWorkerReplicaNameKey] = "stuck-replica"
+				stuckPod.Labels[utils.RayHostIndexKey] = "0"
+			}
+
+			stuckDeleteCalled := false
+			fakeClient := clientFake.NewClientBuilder().
+				WithRuntimeObjects(headPod, stuckPod).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Delete: func(ctx context.Context, next client.WithWatch, object client.Object, options ...client.DeleteOption) error {
+						if object.GetName() == stuckPod.Name {
+							stuckDeleteCalled = true
+							return nil
+						}
+						return next.Delete(ctx, object, options...)
+					},
+				}).
+				Build()
+
+			cluster := testRayCluster.DeepCopy()
+			cluster.Spec.EnableInTreeAutoscaling = nil
+			cluster.Spec.WorkerGroupSpecs[0].Replicas = new(tc.replicas)
+			cluster.Spec.WorkerGroupSpecs[0].NumOfHosts = tc.numOfHosts
+			cluster.Spec.WorkerGroupSpecs[0].ScaleStrategy.WorkersToDelete = []string{stuckPod.Name}
+
+			testRayClusterReconciler := &RayClusterReconciler{
+				Client:                     fakeClient,
+				Recorder:                   &events.FakeRecorder{},
+				Scheme:                     scheme.Scheme,
+				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+			}
+
+			require.NoError(t, testRayClusterReconciler.reconcilePods(context.Background(), cluster))
+			assert.False(t, stuckDeleteCalled)
+
+			podList := corev1.PodList{}
+			require.NoError(t, fakeClient.List(context.Background(), &podList, &client.ListOptions{
+				LabelSelector: workerSelector,
+				Namespace:     namespaceStr,
+			}))
+			assert.Len(t, podList.Items, tc.createdPods+1)
+
+			replicaIndices := make(map[string]string)
+			for _, pod := range podList.Items {
+				replicaIndex := pod.Labels[utils.RayWorkerReplicaIndexKey]
+				require.NotEmpty(t, replicaIndex)
+				if tc.numOfHosts > 1 {
+					replicaName := pod.Labels[utils.RayWorkerReplicaNameKey]
+					require.NotEmpty(t, replicaName)
+					existingIndex, found := replicaIndices[replicaName]
+					if found {
+						require.Equalf(t, existingIndex, replicaIndex, "replica group %s has inconsistent indices %s and %s", replicaName, existingIndex, replicaIndex)
+					} else {
+						existingReplicaName, found := replicaIndices[replicaIndex]
+						require.Falsef(t, found, "replica index %s is shared by replica groups %s and %s", replicaIndex, existingReplicaName, replicaName)
+						replicaIndices[replicaName] = replicaIndex
+						replicaIndices[replicaIndex] = replicaName
+					}
+				} else {
+					existingPodName, found := replicaIndices[replicaIndex]
+					require.Falsef(t, found, "replica index %s is shared by Pods %s and %s", replicaIndex, existingPodName, pod.Name)
+					replicaIndices[replicaIndex] = pod.Name
+				}
+			}
+		})
+	}
+}
+
 func TestReconcile_PodEvicted_DiffLess0_OK(t *testing.T) {
 	setupTest(t)
 
