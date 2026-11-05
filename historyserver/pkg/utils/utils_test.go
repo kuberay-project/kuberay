@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -336,6 +337,44 @@ func TestGetSessionDir_WaitsForActive(t *testing.T) {
 	if duration < 4*time.Second {
 		t.Errorf("expected test to take at least 5s, took %v", duration)
 	}
+}
+
+func TestIsSessionDirActive_PermissionDeniedSocket(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix socket file permissions are not enforced on windows")
+	}
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses unix socket file permission checks, EACCES cannot be produced")
+	}
+
+	// Use a short temp path: the unix socket path must fit in sun_path (104 bytes on darwin),
+	// and t.TempDir() would include the long test name.
+	tmpDir, err := os.MkdirTemp("", "s-*")
+	require.NoError(t, err)
+	t.Cleanup(func() { os.RemoveAll(tmpDir) })
+
+	sessionDir := filepath.Join(tmpDir, "session_1")
+	socketDir := filepath.Join(sessionDir, "sockets")
+	require.NoError(t, os.MkdirAll(socketDir, 0o755))
+
+	socketPath := filepath.Join(socketDir, "raylet")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socketPath)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		// Restore permissions so the socket file can be removed.
+		_ = os.Chmod(socketPath, 0o755)
+		listener.Close()
+	})
+
+	// Removing write permission from the socket file makes connect() fail with
+	// EACCES even for the file owner, simulating a raylet socket owned by another user.
+	require.NoError(t, os.Chmod(socketPath, 0o000))
+
+	assert.True(t, IsSessionDirActive(sessionDir),
+		"a permission-restricted raylet socket proves the session exists and must be treated as active")
+
+	// A missing socket must still report the session as inactive.
+	assert.False(t, IsSessionDirActive(filepath.Join(tmpDir, "session_missing")))
 }
 
 func TestMoveLeftoverSessionLogs(t *testing.T) {
