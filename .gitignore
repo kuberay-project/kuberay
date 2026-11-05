@@ -45,10 +45,12 @@
 
 .ipynb_checkpoints
 
-# Python virtual environments
+# Python
 .venv/
 venv/
 __pycache__/
+*.pyc
+*.pyo
 
 # Any file with a .backup extension
 **/*.backup
@@ -85,8 +87,3 @@ schema/
 # Source: https://go.dev/ref/mod#workspaces
 # go.work
 # go.work.sum
-
-# Python bytecode
-__pycache__/
-*.pyc
-*.pyo

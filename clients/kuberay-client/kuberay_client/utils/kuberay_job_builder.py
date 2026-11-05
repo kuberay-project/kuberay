@@ -1,15 +1,13 @@
 """
-KubeRay Job Builder - Clean API wrapper over CRD-generated Pydantic models.
+KubeRay Job Builder - Clean API for constructing RayJob manifests.
 
-This provides:
-- Single source of truth (generated from CRD OpenAPI schema)
-- Clean, ergonomic Python API
-- Full validation against actual CRD schema
-- IDE autocomplete support
+Builders assemble plain dictionaries and validate them against the
+CRD-generated Pydantic root models. The generated models are internal
+implementation details; only the root RayJob class is imported for
+validation.
 
 Usage:
     from kuberay_client.utils.kuberay_job_builder import RayJobBuilder, create_ray_job
-
 
     # Create a RayJob targeting existing cluster
     job = RayJobBuilder("my-job") \
@@ -28,24 +26,14 @@ Usage:
         .build()
 """
 
-from typing import Optional
+from typing import Any, Optional
 import json
 
-# Import CRD-generated models (the source of truth). These come from the RayJob
-# module: the cluster spec a RayJob embeds is its own set of classes, so
-# raycluster models are not accepted here.
-from kuberay_client.models.generated.rayjob import (
-    RayJob, Spec, RayClusterSpec, HeadGroupSpec, WorkerGroupSpec,
-    Template, Spec2, Container,
-)
+from kuberay_client.models import RayJob
 
 
 class RayJobBuilder:
-    """
-    Builder for RayJob CRD with clean API.
-
-    Wraps the CRD-generated Pydantic models with an ergonomic interface.
-    """
+    """Builder for RayJob CRD manifests."""
 
     def __init__(self, name: str, namespace: str = "default"):
         self.name = name
@@ -56,7 +44,7 @@ class RayJobBuilder:
         # Spec fields
         self.entrypoint: Optional[str] = None
         self.cluster_selector: Optional[dict[str, str]] = None
-        self.ray_cluster_spec: Optional[RayClusterSpec] = None
+        self._ray_cluster_spec: Optional[dict[str, Any]] = None
         self.shutdown_after_finish: bool = False
         self.ttl_seconds: Optional[int] = None
         self.runtime_env_yaml: Optional[str] = None
@@ -89,40 +77,41 @@ class RayJobBuilder:
         ray_version: str = "2.48.0",
     ) -> "RayJobBuilder":
         """Create an embedded RayCluster for this job."""
-
         if worker_image is None:
             worker_image = head_image
 
-        # Build head template using CRD-generated models
-        head_template = Template(
-            spec=Spec2(
-                containers=[Container(name="ray-head", image=head_image)]
-            )
-        )
+        cluster_spec: dict[str, Any] = {
+            "rayVersion": ray_version,
+            "headGroupSpec": {
+                "rayStartParams": {"dashboard-host": "0.0.0.0"},
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {"name": "ray-head", "image": head_image}
+                        ]
+                    }
+                },
+            },
+        }
 
-        # Build worker template
-        worker_template = Template(
-            spec=Spec2(
-                containers=[Container(name="ray-worker", image=worker_image)]
-            )
-        )
+        if worker_replicas > 0:
+            cluster_spec["workerGroupSpecs"] = [
+                {
+                    "groupName": "default-worker",
+                    "replicas": worker_replicas,
+                    "minReplicas": worker_min_replicas,
+                    "maxReplicas": worker_max_replicas,
+                    "template": {
+                        "spec": {
+                            "containers": [
+                                {"name": "ray-worker", "image": worker_image}
+                            ]
+                        }
+                    },
+                }
+            ]
 
-        self.ray_cluster_spec = RayClusterSpec(
-            rayVersion=ray_version,
-            headGroupSpec=HeadGroupSpec(
-                rayStartParams={"dashboard-host": "0.0.0.0"},
-                template=head_template,
-            ),
-            workerGroupSpecs=[
-                WorkerGroupSpec(
-                    groupName="default-worker",
-                    replicas=worker_replicas,
-                    minReplicas=worker_min_replicas,
-                    maxReplicas=worker_max_replicas,
-                    template=worker_template,
-                )
-            ] if worker_replicas > 0 else None,
-        )
+        self._ray_cluster_spec = cluster_spec
         return self
 
     def with_shutdown_after_finish(self, shutdown: bool = True) -> "RayJobBuilder":
@@ -145,7 +134,7 @@ class RayJobBuilder:
         num_cpus: Optional[float] = None,
         num_gpus: Optional[float] = None
     ) -> "RayJobBuilder":
-        """Set entrypoint resource requirements. Only updates fields that are explicitly provided."""
+        """Set entrypoint resource requirements."""
         if num_cpus is not None:
             self.entrypoint_num_cpus = num_cpus
         if num_gpus is not None:
@@ -157,62 +146,65 @@ class RayJobBuilder:
         self.active_deadline_seconds = seconds
         return self
 
-    def build(self) -> RayJob:
-        """Build the RayJob CRD object."""
-
+    def build(self) -> dict:
+        """Build and validate the RayJob manifest dict."""
         if not self.entrypoint:
             raise ValueError("entrypoint is required")
 
-        if not self.cluster_selector and not self.ray_cluster_spec:
+        if not self.cluster_selector and not self._ray_cluster_spec:
             raise ValueError("Either cluster_selector or cluster_spec is required")
 
-        # Build spec using CRD-generated model
-        spec_kwargs = {
+        spec: dict[str, Any] = {
             "entrypoint": self.entrypoint,
             "submissionMode": "K8sJobMode",
         }
 
         if self.cluster_selector:
-            spec_kwargs["clusterSelector"] = self.cluster_selector
-        if self.ray_cluster_spec:
-            spec_kwargs["rayClusterSpec"] = self.ray_cluster_spec
+            spec["clusterSelector"] = self.cluster_selector
+        if self._ray_cluster_spec:
+            spec["rayClusterSpec"] = self._ray_cluster_spec
         if self.shutdown_after_finish:
-            spec_kwargs["shutdownAfterJobFinishes"] = True
+            spec["shutdownAfterJobFinishes"] = True
         if self.ttl_seconds is not None:
-            spec_kwargs["ttlSecondsAfterFinished"] = self.ttl_seconds
+            spec["ttlSecondsAfterFinished"] = self.ttl_seconds
         if self.runtime_env_yaml:
-            spec_kwargs["runtimeEnvYAML"] = self.runtime_env_yaml
+            spec["runtimeEnvYAML"] = self.runtime_env_yaml
         if self.entrypoint_num_cpus is not None:
-            spec_kwargs["entrypointNumCpus"] = self.entrypoint_num_cpus
+            spec["entrypointNumCpus"] = self.entrypoint_num_cpus
         if self.entrypoint_num_gpus is not None:
-            spec_kwargs["entrypointNumGpus"] = self.entrypoint_num_gpus
+            spec["entrypointNumGpus"] = self.entrypoint_num_gpus
         if self.active_deadline_seconds is not None:
-            spec_kwargs["activeDeadlineSeconds"] = self.active_deadline_seconds
+            spec["activeDeadlineSeconds"] = self.active_deadline_seconds
 
-        return RayJob(
-            apiVersion="ray.io/v1",
-            kind="RayJob",
-            metadata={
-                "name": self.name,
-                "namespace": self.namespace,
-                "labels": self.labels or None,
-                "annotations": self.annotations or None,
-            },
-            spec=Spec(**spec_kwargs),
-        )
+        metadata: dict[str, Any] = {
+            "name": self.name,
+            "namespace": self.namespace,
+        }
+        if self.labels:
+            metadata["labels"] = self.labels
+        if self.annotations:
+            metadata["annotations"] = self.annotations
+
+        manifest: dict[str, Any] = {
+            "apiVersion": "ray.io/v1",
+            "kind": "RayJob",
+            "metadata": metadata,
+            "spec": spec,
+        }
+
+        # Validate against the CRD-generated Pydantic model
+        RayJob.model_validate(manifest)
+
+        return manifest
 
     def to_dict(self) -> dict:
-        """Build and convert to dict for K8s API."""
-        return self.build().model_dump(by_alias=True, exclude_none=True, exclude_unset=True)
+        """Build and convert to dict for K8s API (alias for build)."""
+        return self.build()
 
     def to_json(self, indent: int = 2) -> str:
         """Build and convert to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent)
+        return json.dumps(self.build(), indent=indent)
 
-
-# ================================================================
-# Convenience functions
-# ================================================================
 
 def create_ray_job(
     name: str,
@@ -244,9 +236,9 @@ def create_ray_job(
         worker_replicas: Number of workers (for ephemeral cluster)
         shutdown_after_finish: Delete cluster when job completes
         head_image: Ray image for the head node (ephemeral cluster only)
-        worker_image: Ray image for worker nodes; defaults to head_image (ephemeral cluster only)
-        worker_min_replicas: Minimum worker replicas for autoscaling (ephemeral cluster only)
-        worker_max_replicas: Maximum worker replicas for autoscaling (ephemeral cluster only)
+        worker_image: Ray image for worker nodes; defaults to head_image
+        worker_min_replicas: Minimum worker replicas for autoscaling
+        worker_max_replicas: Maximum worker replicas for autoscaling
         ray_version: Ray version string (ephemeral cluster only)
         ttl_seconds: Seconds to keep the job resource after it finishes
         runtime_env_yaml: Runtime environment YAML string
@@ -285,51 +277,4 @@ def create_ray_job(
     if active_deadline_seconds is not None:
         builder.with_deadline(active_deadline_seconds)
 
-    return builder.to_dict()
-
-
-# ================================================================
-# Demo
-# ================================================================
-
-if __name__ == "__main__":
-    print("=" * 60)
-    print("Example 1: RayJob targeting existing cluster")
-    print("=" * 60)
-
-    job1 = RayJobBuilder("inference-job") \
-        .with_entrypoint("python inference.py") \
-        .with_cluster_selector("production-cluster") \
-        .with_labels({"team": "ml-platform"}) \
-        .to_dict()
-
-    print(json.dumps(job1, indent=2))
-
-    print("\n" + "=" * 60)
-    print("Example 2: RayJob with embedded cluster")
-    print("=" * 60)
-
-    job2 = RayJobBuilder("training-job") \
-        .with_entrypoint("python train.py --epochs 100") \
-        .with_cluster_spec(
-            head_image="rayproject/ray:2.48.0",
-            worker_replicas=4,
-            worker_max_replicas=8,
-        ) \
-        .with_shutdown_after_finish(True) \
-        .with_ttl_seconds(300) \
-        .with_resources(num_cpus=2.0, num_gpus=1.0) \
-        .to_dict()
-
-    print(json.dumps(job2, indent=2))
-
-    print("\n" + "=" * 60)
-    print("Example 3: Using convenience function")
-    print("=" * 60)
-
-    job3 = create_ray_job(
-        name="quick-job",
-        entrypoint="python -c 'print(1+1)'",
-        worker_replicas=2,
-    )
-    print(json.dumps(job3, indent=2))
+    return builder.build()

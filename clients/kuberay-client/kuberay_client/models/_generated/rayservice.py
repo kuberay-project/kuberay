@@ -38,14 +38,7 @@ class RayClusterConfigAutoscalerOptionEnvFileKeyRef(BaseModel):
     volumeName: str
 
 
-class Divisor(RootModel[int]):
-    root: int = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class Divisor1(RootModel[str]):
+class Divisor(RootModel[str]):
     root: str = Field(
         ...,
         pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
@@ -54,7 +47,7 @@ class Divisor1(RootModel[str]):
 
 class RayClusterConfigAutoscalerOptionEnvResourceFieldRef(BaseModel):
     containerName: str | None = None
-    divisor: Divisor | Divisor1 | None = None
+    divisor: int | Divisor | None = None
     resource: str
 
 
@@ -88,43 +81,15 @@ class RayClusterConfigAutoscalerOptionResourceClaim(BaseModel):
     request: str | None = None
 
 
-class Limits1(RootModel[int]):
-    root: int = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class Limits2(RootModel[str]):
+class Limits(RootModel[str]):
     root: str = Field(
         ...,
         pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
     )
 
 
-class Limits(RootModel[Limits1 | Limits2]):
-    root: Limits1 | Limits2 = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class Requests1(RootModel[int]):
-    root: int = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class Requests2(RootModel[str]):
+class Requests(RootModel[str]):
     root: str = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class Requests(RootModel[Requests1 | Requests2]):
-    root: Requests1 | Requests2 = Field(
         ...,
         pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
     )
@@ -132,8 +97,8 @@ class Requests(RootModel[Requests1 | Requests2]):
 
 class RayClusterConfigAutoscalerOptionResource(BaseModel):
     claims: list[RayClusterConfigAutoscalerOptionResourceClaim] | None = None
-    limits: dict[str, Limits] | None = None
-    requests: dict[str, Requests] | None = None
+    limits: dict[str, int | Limits] | None = None
+    requests: dict[str, int | Requests] | None = None
 
 
 class RayClusterConfigAutoscalerOptionSecurityContextAppArmorProfile(BaseModel):
@@ -239,14 +204,7 @@ class DeletionPolicy(StrEnum):
     Retain = 'Retain'
 
 
-class Size(RootModel[int]):
-    root: int = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class Size1(RootModel[str]):
+class Size(RootModel[str]):
     root: str = Field(
         ...,
         pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
@@ -257,7 +215,7 @@ class RayClusterConfigStorage(BaseModel):
     accessModes: list[str] | None = None
     claimName: str | None = None
     deletionPolicy: DeletionPolicy | None = None
-    size: Size | Size1 | None = None
+    size: int | Size | None = None
     storageClassName: str | None = None
     subPath: str | None = None
 
@@ -771,14 +729,7 @@ class RayClusterConfigHeadGroupSpecVolumeDownwardAPI(BaseModel):
     items: list[RayClusterConfigHeadGroupSpecVolumeDownwardAPIItem] | None = None
 
 
-class SizeLimit(RootModel[int]):
-    root: int = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class SizeLimit1(RootModel[str]):
+class SizeLimit(RootModel[str]):
     root: str = Field(
         ...,
         pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
@@ -788,7 +739,7 @@ class SizeLimit1(RootModel[str]):
 class RayClusterConfigHeadGroupSpecVolumeEmptyDir(BaseModel):
     medium: str | None = None
     mode: int | None = None
-    sizeLimit: SizeLimit | SizeLimit1 | None = None
+    sizeLimit: int | SizeLimit | None = None
 
 
 class EphemeralDataSource(BaseModel):
@@ -804,51 +755,9 @@ class EphemeralDataSourceRef(BaseModel):
     namespace: str | None = None
 
 
-class Limits31(RootModel[int]):
-    root: int = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class Limits32(RootModel[str]):
-    root: str = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class Limits3(RootModel[Limits31 | Limits32]):
-    root: Limits31 | Limits32 = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class Requests31(RootModel[int]):
-    root: int = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class Requests32(RootModel[str]):
-    root: str = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class Requests3(RootModel[Requests31 | Requests32]):
-    root: Requests31 | Requests32 = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
 class EphemeralResource(BaseModel):
-    limits: dict[str, Limits3] | None = None
-    requests: dict[str, Requests3] | None = None
+    limits: dict[str, int | Limits] | None = None
+    requests: dict[str, int | Requests] | None = None
 
 
 class EphemeralSpec(BaseModel):
@@ -1114,22 +1023,8 @@ class RayClusterConfigHeadGroupSpecVolume(BaseModel):
     vsphereVolume: RayClusterConfigHeadGroupSpecVolumeVsphereVolume | None = None
 
 
-class Overhead1(RootModel[int]):
-    root: int = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class Overhead2(RootModel[str]):
+class Overhead(RootModel[str]):
     root: str = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class Overhead(RootModel[Overhead1 | Overhead2]):
-    root: Overhead1 | Overhead2 = Field(
         ...,
         pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
     )
@@ -1161,7 +1056,7 @@ class RayClusterConfigHeadGroupSpecSpec(BaseModel):
     nodeName: str | None = None
     nodeSelector: dict[str, str] | None = None
     os: RayClusterConfigHeadGroupSpecOs | None = None
-    overhead: dict[str, Overhead] | None = None
+    overhead: dict[str, int | Overhead] | None = None
     preemptionPolicy: str | None = None
     priority: int | None = None
     priorityClassName: str | None = None
@@ -1212,6 +1107,16 @@ class RayClusterConfigCollectorOption(BaseModel):
 
 class RayClusterConfigHistoryServerOption(BaseModel):
     collectorOptions: RayClusterConfigCollectorOption | None = None
+
+
+class Policy(StrEnum):
+    Delete = 'Delete'
+    Suspend = 'Suspend'
+
+
+class RayClusterConfigIdleTerminationOption(BaseModel):
+    policy: Policy | None = 'Suspend'
+    timeoutSeconds: int
 
 
 class RayClusterConfigHeadPort(BaseModel):
@@ -1325,6 +1230,8 @@ class RayClusterConfig(BaseModel):
     headGroupSpec: RayClusterConfigHeadGroupSpec
     headServiceAnnotations: dict[str, str] | None = None
     historyServerOptions: RayClusterConfigHistoryServerOption | None = None
+    idleSuspend: bool | None = None
+    idleTerminationOptions: RayClusterConfigIdleTerminationOption | None = None
     managedBy: str | None = None
     networkPolicy: RayClusterConfigNetworkPolicy | None = None
     rayVersion: str | None = None
@@ -1399,56 +1306,28 @@ class ActiveServiceStatusHead(BaseModel):
     serviceName: str | None = None
 
 
-class DesiredCPU(RootModel[int]):
-    root: int = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class DesiredCPU1(RootModel[str]):
+class DesiredCPU(RootModel[str]):
     root: str = Field(
         ...,
         pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
     )
 
 
-class DesiredGPU(RootModel[int]):
-    root: int = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class DesiredGPU1(RootModel[str]):
+class DesiredGPU(RootModel[str]):
     root: str = Field(
         ...,
         pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
     )
 
 
-class DesiredMemory(RootModel[int]):
-    root: int = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class DesiredMemory1(RootModel[str]):
+class DesiredMemory(RootModel[str]):
     root: str = Field(
         ...,
         pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
     )
 
 
-class DesiredTPU(RootModel[int]):
-    root: int = Field(
-        ...,
-        pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
-    )
-
-
-class DesiredTPU1(RootModel[str]):
+class DesiredTPU(RootModel[str]):
     root: str = Field(
         ...,
         pattern='^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$',
@@ -1458,10 +1337,10 @@ class DesiredTPU1(RootModel[str]):
 class ActiveServiceStatusRayClusterStatus(BaseModel):
     availableWorkerReplicas: int | None = None
     conditions: list[RayClusterConfigHeadGroupSpecHeadServiceCondition] | None = None
-    desiredCPU: DesiredCPU | DesiredCPU1 | None = None
-    desiredGPU: DesiredGPU | DesiredGPU1 | None = None
-    desiredMemory: DesiredMemory | DesiredMemory1 | None = None
-    desiredTPU: DesiredTPU | DesiredTPU1 | None = None
+    desiredCPU: int | DesiredCPU | None = None
+    desiredGPU: int | DesiredGPU | None = None
+    desiredMemory: int | DesiredMemory | None = None
+    desiredTPU: int | DesiredTPU | None = None
     desiredWorkerReplicas: int | None = None
     endpoints: dict[str, str] | None = None
     head: ActiveServiceStatusHead | None = None
