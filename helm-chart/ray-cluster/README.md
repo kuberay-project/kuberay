@@ -1,6 +1,6 @@
 # RayCluster
 
-![Version: 1.1.0](https://img.shields.io/badge/Version-1.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
+![Version: 1.8.0-rc.0](https://img.shields.io/badge/Version-1.8.0--rc.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
 
 A Helm chart for deploying the RayCluster with the kuberay operator.
 
@@ -30,15 +30,15 @@ kind create cluster
 # Step 2: Register a Helm chart repo
 helm repo add kuberay https://ray-project.github.io/kuberay-helm/
 
-# Step 3: Install both CRDs and KubeRay operator v1.1.0.
-helm install kuberay-operator kuberay/kuberay-operator --version 1.1.0
+# Step 3: Install both CRDs and KubeRay operator v1.8.0-rc.0.
+helm install kuberay-operator kuberay/kuberay-operator --version 1.8.0-rc.0
 
 # Step 4: Install a RayCluster custom resource
 # (For x86_64 users)
-helm install raycluster kuberay/ray-cluster --version 1.1.0
+helm install raycluster kuberay/ray-cluster --version 1.8.0-rc.0
 # (For arm64 users, e.g. Mac M1)
 # See here for all available arm64 images: https://hub.docker.com/r/rayproject/ray/tags?page=1&name=aarch64
-helm install raycluster kuberay/ray-cluster --version 1.1.0 --set image.tag=nightly-aarch64
+helm install raycluster kuberay/ray-cluster --version 1.8.0-rc.0 --set image.tag=nightly-aarch64
 
 # Step 5: Verify the installation of KubeRay operator and RayCluster
 kubectl get pods
