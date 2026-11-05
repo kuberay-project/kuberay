@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "python-client"
+name = "kuberay-client"
 version = "0.0.0-dev"
 description = "Python Client for Kuberay"
 license = "Apache-2.0"
@@ -14,7 +14,7 @@ classifiers = [
     "Operating System :: OS Independent"
 ]
 packages = [
-  { include = "python_client" }
+  { include = "kuberay_client" }
 ]
 
 [tool.poetry.dependencies]

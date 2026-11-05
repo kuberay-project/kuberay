@@ -77,13 +77,11 @@ spec:
             # Optional; defaults to 30s.
             # - name: RAY_COLLECTOR_POLL_INTERVAL
             #   value: "1m"
-            # Optional; defaults to 30s. Interval at which completed Ray log rotation
-            # backups are uploaded before Ray's rotation ring overwrites them. Keep it
-            # shorter than the time Ray takes to cycle through its rotation backups, which
-            # depends on RAY_ROTATION_MAX_BYTES, RAY_ROTATION_BACKUP_COUNT and how fast the
-            # node logs.
-            # - name: RAY_COLLECTOR_ROTATED_LOG_SCAN_INTERVAL
-            #   value: "10s"
+            # Optional; defaults to 5m. Interval at which rotated Ray log backups and new
+            # active log content are uploaded. Shorter intervals produce more log chunks
+            # for the History Server to merge on read.
+            # - name: RAY_COLLECTOR_LOG_UPLOAD_INTERVAL
+            #   value: "1m"
             # Optional extras on top of the built-in endpoints (Serve, placement groups, Ray Data).
             # Paths must match the History Server replay request URI, query string included.
             # For example, preserve Ray Train V2 run details for a future History Server view.

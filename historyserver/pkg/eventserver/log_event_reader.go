@@ -56,7 +56,7 @@ func NewLogEventReader(reader storage.StorageReader) *LogEventReader {
 // Return an error if any listed file fails to read (total or partial).
 func (r *LogEventReader) ReadLogEvents(clusterInfo utils.ClusterInfo, clusterSessionKey string, eventStore *types.ClusterLogEventMap) error {
 	// Build storage prefix used by StorageReader
-	clusterLogPathPrefix := clusterlogs.Prefix("", clusterInfo.OwnerKind, clusterInfo.OwnerName, clusterInfo.Namespace, clusterInfo.Name)
+	clusterLogPathPrefix := clusterlogs.Prefix("", clusterInfo)
 
 	// Get or create the JobEventMap for this cluster session
 	jobEventMap := eventStore.GetOrCreateJobEventMap(clusterSessionKey)
@@ -70,7 +70,7 @@ func (r *LogEventReader) ReadLogEvents(clusterInfo utils.ClusterInfo, clusterSes
 	for _, nodeID := range nodeIDs {
 		// Events directory: hierarchical (<sessionName>/<nodeId>/logs/events)
 		eventsDir := path.Join(clusterlogs.RelLogsDir(clusterInfo.SessionName, nodeID), "events")
-		eventFileNames := r.reader.ListFiles(clusterLogPathPrefix, eventsDir)
+		eventFileNames := clusterlogs.ListLogFiles(r.reader, clusterLogPathPrefix, eventsDir)
 		for _, fileName := range eventFileNames {
 			if !strings.HasPrefix(fileName, "event_") || !strings.HasSuffix(fileName, ".log") {
 				continue
@@ -95,7 +95,7 @@ func (r *LogEventReader) ReadLogEvents(clusterInfo utils.ClusterInfo, clusterSes
 // Lines exceeding maxLineLengthLimit are drained and skipped without accumulating
 // in memory, matching Ray Dashboard's _read_file() behavior in event_utils.py.
 func (r *LogEventReader) readEventFile(prefix, filePath string, jobEventMap *types.JobEventMap) error {
-	ioReader := r.reader.GetContent(prefix, filePath)
+	ioReader := clusterlogs.ReadLogFile(r.reader, prefix, filePath)
 	if ioReader == nil {
 		return fmt.Errorf("failed to get content for %s", filePath)
 	}
