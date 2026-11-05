@@ -1,6 +1,5 @@
 """
-Set of helper methods to manage rayclusters using typed Pydantic models.
-Requires Python 3.9 and higher.
+Set of helper methods to manage rayclusters. Requires Python 3.9 and higher.
 """
 
 import logging
@@ -8,21 +7,6 @@ import copy
 import re
 from typing import Any, Tuple
 from kuberay_client import constants
-from kuberay_client.models.generated.raycluster import (
-    HeadGroupSpec,
-    WorkerGroupSpec,
-    Template,
-    Spec2,
-    Container,
-    Resources,
-    Port2,
-    VolumeMount,
-    Volume,
-    EmptyDir,
-    Lifecycle,
-    PostStart,
-    Exec,
-)
 
 
 log = logging.getLogger(__name__)
@@ -32,7 +16,7 @@ if logging.getLevelName(log.level) == "NOTSET":
 
 class ClusterUtils:
     """
-    ClusterUtils - Utility class for populating cluster information using typed Pydantic models.
+    ClusterUtils - Utility class for populating cluster information.
 
     Methods:
     - populate_meta(cluster: dict, name: str, k8s_namespace: str, labels: dict, ray_version: str) -> dict
@@ -86,7 +70,7 @@ class ClusterUtils:
         memory_limits: str,
         ray_start_params: dict,
     ) -> Tuple[dict, bool]:
-        """Populate the ray head specs of the cluster using typed Pydantic models.
+        """Populate the ray head specs of the cluster.
 
         Parameters:
         - cluster (dict): The dictionary representation of the cluster.
@@ -101,7 +85,7 @@ class ClusterUtils:
         Returns:
         - Tuple (dict, bool): The updated cluster, and a boolean indicating success.
         """
-        # Validate arguments
+        # validate arguments
         try:
             arguments = locals()
             for k, v in arguments.items():
@@ -114,7 +98,7 @@ class ClusterUtils:
             )
             return cluster, False
 
-        # Make sure metadata exists
+        # make sure metadata exists
         if "spec" in cluster.keys():
             if "headGroupSpec" not in cluster.keys():
                 log.info(
@@ -122,45 +106,54 @@ class ClusterUtils:
                         cluster["metadata"]["name"]
                     )
                 )
+                cluster["spec"]["headGroupSpec"] = []
         else:
             log.error("error creating ray head, the spec and/or metadata is not defined")
             return cluster, False
 
-        # Build using Pydantic models
-        head_container = Container(
-            name="ray-head",
-            image=ray_image,
-            ports=[
-                Port2(containerPort=6379, name="gcs-server", protocol="TCP"),
-                Port2(containerPort=8265, name="dashboard", protocol="TCP"),
-                Port2(containerPort=10001, name="client", protocol="TCP"),
-            ],
-            resources=Resources(
-                requests={"cpu": cpu_requests, "memory": memory_requests},
-                limits={"cpu": cpu_limits, "memory": memory_limits},
-            ),
-            volumeMounts=[
-                VolumeMount(mountPath="/tmp/ray", name="ray-logs"),
-            ],
-        )
-
-        pod_spec = Spec2(
-            containers=[head_container],
-            volumes=[
-                Volume(name="ray-logs", emptyDir=EmptyDir()),
-            ],
-        )
-
-        head_group_spec = HeadGroupSpec(
-            serviceType=service_type,
-            rayStartParams=ray_start_params,
-            template=Template(spec=pod_spec),
-        )
-
-        # Convert to dict and set on cluster
-        cluster["spec"]["headGroupSpec"] = head_group_spec.model_dump(
-            by_alias=True, exclude_none=True, exclude_unset=True
-        )
+        # populate headGroupSpec
+        cluster["spec"]["headGroupSpec"] = {
+            "serviceType": service_type,
+            "rayStartParams": ray_start_params,
+            "template": {
+                "spec": {
+                    "containers": [
+                        {
+                            "image": ray_image,
+                            "name": "ray-head",
+                            "ports": [
+                                {
+                                    "containerPort": 6379,
+                                    "name": "gcs-server",
+                                    "protocol": "TCP",
+                                },
+                                {
+                                    "containerPort": 8265,
+                                    "name": "dashboard",
+                                    "protocol": "TCP",
+                                },
+                                {
+                                    "containerPort": 10001,
+                                    "name": "client",
+                                    "protocol": "TCP",
+                                },
+                            ],
+                            "resources": {
+                                "requests": {
+                                    "cpu": cpu_requests,
+                                    "memory": memory_requests,
+                                },
+                                "limits": {"cpu": cpu_limits, "memory": memory_limits},
+                            },
+                            "volumeMounts": [
+                                {"mountPath": "/tmp/ray", "name": "ray-logs"}
+                            ],
+                        }
+                    ],
+                    "volumes": [{"emptyDir": {}, "name": "ray-logs"}],
+                }
+            },
+        }
 
         return cluster, True
 
@@ -179,7 +172,7 @@ class ClusterUtils:
         max_replicas: int,
         ray_start_params: dict,
     ) -> Tuple[dict, bool]:
-        """Populate the worker group specification using typed Pydantic models.
+        """Populate the worker group specification in the cluster dictionary.
 
         Parameters:
         - group_name (str): The name of the worker group.
@@ -198,7 +191,7 @@ class ClusterUtils:
         Returns:
         - Tuple[dict, bool]: A tuple of the worker group dict and a boolean indicating success.
         """
-        # Validate arguments
+        # validate arguments
         try:
             arguments = locals()
             for k, v in arguments.items():
@@ -215,47 +208,45 @@ class ClusterUtils:
         assert self.is_valid_name(group_name)
         assert max_replicas >= min_replicas
 
-        # Build using Pydantic models
-        worker_container = Container(
-            name="ray-worker",
-            image=ray_image,
-            command=ray_command,
-            lifecycle=Lifecycle(
-                preStop=PostStart(
-                    exec=Exec(command=["/bin/sh", "-c", "ray stop"])
-                )
-            ),
-            resources=Resources(
-                requests={"cpu": cpu_requests, "memory": memory_requests},
-                limits={"cpu": cpu_limits, "memory": memory_limits},
-            ),
-            volumeMounts=[
-                VolumeMount(mountPath="/tmp/ray", name="ray-logs"),
-            ],
-        )
+        worker_group: dict[str, Any] = {
+            "groupName": group_name,
+            "maxReplicas": max_replicas,
+            "minReplicas": min_replicas,
+            "rayStartParams": ray_start_params,
+            "replicas": replicas,
+            "template": {
+                "spec": {
+                    "containers": [
+                        {
+                            "image": ray_image,
+                            "command": ray_command,
+                            "lifecycle": {
+                                "preStop": {
+                                    "exec": {"command": ["/bin/sh", "-c", "ray stop"]}
+                                }
+                            },
+                            "name": "ray-worker",
+                            "resources": {
+                                "requests": {
+                                    "cpu": cpu_requests,
+                                    "memory": memory_requests,
+                                },
+                                "limits": {
+                                    "cpu": cpu_limits,
+                                    "memory": memory_limits,
+                                },
+                            },
+                            "volumeMounts": [
+                                {"mountPath": "/tmp/ray", "name": "ray-logs"}
+                            ],
+                        }
+                    ],
+                    "volumes": [{"emptyDir": {}, "name": "ray-logs"}],
+                }
+            },
+        }
 
-        pod_spec = Spec2(
-            containers=[worker_container],
-            volumes=[
-                Volume(name="ray-logs", emptyDir=EmptyDir()),
-            ],
-        )
-
-        worker_group_spec = WorkerGroupSpec(
-            groupName=group_name,
-            maxReplicas=max_replicas,
-            minReplicas=min_replicas,
-            replicas=replicas,
-            rayStartParams=ray_start_params,
-            template=Template(spec=pod_spec),
-        )
-
-        # Convert to dict
-        worker_group_dict = worker_group_spec.model_dump(
-            by_alias=True, exclude_none=True, exclude_unset=True
-        )
-
-        return worker_group_dict, True
+        return worker_group, True
 
     def update_worker_group_replicas(
         self,

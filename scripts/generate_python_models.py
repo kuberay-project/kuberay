@@ -153,8 +153,17 @@ def normalize_schema(schema: dict) -> dict:
 def _convert_int_or_string(obj: Any) -> Any:
     if isinstance(obj, dict):
         if obj.get("x-kubernetes-int-or-string"):
-            new = {k: v for k, v in obj.items() if k != "x-kubernetes-int-or-string" and k != "type" and k != "anyOf"}
-            new["oneOf"] = [{"type": "integer"}, {"type": "string"}]
+            # Move any sibling "pattern" onto the string branch only.
+            # Quantity fields use {"anyOf": [int, string], "pattern": ...} but
+            # the pattern only constrains strings — applying it to int causes
+            # pydantic to reject with "Unable to apply constraint 'pattern'".
+            pattern = obj.get("pattern")
+            new = {k: v for k, v in obj.items()
+                   if k not in ("x-kubernetes-int-or-string", "type", "anyOf", "pattern")}
+            string_branch: dict[str, Any] = {"type": "string"}
+            if pattern:
+                string_branch["pattern"] = pattern
+            new["oneOf"] = [{"type": "integer"}, string_branch]
             return {k: _convert_int_or_string(v) if k != "oneOf" else v for k, v in new.items()}
         return {k: _convert_int_or_string(v) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -303,12 +312,45 @@ def generate_model_for_crd(crd_path: str, output_path: str) -> None:
 
 
 CRD_DIR = "ray-operator/config/crd/bases"
-OUTPUT_DIR = "clients/python-api/kuberay_api/models"
+OUTPUT_DIR = "clients/kuberay-client/kuberay_client/models/_generated"
 CRD_PATTERN = "ray.io_*.yaml"
+REQUIREMENTS_PATH = Path(__file__).parent / "requirements-python-models.txt"
+CODEGEN_PACKAGE = "datamodel-code-generator"
+
+
+def _pinned_codegen_version() -> str:
+    """Read the datamodel-code-generator version pinned in requirements."""
+    for line in REQUIREMENTS_PATH.read_text().splitlines():
+        match = re.match(rf"^{re.escape(CODEGEN_PACKAGE)}(?:\[.*\])?==(\S+)$", line.strip())
+        if match:
+            return match.group(1)
+    print(f"ERROR: no '{CODEGEN_PACKAGE}==<version>' pin in {REQUIREMENTS_PATH}", file=sys.stderr)
+    sys.exit(1)
+
+
+def _check_codegen_version(expected: str) -> None:
+    """Ensure the installed datamodel-codegen matches the pinned version."""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "datamodel_code_generator", "--version"],
+            capture_output=True, check=True, text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print(f"ERROR: {CODEGEN_PACKAGE} is required. "
+              f"Install with: pip install -r {REQUIREMENTS_PATH}", file=sys.stderr)
+        sys.exit(1)
+    installed = result.stdout.strip().split()[-1]
+    if installed != expected:
+        print(f"ERROR: datamodel-codegen {installed} installed, but {expected} is pinned. "
+              f"Install with: pip install -r {REQUIREMENTS_PATH}", file=sys.stderr)
+        sys.exit(1)
 
 
 def generate_models(crd_dir: str, output_dir: str) -> None:
     """Generate Pydantic models for all CRDs in the directory."""
+    codegen_version = _pinned_codegen_version()
+    _check_codegen_version(codegen_version)
+
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 

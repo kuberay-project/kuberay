@@ -292,6 +292,13 @@ def test_real_crd_normalization_no_numbered_classes():
     assert "AutoscalerOptions" in defs
 
 
+def _setup_kuberay_client_path():
+    """Add kuberay-client to sys.path for import."""
+    client_path = os.path.join(REPO_ROOT, "clients", "kuberay-client")
+    if client_path not in sys.path:
+        sys.path.insert(0, client_path)
+
+
 def test_raycluster_roundtrip():
     """Construct a RayCluster, serialize to dict, deserialize back."""
     crd_path = os.path.join(REAL_CRD_DIR, "ray.io_rayclusters.yaml")
@@ -299,9 +306,8 @@ def test_raycluster_roundtrip():
         import pytest
         pytest.skip("Real CRD files not available")
 
-    sys.path.insert(0, os.path.join(REPO_ROOT, "clients", "python-api"))
-
-    from kuberay_api.models.raycluster import RayCluster
+    _setup_kuberay_client_path()
+    from kuberay_client.models import RayCluster
 
     cluster = RayCluster(
         apiVersion="ray.io/v1",
@@ -322,9 +328,8 @@ def test_rayjob_roundtrip():
         import pytest
         pytest.skip("Real CRD files not available")
 
-    sys.path.insert(0, os.path.join(REPO_ROOT, "clients", "python-api"))
-
-    from kuberay_api.models.rayjob import RayJob
+    _setup_kuberay_client_path()
+    from kuberay_client.models import RayJob
 
     job = RayJob(
         apiVersion="ray.io/v1",
@@ -336,3 +341,107 @@ def test_rayjob_roundtrip():
 
     restored = RayJob.model_validate(data)
     assert restored.apiVersion == "ray.io/v1"
+
+
+def test_quantity_pattern_on_string_only():
+    """Verify int-or-string with pattern moves pattern to string branch."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "resource": {
+                "x-kubernetes-int-or-string": True,
+                "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+            }
+        }
+    }
+    result = normalize_schema(schema)
+    resource = result["properties"]["resource"]
+    assert "oneOf" in resource
+    int_branch = next(b for b in resource["oneOf"] if b.get("type") == "integer")
+    str_branch = next(b for b in resource["oneOf"] if b.get("type") == "string")
+    assert "pattern" not in int_branch
+    assert "pattern" in str_branch
+
+
+def test_builder_does_not_import_numbered_classes():
+    """Builders should only import root CRD classes, not internal numbered ones."""
+    import ast
+    import re as _re
+    builder_path = os.path.join(
+        REPO_ROOT, "clients", "kuberay-client",
+        "kuberay_client", "utils", "kuberay_job_builder.py"
+    )
+    with open(builder_path) as f:
+        tree = ast.parse(f.read())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                name = alias.name
+                assert not _re.match(r'^[A-Za-z]+\d+$', name), \
+                    f"Builder imports numbered class: {name}"
+
+
+def test_rayjob_builder_returns_dict():
+    """RayJobBuilder.build() returns a plain dict, not a Pydantic model."""
+    _setup_kuberay_client_path()
+    from kuberay_client.utils.kuberay_job_builder import RayJobBuilder
+
+    job = RayJobBuilder("test-job") \
+        .with_entrypoint("python test.py") \
+        .with_cluster_selector("my-cluster") \
+        .build()
+    assert isinstance(job, dict)
+    assert job["kind"] == "RayJob"
+    assert job["apiVersion"] == "ray.io/v1"
+    assert job["spec"]["entrypoint"] == "python test.py"
+
+
+def test_rayjob_builder_validates():
+    """RayJobBuilder.build() validates against the CRD schema."""
+    _setup_kuberay_client_path()
+    from kuberay_client.utils.kuberay_job_builder import RayJobBuilder
+
+    with __import__("pytest").raises(ValueError, match="entrypoint is required"):
+        RayJobBuilder("test-job") \
+            .with_cluster_selector("my-cluster") \
+            .build()
+
+
+def test_rayjob_no_unexpected_nulls():
+    """Built manifests should not contain None-valued fields."""
+    _setup_kuberay_client_path()
+    from kuberay_client.utils.kuberay_job_builder import create_ray_job
+
+    job = create_ray_job(
+        name="test-job",
+        entrypoint="python test.py",
+        worker_replicas=1,
+    )
+
+    def _check_no_none(obj, path=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                assert v is not None, f"Found None at {path}.{k}"
+                _check_no_none(v, f"{path}.{k}")
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                assert v is not None, f"Found None at {path}[{i}]"
+                _check_no_none(v, f"{path}[{i}]")
+
+    _check_no_none(job)
+
+
+def test_generation_idempotent(tmp_path):
+    """Running the generator twice produces identical output."""
+    crd_path = os.path.join(REAL_CRD_DIR, "ray.io_rayclusters.yaml")
+    if not os.path.exists(crd_path):
+        import pytest
+        pytest.skip("Real CRD files not available")
+
+    out1 = tmp_path / "run1.py"
+    out2 = tmp_path / "run2.py"
+
+    generate_model_for_crd(crd_path, str(out1))
+    generate_model_for_crd(crd_path, str(out2))
+
+    assert out1.read_text() == out2.read_text(), "Generation is not idempotent"
