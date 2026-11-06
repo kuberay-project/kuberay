@@ -3721,6 +3721,68 @@ func TestReconcile_AuthSecret_SkipWhenK8sTokenAuthEnabled(t *testing.T) {
 	assert.True(t, k8serrors.IsNotFound(err), "Secret should not be created when K8s token auth is enabled")
 }
 
+func TestReconcilePods_HeadServiceIPFamily(t *testing.T) {
+	newReconciler := func(cachedObjs, apiServerObjs []runtime.Object) (*RayClusterReconciler, client.WithWatch) {
+		fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(cachedObjs...).Build()
+		return &RayClusterReconciler{
+			Client:                     fakeClient,
+			apiReader:                  clientFake.NewClientBuilder().WithRuntimeObjects(apiServerObjs...).Build(),
+			Recorder:                   &events.FakeRecorder{},
+			Scheme:                     scheme.Scheme,
+			rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+		}, fakeClient
+	}
+	listHeadPods := func(t *testing.T, c client.WithWatch) []corev1.Pod {
+		podList := corev1.PodList{}
+		require.NoError(t, c.List(context.Background(), &podList, client.InNamespace(namespaceStr),
+			client.MatchingLabels{utils.RayNodeTypeLabelKey: string(rayv1.HeadNode)}))
+		return podList.Items
+	}
+
+	t.Run("head Service missing from the cache is read from the API server", func(t *testing.T) {
+		setupTest(t)
+		headService := testServices[0].(*corev1.Service).DeepCopy()
+		headService.Spec.IPFamilies = []corev1.IPFamily{corev1.IPv6Protocol}
+		reconciler, fakeClient := newReconciler(nil, []runtime.Object{headService})
+
+		require.NoError(t, reconciler.reconcilePods(context.Background(), testRayCluster))
+		headPods := listHeadPods(t, fakeClient)
+		require.Len(t, headPods, 1)
+		assert.Contains(t, strings.Fields(headPods[0].Spec.Containers[utils.RayContainerIndex].Args[0]), "--dashboard-host=::")
+	})
+
+	t.Run("no head Pod is created and no replica failure is reported when the head Service does not exist", func(t *testing.T) {
+		setupTest(t)
+		reconciler, fakeClient := newReconciler(nil, nil)
+
+		err := reconciler.reconcilePods(context.Background(), testRayCluster)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, utils.ErrFailedCreateHeadPod)
+		assert.Empty(t, listHeadPods(t, fakeClient))
+	})
+
+	for name, tc := range map[string]struct {
+		ipFamilies            []corev1.IPFamily
+		expectedDashboardHost string
+	}{
+		"IPv4 head Service":               {ipFamilies: []corev1.IPFamily{corev1.IPv4Protocol}, expectedDashboardHost: "--dashboard-host=0.0.0.0"},
+		"IPv6 head Service":               {ipFamilies: []corev1.IPFamily{corev1.IPv6Protocol}, expectedDashboardHost: "--dashboard-host=::"},
+		"head Service without ipFamilies": {expectedDashboardHost: "--dashboard-host=0.0.0.0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			setupTest(t)
+			headService := testServices[0].(*corev1.Service).DeepCopy()
+			headService.Spec.IPFamilies = tc.ipFamilies
+			reconciler, fakeClient := newReconciler([]runtime.Object{headService}, nil)
+
+			require.NoError(t, reconciler.reconcilePods(context.Background(), testRayCluster))
+			headPods := listHeadPods(t, fakeClient)
+			require.Len(t, headPods, 1)
+			assert.Contains(t, strings.Fields(headPods[0].Spec.Containers[utils.RayContainerIndex].Args[0]), tc.expectedDashboardHost)
+		})
+	}
+}
+
 func TestReconcile_PodsWithAuthToken(t *testing.T) {
 	setupTest(t)
 

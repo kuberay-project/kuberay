@@ -56,6 +56,7 @@ var DefaultRequeueDuration = 2 * time.Second
 func NewReconciler(mgr manager.Manager, options RayClusterReconcilerOptions) *RayClusterReconciler {
 	return &RayClusterReconciler{
 		Client:                     mgr.GetClient(),
+		apiReader:                  mgr.GetAPIReader(),
 		Scheme:                     mgr.GetScheme(),
 		Recorder:                   mgr.GetEventRecorder("raycluster-controller"),
 		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(mgr.GetClient()),
@@ -66,6 +67,7 @@ func NewReconciler(mgr manager.Manager, options RayClusterReconcilerOptions) *Ra
 // RayClusterReconciler reconciles a RayCluster object
 type RayClusterReconciler struct {
 	client.Client
+	apiReader                  client.Reader
 	Scheme                     *k8sruntime.Scheme
 	Recorder                   events.EventRecorder
 	rayClusterScaleExpectation expectations.RayClusterScaleExpectation
@@ -1051,7 +1053,11 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 				return fmt.Errorf("mTLS secrets not ready: %w", err)
 			}
 		}
-		if err := r.createHeadPod(ctx, *instance, clusterHash); err != nil {
+		headIPFamily, err := r.getHeadServiceIPFamily(ctx, instance)
+		if err != nil {
+			return err
+		}
+		if err := r.createHeadPod(ctx, *instance, clusterHash, headIPFamily); err != nil {
 			return errstd.Join(utils.ErrFailedCreateHeadPod, err)
 		}
 	} else if len(headPods.Items) > 1 { // This should never happen. This protects against the case that users manually create headpod.
@@ -1630,13 +1636,8 @@ func (r *RayClusterReconciler) createService(ctx context.Context, svc *corev1.Se
 	return nil
 }
 
-func (r *RayClusterReconciler) createHeadPod(ctx context.Context, instance rayv1.RayCluster, clusterHash string) error {
+func (r *RayClusterReconciler) createHeadPod(ctx context.Context, instance rayv1.RayCluster, clusterHash string, headIPFamily corev1.IPFamily) error {
 	logger := ctrl.LoggerFrom(ctx)
-
-	headIPFamily, err := r.getHeadServiceIPFamily(ctx, &instance)
-	if err != nil {
-		return err
-	}
 
 	// build the pod then create it
 	pod := r.buildHeadPod(ctx, instance, headIPFamily)
@@ -1811,14 +1812,9 @@ func (r *RayClusterReconciler) buildWorkerPod(ctx context.Context, instance rayv
 func (r *RayClusterReconciler) buildRedisCleanupJob(ctx context.Context, instance rayv1.RayCluster) batchv1.Job {
 	logger := ctrl.LoggerFrom(ctx)
 
-	// Build the head pod. The Redis cleanup Job overwrites the container command, so the
-	// dashboard-host default does not matter here; fall back to IPv4 if the head Service is gone.
-	headIPFamily, err := r.getHeadServiceIPFamily(ctx, &instance)
-	if err != nil {
-		logger.Info("Head service not found while building the Redis cleanup Job, defaulting to IPv4", "error", err.Error())
-		headIPFamily = corev1.IPv4Protocol
-	}
-	pod := r.buildHeadPod(ctx, instance, headIPFamily)
+	// Build the head pod. The Redis cleanup Job overwrites the container command below, so the
+	// dashboard-host default, and therefore the head IP family, does not matter here.
+	pod := r.buildHeadPod(ctx, instance, corev1.IPFamilyUnknown)
 	pod.Labels[utils.RayNodeTypeLabelKey] = string(rayv1.RedisCleanupNode)
 
 	// Only keep the Ray container in the Redis cleanup Job.
@@ -2148,12 +2144,18 @@ func (r *RayClusterReconciler) calculateStatus(ctx context.Context, instance *ra
 
 // getHeadServiceIPFamily returns the primary IP family of the RayCluster's head Service.
 func (r *RayClusterReconciler) getHeadServiceIPFamily(ctx context.Context, instance *rayv1.RayCluster) (corev1.IPFamily, error) {
+	listOptions := common.RayClusterHeadServiceListOptions(instance)
 	services := corev1.ServiceList{}
-	if err := r.List(ctx, &services, common.RayClusterHeadServiceListOptions(instance)...); err != nil {
-		return "", err
+	if err := r.List(ctx, &services, listOptions...); err != nil {
+		return corev1.IPFamilyUnknown, err
+	}
+	if len(services.Items) == 0 && r.apiReader != nil {
+		if err := r.apiReader.List(ctx, &services, listOptions...); err != nil {
+			return corev1.IPFamilyUnknown, err
+		}
 	}
 	if len(services.Items) == 0 {
-		return "", fmt.Errorf("unable to find head service to determine its IP family. cluster name %s, filter labels %v", instance.Name, common.RayClusterHeadServiceListOptions(instance))
+		return corev1.IPFamilyUnknown, fmt.Errorf("unable to find head service to determine its IP family. cluster name %s, filter labels %v", instance.Name, listOptions)
 	}
 	return utils.GetServiceIPFamily(&services.Items[0]), nil
 }
