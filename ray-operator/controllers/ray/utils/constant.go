@@ -380,7 +380,7 @@ with urllib.request.urlopen(health_url, timeout=%d) as response:
 	// The version is included in the RAY_USAGE_STATS_EXTRA_TAGS environment variable
 	// as well as the user-agent. This constant is updated before release.
 	// TODO: Update KUBERAY_VERSION to be a build-time variable.
-	KUBERAY_VERSION = "v1.7.1"
+	KUBERAY_VERSION = "v1.7.2"
 
 	// KubeRayController represents the value of the default job controller
 	KubeRayController = "ray.io/kuberay-operator"
