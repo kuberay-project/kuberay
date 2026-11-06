@@ -144,12 +144,14 @@ const fetchClusters = async () => {
     return (await res.json()) ?? [];
 };
 
-// Sets cookies that route the Ray dashboard's requests to the session. Every
-// failure is a non-2xx status, so a 2xx means done and its body isn't read.
-const enterCluster = async ({ namespace, name, sessionName }) => {
+// Sets cookies that route the Ray dashboard's requests to the session. With
+// reload, a stored session is read from storage again instead of from the
+// History Server's cache. Every failure is a non-2xx status, so a 2xx means
+// done and its body isn't read.
+const enterCluster = async ({ namespace, name, sessionName }, reload) => {
     // A link can name the session, so encode each value to keep it in its path segment.
     const path = [namespace, "raycluster", name, sessionName].map(encodeURIComponent).join("/");
-    const res = await fetch(`/enter_cluster/${path}`);
+    const res = await fetch(`/enter_cluster/${path}${reload ? "?reload=true" : ""}`);
     if (!res.ok) {
         const body = (await res.text()).trim();
         throw body ? new Error(body) : statusError(res);
@@ -209,7 +211,7 @@ const renderThemeToggle = () => {
 
 const sessionRow = (cluster) => {
     const row = byId("session-row").content.firstElementChild.cloneNode(true);
-    const [nameCell, namespaceCell, statusCell, ownerCell, createdCell] = row.cells;
+    const [nameCell, namespaceCell, statusCell, ownerCell, createdCell, actionsCell] = row.cells;
     const busy = state.entering !== null;
 
     const link = nameCell.querySelector(".link");
@@ -234,6 +236,15 @@ const sessionRow = (cluster) => {
         const spinner = nameCell.querySelector(".spinner");
         spinner.removeAttribute("hidden");
         spinner.setAttribute("aria-label", `Opening ${cluster.name}`);
+    }
+    if (!isLive(cluster)) {
+        // Live sessions go to the running cluster, so they have nothing stored to reload.
+        const reload = actionsCell.querySelector(".reload-session");
+        reload.hidden = false;
+        reload.disabled = busy;
+        reload.dataset.session = sessionId(cluster);
+        reload.setAttribute("aria-label", `Reload ${cluster.name} (${cluster.sessionName}) from storage and open the dashboard`);
+        reload.addEventListener("click", () => enter(cluster, true));
     }
 
     namespaceCell.textContent = cluster.namespace || "-";
@@ -396,9 +407,9 @@ const resumeEnterError = () => {
 };
 
 // Resolves to whether the session was entered.
-const finishEnter = async (session) => {
+const finishEnter = async (session, reload = false) => {
     try {
-        await enterCluster(session);
+        await enterCluster(session, reload);
         window.location.href = DASHBOARD_URL;
         return true;
     } catch (err) {
@@ -409,7 +420,7 @@ const finishEnter = async (session) => {
     }
 };
 
-const enter = async (session) => {
+const enter = async (session, reload = false) => {
     if (state.entering) {
         return;
     }
@@ -418,9 +429,10 @@ const enter = async (session) => {
     hideEnterError();
     render();
     // Rendering rebuilt the rows and dropped the focus, so give it back to the
-    // row's link unless the user has moved it meanwhile.
-    if (!(await finishEnter(session)) && document.activeElement === document.body) {
-        byId("session-rows").querySelector(`[data-session="${CSS.escape(id)}"]`)?.focus();
+    // row's link or reload button unless the user has moved it meanwhile.
+    if (!(await finishEnter(session, reload)) && document.activeElement === document.body) {
+        const control = reload ? ".reload-session" : ".link";
+        byId("session-rows").querySelector(`${control}[data-session="${CSS.escape(id)}"]`)?.focus();
     }
 };
 

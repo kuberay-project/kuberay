@@ -580,6 +580,24 @@ th[aria-sort="descending"] .sort-icon {
     gap: 8px;
 }
 
+/* Overlaps the cell padding, so the row is no taller than without it. */
+.reload-session {
+    margin: -5px 0;
+}
+
+/* For screen readers only, like MUI's visuallyHidden. */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
 .link {
     color: var(--primary);
     text-decoration: underline;
