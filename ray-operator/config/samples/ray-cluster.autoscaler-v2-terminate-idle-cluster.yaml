@@ -7,7 +7,7 @@
 # - The feature is only supported by autoscaler v2 and requires `enableInTreeAutoscaling: true`.
 # - Detached actors do NOT count as a driver, so a cluster running only detached actors is still
 #   eligible for termination.
-# - Requires a Ray version that supports idle termination (https://github.com/ray-project/ray/pull/65763).
+# - Requires Ray 2.60.0 or later.
 apiVersion: ray.io/v1
 kind: RayCluster
 metadata:
