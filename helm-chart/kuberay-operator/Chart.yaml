@@ -4,7 +4,7 @@ name: kuberay-operator
 
 description: A Helm chart for deploying the Kuberay operator on Kubernetes.
 
-version: 1.7.1
+version: 1.7.2
 
 type: application
 
