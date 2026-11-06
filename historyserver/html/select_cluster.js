@@ -163,7 +163,7 @@ const enterCluster = async ({ namespace, name, sessionName }, reload) => {
 // How long an enter error shows; it pauses on hover or in the background.
 const ENTER_ERROR_MS = 6000;
 
-const STATUS_NAMES = { all: "", live: "live ", ended: "ended " };
+const STATUS_NAMES = { all: "", live: "live ", stored: "stored " };
 
 const state = {
     // "loading", "loaded" with clusters, or "failed" with message.
@@ -256,7 +256,9 @@ const sessionRow = (cluster) => {
         sessionName.tabIndex = 0;
         sessionName.dataset.tooltip = cluster.sessionName;
         sessionName.setAttribute("aria-description", cluster.sessionName);
-        sessionName.append(element("span", "chip inactive", "Ended"));
+        // Read from storage. Its cluster may still be running, since /clusters
+        // doesn't say, so the chip has no status color.
+        sessionName.append(element("span", "chip", "Stored"));
         statusCell.append(sessionName);
     }
 

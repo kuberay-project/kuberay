@@ -50,9 +50,8 @@
     --alert-text: #5f2120;
     --alert-icon: #d32f2f;
     --alert-filled: #d32f2f;
-    /* The Ray dashboard's StatusChip: success is ALIVE, inactive is DEAD, and the rest have no color. */
+    /* The Ray dashboard's StatusChip: success is ALIVE, and the rest have no color. */
     --chip-success: #4caf50;
-    --chip-inactive: #5f6469;
     --chip-default: #607d8b;
 }
 
@@ -81,7 +80,6 @@
     --alert-text: #f8bab9;
     --alert-icon: #ef5350;
     --alert-filled: #c62828;
-    --chip-inactive: #8a8f94;
 }
 
 *, *::before, *::after {
@@ -625,19 +623,10 @@ th[aria-sort="descending"] .sort-icon {
     font-size: 12px;
 }
 
-.chip.success,
-.chip.inactive {
-    border-color: var(--chip);
-    background-color: color-mix(in srgb, var(--chip) 12.5%, transparent);
-    color: var(--chip);
-}
-
 .chip.success {
-    --chip: var(--chip-success);
-}
-
-.chip.inactive {
-    --chip: var(--chip-inactive);
+    border-color: var(--chip-success);
+    background-color: color-mix(in srgb, var(--chip-success) 12.5%, transparent);
+    color: var(--chip-success);
 }
 
 /* The session ID is long and rarely needed, so it shows in a tooltip. */
