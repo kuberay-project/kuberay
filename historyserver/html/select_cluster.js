@@ -146,8 +146,7 @@ const fetchClusters = async () => {
 
 // Sets cookies that route the Ray dashboard's requests to the session. With
 // reload, a stored session is read from storage again instead of from the
-// History Server's cache. Every failure is a non-2xx status, so a 2xx means
-// done and its body isn't read.
+// History Server's cache.
 const enterCluster = async ({ namespace, name, sessionName }, reload) => {
     // A link can name the session, so encode each value to keep it in its path segment.
     const path = [namespace, "raycluster", name, sessionName].map(encodeURIComponent).join("/");
@@ -155,6 +154,12 @@ const enterCluster = async ({ namespace, name, sessionName }, reload) => {
     if (!res.ok) {
         const body = (await res.text()).trim();
         throw body ? new Error(body) : statusError(res);
+    }
+    // A 2xx from something in front of the History Server, such as a login
+    // page, sets no cookies, so only the History Server's own answer counts.
+    const body = await res.json().catch(() => null);
+    if (body?.result !== "success") {
+        throw new Error(`${res.status}: Unexpected response from /enter_cluster`);
     }
 };
 
@@ -170,8 +175,10 @@ const state = {
     sessions: { status: "loading" },
     query: "",
     statusFilter: "all",
-    // Newest first, the order the History Server returns.
-    sort: { key: "createdAt", order: "desc" },
+    // { key, order } once a column header is clicked. Until then the list keeps
+    // the History Server's order: live clusters first, then stored sessions
+    // newest first.
+    sort: null,
     page: 1,
     // sessionId being opened; one at a time.
     entering: null,
@@ -193,7 +200,10 @@ const element = (tag, className, text) => {
 // The filtered, sorted page of clusters that the table shows.
 const sessionList = () => {
     const clusters = state.sessions.status === "loaded" ? state.sessions.clusters : [];
-    const matching = clusters.filter((c) => hasStatus(c, state.statusFilter) && matches(c, state.query)).sort(compareBy(state.sort));
+    const matching = clusters.filter((c) => hasStatus(c, state.statusFilter) && matches(c, state.query));
+    if (state.sort) {
+        matching.sort(compareBy(state.sort));
+    }
     const pageCount = Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
     // A refresh can leave fewer pages than the one shown.
     const page = Math.min(state.page, pageCount);
@@ -237,19 +247,11 @@ const sessionRow = (cluster) => {
         spinner.removeAttribute("hidden");
         spinner.setAttribute("aria-label", `Opening ${cluster.name}`);
     }
-    if (!isLive(cluster)) {
-        // Live sessions go to the running cluster, so they have nothing stored to reload.
-        const reload = actionsCell.querySelector(".reload-session");
-        reload.hidden = false;
-        reload.disabled = busy;
-        reload.dataset.session = sessionId(cluster);
-        reload.setAttribute("aria-label", `Reload ${cluster.name} (${cluster.sessionName}) from storage and open the dashboard`);
-        reload.addEventListener("click", () => enter(cluster, true));
-    }
 
     namespaceCell.textContent = cluster.namespace || "-";
 
     if (isLive(cluster)) {
+        // Live sessions go to the running cluster, so they have nothing stored to reload.
         statusCell.append(element("span", "chip success", "Live"));
     } else {
         // Read from storage. Its cluster may still be running, since /clusters
@@ -258,6 +260,13 @@ const sessionRow = (cluster) => {
         const session = element("span", "session");
         session.append(cluster.sessionName, element("span", "chip", "Stored"));
         statusCell.append(session);
+
+        const reload = actionsCell.querySelector(".reload-session");
+        reload.hidden = false;
+        reload.disabled = busy;
+        reload.dataset.session = sessionId(cluster);
+        reload.setAttribute("aria-label", `Reload ${cluster.name} (${cluster.sessionName}) from storage and open the dashboard`);
+        reload.addEventListener("click", () => enter(cluster, true));
     }
 
     if (cluster.ownerKind || cluster.ownerName) {
@@ -325,7 +334,7 @@ const render = () => {
     }
     for (const label of document.querySelectorAll(".sort-label")) {
         const th = label.parentElement;
-        if (label.dataset.sort === state.sort.key) {
+        if (label.dataset.sort === state.sort?.key) {
             th.setAttribute("aria-sort", state.sort.order === "asc" ? "ascending" : "descending");
         } else {
             th.removeAttribute("aria-sort");
@@ -364,13 +373,22 @@ const goToPage = (page, focusLabel) => {
     (pagination.querySelector(`[aria-label="${focusLabel}"]:enabled`) ?? pagination.querySelector("[aria-current=page]")).focus();
 };
 
+// Counts the loads started, so only the latest one's answer is shown when a
+// refresh overlaps the reload after going back.
+let loadCount = 0;
+
 const load = async () => {
+    const count = ++loadCount;
+    let sessions;
     try {
-        state.sessions = { status: "loaded", clusters: await fetchClusters() };
+        sessions = { status: "loaded", clusters: await fetchClusters() };
     } catch (err) {
-        state.sessions = { status: "failed", message: err.message };
+        sessions = { status: "failed", message: err.message };
     }
-    render();
+    if (count === loadCount) {
+        state.sessions = sessions;
+        render();
+    }
 };
 
 const refresh = () => {
@@ -508,7 +526,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Like the Ray dashboard: a new column sorts ascending, the same column flips.
         label.addEventListener("click", () => {
             const key = label.dataset.sort;
-            const order = state.sort.key === key && state.sort.order === "asc" ? "desc" : "asc";
+            const order = state.sort?.key === key && state.sort.order === "asc" ? "desc" : "asc";
             changeListing({ sort: { key, order } });
         });
     }
@@ -550,7 +568,10 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         window.history.replaceState(null, "", url);
         state.entering = sessionId(linked);
-        finishEnter(linked);
+        render();
+        // Entering leaves for the dashboard, so the list loads only if it fails.
+        finishEnter(linked).then((entered) => entered || load());
+    } else {
+        refresh();
     }
-    refresh();
 });
