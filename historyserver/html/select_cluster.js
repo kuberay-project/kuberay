@@ -252,14 +252,12 @@ const sessionRow = (cluster) => {
     if (isLive(cluster)) {
         statusCell.append(element("span", "chip success", "Live"));
     } else {
-        const sessionName = element("span", "session-id");
-        sessionName.tabIndex = 0;
-        sessionName.dataset.tooltip = cluster.sessionName;
-        sessionName.setAttribute("aria-description", cluster.sessionName);
         // Read from storage. Its cluster may still be running, since /clusters
-        // doesn't say, so the chip has no status color.
-        sessionName.append(element("span", "chip", "Stored"));
-        statusCell.append(sessionName);
+        // doesn't say, so the chip has no status color. The session name shows
+        // in full, so it can be copied and told apart from the cluster's others.
+        const session = element("span", "session");
+        session.append(cluster.sessionName, element("span", "chip", "Stored"));
+        statusCell.append(session);
     }
 
     if (cluster.ownerKind || cluster.ownerName) {

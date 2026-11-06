@@ -501,6 +501,9 @@ main {
 /* Session table */
 
 .table-container {
+    /* Positioned, so the absolutely positioned visually hidden header scrolls
+       with the table instead of widening the page. */
+    position: relative;
     width: 100%;
     overflow-x: auto;
 }
@@ -629,9 +632,12 @@ th[aria-sort="descending"] .sort-icon {
     color: var(--chip-success);
 }
 
-/* The session ID is long and rarely needed, so it shows in a tooltip. */
-.session-id {
+/* The session name and the Stored chip, on one line. */
+.session {
     display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
 }
 
 .empty {
