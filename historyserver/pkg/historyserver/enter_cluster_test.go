@@ -158,6 +158,29 @@ func TestEnterCluster(t *testing.T) {
 		}
 	})
 
+	t.Run("Enter with reload=true re-reads the session, without it the cache is served", func(t *testing.T) {
+		const url = "/enter_cluster/default/raycluster/cluster-a/session_2026-04-22_10-00-00_000000_1"
+		before := fp.callCount()
+
+		resp := httptest.NewRecorder()
+		container.ServeHTTP(resp, httptest.NewRequestWithContext(t.Context(), "GET", url, nil))
+		if resp.Code != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d: %s", resp.Code, resp.Body.String())
+		}
+		if got := fp.callCount(); got != before {
+			t.Fatalf("processor calls without reload = %d, want %d (cached)", got, before)
+		}
+
+		resp = httptest.NewRecorder()
+		container.ServeHTTP(resp, httptest.NewRequestWithContext(t.Context(), "GET", url+"?reload=true", nil))
+		if resp.Code != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d: %s", resp.Code, resp.Body.String())
+		}
+		if got := fp.callCount(); got != before+1 {
+			t.Fatalf("processor calls with reload = %d, want %d", got, before+1)
+		}
+	})
+
 	t.Run("Enter cluster with session that is actually live maps to live sentinel", func(t *testing.T) {
 		req := httptest.NewRequestWithContext(t.Context(), "GET", "/enter_cluster/default/raycluster/cluster-c/session_2026-04-22_10-00-00_000000_2_live", nil)
 		resp := httptest.NewRecorder()

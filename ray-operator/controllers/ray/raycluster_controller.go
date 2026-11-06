@@ -947,6 +947,33 @@ func (r *RayClusterReconciler) reconcileHeadlessService(ctx context.Context, ins
 	return nil
 }
 
+// cleanupBatchSchedulerResources releases the capacity a batch scheduler reserved for the suspended
+// RayCluster (e.g., zeroes out the Volcano PodGroup). Return its error so the reconcile is requeued.
+func (r *RayClusterReconciler) cleanupBatchSchedulerResources(ctx context.Context, instance *rayv1.RayCluster) error {
+	if r.options.BatchSchedulerManager == nil {
+		return nil
+	}
+
+	scheduler, err := r.options.BatchSchedulerManager.GetScheduler()
+	if err != nil {
+		return fmt.Errorf("failed to get batch scheduler: %w", err)
+	}
+
+	didCleanup, err := scheduler.CleanupOnCompletion(ctx, instance)
+	if err != nil {
+		r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToCleanupBatchScheduler), string(utils.CleanupAction),
+			"Failed to cleanup batch scheduler resources for suspended RayCluster %s/%s: %v",
+			instance.Namespace, instance.Name, err)
+		return fmt.Errorf("failed to cleanup batch scheduler resources: %w", err)
+	}
+	if didCleanup {
+		r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.BatchSchedulerCleanedUp), string(utils.CleanupAction),
+			"Cleaned up batch scheduler resources for suspended RayCluster %s/%s",
+			instance.Namespace, instance.Name)
+	}
+	return nil
+}
+
 func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv1.RayCluster) error {
 	logger := ctrl.LoggerFrom(ctx)
 
@@ -961,7 +988,8 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 	statusConditionGateEnabled := features.Enabled(features.RayClusterStatusConditions)
 	if suspendStatus == rayv1.RayClusterSuspending ||
 		(!statusConditionGateEnabled && utils.IsRayClusterSuspendOrIdleSuspend(instance)) {
-		if _, err := r.deleteAllPods(ctx, common.RayClusterAllPodsAssociationOptions(instance)); err != nil {
+		pods, err := r.deleteAllPods(ctx, common.RayClusterAllPodsAssociationOptions(instance))
+		if err != nil {
 			r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeletePodCollection), string(utils.DeleteAction),
 				"Failed deleting Pods due to suspension for RayCluster %s/%s, %v",
 				instance.Namespace, instance.Name, err)
@@ -971,12 +999,20 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedPod), string(utils.DeleteAction),
 			"Deleted Pods for RayCluster %s/%s due to suspension",
 			instance.Namespace, instance.Name)
-		return nil
+
+		// Terminating Pods still hold node capacity, so keep the reservation until they are gone.
+		// The last Pod deletion triggers the reconcile that releases it.
+		if len(pods.Items) > 0 {
+			return nil
+		}
+		return r.cleanupBatchSchedulerResources(ctx, instance)
 	}
 
 	if statusConditionGateEnabled {
 		if suspendStatus == rayv1.RayClusterSuspended {
-			return nil // stop reconcilePods because the cluster is suspended.
+			// Release here too: this is the retry path when the release above failed, and the
+			// only path for a cluster that was already Suspended when this operator started.
+			return r.cleanupBatchSchedulerResources(ctx, instance)
 		}
 		// (suspendStatus != rayv1.RayClusterSuspending) is always true here because it has been checked above.
 		if utils.IsRayClusterSuspendOrIdleSuspend(instance) {
@@ -1860,6 +1896,16 @@ func (r *RayClusterReconciler) buildRedisCleanupJob(ctx context.Context, instanc
 	// Disable liveness and readiness probes because the Job will not launch processes like Raylet and GCS.
 	pod.Spec.Containers[utils.RayContainerIndex].LivenessProbe = nil
 	pod.Spec.Containers[utils.RayContainerIndex].ReadinessProbe = nil
+
+	// Drop pod anti-affinity: it is meant to spread Ray head Pods, not to constrain a short-lived Job, and
+	// GKE Autopilot rejects Pods with pod anti-affinity that request less than 500m CPU. Keep node affinity
+	// so the Job still runs on nodes that can reach Redis. The head Pod spec shares its Affinity with the
+	// RayCluster's head template, so modify a copy instead of the shared struct.
+	if pod.Spec.Affinity != nil && pod.Spec.Affinity.PodAntiAffinity != nil {
+		affinity := pod.Spec.Affinity.DeepCopy()
+		affinity.PodAntiAffinity = nil
+		pod.Spec.Affinity = affinity
+	}
 
 	// Set the environment variables to ensure that the cleanup Job has at least 60s.
 	pod.Spec.Containers[utils.RayContainerIndex].Env = append(pod.Spec.Containers[utils.RayContainerIndex].Env, corev1.EnvVar{

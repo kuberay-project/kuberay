@@ -19,11 +19,12 @@ The high-level steps for a new minor or patch release are:
 3. Create and push a new git tag based on the target release version (e.g., `v1.4.0`).
 4. Publish container images by running the `release-image-build` GitHub Actions workflow.
 5. Publish kubectl plugin binaries by running the `release-kubectl-plugin` GitHub Actions workflow.
-6. Update the [kuberay-helm](https://github.com/ray-project/kuberay-helm) repository to publish the new Helm chart versions.
-7. Validate the release artifacts (images, charts).
-8. Generate the CHANGELOG for the release.
-9. Publish the release notes on GitHub Releases.
-10. Update Ray documentation to refer to the new KubeRay version.
+6. Publish the Python client to PyPI by running the `release-python-client` GitHub Actions workflow.
+7. Update the [kuberay-helm](https://github.com/ray-project/kuberay-helm) repository to publish the new Helm chart versions.
+8. Validate the release artifacts (images, charts).
+9. Generate the CHANGELOG for the release.
+10. Publish the release notes on GitHub Releases.
+11. Update Ray documentation to refer to the new KubeRay version.
 
 See the next section for more details on each step.
 
@@ -158,7 +159,27 @@ Trigger the [`release-kubectl-plugin`](https://github.com/ray-project/kuberay/ac
 
 ---
 
-### Step 6: Publish KubeRay Helm Charts
+### Step 6: Publish Python Client to PyPI
+
+Trigger the [`release-python-client`](https://github.com/ray-project/kuberay/actions/workflows/python-client-release.yaml) workflow to build the `kuberay-client` package and publish it to [PyPI](https://pypi.org/project/kuberay-client/).
+The package version is taken from the tag. For example, `v1.4.0` becomes `1.4.0`, and `v1.4.0-rc.0` becomes the pre-release `1.4.0rc0`.
+
+1. Navigate to the workflow page: [https://github.com/ray-project/kuberay/actions/workflows/python-client-release.yaml](https://github.com/ray-project/kuberay/actions/workflows/python-client-release.yaml)
+2. Click the **"Run workflow"** dropdown button.
+3. Set the parameters:
+    * **Use workflow from:** Select **`Tags`** and choose the tag for the release (e.g., **`v1.4.0`**).
+4. Click **"Run workflow"**.
+5. The **Publish Python Client to PyPI** job waits for approval because it deploys to the `pypi` environment. A reviewer of that environment approves it with **"Review deployments"**.
+
+**Verification:** Once the workflow succeeds, check that the new version is listed on [PyPI](https://pypi.org/project/kuberay-client/#history), then install it in a clean virtual environment:
+
+```bash
+pip install kuberay-client==1.4.0
+```
+
+---
+
+### Step 7: Publish KubeRay Helm Charts
 
 Helm charts are published via the [ray-project/kuberay-helm](https://github.com/ray-project/kuberay-helm) repository. This repo uses release branches (`release-X.Y`) mirroring the main `kuberay` repo.
 See [helm-chart.md](./helm-chart.md) for the end-to-end workflow. Below are steps to cut a new release branch in the kuberay-helm repo and publish new charts.
@@ -231,7 +252,7 @@ See [helm-chart.md](./helm-chart.md) for the end-to-end workflow. Below are step
 
 ---
 
-### Step 7: Validate the Release
+### Step 8: Validate the Release
 
 Perform basic validation to ensure the released artifacts work together.
 
@@ -281,18 +302,18 @@ Perform basic validation to ensure the released artifacts work together.
 
 ---
 
-### Step 8: Generate the CHANGELOG
+### Step 9: Generate the CHANGELOG
 
 Follow [Generating the changelog for a release](https://github.com/ray-project/kuberay/blob/master/docs/release/changelog.md) to generate the change log for the new release.
 
 ---
 
-### Step 9: Publish Release Notes
+### Step 10: Publish Release Notes
 
 1. Go to the [KubeRay Releases page](https://github.com/ray-project/kuberay/releases).
 2. Find the **draft release** that was created automatically in Step 5 or create a new one if needed, targeting the tag `v1.4.0`.
 3. Click **"Edit"** on the draft release.
-4. Paste the generated **CHANGELOG** content from Step 8 into the release description.
+4. Paste the generated **CHANGELOG** content from Step 9 into the release description.
 5. Add any additional release highlights, bug fixes, known issues, etc.
 6. Ensure the correct tag (`v1.4.0`) is selected.
 7. Verify the attached assets (kubectl plugins) are correct.
@@ -303,6 +324,6 @@ Announce the new release in the [kuberay Slack channel](https://ray.slack.com/ar
 
 ---
 
-### Step 10: Update ray.io documentation
+### Step 11: Update ray.io documentation
 
 Update all references to the KubeRay version in the ray.io documentation.
