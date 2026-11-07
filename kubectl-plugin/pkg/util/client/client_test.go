@@ -12,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
+	fakediscovery "k8s.io/client-go/discovery/fake"
 	kubeFake "k8s.io/client-go/kubernetes/fake"
 	kubetesting "k8s.io/client-go/testing"
 
@@ -115,12 +116,20 @@ func TestGetKubeRayOperatorVersion(t *testing.T) {
 		expectedVersion string
 		expectedError   string
 		kubeObjects     []runtime.Object
+		rayCRDsPresent  bool
 	}{
 		{
 			name:            "KubeRay operator not found",
 			expectedVersion: "",
 			expectedError:   "no KubeRay operator deployments found in any namespace",
 			kubeObjects:     nil,
+		},
+		{
+			name:            "Hosted operator with CRDs, no in-cluster Deployment",
+			expectedVersion: "",
+			expectedError:   ErrHostedOperator.Error(),
+			kubeObjects:     nil,
+			rayCRDsPresent:  true,
 		},
 		{
 			name:            "find KubeRay operator version for helm chart",
@@ -151,16 +160,73 @@ func TestGetKubeRayOperatorVersion(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			kubeClientSet := kubeFake.NewClientset(tc.kubeObjects...)
+			if tc.rayCRDsPresent {
+				fakeDiscovery, ok := kubeClientSet.Discovery().(*fakediscovery.FakeDiscovery)
+				require.True(t, ok)
+				fakeDiscovery.Resources = []*metav1.APIResourceList{
+					{
+						GroupVersion: rayv1.GroupVersion.String(),
+						APIResources: []metav1.APIResource{
+							{Name: "rayclusters", Kind: "RayCluster", SingularName: "raycluster", Namespaced: true},
+						},
+					},
+				}
+			}
 			client := NewClientForTesting(kubeClientSet, nil)
 
 			version, err := client.GetKubeRayOperatorVersion(context.Background())
 
-			if tc.expectedVersion != "" {
-				assert.Equal(t, tc.expectedVersion, version)
-				require.NoError(t, err)
+			if tc.expectedError != "" {
+				require.EqualError(t, err, tc.expectedError)
+				assert.Empty(t, version)
+				if tc.expectedError == ErrHostedOperator.Error() {
+					require.ErrorIs(t, err, ErrHostedOperator)
+				}
 			} else {
-				assert.EqualError(t, err, tc.expectedError)
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedVersion, version)
 			}
+		})
+	}
+}
+
+func TestHasRayClusterAPI(t *testing.T) {
+	tests := []struct {
+		name              string
+		resources         []*metav1.APIResourceList
+		expectedInstalled bool
+	}{
+		{
+			name: "RayCluster API is served",
+			resources: []*metav1.APIResourceList{{
+				GroupVersion: rayv1.GroupVersion.String(),
+				APIResources: []metav1.APIResource{
+					{Name: "rayclusters", Kind: "RayCluster", SingularName: "raycluster", Namespaced: true},
+				},
+			}},
+			expectedInstalled: true,
+		},
+		{
+			name:              "Ray APIs are not served",
+			expectedInstalled: false,
+		},
+		{
+			name:              "ray.io/v1 is served",
+			resources:         []*metav1.APIResourceList{{GroupVersion: rayv1.GroupVersion.String()}},
+			expectedInstalled: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			kubeClientSet := kubeFake.NewClientset()
+			fakeDiscovery, ok := kubeClientSet.Discovery().(*fakediscovery.FakeDiscovery)
+			require.True(t, ok)
+			fakeDiscovery.Resources = tc.resources
+
+			installed, err := (&k8sClient{kubeClient: kubeClientSet}).hasRayClusterAPI()
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedInstalled, installed)
 		})
 	}
 }
