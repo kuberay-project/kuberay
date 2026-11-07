@@ -661,7 +661,7 @@ func configureSubmitterContainer(container *corev1.Container, rayJobInstance *ra
 	// ray job submit --address=http://$RAY_DASHBOARD_ADDRESS --submission-id=$RAY_JOB_SUBMISSION_ID ...
 	container.Env = append(container.Env, corev1.EnvVar{Name: utils.RAY_DASHBOARD_ADDRESS, Value: rayJobInstance.Status.DashboardURL})
 	container.Env = append(container.Env, corev1.EnvVar{Name: utils.RAY_JOB_SUBMISSION_ID, Value: rayJobInstance.Status.JobId})
-	if rayClusterInstance != nil && utils.IsAuthEnabled(&rayClusterInstance.Spec) {
+	if rayClusterInstance != nil {
 		common.SetContainerTokenAuthEnvVars(rayClusterInstance.Name, container, rayClusterInstance.Spec.AuthOptions)
 	}
 
