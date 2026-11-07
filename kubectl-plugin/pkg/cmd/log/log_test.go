@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -482,6 +484,77 @@ func TestDownloadRayLogFiles(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, curr.Body, string(actualContent))
 	}
+}
+
+func TestWriteTarFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.log")
+
+	err := writeTarFile(path, 0o640, strings.NewReader("hello"))
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "hello", string(content))
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+}
+
+func TestWriteTarFileCreateError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing-dir", "out.log")
+
+	err := writeTarFile(path, 0o644, strings.NewReader("hello"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Error creating file")
+}
+
+// A tar entry whose mode does not fit in uint32 is skipped, and extraction continues with the next entry.
+func TestDownloadRayLogFilesSkipsInvalidMode(t *testing.T) {
+	fakeDir := t.TempDir()
+
+	testStreams, _, out, _ := genericiooptions.NewTestIOStreams()
+	cmdFactory := cmdutil.NewFactory(genericclioptions.NewConfigFlags(true))
+	options := NewClusterLogOptions(cmdFactory, testStreams)
+	options.outputDir = fakeDir
+
+	// The tar has no directory entry, so create the node directory the files are extracted into
+	nodeDir := filepath.Join(fakeDir, "head")
+	require.NoError(t, os.MkdirAll(nodeDir, 0o755))
+
+	tarbuff := new(bytes.Buffer)
+	tw := tar.NewWriter(tarbuff)
+	entries := []struct {
+		name string
+		mode int64
+	}{
+		{"bad-mode.txt", math.MaxUint32 + 1},
+		{"negative-mode.txt", -1},
+		{"good.txt", 0o644},
+	}
+	for _, e := range entries {
+		// GNU format is needed to encode a mode larger than the USTAR octal field allows
+		require.NoError(t, tw.WriteHeader(&tar.Header{
+			Name:     e.name,
+			Mode:     e.mode,
+			Size:     int64(len("body")),
+			Typeflag: tar.TypeReg,
+			Format:   tar.FormatGNU,
+		}))
+		_, err := tw.Write([]byte("body"))
+		require.NoError(t, err)
+	}
+	require.NoError(t, tw.Close())
+
+	rayHead := v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "head"}}
+	executor, _ := fakeNewSPDYExecutor("GET", &url.URL{}, tarbuff)
+
+	require.NoError(t, options.downloadRayLogFiles(context.Background(), executor, rayHead))
+
+	assert.NoFileExists(t, filepath.Join(nodeDir, "bad-mode.txt"))
+	assert.NoFileExists(t, filepath.Join(nodeDir, "negative-mode.txt"))
+	assert.FileExists(t, filepath.Join(nodeDir, "good.txt"))
+	assert.Contains(t, out.String(), "skipping file")
 }
 
 // createTempKubeConfigFile creates a temporary kubeconfig file with the given current context.
