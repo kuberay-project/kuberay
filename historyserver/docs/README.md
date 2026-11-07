@@ -67,7 +67,7 @@ The History Server supports multiple storage backends:
 
 ### Prerequisites
 
-- Go v1.24+
+- Go v1.27+
 - Docker
 - Kind
 - kubectl

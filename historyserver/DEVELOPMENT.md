@@ -21,7 +21,7 @@ S3-compatible object store, and browse the UI through the Ray Dashboard's middle
 ## Prerequisites
 
 - Kind, kubectl
-- Go v1.25+
+- Go v1.27+
 - Docker
 - GNU Make
 - K9s (optional)

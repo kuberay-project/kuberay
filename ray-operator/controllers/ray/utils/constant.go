@@ -444,8 +444,8 @@ var (
 )
 
 func RayClusterReplicaFailureReason(err error) string {
-	var failure *errRayClusterReplicaFailure
-	if errors.As(err, &failure) {
+	failure, ok := errors.AsType[*errRayClusterReplicaFailure](err)
+	if ok {
 		return failure.reason
 	}
 	return ""

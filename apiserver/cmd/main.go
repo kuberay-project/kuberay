@@ -230,7 +230,7 @@ func serveSwaggerFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := strings.TrimPrefix(r.URL.Path, "/swagger/")
+	p := path.Base(r.URL.Path)
 	if strings.TrimSpace(*localSwaggerPath) != "" {
 		// use the specified path,  for development the is  `${REPO_ROOT}/proto/swagger`.
 		p = path.Join(*localSwaggerPath, "/", p)
