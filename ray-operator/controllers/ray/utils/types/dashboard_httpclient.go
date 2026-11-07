@@ -17,9 +17,12 @@ type RayJobInfo struct {
 	Entrypoint   string            `json:"entrypoint,omitempty"`
 	JobId        string            `json:"job_id,omitempty"`
 	SubmissionId string            `json:"submission_id,omitempty"`
-	Message      string            `json:"message,omitempty"`
-	StartTime    uint64            `json:"start_time,omitempty"`
-	EndTime      uint64            `json:"end_time,omitempty"`
+	// DriverNodeID is the Ray node the job's driver runs on. Checking it against the cluster's live
+	// nodes tells whether an active JobStatus is current or frozen behind a node that is gone.
+	DriverNodeID string `json:"driver_node_id,omitempty"`
+	Message      string `json:"message,omitempty"`
+	StartTime    uint64 `json:"start_time,omitempty"`
+	EndTime      uint64 `json:"end_time,omitempty"`
 }
 
 // RayJobRequest is the request body to submit.
@@ -45,4 +48,19 @@ type RayJobStopResponse struct {
 
 type RayJobLogsResponse struct {
 	Logs string `json:"logs,omitempty"`
+}
+
+// RayNodesSummaryResponse is the subset of the dashboard's /nodes response used to check whether a
+// Ray node is still alive.
+type RayNodesSummaryResponse struct {
+	Data struct {
+		Summary []RayNodeSummary `json:"summary,omitempty"`
+	} `json:"data,omitempty"`
+}
+
+type RayNodeSummary struct {
+	Raylet struct {
+		NodeID string `json:"nodeId,omitempty"`
+		State  string `json:"state,omitempty"`
+	} `json:"raylet,omitempty"`
 }
