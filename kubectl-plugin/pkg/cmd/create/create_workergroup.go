@@ -136,6 +136,23 @@ func (options *CreateWorkerGroupOptions) Complete(cmd *cobra.Command, args []str
 }
 
 func (options *CreateWorkerGroupOptions) Validate() error {
+	// createWorkerGroupSpec parses these values with resource.MustParse, so reject
+	// invalid or negative quantities here instead of panicking later.
+	resourceFields := []struct {
+		name  string
+		value string
+	}{
+		{"worker-cpu", options.workerCPU},
+		{"worker-gpu", options.workerGPU},
+		{"worker-tpu", options.workerTPU},
+		{"worker-memory", options.workerMemory},
+	}
+	for _, field := range resourceFields {
+		if err := util.ValidateResourceQuantity(field.value, field.name); err != nil {
+			return err
+		}
+	}
+
 	if err := util.ValidateTPU(&options.workerTPU, &options.numOfHosts, options.workerNodeSelectors); err != nil {
 		return fmt.Errorf("%w", err)
 	}
