@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -131,6 +132,11 @@ func (k *KubernetesWASV1Alpha3Scheduler) syncWorkload(ctx context.Context, rayCl
 		return err
 	}
 	if !found {
+		template := &desired.Spec.PodGroupTemplates[0]
+		template.PreemptionPolicy, err = k.resolvePreemptionPolicy(ctx, template.PriorityClassName, template.PreemptionPolicy)
+		if err != nil {
+			return err
+		}
 		if err := k.cli.Create(ctx, desired); err != nil {
 			return fmt.Errorf("failed to create Workload %s/%s: %w", desired.Namespace, desired.Name, err)
 		}
@@ -168,6 +174,10 @@ func (k *KubernetesWASV1Alpha3Scheduler) syncPodGroup(ctx context.Context, rayCl
 		return err
 	}
 	if !found {
+		desired.Spec.PreemptionPolicy, err = k.resolvePreemptionPolicy(ctx, desired.Spec.PriorityClassName, desired.Spec.PreemptionPolicy)
+		if err != nil {
+			return err
+		}
 		if err := k.cli.Create(ctx, desired); err != nil {
 			return fmt.Errorf("failed to create PodGroup %s/%s: %w", desired.Namespace, desired.Name, err)
 		}
@@ -228,6 +238,23 @@ func buildClusterSchedulingPolicy(rayCluster *rayv1.RayCluster) schedulingv1alph
 	}
 }
 
+func (k *KubernetesWASV1Alpha3Scheduler) resolvePreemptionPolicy(ctx context.Context, priorityClassName string, preemptionPolicy *schedulingv1alpha3.PreemptionPolicy) (*schedulingv1alpha3.PreemptionPolicy, error) {
+	if preemptionPolicy != nil || priorityClassName == "" {
+		return preemptionPolicy, nil
+	}
+	// Kubernetes defaults an unset PodGroup preemptionPolicy before admission, rejecting Never
+	// PriorityClasses; derive it before creation when not set explicitly.
+	priorityClass := &schedulingv1.PriorityClass{}
+	if err := k.cli.Get(ctx, client.ObjectKey{Name: priorityClassName}, priorityClass); err != nil {
+		return nil, fmt.Errorf("failed to get PriorityClass %s: %w", priorityClassName, err)
+	}
+	policy := schedulingv1alpha3.PreemptLowerPriority
+	if priorityClass.PreemptionPolicy != nil {
+		policy = schedulingv1alpha3.PreemptionPolicy(*priorityClass.PreemptionPolicy)
+	}
+	return &policy, nil
+}
+
 // gangNeedsMinCountPatch reports whether the live gang size differs from the desired size.
 // A nil gang is left alone because the gang policy cannot be added after creation.
 func gangNeedsMinCountPatch(existing *schedulingv1alpha3.GangSchedulingPolicy, desiredMinCount int32) bool {
@@ -256,6 +283,12 @@ func clusterGangMinCount(rayCluster *rayv1.RayCluster) int32 {
 
 func (k *KubernetesWASV1Alpha3Scheduler) buildSchedulingResources(rayCluster *rayv1.RayCluster) (*schedulingv1alpha3.Workload, *schedulingv1alpha3.PodGroup, error) {
 	policy := buildClusterSchedulingPolicy(rayCluster)
+	// kube-scheduler requires the PodGroup's priority and preemptionPolicy to match its pods'.
+	priorityClassName := rayCluster.Spec.HeadGroupSpec.Template.Spec.PriorityClassName
+	var preemptionPolicy *schedulingv1alpha3.PreemptionPolicy
+	if p := rayCluster.Spec.HeadGroupSpec.Template.Spec.PreemptionPolicy; p != nil {
+		preemptionPolicy = new(schedulingv1alpha3.PreemptionPolicy(*p))
+	}
 	workload := &schedulingv1alpha3.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      rayCluster.Name,
@@ -273,8 +306,10 @@ func (k *KubernetesWASV1Alpha3Scheduler) buildSchedulingResources(rayCluster *ra
 				Name:     rayCluster.Name,
 			},
 			PodGroupTemplates: []schedulingv1alpha3.PodGroupTemplate{{
-				Name:             clusterPodGroupTemplateName,
-				SchedulingPolicy: policy,
+				Name:              clusterPodGroupTemplateName,
+				PriorityClassName: priorityClassName,
+				PreemptionPolicy:  preemptionPolicy,
+				SchedulingPolicy:  policy,
 			}},
 		},
 	}
@@ -291,7 +326,9 @@ func (k *KubernetesWASV1Alpha3Scheduler) buildSchedulingResources(rayCluster *ra
 				WorkloadName: rayCluster.Name,
 				TemplateName: clusterPodGroupTemplateName,
 			},
-			SchedulingPolicy: policy,
+			PriorityClassName: priorityClassName,
+			PreemptionPolicy:  preemptionPolicy,
+			SchedulingPolicy:  policy,
 		},
 	}
 

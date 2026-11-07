@@ -1,0 +1,74 @@
+suite: Test PriorityClass ClusterRole
+templates:
+  - priorityclass_role.yaml
+
+release:
+  name: kuberay-operator
+  namespace: kuberay-system
+
+tests:
+  - it: Should not create PriorityClass ClusterRole if `rbacEnable` is `false`
+    set:
+      rbacEnable: false
+      featureGates:
+        - name: KubernetesWAS
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should not create PriorityClass ClusterRole if KubernetesWAS feature gate is not enabled
+    set:
+      rbacEnable: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should create PriorityClass ClusterRole and ClusterRoleBinding when `rbacEnable` and KubernetesWAS are both enabled
+    set:
+      rbacEnable: true
+      featureGates:
+        - name: KubernetesWAS
+          enabled: true
+    asserts:
+      - containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          name: kuberay-operator-priorityclass
+        documentIndex: 0
+      - containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          name: kuberay-operator-priorityclass
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - scheduling.k8s.io
+            resources:
+              - priorityclasses
+            verbs:
+              - get
+              - list
+              - watch
+        documentIndex: 0
+
+  - it: Should still create PriorityClass ClusterRole when `singleNamespaceInstall` is `true`, since PriorityClass cannot be granted via a namespaced Role
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: true
+      featureGates:
+        - name: KubernetesWAS
+          enabled: true
+    asserts:
+      - containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          name: kuberay-operator-priorityclass
+        documentIndex: 0
+      - containsDocument:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          name: kuberay-operator-priorityclass
+        documentIndex: 1
