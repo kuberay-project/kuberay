@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
@@ -343,6 +344,83 @@ var _ = Context("Inside the default namespace", func() {
 				err := getResourceFunc(ctx, client.ObjectKey{Name: rayCluster.Name, Namespace: namespace}, rayCluster)()
 				return rayCluster.Status.Head.ServiceIP, err
 			}, time.Second*3, time.Millisecond*500).Should(Equal("1.1.1.1"), "Should be able to see the rayCluster.Status.Head.ServiceIP: %v", rayCluster.Status.Head.ServiceIP)
+		})
+
+		It("The head service should select the head Pod", func() {
+			Expect(headPods.Items).To(HaveLen(1))
+			headSvc := corev1.ServiceList{}
+			Expect(k8sClient.List(ctx, &headSvc, common.RayClusterHeadServiceListOptions(rayCluster)...)).To(Succeed())
+			Expect(headSvc.Items).To(HaveLen(1))
+			Expect(labels.SelectorFromSet(headSvc.Items[0].Spec.Selector).Matches(labels.Set(headPods.Items[0].Labels))).To(BeTrue(),
+				"head service selector %v should select head Pod labels %v", headSvc.Items[0].Spec.Selector, headPods.Items[0].Labels)
+		})
+
+		It("The head service should keep selecting the head Pod that is still running", func() {
+			// Regression guard for the window before the head Pod restarts. KubeRay never relabels a
+			// running Pod, and the default upgrade strategy does not recreate one either, so a selector
+			// taken straight from the template would stop matching the Pod that is serving traffic.
+			Expect(k8sClient.List(ctx, &headPods, headFilters...)).To(Succeed())
+			Expect(headPods.Items).To(HaveLen(1))
+			livePodLabels := labels.Set(headPods.Items[0].Labels)
+			Expect(livePodLabels[utils.KubernetesApplicationNameLabelKey]).To(Equal("myapp"))
+
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				Eventually(
+					getResourceFunc(ctx, client.ObjectKey{Name: rayCluster.Name, Namespace: namespace}, rayCluster),
+					time.Second*3, time.Millisecond*500).Should(Succeed(), "rayCluster: %v", rayCluster)
+				rayCluster.Spec.HeadGroupSpec.Template.Labels[utils.KubernetesApplicationNameLabelKey] = "myapp-live-rename"
+				return k8sClient.Update(ctx, rayCluster)
+			})
+			Expect(err).NotTo(HaveOccurred(), "Failed to update RayCluster")
+
+			// The head Pod is deliberately left running, so its labels stay as they were.
+			Consistently(func() string {
+				if err := k8sClient.List(ctx, &headPods, headFilters...); err != nil || len(headPods.Items) != 1 {
+					return ""
+				}
+				return headPods.Items[0].Labels[utils.KubernetesApplicationNameLabelKey]
+			}, time.Second*3, time.Millisecond*250).Should(Equal("myapp"), "the running head Pod should not be relabeled")
+
+			Consistently(func() bool {
+				headSvc := corev1.ServiceList{}
+				if err := k8sClient.List(ctx, &headSvc, common.RayClusterHeadServiceListOptions(rayCluster)...); err != nil || len(headSvc.Items) != 1 {
+					return false
+				}
+				return labels.SelectorFromSet(headSvc.Items[0].Spec.Selector).Matches(livePodLabels)
+			}, time.Second*3, time.Millisecond*250).Should(BeTrue(), "head service must keep selecting the head Pod that is still running")
+		})
+
+		It("The head service should follow a renamed app.kubernetes.io/name label", func() {
+			// See https://github.com/ray-project/kuberay/issues/2564. KubeRay does not relabel a running
+			// head Pod, but a head Pod that restarts comes back with the new template label, while the
+			// head service used to keep the value it was created with and stop selecting anything.
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				Eventually(
+					getResourceFunc(ctx, client.ObjectKey{Name: rayCluster.Name, Namespace: namespace}, rayCluster),
+					time.Second*3, time.Millisecond*500).Should(Succeed(), "rayCluster: %v", rayCluster)
+				rayCluster.Spec.HeadGroupSpec.Template.Labels[utils.KubernetesApplicationNameLabelKey] = "myapp-renamed"
+				return k8sClient.Update(ctx, rayCluster)
+			})
+			Expect(err).NotTo(HaveOccurred(), "Failed to update RayCluster")
+
+			// Restart the head Pod the way an eviction or a node drain would.
+			Expect(headPods.Items).To(HaveLen(1))
+			oldHeadPod := headPods.Items[0]
+			Expect(k8sClient.Delete(ctx, &oldHeadPod, &client.DeleteOptions{GracePeriodSeconds: ptr.To[int64](0)})).To(Succeed())
+			Eventually(func() string {
+				if err := k8sClient.List(ctx, &headPods, headFilters...); err != nil || len(headPods.Items) != 1 {
+					return ""
+				}
+				return headPods.Items[0].Labels[utils.KubernetesApplicationNameLabelKey]
+			}, time.Second*5, time.Millisecond*500).Should(Equal("myapp-renamed"), "the restarted head Pod should carry the new label")
+
+			Eventually(func() bool {
+				headSvc := corev1.ServiceList{}
+				if err := k8sClient.List(ctx, &headSvc, common.RayClusterHeadServiceListOptions(rayCluster)...); err != nil || len(headSvc.Items) != 1 {
+					return false
+				}
+				return labels.SelectorFromSet(headSvc.Items[0].Spec.Selector).Matches(labels.Set(headPods.Items[0].Labels))
+			}, time.Second*5, time.Millisecond*500).Should(BeTrue(), "head service should select the restarted head Pod")
 		})
 	})
 

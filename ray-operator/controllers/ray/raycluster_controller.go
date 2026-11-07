@@ -634,43 +634,143 @@ func (r *RayClusterReconciler) reconcileHeadService(ctx context.Context, instanc
 		return err
 	}
 
-	// Check if there's existing head service in the cluster.
-	if len(services.Items) != 0 {
-		if len(services.Items) == 1 {
-			logger.Info("reconcileHeadService", "1 head service found", services.Items[0].Name)
-			return nil
-		}
-		// This should never happen. This protects against the case that users manually create service with the same label.
-		if len(services.Items) > 1 {
-			logger.Info("reconcileHeadService", "Duplicate head service found", services.Items)
-			return fmt.Errorf("%d head service found %v", len(services.Items), services.Items)
-		}
-	} else {
-		// Create head service if there's no existing one in the cluster.
-		labels := make(map[string]string)
-		if val, ok := instance.Spec.HeadGroupSpec.Template.ObjectMeta.Labels[utils.KubernetesApplicationNameLabelKey]; ok {
-			labels[utils.KubernetesApplicationNameLabelKey] = val
-		}
-		annotations := make(map[string]string)
-		// TODO (kevin85421): KubeRay has already exposed the entire head service (#1040) to users.
-		// We may consider deprecating this field when we bump the CRD version.
-		maps.Copy(annotations, instance.Spec.HeadServiceAnnotations)
-		headSvc, err := common.BuildServiceForHeadPod(ctx, *instance, labels, annotations)
-		if err != nil {
-			return err
-		}
-		// TODO (kevin85421): Provide a detailed and actionable error message. For example, which port is missing?
-		if len(headSvc.Spec.Ports) == 0 {
-			logger.Info("Ray head service does not have any ports set up.", "serviceSpecification", headSvc.Spec)
-			return fmt.Errorf("ray head service does not have any ports set up. Service specification: %v", headSvc.Spec)
-		}
-
-		if err := r.createService(ctx, headSvc, instance); err != nil {
-			return err
-		}
+	// This should never happen. This protects against the case that users manually create service with the same label.
+	if len(services.Items) > 1 {
+		logger.Info("reconcileHeadService", "Duplicate head service found", services.Items)
+		return fmt.Errorf("%d head service found %v", len(services.Items), services.Items)
 	}
 
+	annotations := make(map[string]string)
+	// TODO (kevin85421): KubeRay has already exposed the entire head service (#1040) to users.
+	// We may consider deprecating this field when we bump the CRD version.
+	maps.Copy(annotations, instance.Spec.HeadServiceAnnotations)
+	selectorOverrides, err := r.headServiceSelectorOverrides(ctx, instance)
+	if err != nil {
+		return err
+	}
+	headSvc, err := common.BuildServiceForHeadPod(ctx, *instance, selectorOverrides, annotations)
+	if err != nil {
+		return err
+	}
+
+	// The head service already exists. Its selector is derived from head Pod template labels that
+	// users are allowed to change, so it has to be reconciled instead of accepted as is.
+	if len(services.Items) == 1 {
+		logger.Info("reconcileHeadService", "1 head service found", services.Items[0].Name)
+		return r.updateHeadService(ctx, instance, &services.Items[0], headSvc)
+	}
+
+	// Create head service if there's no existing one in the cluster.
+	// TODO (kevin85421): Provide a detailed and actionable error message. For example, which port is missing?
+	if len(headSvc.Spec.Ports) == 0 {
+		logger.Info("Ray head service does not have any ports set up.", "serviceSpecification", headSvc.Spec)
+		return fmt.Errorf("ray head service does not have any ports set up. Service specification: %v", headSvc.Spec)
+	}
+
+	return r.createService(ctx, headSvc, instance)
+}
+
+// headServiceSelectorOverrides returns the labels that are allowed to change the head service
+// selector. Only the two app.kubernetes.io keys qualify: BuildServiceForHeadPod keys the selector
+// off HeadServiceLabels, and of those, ray.io/cluster and ray.io/node-type are refused by labelPod,
+// while ray.io/identifier is what the operator uses to find this service again.
+//
+// The values are read from the head Pod that is running right now, not from the head Pod template.
+// KubeRay never relabels a running Pod, and the default upgrade strategy does not recreate one, so a
+// selector built from an edited template would stop matching the Pod that is currently serving
+// traffic. Once that Pod restarts it comes back carrying the template labels, and the selector
+// follows it, which is the case issue #2564 reports. A Pod that is terminating is skipped because
+// its replacement will come back with the template labels. Before any head Pod exists there is
+// nothing to select yet, so the template is the only source available.
+//
+// A cluster is only supposed to have one head Pod, and reconcilePods refuses to clean up extras on
+// its own, so the oldest one wins when several are alive. List order is not specified, and without
+// a tiebreak the selector could flip from one reconcile to the next and rewrite the service every
+// time. The oldest Pod is also the one that has been serving traffic.
+func (r *RayClusterReconciler) headServiceSelectorOverrides(ctx context.Context, instance *rayv1.RayCluster) (map[string]string, error) {
+	sourceLabels := instance.Spec.HeadGroupSpec.Template.ObjectMeta.Labels
+
+	headPods := corev1.PodList{}
+	if err := r.List(ctx, &headPods, common.RayClusterHeadPodsAssociationOptions(instance).ToListOptions()...); err != nil {
+		return nil, err
+	}
+	var servingHeadPod *corev1.Pod
+	for i := range headPods.Items {
+		headPod := &headPods.Items[i]
+		if headPod.DeletionTimestamp != nil {
+			continue
+		}
+		if servingHeadPod == nil || isOlderHeadPod(headPod, servingHeadPod) {
+			servingHeadPod = headPod
+		}
+	}
+	if servingHeadPod != nil {
+		sourceLabels = servingHeadPod.Labels
+	}
+
+	overrides := make(map[string]string, 2)
+	for _, key := range []string{utils.KubernetesApplicationNameLabelKey, utils.KubernetesCreatedByLabelKey} {
+		if val, ok := sourceLabels[key]; ok {
+			overrides[key] = val
+		}
+	}
+	return overrides, nil
+}
+
+// isOlderHeadPod reports whether a was created before b, falling back to the name so that two Pods
+// created within the same clock tick still produce a stable answer.
+func isOlderHeadPod(a, b *corev1.Pod) bool {
+	if !a.CreationTimestamp.Equal(&b.CreationTimestamp) {
+		return a.CreationTimestamp.Before(&b.CreationTimestamp)
+	}
+	return a.Name < b.Name
+}
+
+// updateHeadService keeps the parts of an existing head service that the operator owns in sync with
+// the RayCluster. Everything else on the live object is left alone, including ClusterIP (immutable),
+// ports, service type, and any label or annotation another tool added after creation.
+func (r *RayClusterReconciler) updateHeadService(ctx context.Context, instance *rayv1.RayCluster, existingSvc, desiredSvc *corev1.Service) error {
+	logger := ctrl.LoggerFrom(ctx)
+
+	if !headServiceNeedsUpdate(existingSvc, desiredSvc) {
+		return nil
+	}
+
+	logger.Info("reconcileHeadService", "head service updated", existingSvc.Name, "selector", desiredSvc.Spec.Selector)
+	if err := r.Update(ctx, existingSvc); err != nil {
+		r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToUpdateService), string(utils.UpdateAction), "Failed updating service %s/%s, %v", existingSvc.Namespace, existingSvc.Name, err)
+		return err
+	}
+	r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.UpdatedService), string(utils.UpdateAction), "Updated service %s/%s", existingSvc.Namespace, existingSvc.Name)
 	return nil
+}
+
+// headServiceNeedsUpdate copies the operator owned fields of desiredSvc onto existingSvc and reports
+// whether anything changed.
+func headServiceNeedsUpdate(existingSvc, desiredSvc *corev1.Service) bool {
+	updated := false
+
+	// The selector belongs entirely to the operator: it is the only thing that decides whether the
+	// head Pod is reachable through this service, so a stale or hand edited value is replaced.
+	if !maps.Equal(existingSvc.Spec.Selector, desiredSvc.Spec.Selector) {
+		existingSvc.Spec.Selector = maps.Clone(desiredSvc.Spec.Selector)
+		updated = true
+	}
+
+	// Labels are merged key by key rather than replaced. Labels the operator never wrote, such as
+	// those added by Helm or Argo CD, are not ours to delete.
+	for key, value := range desiredSvc.Labels {
+		if existingSvc.Labels[key] == value {
+			continue
+		}
+		if existingSvc.Labels == nil {
+			existingSvc.Labels = make(map[string]string, len(desiredSvc.Labels))
+		}
+		existingSvc.Labels[key] = value
+		updated = true
+	}
+
+	return updated
 }
 
 // reconcileGCSStoragePVC provisions the persistent volume backing the embedded
