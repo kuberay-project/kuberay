@@ -15,6 +15,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	eventtypes "github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 )
@@ -24,7 +25,7 @@ import (
 const (
 	serveApplicationsEndpoint = "/api/serve/applications/"
 	placementGroupsEndpoint   = "/api/v0/placement_groups?detail=1&limit=10000"
-	// Only used to discover job IDs; its response is not stored.
+	// Shared by Jobs snapshot capture and dataset discovery.
 	jobsEndpoint = "/api/jobs/"
 	// Per job, where job_id is the hex core job ID (e.g. "01000000"), not the submission ID.
 	dataDatasetsEndpointPrefix = "/api/data/datasets/"
@@ -244,6 +245,12 @@ func (r *RayLogHandler) pollDataDatasets(ctx context.Context, sessionName string
 		logrus.Warnf("Failed to fetch %s for dataset polling: %v", jobsEndpoint, err)
 		return
 	}
+	if ctx.Err() != nil {
+		return
+	}
+
+	// Snapshot validation and writes must not gate usable dataset discovery.
+	r.storeJobsSnapshot(ctx, sessionName, body, finalPoll)
 
 	var jobs []struct {
 		JobID  string `json:"job_id"`
@@ -287,13 +294,41 @@ func (r *RayLogHandler) pollDataDatasets(ctx context.Context, sessionName string
 	}
 }
 
+// storeJobsSnapshot validates the Jobs API response and stores it, reusing the
+// fetch already made for dataset discovery. A response that is not a wholly
+// valid nonempty array is dropped so the last good snapshot survives; dataset
+// discovery is independent of the outcome.
+func (r *RayLogHandler) storeJobsSnapshot(ctx context.Context, sessionName string, body []byte, finalPoll bool) {
+	records, rowErrors, err := eventtypes.ParseJobDetailsList(body)
+	if err != nil {
+		logrus.Warnf("Not storing %s snapshot: %v", jobsEndpoint, err)
+		return
+	}
+	if len(rowErrors) != 0 {
+		logrus.Warnf("Not storing %s snapshot: %d invalid rows (first: %v)", jobsEndpoint, len(rowErrors), rowErrors[0])
+		return
+	}
+	if len(records) == 0 {
+		return
+	}
+	payload, err := json.Marshal(records)
+	if err != nil {
+		logrus.Warnf("Failed to encode %s snapshot: %v", jobsEndpoint, err)
+		return
+	}
+	r.storeEndpointPayload(ctx, jobsEndpoint, sessionName, payload, finalPoll)
+}
+
 func (r *RayLogHandler) pollSingleEndpoint(ctx context.Context, endpoint, sessionName string, finalPoll bool) pollOutcome {
 	body, err := r.fetchEndpoint(ctx, endpoint)
 	if err != nil {
 		logrus.Warnf("Failed to poll endpoint %s: %v", endpoint, err)
 		return pollFailed
 	}
+	return r.storeEndpointPayload(ctx, endpoint, sessionName, body, finalPoll)
+}
 
+func (r *RayLogHandler) storeEndpointPayload(ctx context.Context, endpoint, sessionName string, body []byte, finalPoll bool) pollOutcome {
 	// Do not start a storage write after the parent context is canceled.
 	if ctx.Err() != nil {
 		return pollFailed

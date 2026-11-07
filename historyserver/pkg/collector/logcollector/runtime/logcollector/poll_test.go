@@ -143,7 +143,7 @@ func TestPollDataDatasetsFansOutPerJob(t *testing.T) {
 	dash := &fakeDashboard{
 		jobs: `[
 			{"job_id": "01000000", "status": "RUNNING"},
-			{"job_id": null, "status": "PENDING"},
+			{"job_id": null, "submission_id": "synthetic_pending", "status": "PENDING"},
 			{"job_id": "02000000", "status": "RUNNING"}
 		]`,
 		datasets: map[string]string{
@@ -164,6 +164,7 @@ func TestPollDataDatasetsFansOutPerJob(t *testing.T) {
 	g.Expect(writtenKeys(writer)).To(Equal([]string{
 		"cluster-dir/session_1/fetched_endpoints/restful__api__data__datasets__01000000",
 		"cluster-dir/session_1/fetched_endpoints/restful__api__data__datasets__02000000",
+		jobsSnapshotKey,
 	}))
 }
 
@@ -183,7 +184,7 @@ func TestPollDataDatasetsSkipsEmptyResponse(t *testing.T) {
 	handler.pollDataDatasets(context.Background(), "session_1", newDatasetPollState(), false)
 
 	g.Expect(dash.requestsFor(dataDatasetsEndpointPrefix)).To(HaveLen(1))
-	g.Expect(writtenKeys(writer)).To(BeEmpty())
+	g.Expect(writtenKeys(writer)).To(Equal([]string{jobsSnapshotKey}))
 }
 
 // TestPollDataDatasetsDoesNotCountRunningEmpties verifies the retry cap begins only after
@@ -225,7 +226,10 @@ func TestPollDataDatasetsDoesNotCountRunningEmpties(t *testing.T) {
 	defer mu.Unlock()
 	g.Expect(attempts).To(Equal(3))
 	g.Expect(state.terminalStored).To(HaveKey("01000000"))
-	g.Expect(writtenKeys(writer)).To(HaveLen(1))
+	g.Expect(writtenKeys(writer)).To(Equal([]string{
+		"cluster-dir/session_1/fetched_endpoints/restful__api__data__datasets__01000000",
+		jobsSnapshotKey,
+	}))
 }
 
 // TestPollDataDatasetsStopsPollingTerminalJobs verifies a terminal job is fetched once
@@ -287,12 +291,13 @@ func TestPollDataDatasetsRetriesFailedTerminalJob(t *testing.T) {
 	state := newDatasetPollState()
 	handler.pollDataDatasets(context.Background(), "session_1", state, false)
 	g.Expect(state.terminalStored).To(BeEmpty())
-	g.Expect(writtenKeys(writer)).To(BeEmpty())
+	g.Expect(writtenKeys(writer)).To(Equal([]string{jobsSnapshotKey}))
 
 	handler.pollDataDatasets(context.Background(), "session_1", state, false)
 	g.Expect(state.terminalStored).To(HaveKey("01000000"))
 	g.Expect(writtenKeys(writer)).To(Equal([]string{
 		"cluster-dir/session_1/fetched_endpoints/restful__api__data__datasets__01000000",
+		jobsSnapshotKey,
 	}))
 }
 
@@ -325,12 +330,13 @@ func TestPollDataDatasetsRetriesTerminalJobWithLateStats(t *testing.T) {
 	state := newDatasetPollState()
 	handler.pollDataDatasets(context.Background(), "session_1", state, false)
 	g.Expect(state.terminalStored).To(BeEmpty())
-	g.Expect(writtenKeys(writer)).To(BeEmpty())
+	g.Expect(writtenKeys(writer)).To(Equal([]string{jobsSnapshotKey}))
 
 	handler.pollDataDatasets(context.Background(), "session_1", state, false)
 	g.Expect(state.terminalStored).To(HaveKey("01000000"))
 	g.Expect(writtenKeys(writer)).To(Equal([]string{
 		"cluster-dir/session_1/fetched_endpoints/restful__api__data__datasets__01000000",
+		jobsSnapshotKey,
 	}))
 }
 
@@ -354,7 +360,7 @@ func TestPollDataDatasetsGivesUpOnRepeatedlyEmptyTerminalJob(t *testing.T) {
 	g.Expect(state.terminalStored).NotTo(HaveKey("01000000"))
 	g.Expect(state.emptyRuns).To(HaveKeyWithValue("01000000", terminalEmptyPollsBeforeGivingUp))
 	g.Expect(dash.requestsFor("/api/data/datasets/01000000")).To(HaveLen(terminalEmptyPollsBeforeGivingUp))
-	g.Expect(writtenKeys(writer)).To(BeEmpty())
+	g.Expect(writtenKeys(writer)).To(Equal([]string{jobsSnapshotKey}))
 }
 
 // TestFinalDatasetPollReusesPeriodicState verifies the final poll skips terminal jobs
@@ -427,6 +433,7 @@ func TestFinalDatasetPollReusesPeriodicState(t *testing.T) {
 		"cluster-dir/session_1/fetched_endpoints/restful__api__data__datasets__01000000",
 		"cluster-dir/session_1/fetched_endpoints/restful__api__data__datasets__02000000",
 		"cluster-dir/session_1/fetched_endpoints/restful__api__data__datasets__03000000",
+		jobsSnapshotKey,
 	))
 }
 
