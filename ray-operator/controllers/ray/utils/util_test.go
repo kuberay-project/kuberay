@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"testing"
 
@@ -599,6 +600,37 @@ func TestGetWorkerGroupDesiredReplicas(t *testing.T) {
 	workerGroupSpec.MinReplicas = &minReplicas
 	workerGroupSpec.MaxReplicas = &maxReplicas
 	assert.Equal(t, GetWorkerGroupDesiredReplicas(workerGroupSpec), replicas*numOfHosts)
+}
+
+func TestGetWorkerGroupDesiredReplicaGroups(t *testing.T) {
+	tests := []struct {
+		name        string
+		replicas    *int32
+		minReplicas *int32
+		maxReplicas *int32
+		suspend     bool
+		wantGroups  int32
+	}{
+		{name: "unset replicas and bounds"},
+		{name: "unset replicas", minReplicas: ptr.To[int32](2), wantGroups: 2},
+		{name: "below minimum", replicas: ptr.To[int32](1), minReplicas: ptr.To[int32](2), wantGroups: 2},
+		{name: "above maximum", replicas: ptr.To[int32](3), maxReplicas: ptr.To[int32](2), wantGroups: 2},
+		{name: "within bounds", replicas: ptr.To[int32](2), minReplicas: ptr.To[int32](1), maxReplicas: ptr.To[int32](3), wantGroups: 2},
+		{name: "zero replicas", replicas: ptr.To[int32](0)},
+		{name: "suspended", replicas: ptr.To[int32](2), minReplicas: ptr.To[int32](1), suspend: true},
+		{name: "maximum logical replicas", replicas: ptr.To[int32](math.MaxInt32), wantGroups: math.MaxInt32},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, numOfHosts := range []int32{1, 2, math.MaxInt32} {
+				worker := rayv1.WorkerGroupSpec{
+					Replicas: tt.replicas, MinReplicas: tt.minReplicas, MaxReplicas: tt.maxReplicas,
+					NumOfHosts: numOfHosts, Suspend: new(tt.suspend),
+				}
+				assert.Equal(t, tt.wantGroups, GetWorkerGroupDesiredReplicaGroups(worker), "numOfHosts: %d", numOfHosts)
+			}
+		})
+	}
 }
 
 func TestCalculateMinAndMaxReplicas(t *testing.T) {
@@ -1543,6 +1575,72 @@ func TestCalculateResources(t *testing.T) {
 			assert.Equal(t, tt.expected.minResources.Cpu().String(), minResource.Cpu().String())
 			assert.Equal(t, tt.expected.minResources.Memory().String(), minResource.Memory().String())
 			assert.Equal(t, deepCopyCluster, tt.cluster)
+		})
+	}
+}
+
+func TestCalculateDesiredResourcesReplicaBounds(t *testing.T) {
+	tests := []struct {
+		name        string
+		replicas    *int32
+		minReplicas *int32
+		maxReplicas *int32
+		numOfHosts  int32
+		wantCPU     string
+		wantMemory  string
+	}{
+		{
+			name: "below minimum", replicas: ptr.To[int32](1), minReplicas: ptr.To[int32](3),
+			numOfHosts: 1, wantCPU: "7", wantMemory: "700Mi",
+		},
+		{
+			name: "above maximum", replicas: ptr.To[int32](5), maxReplicas: ptr.To[int32](2),
+			numOfHosts: 1, wantCPU: "5", wantMemory: "500Mi",
+		},
+		{
+			name: "multiple hosts below minimum", replicas: ptr.To[int32](1), minReplicas: ptr.To[int32](3),
+			numOfHosts: 2, wantCPU: "13", wantMemory: "1300Mi",
+		},
+		{
+			name: "unset replicas", minReplicas: ptr.To[int32](2),
+			numOfHosts: 1, wantCPU: "5", wantMemory: "500Mi",
+		},
+		{
+			name: "within bounds", replicas: ptr.To[int32](2), minReplicas: ptr.To[int32](1), maxReplicas: ptr.To[int32](3),
+			numOfHosts: 2, wantCPU: "9", wantMemory: "900Mi",
+		},
+		{
+			name: "zero replicas", replicas: ptr.To[int32](0), maxReplicas: ptr.To[int32](3),
+			numOfHosts: 1, wantCPU: "1", wantMemory: "100Mi",
+		},
+		{
+			name: "multiple hosts above maximum", replicas: ptr.To[int32](5), maxReplicas: ptr.To[int32](2),
+			numOfHosts: 2, wantCPU: "9", wantMemory: "900Mi",
+		},
+		{
+			name: "large replica count with multiple hosts", replicas: ptr.To[int32](2147483647),
+			numOfHosts: 2, wantCPU: "8589934589", wantMemory: "858993458900Mi",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := &rayv1.RayCluster{
+				Spec: rayv1.RayClusterSpec{
+					HeadGroupSpec: rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{Spec: createPodSpec("1", "100Mi")},
+					},
+					WorkerGroupSpecs: []rayv1.WorkerGroupSpec{{
+						Replicas: tt.replicas, MinReplicas: tt.minReplicas, MaxReplicas: tt.maxReplicas,
+						NumOfHosts: tt.numOfHosts,
+						Template:   corev1.PodTemplateSpec{Spec: createPodSpec("2", "200Mi")},
+					}},
+				},
+			}
+			original := cluster.DeepCopy()
+			got := CalculateDesiredResources(cluster)
+			assert.Equal(t, tt.wantCPU, got.Cpu().String())
+			assert.Equal(t, tt.wantMemory, got.Memory().String())
+			assert.Equal(t, original, cluster)
 		})
 	}
 }
