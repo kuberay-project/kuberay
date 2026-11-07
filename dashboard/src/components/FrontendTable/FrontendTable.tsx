@@ -19,12 +19,16 @@ interface IFrontendTableProps<T extends { name: string }> {
     info?: unknown;
   } | null;
   headCells: readonly HeadCell<T>[];
-  deleteItems: (names: readonly string[]) => Promise<void>;
+  deleteItems: (items: readonly T[]) => Promise<void>;
   deleting: boolean;
   renderRow: (row: T) => React.ReactNode;
   defaultOrderBy: keyof T & string;
   name: string;
   disableSelection?: boolean;
+  // Unique key per row, used for selection and React keys. Defaults to the row
+  // name; pass a composite key (e.g. "namespace/name") when names can collide
+  // across namespaces.
+  getRowKey?: (row: T) => string;
 }
 
 function descendingComparator<T>(a: T, b: T, orderBy: keyof T) {
@@ -101,6 +105,21 @@ export const FrontendTable = <T extends { name: string }>(
     name,
     disableSelection = false,
   } = props;
+  const getRowKey = React.useMemo(
+    () => props.getRowKey ?? ((row: T) => row.name),
+    [props.getRowKey],
+  );
+
+  // Drop selections removed by filtering or polling. Namespace-scoped callers
+  // also key the table by namespace to reset selection and pagination when
+  // switching views, even if the new data contains the same rows.
+  React.useEffect(() => {
+    setSelected((prev) => {
+      const currentKeys = new Set(data.map(getRowKey));
+      const filtered = prev.filter((key) => currentKeys.has(key));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [data, getRowKey]);
   const [order, setOrder] = React.useState<Order>("desc");
   const [orderBy, setOrderBy] = React.useState<keyof T & string>(
     defaultOrderBy,
@@ -144,19 +163,19 @@ export const FrontendTable = <T extends { name: string }>(
 
   const handleSelectAllClick = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.checked) {
-      const newSelected = sortedPaginatedData.map((n) => n.name);
+      const newSelected = sortedPaginatedData.map(getRowKey);
       setSelected(newSelected);
       return;
     }
     setSelected([]);
   };
 
-  const handleClick = (event: React.MouseEvent<unknown>, name: string) => {
-    const selectedIndex = selected.indexOf(name);
+  const handleClick = (event: React.MouseEvent<unknown>, key: string) => {
+    const selectedIndex = selected.indexOf(key);
     let newSelected: readonly string[] = [];
 
     if (selectedIndex === -1) {
-      newSelected = newSelected.concat(selected, name);
+      newSelected = newSelected.concat(selected, key);
     } else if (selectedIndex === 0) {
       newSelected = newSelected.concat(selected.slice(1));
     } else if (selectedIndex === selected.length - 1) {
@@ -183,14 +202,19 @@ export const FrontendTable = <T extends { name: string }>(
     setPage(1);
   };
 
-  const isSelected = (name: string) => selected.indexOf(name) !== -1;
+  const isSelected = (key: string) => selected.indexOf(key) !== -1;
 
   // Avoid a layout jump when reaching the last page with empty rows.
   const emptyRows =
     page > 1 ? Math.max(0, page * rowsPerPage - data.length) : 0;
 
   const handleDeleteItems = async () => {
-    await deleteItems(selected);
+    // Resolve the selected keys back to rows so that deleteItems receives the
+    // full row (e.g. with its namespace) instead of a plain name.
+    const selectedRows = selected
+      .map((key) => data.find((row) => getRowKey(row) === key))
+      .filter((row): row is T => row !== undefined);
+    await deleteItems(selectedRows);
     setSelected([]);
   };
 
@@ -330,10 +354,11 @@ export const FrontendTable = <T extends { name: string }>(
             ) : (
               <>
                 {sortedPaginatedData.map((row, index) => {
-                  const isItemSelected = isSelected(row.name);
+                  const rowKey = getRowKey(row);
+                  const isItemSelected = isSelected(rowKey);
 
                   return (
-                    <tr key={row.name}>
+                    <tr key={rowKey}>
                       <td style={{ textAlign: "center" }}>
                         {!disableSelection && (
                           <Checkbox
@@ -343,7 +368,7 @@ export const FrontendTable = <T extends { name: string }>(
                               checkbox: { sx: { textAlign: "left" } },
                             }}
                             sx={{ verticalAlign: "text-bottom" }}
-                            onClick={(event) => handleClick(event, row.name)}
+                            onClick={(event) => handleClick(event, rowKey)}
                           />
                         )}
                       </td>

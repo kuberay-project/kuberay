@@ -312,6 +312,32 @@ var _ = Describe("events", Ordered, func() {
 	})
 })
 
+var _ = Describe("namespaces", Ordered, func() {
+	nsName := "proxy-test-ns"
+
+	BeforeAll(func() {
+		_, err := k8sClientWithoutProxy.Namespaces().Create(context.Background(), &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: nsName},
+		}, metav1.CreateOptions{})
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("List namespaces", func() {
+		namespaces, err := k8sClient.Namespaces().List(context.Background(), metav1.ListOptions{})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(namespaces.Items).To(ContainElement(HaveField("Name", nsName)))
+		Expect(lastReq.Load().Method).To(Equal(http.MethodGet))
+		Expect(lastReq.Load().RequestURI).To(Equal("/api/v1/namespaces"))
+	})
+	It("Only GET method is allowed for namespaces endpoint", func() {
+		_, err := k8sClient.Namespaces().Create(context.Background(), &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{GenerateName: "test-ns-"},
+		}, metav1.CreateOptions{})
+		Expect(err).To(HaveOccurred())
+		Expect(err).To(MatchError(ContainSubstring("the server does not allow this method on the requested resource")))
+	})
+})
+
 var _ = Describe("not match", Ordered, func() {
 	It("List Pods", func() {
 		_, err := k8sClient.Pods("default").List(context.Background(), metav1.ListOptions{})
