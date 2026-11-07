@@ -20,10 +20,3 @@ spec:
               cpu: "36"
               memory: "144G"
               nvidia.com/gpu: "4"
-          ports:
-          - containerPort: 6379
-            name: gcs-server
-          - containerPort: 8265
-            name: dashboard
-          - containerPort: 10001
-            name: client
