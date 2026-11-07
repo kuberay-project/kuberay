@@ -1272,3 +1272,200 @@ func TestBatchSchedulerCleanupCalledWhenRayJobSuspendingOrRetrying(t *testing.T)
 		})
 	}
 }
+
+func TestCheckSelectedClusterSuspendedAndUpdateStatusIfNeeded(t *testing.T) {
+	tests := []struct {
+		name               string
+		clusterSelector    map[string]string
+		clusterSuspend     *bool
+		clusterIdleSuspend *bool
+		expectShouldFail   bool
+		expectMsgContains  []string
+		expectMsgMissing   []string
+	}{
+		{
+			name:             "no clusterSelector and suspended cluster",
+			clusterSelector:  nil,
+			clusterSuspend:   new(true),
+			expectShouldFail: false,
+		},
+		{
+			name:             "clusterSelector and active cluster",
+			clusterSelector:  map[string]string{utils.RayJobClusterSelectorKey: "test-raycluster"},
+			expectShouldFail: false,
+		},
+		{
+			name:               "clusterSelector and cluster with suspend and idleSuspend set to false",
+			clusterSelector:    map[string]string{utils.RayJobClusterSelectorKey: "test-raycluster"},
+			clusterSuspend:     new(false),
+			clusterIdleSuspend: new(false),
+			expectShouldFail:   false,
+		},
+		{
+			name:              "clusterSelector and cluster with spec.suspend",
+			clusterSelector:   map[string]string{utils.RayJobClusterSelectorKey: "test-raycluster"},
+			clusterSuspend:    new(true),
+			expectShouldFail:  true,
+			expectMsgContains: []string{"default/test-raycluster", "spec.suspend"},
+			expectMsgMissing:  []string{"spec.idleSuspend"},
+		},
+		{
+			name:               "clusterSelector and cluster with spec.idleSuspend",
+			clusterSelector:    map[string]string{utils.RayJobClusterSelectorKey: "test-raycluster"},
+			clusterIdleSuspend: new(true),
+			expectShouldFail:   true,
+			expectMsgContains:  []string{"default/test-raycluster", "spec.idleSuspend"},
+			expectMsgMissing:   []string{"spec.suspend"},
+		},
+		{
+			name:               "clusterSelector and cluster with both spec.suspend and spec.idleSuspend",
+			clusterSelector:    map[string]string{utils.RayJobClusterSelectorKey: "test-raycluster"},
+			clusterSuspend:     new(true),
+			clusterIdleSuspend: new(true),
+			expectShouldFail:   true,
+			expectMsgContains:  []string{"default/test-raycluster", "spec.suspend", "spec.idleSuspend"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rayJob := &rayv1.RayJob{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-rayjob", Namespace: "default"},
+				Spec:       rayv1.RayJobSpec{ClusterSelector: tc.clusterSelector},
+				Status: rayv1.RayJobStatus{
+					JobDeploymentStatus: rayv1.JobDeploymentStatusInitializing,
+					RayClusterName:      "test-raycluster",
+				},
+			}
+			rayCluster := &rayv1.RayCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-raycluster", Namespace: "default"},
+				Spec: rayv1.RayClusterSpec{
+					Suspend:     tc.clusterSuspend,
+					IdleSuspend: tc.clusterIdleSuspend,
+				},
+			}
+			originalStatus := *rayJob.Status.DeepCopy()
+
+			shouldUpdate := checkSelectedClusterSuspendedAndUpdateStatusIfNeeded(context.Background(), rayJob, rayCluster)
+			assert.Equal(t, tc.expectShouldFail, shouldUpdate)
+
+			if !tc.expectShouldFail {
+				assert.Equal(t, originalStatus, rayJob.Status, "status must not change when the RayJob should not fail")
+				return
+			}
+
+			assert.Equal(t, rayv1.JobDeploymentStatusFailed, rayJob.Status.JobDeploymentStatus)
+			assert.Equal(t, rayv1.SelectedRayClusterSuspended, rayJob.Status.Reason)
+			for _, s := range tc.expectMsgContains {
+				assert.Contains(t, rayJob.Status.Message, s)
+			}
+			for _, s := range tc.expectMsgMissing {
+				assert.NotContains(t, rayJob.Status.Message, s)
+			}
+		})
+	}
+}
+
+// TestRayJobFailsWhenSelectedRayClusterIsSuspended verifies that a RayJob in clusterSelector mode
+// moves from Initializing to Failed, instead of waiting forever, when the selected RayCluster is suspended.
+func TestRayJobFailsWhenSelectedRayClusterIsSuspended(t *testing.T) {
+	tests := []struct {
+		name               string
+		clusterSuspend     *bool
+		clusterIdleSuspend *bool
+		backoffLimit       *int32
+		expectedStatus     rayv1.JobDeploymentStatus
+		expectedReason     rayv1.JobFailedReason
+	}{
+		{
+			name:           "selected cluster has spec.suspend",
+			clusterSuspend: new(true),
+			expectedStatus: rayv1.JobDeploymentStatusFailed,
+			expectedReason: rayv1.SelectedRayClusterSuspended,
+		},
+		{
+			name:               "selected cluster has spec.idleSuspend",
+			clusterIdleSuspend: new(true),
+			expectedStatus:     rayv1.JobDeploymentStatusFailed,
+			expectedReason:     rayv1.SelectedRayClusterSuspended,
+		},
+		{
+			// BackoffLimit is incompatible with ClusterSelector mode, so the RayJob must not retry.
+			name:           "selected cluster is suspended and backoffLimit is 0",
+			clusterSuspend: new(true),
+			backoffLimit:   new(int32(0)),
+			expectedStatus: rayv1.JobDeploymentStatusFailed,
+			expectedReason: rayv1.SelectedRayClusterSuspended,
+		},
+		{
+			name:           "selected cluster is active and not ready",
+			expectedStatus: rayv1.JobDeploymentStatusInitializing,
+			expectedReason: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			newScheme := runtime.NewScheme()
+			_ = rayv1.AddToScheme(newScheme)
+			_ = batchv1.AddToScheme(newScheme)
+			_ = corev1.AddToScheme(newScheme)
+
+			rayJob := &rayv1.RayJob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-rayjob",
+					Namespace:  "default",
+					Finalizers: []string{utils.RayJobStopJobFinalizer},
+				},
+				Spec: rayv1.RayJobSpec{
+					Entrypoint:      "echo hello",
+					SubmissionMode:  rayv1.K8sJobMode,
+					ClusterSelector: map[string]string{utils.RayJobClusterSelectorKey: "test-raycluster"},
+					BackoffLimit:    tc.backoffLimit,
+				},
+				Status: rayv1.RayJobStatus{
+					JobDeploymentStatus: rayv1.JobDeploymentStatusInitializing,
+					JobStatus:           rayv1.JobStatusNew,
+					JobId:               "test-job-id",
+					RayClusterName:      "test-raycluster",
+					StartTime:           &metav1.Time{Time: time.Now()},
+				},
+			}
+			rayCluster := &rayv1.RayCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-raycluster", Namespace: "default"},
+				Spec: rayv1.RayClusterSpec{
+					Suspend:     tc.clusterSuspend,
+					IdleSuspend: tc.clusterIdleSuspend,
+				},
+			}
+
+			fakeClient := clientFake.NewClientBuilder().
+				WithScheme(newScheme).
+				WithRuntimeObjects(rayJob, rayCluster).
+				WithStatusSubresource(rayJob).
+				Build()
+			recorder := events.NewFakeRecorder(100)
+			reconciler := &RayJobReconciler{
+				Client:   fakeClient,
+				Recorder: recorder,
+				Scheme:   newScheme,
+			}
+
+			ctx := context.Background()
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: rayJob.Name, Namespace: rayJob.Namespace},
+			})
+			require.NoError(t, err)
+
+			updated := &rayv1.RayJob{}
+			require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: rayJob.Name, Namespace: rayJob.Namespace}, updated))
+			assert.Equal(t, tc.expectedStatus, updated.Status.JobDeploymentStatus)
+			assert.Equal(t, tc.expectedReason, updated.Status.Reason)
+			if tc.expectedStatus == rayv1.JobDeploymentStatusFailed {
+				assert.Contains(t, updated.Status.Message, "default/test-raycluster")
+				require.NotNil(t, updated.Status.Failed)
+				assert.Equal(t, int32(1), *updated.Status.Failed)
+			}
+		})
+	}
+}
