@@ -488,7 +488,7 @@ func (r *RayClusterReconciler) createAuthSecret(ctx context.Context, rayCluster 
 			},
 		},
 		StringData: map[string]string{
-			"auth_token": token,
+			utils.RAY_AUTH_TOKEN_SECRET_KEY: token,
 		},
 	}
 
