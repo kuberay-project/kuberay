@@ -226,7 +226,8 @@ func GetSubmitterTemplate(rayJobSpec *rayv1.RayJobSpec, rayClusterSpec *rayv1.Ra
 			Containers: []corev1.Container{
 				GetDefaultSubmitterContainer(rayClusterSpec),
 			},
-			RestartPolicy: corev1.RestartPolicyNever,
+			RestartPolicy:    corev1.RestartPolicyNever,
+			ImagePullSecrets: rayClusterSpec.HeadGroupSpec.Template.Spec.ImagePullSecrets,
 		},
 	}
 }
@@ -236,7 +237,8 @@ func GetDefaultSubmitterContainer(rayClusterSpec *rayv1.RayClusterSpec) corev1.C
 	return corev1.Container{
 		Name: utils.SubmitterContainerName,
 		// Use the image of the Ray head to be defensive against version mismatch issues
-		Image: rayClusterSpec.HeadGroupSpec.Template.Spec.Containers[utils.RayContainerIndex].Image,
+		Image:           rayClusterSpec.HeadGroupSpec.Template.Spec.Containers[utils.RayContainerIndex].Image,
+		ImagePullPolicy: rayClusterSpec.HeadGroupSpec.Template.Spec.Containers[utils.RayContainerIndex].ImagePullPolicy,
 		Resources: corev1.ResourceRequirements{
 			Limits: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
