@@ -690,6 +690,20 @@
         "memory": {
           "type": "string",
           "title": "Optional memory for the submitter - default \"1Gi\""
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Optional. Annotations for the submitter pod"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Optional. Labels for the submitter pod (e.g. sidecar.istio.io/inject)"
         }
       },
       "required": [
