@@ -380,6 +380,87 @@ func TestPersistEvents_SessionChangeRotates(t *testing.T) {
 	assert.True(t, found, "expected uploaded key under old session, got: %v", keys)
 }
 
+// A single POST can span a session boundary. Events before the boundary must
+// land in the old session, events from the boundary on in the new one, and
+// none of them may be dropped (ray-project/kuberay#4442: the first event of the
+// new session used to be flushed with the old session, and the rest of the
+// batch was lost to an early return).
+func TestPersistEvents_SessionChangeMidBatchKeepsAllEvents(t *testing.T) {
+	writer := newMockWriter()
+	ec := newTestCollector(t, writer, Options{CompressionEnabled: false})
+	ec.consumerWG.Add(1)
+	go ec.compressionUploadWorker()
+
+	const oldSession, newSession = "session_abc", "session_new"
+	nodeEvent := func(id, session string) map[string]any {
+		return map[string]any{
+			"eventId":     id,
+			"eventType":   "NODE_LIFECYCLE_EVENT",
+			"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
+			"sessionName": session,
+		}
+	}
+	jobEvent := func(id, session string) map[string]any {
+		return map[string]any{
+			"eventId":             id,
+			"eventType":           "TASK_DEFINITION_EVENT",
+			"taskDefinitionEvent": map[string]any{"jobId": "job-1"},
+			"timestamp":           time.Now().UTC().Format(time.RFC3339Nano),
+			"sessionName":         session,
+		}
+	}
+
+	body, err := json.Marshal([]map[string]any{
+		nodeEvent("n-old", oldSession),
+		jobEvent("j-old", oldSession),
+		nodeEvent("n-new-1", newSession),
+		jobEvent("j-new", newSession),
+		nodeEvent("n-new-2", newSession),
+	})
+	require.NoError(t, err)
+
+	rec := callPersistEvents(t, ec, body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Shutdown rotates the new session's still-active files and drains the queue.
+	ec.shutdown()
+
+	// eventIDs[key-suffix] collects the event IDs uploaded under each
+	// "<session>/<category>" pair.
+	eventIDs := make(map[string][]string)
+	for _, key := range writer.fileKeys() {
+		var session, category string
+		switch {
+		case strings.Contains(key, "/"+oldSession+"/"):
+			session = oldSession
+		case strings.Contains(key, "/"+newSession+"/"):
+			session = newSession
+		default:
+			t.Fatalf("uploaded key %q is under neither session", key)
+		}
+		if strings.Contains(key, "/job_events/") {
+			category = "job_events"
+		} else {
+			category = "node_events"
+		}
+		data, ok := writer.get(key)
+		require.True(t, ok)
+		for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
+			var e map[string]any
+			require.NoError(t, json.Unmarshal([]byte(line), &e))
+			assert.Equal(t, session, e["sessionName"],
+				"event %v is stored under %s but belongs to %v", e["eventId"], session, e["sessionName"])
+			id := session + "/" + category
+			eventIDs[id] = append(eventIDs[id], e["eventId"].(string))
+		}
+	}
+
+	assert.Equal(t, []string{"n-old"}, eventIDs[oldSession+"/node_events"])
+	assert.Equal(t, []string{"j-old"}, eventIDs[oldSession+"/job_events"])
+	assert.Equal(t, []string{"n-new-1", "n-new-2"}, eventIDs[newSession+"/node_events"])
+	assert.Equal(t, []string{"j-new"}, eventIDs[newSession+"/job_events"])
+}
+
 func TestPersistEvents_RejectsUnderDiskPressure(t *testing.T) {
 	ec := newTestCollector(t, newMockWriter(), Options{
 		MaxDiskBytes:       100,
@@ -680,6 +761,132 @@ func TestCheckRotation_SizeTrigger(t *testing.T) {
 	default:
 		t.Fatal("expected rotation task to be enqueued")
 	}
+}
+
+func TestCheckRotation_AgeTrigger(t *testing.T) {
+	ec := newTestCollector(t, newMockWriter(), Options{
+		RotationInterval: time.Hour,
+		MaxFileSizeBytes: 1 << 30, // ensure size won't trip
+	})
+
+	state, err := ec.openNewActiveFileLocked(categoryNodeEvents, ec.currentSessionName)
+	require.NoError(t, err)
+	_, err = state.writer.Write([]byte("{}\n"))
+	require.NoError(t, err)
+	require.NoError(t, state.writer.Flush())
+	state.size = 3
+
+	// A young file below the size limit stays active.
+	ec.checkRotation()
+	_, stillActive := ec.activeFiles[categoryNodeEvents]
+	require.True(t, stillActive, "a young, small file must not be rotated")
+
+	// Once it is older than the rotation interval it is rotated and queued.
+	state.createdAt = time.Now().Add(-2 * time.Hour)
+	ec.checkRotation()
+	_, stillActive = ec.activeFiles[categoryNodeEvents]
+	assert.False(t, stillActive)
+	select {
+	case task := <-ec.rotationQueue:
+		assert.Equal(t, state.path, task.path)
+	default:
+		t.Fatal("expected rotation task to be enqueued")
+	}
+}
+
+// A node ID change is the collector's primary flush boundary: events written
+// before it must be uploaded under the old node ID, later ones under the new
+// one, and a no-op update must not rotate anything.
+func TestUpdateNodeID_RotatesActiveFiles(t *testing.T) {
+	writer := newMockWriter()
+	ec := newTestCollector(t, writer, Options{CompressionEnabled: false})
+	ec.consumerWG.Add(1)
+	go ec.compressionUploadWorker()
+
+	post := func(id string) {
+		body, err := json.Marshal([]map[string]any{{
+			"eventId":     id,
+			"eventType":   "NODE_LIFECYCLE_EVENT",
+			"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
+			"sessionName": ec.currentSessionName,
+		}})
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, callPersistEvents(t, ec, body).Code)
+	}
+
+	post("before")
+
+	ec.UpdateNodeID("node-1") // same ID: nothing to do
+	_, active := ec.activeFiles[categoryNodeEvents]
+	require.True(t, active, "an unchanged node ID must not rotate the active file")
+
+	ec.UpdateNodeID("node-2")
+	_, active = ec.activeFiles[categoryNodeEvents]
+	require.False(t, active, "a node ID change must rotate the active file")
+
+	post("after")
+	ec.shutdown()
+
+	var oldNodeBody, newNodeBody string
+	for _, key := range writer.fileKeys() {
+		data, _ := writer.get(key)
+		switch {
+		case strings.Contains(key, "/node-1/node_events/"):
+			oldNodeBody += string(data)
+		case strings.Contains(key, "/node-2/node_events/"):
+			newNodeBody += string(data)
+		default:
+			t.Fatalf("uploaded key %q is under neither node", key)
+		}
+	}
+	assert.Contains(t, oldNodeBody, `"eventId":"before"`)
+	assert.NotContains(t, oldNodeBody, `"eventId":"after"`)
+	assert.Contains(t, newNodeBody, `"eventId":"after"`)
+	assert.NotContains(t, newNodeBody, `"eventId":"before"`)
+}
+
+// Each rotation must land in its own object. A fixed key per session/node/hour
+// (the old PutObject-per-flush layout) would let a later flush overwrite an
+// earlier one.
+func TestRotatedFilesInSameHourDoNotOverwrite(t *testing.T) {
+	writer := newMockWriter()
+	ec := newTestCollector(t, writer, Options{CompressionEnabled: false})
+	ec.consumerWG.Add(1)
+	go ec.compressionUploadWorker()
+
+	rotate := func() {
+		ec.writeMu.Lock()
+		defer ec.writeMu.Unlock()
+		require.NoError(t, ec.rotateFileLocked(categoryNodeEvents, false))
+	}
+	post := func(id string) {
+		body, err := json.Marshal([]map[string]any{{
+			"eventId":     id,
+			"eventType":   "NODE_LIFECYCLE_EVENT",
+			"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
+			"sessionName": ec.currentSessionName,
+		}})
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, callPersistEvents(t, ec, body).Code)
+	}
+
+	post("first")
+	rotate()
+	post("second")
+	rotate()
+	ec.shutdown()
+
+	keys := writer.fileKeys()
+	require.Len(t, keys, 2, "each rotation must produce its own object, got: %v", keys)
+
+	var bodies []string
+	for _, key := range keys {
+		data, _ := writer.get(key)
+		bodies = append(bodies, string(data))
+	}
+	joined := strings.Join(bodies, "")
+	assert.Contains(t, joined, `"eventId":"first"`)
+	assert.Contains(t, joined, `"eventId":"second"`)
 }
 
 // ---------- Sanity: atomic disk counter types ----------
