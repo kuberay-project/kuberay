@@ -3358,6 +3358,16 @@ func TestSumGPUs(t *testing.T) {
 			},
 			expected: resource.MustParse("10"),
 		},
+		{
+			name: "GPU requested through the DRA implicit extended resource name",
+			input: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				nvidiaGPUResourceName: resource.MustParse("1"),
+				corev1.ResourceName("deviceclass.resource.kubernetes.io/gpu.nvidia.com"): resource.MustParse("2"),
+				corev1.ResourceName("deviceclass.resource.kubernetes.io/tpu.google.com"): resource.MustParse("4"),
+			},
+			expected: resource.MustParse("3"),
+		},
 	}
 
 	for _, tc := range tests {
