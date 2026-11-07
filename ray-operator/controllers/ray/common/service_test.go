@@ -224,6 +224,56 @@ func TestBuildServiceForHeadPodWithAnnotations(t *testing.T) {
 	assert.Equal(t, annotations, svc.ObjectMeta.Annotations)
 }
 
+func TestBuildHeadServiceForRayServiceWithAnnotations(t *testing.T) {
+	// The head Service of a RayService must carry the same headServiceAnnotations as the
+	// head Service of the RayCluster it points to.
+	svc, err := BuildHeadServiceForRayService(context.Background(), *serviceInstance, *instanceWithWrongSvc)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		headServiceAnnotationKey1: headServiceAnnotationValue1,
+		headServiceAnnotationKey2: headServiceAnnotationValue2,
+	}, svc.ObjectMeta.Annotations)
+
+	// The Service must not share its annotation map with the RayCluster spec.
+	svc.ObjectMeta.Annotations["extra"] = "value"
+	assert.NotContains(t, instanceWithWrongSvc.Spec.HeadServiceAnnotations, "extra")
+}
+
+func TestBuildHeadServiceForRayServiceWithoutAnnotations(t *testing.T) {
+	cluster := instanceForSvc.DeepCopy()
+	cluster.Spec.HeadServiceAnnotations = nil
+	svc, err := BuildHeadServiceForRayService(context.Background(), *serviceInstance, *cluster)
+	require.NoError(t, err)
+	assert.Empty(t, svc.ObjectMeta.Annotations)
+}
+
+func TestBuildHeadServiceForRayServiceWithCustomHeadService(t *testing.T) {
+	// Annotations set on headGroupSpec.headService and in headServiceAnnotations are both kept,
+	// and headServiceAnnotations wins on a conflict, as it does for the RayCluster head Service.
+	cluster := instanceForSvc.DeepCopy()
+	cluster.Spec.HeadServiceAnnotations = map[string]string{
+		"shared":                  "from-headServiceAnnotations",
+		headServiceAnnotationKey1: headServiceAnnotationValue1,
+	}
+	cluster.Spec.HeadGroupSpec.HeadService = &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				"shared":    "from-headService",
+				"custom":    "value",
+				"unrelated": "kept",
+			},
+		},
+	}
+	svc, err := BuildHeadServiceForRayService(context.Background(), *serviceInstance, *cluster)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"shared":                  "from-headServiceAnnotations",
+		"custom":                  "value",
+		"unrelated":               "kept",
+		headServiceAnnotationKey1: headServiceAnnotationValue1,
+	}, svc.ObjectMeta.Annotations)
+}
+
 func TestGetPortsFromCluster(t *testing.T) {
 	svcPorts := getPortsFromCluster(*instanceWithWrongSvc)
 
