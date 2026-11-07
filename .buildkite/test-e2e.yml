@@ -20,6 +20,26 @@
     - if [ -n "$$TEST_EXIT_CODE" ]; then kubectl logs --tail -1 -l app.kubernetes.io/name=kuberay | tee $$KUBERAY_TEST_OUTPUT_DIR/kuberay-operator.log && cd $$KUBERAY_TEST_OUTPUT_DIR && find . -name "*.log" | tar -cf /artifact-mount/e2e-log.tar -T -; exit 1; fi
     - echo "--- END:RayCluster and GCS E2E (nightly operator) tests finished"
 
+- label: 'Test RayCluster IPv6 E2E (nightly operator)'
+  instance_size: large
+  image: golang:1.26-bookworm
+  commands:
+    - source .buildkite/setup-env.sh
+    - kind create cluster --wait 900s --config ./ci/kind-config-buildkite-ipv6.yml
+    - docker exec kind-control-plane sh -c 'grep -v "^search " /etc/resolv.conf > /tmp/resolv.conf && cat /tmp/resolv.conf > /etc/resolv.conf'
+    - kubectl config set clusters.kind-kind.server https://docker:6443
+    - pushd ray-operator
+    - make certmanager
+    - source ../.buildkite/build-start-operator.sh
+    - kubectl wait --timeout=90s --for=condition=Available=true deployment kuberay-operator
+    - echo "--- START:Running RayCluster IPv6-only and mTLS E2E tests"
+    - set -o pipefail
+    - mkdir -p "$(pwd)/tmp" && export KUBERAY_TEST_OUTPUT_DIR=$(pwd)/tmp
+    - KUBERAY_TEST_IPV6=true KUBERAY_TEST_RAY_IMAGE=rayproject/ray:2.58.0 KUBERAY_TEST_RAY_VERSION=2.58.0 KUBERAY_TEST_TIMEOUT_MEDIUM=10m KUBERAY_TEST_TIMEOUT_LONG=15m go test -timeout 30m -v -run '^TestRayCluster(TLS)?IPv6$' ./test/e2e 2>&1 | awk -f ../.buildkite/format.awk | tee $$KUBERAY_TEST_OUTPUT_DIR/gotest-raycluster.log || (bash ../.buildkite/collect-ipv6-e2e-logs.sh e2e-ipv6-log.tar && exit 1)
+    - echo "--- START:Running RayService IPv6-only E2E test"
+    - KUBERAY_TEST_IPV6=true KUBERAY_TEST_RAY_IMAGE=rayproject/ray:2.58.0 KUBERAY_TEST_RAY_VERSION=2.58.0 KUBERAY_TEST_TIMEOUT_MEDIUM=10m KUBERAY_TEST_TIMEOUT_LONG=15m go test -timeout 30m -v -run '^TestRayServiceIPv6$' ./test/e2erayservice 2>&1 | awk -f ../.buildkite/format.awk | tee $$KUBERAY_TEST_OUTPUT_DIR/gotest-rayservice.log || (bash ../.buildkite/collect-ipv6-e2e-logs.sh e2e-ipv6-log.tar && exit 1)
+    - echo "--- END:IPv6-only E2E tests finished"
+
 - label: 'Test RayJob E2E (nightly operator)'
   instance_size: large
   image: golang:1.26-bookworm

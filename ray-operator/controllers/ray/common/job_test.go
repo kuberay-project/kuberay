@@ -120,8 +120,8 @@ func TestBuildJobSubmitCommandWithSidecarMode(t *testing.T) {
 			utils.RayDashboardGCSHealthCheckTimeoutSeconds,
 		),
 		">/dev/null", "2>&1", ";",
-		"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at http://127.0.0.1:8265 ..."), ";", "sleep", "2", ";", "done", ";",
-		"ray", "job", "submit", "--address", "http://127.0.0.1:8265",
+		"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at http://localhost:8265 ..."), ";", "sleep", "2", ";", "done", ";",
+		"ray", "job", "submit", "--address", "http://localhost:8265",
 		"--runtime-env-json", strconv.Quote(`{"test":"test"}`),
 		"--metadata-json", strconv.Quote(`{"testKey":"testValue"}`),
 		"--submission-id", "testJobId",
@@ -291,9 +291,9 @@ func TestBuildJobSubmitCommandWithSidecarModeAndFeatureGate(t *testing.T) {
 			utils.RayDashboardGCSHealthCheckTimeoutSeconds,
 		),
 		">/dev/null", "2>&1", ";",
-		"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at http://127.0.0.1:8265 ..."), ";", "sleep", "2", ";", "done", ";",
-		"if", "!", "ray", "job", "status", "--address", "http://127.0.0.1:8265", "testJobId", ">/dev/null", "2>&1", ";", "then",
-		"ray", "job", "submit", "--address", "http://127.0.0.1:8265", "--no-wait",
+		"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at http://localhost:8265 ..."), ";", "sleep", "2", ";", "done", ";",
+		"if", "!", "ray", "job", "status", "--address", "http://localhost:8265", "testJobId", ">/dev/null", "2>&1", ";", "then",
+		"ray", "job", "submit", "--address", "http://localhost:8265", "--no-wait",
 		"--runtime-env-json", strconv.Quote(`{"test":"test"}`),
 		"--metadata-json", strconv.Quote(`{"testKey":"testValue"}`),
 		"--submission-id", "testJobId",
@@ -303,7 +303,7 @@ func TestBuildJobSubmitCommandWithSidecarModeAndFeatureGate(t *testing.T) {
 		"--",
 		"echo no quote 'single quote' \"double quote\"",
 		";", "fi", ";",
-		"ray", "job", "logs", "--address", "http://127.0.0.1:8265", "--follow", "testJobId",
+		"ray", "job", "logs", "--address", "http://localhost:8265", "--follow", "testJobId",
 	}
 	command, err := BuildJobSubmitCommand(testRayJob, rayv1.SidecarMode)
 	require.NoError(t, err)

@@ -190,6 +190,7 @@ func TestMTLSController_AutoGenerate_CreatesFullPKI(t *testing.T) {
 	assert.Contains(t, headCert.Spec.DNSNames, "localhost")
 	assert.Contains(t, headCert.Spec.DNSNames, headFQDN)
 	assert.Contains(t, headCert.Spec.IPAddresses, "127.0.0.1")
+	assert.NotContains(t, headCert.Spec.IPAddresses, "::1")
 
 	// Verify worker certificate was created with correct DNS names.
 	workerCert := &certmanagerv1.Certificate{}
@@ -200,6 +201,7 @@ func TestMTLSController_AutoGenerate_CreatesFullPKI(t *testing.T) {
 	require.NoError(t, err, "worker certificate should be created")
 	assert.Contains(t, workerCert.Spec.DNSNames, "localhost")
 	assert.Contains(t, workerCert.Spec.IPAddresses, "127.0.0.1")
+	assert.NotContains(t, workerCert.Spec.IPAddresses, "::1")
 
 	// Verify all resources have correct labels.
 	assert.Equal(t, cluster.Name, issuer.Labels[utils.RayClusterLabelKey])
@@ -302,96 +304,116 @@ func TestMTLSController_ReconcileIssuer(t *testing.T) {
 }
 
 func TestMTLSController_AutoGenerate_UpdatesIPAddresses(t *testing.T) {
-	cluster := newMTLSTestCluster("test-cluster")
-	cluster.Spec.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
-
-	headPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cluster-head-0",
-			Namespace: "default",
-			Labels: map[string]string{
-				utils.RayClusterLabelKey:  cluster.Name,
-				utils.RayNodeTypeLabelKey: string(rayv1.HeadNode),
-			},
+	tests := map[string]struct {
+		headPodIP        string
+		workerPodIP      string
+		wantLoopback     string
+		unwantedLoopback string
+	}{
+		"IPv4": {
+			headPodIP:        "10.244.0.5",
+			workerPodIP:      "10.244.0.6",
+			wantLoopback:     "127.0.0.1",
+			unwantedLoopback: "::1",
 		},
-		Status: corev1.PodStatus{PodIP: "10.244.0.5"},
+		"IPv6": {
+			headPodIP:        "2001:db8::5",
+			workerPodIP:      "2001:db8::6",
+			wantLoopback:     "::1",
+			unwantedLoopback: "127.0.0.1",
+		},
 	}
 
-	r := newMTLSController(t, cluster, headPod)
-	ctx := context.Background()
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			cluster := newMTLSTestCluster("test-cluster")
+			cluster.Spec.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
 
-	_, err := r.Reconcile(ctx, req)
-	require.NoError(t, err)
+			headPod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster-head-0",
+					Namespace: "default",
+					Labels: map[string]string{
+						utils.RayClusterLabelKey:  cluster.Name,
+						utils.RayNodeTypeLabelKey: string(rayv1.HeadNode),
+					},
+				},
+				Status: corev1.PodStatus{PodIP: tt.headPodIP},
+			}
 
-	markMTLSCertificatesReady(ctx, t, r, cluster)
-	_, err = r.Reconcile(ctx, req)
-	require.NoError(t, err)
+			r := newMTLSController(t, cluster, headPod)
+			ctx := context.Background()
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}}
 
-	// Verify head certificate includes the head pod IP only.
-	headCert := &certmanagerv1.Certificate{}
-	err = r.Get(ctx, types.NamespacedName{
-		Name:      utils.GetTLSCertName(cluster.Name, rayv1.HeadNode),
-		Namespace: "default",
-	}, headCert)
-	require.NoError(t, err)
-	assert.Contains(t, headCert.Spec.IPAddresses, "10.244.0.5")
-	assert.Contains(t, headCert.Spec.IPAddresses, "127.0.0.1")
+			_, err := r.Reconcile(ctx, req)
+			require.NoError(t, err)
 
-	// Simulate scale-up: add a worker pod.
-	// A finalizer is added so that a subsequent Delete call sets DeletionTimestamp
-	// without immediately removing the pod from the API server, letting us test
-	// the terminating-pod filter in the SAN reconciliation.
-	workerPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cluster-worker-0",
-			Namespace: "default",
-			Labels: map[string]string{
-				utils.RayClusterLabelKey:  cluster.Name,
-				utils.RayNodeTypeLabelKey: string(rayv1.WorkerNode),
-			},
-			Finalizers: []string{"test/hold"},
-		},
-		Status: corev1.PodStatus{PodIP: "10.244.0.6"},
+			markMTLSCertificatesReady(ctx, t, r, cluster)
+			_, err = r.Reconcile(ctx, req)
+			require.NoError(t, err)
+
+			// Verify head certificate includes the head pod IP and the loopback of its family only.
+			headCert := &certmanagerv1.Certificate{}
+			err = r.Get(ctx, types.NamespacedName{
+				Name:      utils.GetTLSCertName(cluster.Name, rayv1.HeadNode),
+				Namespace: "default",
+			}, headCert)
+			require.NoError(t, err)
+			assert.Contains(t, headCert.Spec.IPAddresses, tt.headPodIP)
+			assert.Contains(t, headCert.Spec.IPAddresses, tt.wantLoopback)
+			assert.NotContains(t, headCert.Spec.IPAddresses, tt.unwantedLoopback)
+
+			workerPod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster-worker-0",
+					Namespace: "default",
+					Labels: map[string]string{
+						utils.RayClusterLabelKey:  cluster.Name,
+						utils.RayNodeTypeLabelKey: string(rayv1.WorkerNode),
+					},
+					Finalizers: []string{"test/hold"},
+				},
+				Status: corev1.PodStatus{PodIP: tt.workerPodIP},
+			}
+			require.NoError(t, r.Create(ctx, workerPod))
+
+			_, err = r.Reconcile(ctx, req)
+			require.NoError(t, err)
+
+			err = r.Get(ctx, types.NamespacedName{
+				Name:      utils.GetTLSCertName(cluster.Name, rayv1.HeadNode),
+				Namespace: "default",
+			}, headCert)
+			require.NoError(t, err)
+			assert.Contains(t, headCert.Spec.IPAddresses, tt.headPodIP)
+			assert.NotContains(t, headCert.Spec.IPAddresses, tt.workerPodIP,
+				"head cert should not include worker pod IPs")
+
+			workerCert := &certmanagerv1.Certificate{}
+			err = r.Get(ctx, types.NamespacedName{
+				Name:      utils.GetTLSCertName(cluster.Name, rayv1.WorkerNode),
+				Namespace: "default",
+			}, workerCert)
+			require.NoError(t, err)
+			assert.Contains(t, workerCert.Spec.IPAddresses, tt.workerPodIP,
+				"worker cert should be updated with the new worker pod IP after scale-up")
+			assert.Contains(t, workerCert.Spec.IPAddresses, tt.wantLoopback)
+			assert.NotContains(t, workerCert.Spec.IPAddresses, tt.unwantedLoopback)
+
+			require.NoError(t, r.Delete(ctx, workerPod))
+
+			_, err = r.Reconcile(ctx, req)
+			require.NoError(t, err)
+
+			err = r.Get(ctx, types.NamespacedName{
+				Name:      utils.GetTLSCertName(cluster.Name, rayv1.WorkerNode),
+				Namespace: "default",
+			}, workerCert)
+			require.NoError(t, err)
+			assert.NotContains(t, workerCert.Spec.IPAddresses, tt.workerPodIP,
+				"worker cert should not include IP of a terminating pod after scale-down")
+		})
 	}
-	require.NoError(t, r.Create(ctx, workerPod))
-
-	_, err = r.Reconcile(ctx, req)
-	require.NoError(t, err)
-
-	err = r.Get(ctx, types.NamespacedName{
-		Name:      utils.GetTLSCertName(cluster.Name, rayv1.HeadNode),
-		Namespace: "default",
-	}, headCert)
-	require.NoError(t, err)
-	assert.Contains(t, headCert.Spec.IPAddresses, "10.244.0.5")
-	assert.NotContains(t, headCert.Spec.IPAddresses, "10.244.0.6",
-		"head cert should not include worker pod IPs")
-
-	workerCert := &certmanagerv1.Certificate{}
-	err = r.Get(ctx, types.NamespacedName{
-		Name:      utils.GetTLSCertName(cluster.Name, rayv1.WorkerNode),
-		Namespace: "default",
-	}, workerCert)
-	require.NoError(t, err)
-	assert.Contains(t, workerCert.Spec.IPAddresses, "10.244.0.6",
-		"worker cert should be updated with the new worker pod IP after scale-up")
-
-	// Simulate scale-down: deleting the pod while the finalizer is still present causes
-	// envtest to set DeletionTimestamp without removing the pod from the store, so we
-	// can verify that terminating pods are excluded from certificate SANs.
-	require.NoError(t, r.Delete(ctx, workerPod))
-
-	_, err = r.Reconcile(ctx, req)
-	require.NoError(t, err)
-
-	err = r.Get(ctx, types.NamespacedName{
-		Name:      utils.GetTLSCertName(cluster.Name, rayv1.WorkerNode),
-		Namespace: "default",
-	}, workerCert)
-	require.NoError(t, err)
-	assert.NotContains(t, workerCert.Spec.IPAddresses, "10.244.0.6",
-		"worker cert should not include IP of a terminating pod after scale-down")
 }
 
 func TestMTLSController_Disabled_IsNoOp(t *testing.T) {
@@ -646,6 +668,31 @@ func TestCertificateNeedsUpdate(t *testing.T) {
 		IPAddresses: []string{"127.0.0.1", "10.0.0.1"},
 	}
 	assert.True(t, certificateNeedsUpdate(existing3, desired3), "different IP addresses should need update")
+}
+
+func TestNormalizeIPsAddsLoopbackForObservedFamilies(t *testing.T) {
+	tests := map[string]struct {
+		podIPs []string
+		want   []string
+	}{
+		"no Pod IP keeps the legacy IPv4 default": {
+			want: []string{"127.0.0.1"},
+		},
+		"IPv4 only": {
+			podIPs: []string{"10.0.0.1"},
+			want:   []string{"10.0.0.1", "127.0.0.1"},
+		},
+		"IPv6 only": {
+			podIPs: []string{"2001:db8::1"},
+			want:   []string{"2001:db8::1", "::1"},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tt.want, normalizeIPs(tt.podIPs))
+		})
+	}
 }
 
 // --- checkMTLSSecretsReady tests (in main reconciler) ---

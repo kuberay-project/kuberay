@@ -2233,7 +2233,7 @@ func Test_TerminatedHead_RestartPolicy(t *testing.T) {
 	_ = corev1.AddToScheme(newScheme)
 
 	// Only one head Pod and no worker Pods in the RayCluster.
-	runtimeObjects := testPods[0:1]
+	runtimeObjects := append(testServices, testPods[0:1]...)
 	cluster := testRayCluster.DeepCopy()
 	cluster.Spec.WorkerGroupSpecs = nil
 	fakeClient := clientFake.NewClientBuilder().
@@ -2321,7 +2321,7 @@ func Test_RunningPods_RayContainerTerminated(t *testing.T) {
 	_ = corev1.AddToScheme(newScheme)
 
 	// Only one head Pod and no worker Pods in the RayCluster.
-	runtimeObjects := testPods[0:1]
+	runtimeObjects := append(testServices, testPods[0:1]...)
 	cluster := testRayCluster.DeepCopy()
 	cluster.Spec.WorkerGroupSpecs = nil
 	fakeClient := clientFake.NewClientBuilder().
@@ -3494,7 +3494,7 @@ func TestEvents_FailedPodCreation(t *testing.T) {
 				Create: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.CreateOption) error {
 					return test.errInject
 				},
-			}).WithRuntimeObjects(testPods...).Build()
+			}).WithRuntimeObjects(append(testServices, testPods...)...).Build()
 			ctx := context.Background()
 
 			// Get the pod list from the fake client.
@@ -4019,12 +4019,74 @@ func TestReconcile_AuthSecret_SkipWhenK8sTokenAuthEnabled(t *testing.T) {
 	assert.True(t, k8serrors.IsNotFound(err), "Secret should not be created when K8s token auth is enabled")
 }
 
+func TestReconcilePods_HeadServiceIPFamily(t *testing.T) {
+	newReconciler := func(cachedObjs, apiServerObjs []runtime.Object) (*RayClusterReconciler, client.WithWatch) {
+		fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(cachedObjs...).Build()
+		return &RayClusterReconciler{
+			Client:                     fakeClient,
+			apiReader:                  clientFake.NewClientBuilder().WithRuntimeObjects(apiServerObjs...).Build(),
+			Recorder:                   &events.FakeRecorder{},
+			Scheme:                     scheme.Scheme,
+			rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+		}, fakeClient
+	}
+	listHeadPods := func(t *testing.T, c client.WithWatch) []corev1.Pod {
+		podList := corev1.PodList{}
+		require.NoError(t, c.List(context.Background(), &podList, client.InNamespace(namespaceStr),
+			client.MatchingLabels{utils.RayNodeTypeLabelKey: string(rayv1.HeadNode)}))
+		return podList.Items
+	}
+
+	t.Run("head Service missing from the cache is read from the API server", func(t *testing.T) {
+		setupTest(t)
+		headService := testServices[0].(*corev1.Service).DeepCopy()
+		headService.Spec.IPFamilies = []corev1.IPFamily{corev1.IPv6Protocol}
+		reconciler, fakeClient := newReconciler(nil, []runtime.Object{headService})
+
+		require.NoError(t, reconciler.reconcilePods(context.Background(), testRayCluster))
+		headPods := listHeadPods(t, fakeClient)
+		require.Len(t, headPods, 1)
+		assert.Contains(t, strings.Fields(headPods[0].Spec.Containers[utils.RayContainerIndex].Args[0]), "--dashboard-host=::")
+	})
+
+	t.Run("no head Pod is created and no replica failure is reported when the head Service does not exist", func(t *testing.T) {
+		setupTest(t)
+		reconciler, fakeClient := newReconciler(nil, nil)
+
+		err := reconciler.reconcilePods(context.Background(), testRayCluster)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, utils.ErrFailedCreateHeadPod)
+		assert.Empty(t, listHeadPods(t, fakeClient))
+	})
+
+	for name, tc := range map[string]struct {
+		ipFamilies            []corev1.IPFamily
+		expectedDashboardHost string
+	}{
+		"IPv4 head Service":               {ipFamilies: []corev1.IPFamily{corev1.IPv4Protocol}, expectedDashboardHost: "--dashboard-host=0.0.0.0"},
+		"IPv6 head Service":               {ipFamilies: []corev1.IPFamily{corev1.IPv6Protocol}, expectedDashboardHost: "--dashboard-host=::"},
+		"head Service without ipFamilies": {expectedDashboardHost: "--dashboard-host=0.0.0.0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			setupTest(t)
+			headService := testServices[0].(*corev1.Service).DeepCopy()
+			headService.Spec.IPFamilies = tc.ipFamilies
+			reconciler, fakeClient := newReconciler([]runtime.Object{headService}, nil)
+
+			require.NoError(t, reconciler.reconcilePods(context.Background(), testRayCluster))
+			headPods := listHeadPods(t, fakeClient)
+			require.Len(t, headPods, 1)
+			assert.Contains(t, strings.Fields(headPods[0].Spec.Containers[utils.RayContainerIndex].Args[0]), tc.expectedDashboardHost)
+		})
+	}
+}
+
 func TestReconcile_PodsWithAuthToken(t *testing.T) {
 	setupTest(t)
 
 	testRayCluster.Spec.AuthOptions = &rayv1.AuthOptions{Mode: rayv1.AuthModeToken}
 
-	fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects().Build()
+	fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(testServices...).Build()
 	ctx := context.Background()
 
 	testRayClusterReconciler := &RayClusterReconciler{
@@ -4248,7 +4310,7 @@ func TestReconcilePodsWithAuthTokenSecretName(t *testing.T) {
 		SecretName: &providedSecretName,
 	}
 
-	fakeClient := clientFake.NewClientBuilder().Build()
+	fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(testServices...).Build()
 	ctx := context.Background()
 
 	testRayClusterReconciler := &RayClusterReconciler{
@@ -4380,7 +4442,7 @@ func TestBuildPodsInjectDefaultPodMetadata(t *testing.T) {
 		},
 	}
 
-	headPod := reconciler.buildHeadPod(context.Background(), *cluster)
+	headPod := reconciler.buildHeadPod(context.Background(), *cluster, corev1.IPv4Protocol)
 	assert.Equal(t, "true", headPod.Annotations["monitoring.example.com/scrape"])
 	assert.Equal(t, "head", headPod.Annotations["shared-annotation"])
 	assert.Equal(t, "head-only", headPod.Annotations["user-annotation"])
@@ -4422,7 +4484,7 @@ func TestBuildPodsWithoutDefaultPodMetadata(t *testing.T) {
 		options: RayClusterReconcilerOptions{},
 	}
 
-	headPod := reconciler.buildHeadPod(context.Background(), *cluster)
+	headPod := reconciler.buildHeadPod(context.Background(), *cluster, corev1.IPv4Protocol)
 	assert.Equal(t, "head-only", headPod.Annotations["user-annotation"])
 	assert.Equal(t, "head-only", headPod.Labels["user-label"])
 	assert.NotContains(t, headPod.Annotations, "monitoring.example.com/scrape")
@@ -4474,7 +4536,7 @@ func TestBuildPodsCollectorImage(t *testing.T) {
 				options: RayClusterReconcilerOptions{CollectorImage: operatorCollectorImage},
 			}
 
-			headPod := reconciler.buildHeadPod(context.Background(), *cluster)
+			headPod := reconciler.buildHeadPod(context.Background(), *cluster, corev1.IPv4Protocol)
 			assert.Equal(t, tc.expectedImage, collectorContainerImage(t, headPod))
 
 			workerPod := reconciler.buildWorkerPod(context.Background(), *cluster, cluster.Spec.WorkerGroupSpecs[0], "", 0, 0)

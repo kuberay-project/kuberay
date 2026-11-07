@@ -48,6 +48,44 @@ func TestGetClusterDomainName(t *testing.T) {
 	}
 }
 
+func TestGetServiceIPFamily(t *testing.T) {
+	tests := map[string]struct {
+		spec corev1.ServiceSpec
+		want corev1.IPFamily
+	}{
+		"ipFamilies IPv4":                   {spec: corev1.ServiceSpec{IPFamilies: []corev1.IPFamily{corev1.IPv4Protocol}}, want: corev1.IPv4Protocol},
+		"ipFamilies IPv6":                   {spec: corev1.ServiceSpec{IPFamilies: []corev1.IPFamily{corev1.IPv6Protocol}}, want: corev1.IPv6Protocol},
+		"dual-stack uses primary family":    {spec: corev1.ServiceSpec{IPFamilies: []corev1.IPFamily{corev1.IPv6Protocol, corev1.IPv4Protocol}}, want: corev1.IPv6Protocol},
+		"clusterIP IPv6 without ipFamilies": {spec: corev1.ServiceSpec{ClusterIP: "fd00:10:96::1"}, want: corev1.IPv6Protocol},
+		"clusterIP IPv4 without ipFamilies": {spec: corev1.ServiceSpec{ClusterIP: "10.96.0.1"}, want: corev1.IPv4Protocol},
+		"no information defaults to IPv4":   {spec: corev1.ServiceSpec{ClusterIP: corev1.ClusterIPNone}, want: corev1.IPv4Protocol},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tt.want, GetServiceIPFamily(&corev1.Service{Spec: tt.spec}))
+		})
+	}
+}
+
+func TestGetRayHTTPProxyClientFuncFormatsIPAddresses(t *testing.T) {
+	tests := map[string]struct {
+		hostIP string
+		want   string
+	}{
+		"IPv4": {hostIP: "10.0.0.1", want: "http://10.0.0.1:8000/"},
+		"IPv6": {hostIP: "2001:db8::1", want: "http://[2001:db8::1]:8000/"},
+	}
+
+	clientFunc := GetRayHttpProxyClientFunc(nil, false)
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			client, ok := clientFunc(tt.hostIP, "default", "head", 8000).(*RayHttpProxyClient)
+			require.True(t, ok)
+			assert.Equal(t, tt.want, client.httpProxyURL)
+		})
+	}
+}
+
 func TestStatus(t *testing.T) {
 	pod := createSomePod()
 	pod.Status.Phase = corev1.PodPending

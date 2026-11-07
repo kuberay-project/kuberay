@@ -310,7 +310,7 @@ const (
 	// Ray core default configurations
 	DefaultWorkerRayGcsReconnectTimeoutS = "600"
 
-	LOCAL_HOST = "127.0.0.1"
+	LOCAL_HOST = "localhost"
 	// Ray FT default readiness probe values
 	DefaultReadinessProbeInitialDelaySeconds = 10
 	DefaultReadinessProbeTimeoutSeconds      = 2
