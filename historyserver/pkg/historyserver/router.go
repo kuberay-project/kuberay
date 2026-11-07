@@ -856,20 +856,8 @@ func (s *ServerHandler) getJobs(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	jobs := make([]eventtypes.Job, 0, len(snap.Jobs))
-	for _, job := range snap.Jobs {
-		jobs = append(jobs, job)
-	}
-
-	// Formate response to match Ray Dashboard API format
-	formattedJobs := make([]any, 0)
-	for _, job := range jobs {
-		formattedJobs = append(formattedJobs, formatJobForResponse(job))
-	}
-
-	response := formattedJobs
-
-	respData, err := json.Marshal(response)
+	view := buildJobReplayView(snap)
+	respData, err := json.Marshal(view.Rows)
 	if err != nil {
 		logrus.Errorf("Failed to marshal jobs response: %v", err)
 		resp.WriteErrorString(http.StatusInternalServerError, err.Error())
@@ -965,14 +953,14 @@ func (s *ServerHandler) getJob(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	job, found := snap.Jobs[jobID]
+	job, found := lookupJobReplay(snap, jobID)
 	if !found {
 		responseString := fmt.Sprintf("Job %s does not exist", jobID)
 		resp.Write([]byte(responseString))
 		return
 	}
 
-	respData, err := json.Marshal(formatJobForResponse(job))
+	respData, err := json.Marshal(job)
 	if err != nil {
 		logrus.Errorf("Failed to marshal jobs response: %v", err)
 		resp.WriteErrorString(http.StatusInternalServerError, err.Error())

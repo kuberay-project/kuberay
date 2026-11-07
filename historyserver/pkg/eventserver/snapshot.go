@@ -14,6 +14,7 @@ type SessionSnapshot struct {
 	Tasks            []types.Task                `json:"tasks"`
 	Actors           map[string]types.Actor      `json:"actors"`
 	Jobs             map[string]types.Job        `json:"jobs"`
+	Submissions      map[string]types.JobDetails `json:"submissions,omitempty"`
 	Nodes            map[string]types.Node       `json:"nodes"`
 	LogEventsByJobID map[string][]types.LogEvent `json:"logEventsByJobId"`
 }
