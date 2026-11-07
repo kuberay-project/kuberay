@@ -254,6 +254,23 @@ See [helm-chart.md](./helm-chart.md) for the end-to-end workflow. Below are step
 
 ### Step 8: Validate the Release
 
+The [`release-test`](../../.agents/skills/release-test/SKILL.md) agent skill automates this step. Run
+`/release-test <tag>` in a coding agent, like Claude Code, at the repository root:
+
+1. It writes `release-test/results/<tag>/plan.md`. The plan marks every KubeRay page on docs.ray.io as
+   `run`, `manual` (needs a GPU, a TPU, a cloud cluster or credentials) or `none` (no commands). Then
+   it stops. Check the plan, edit it if needed, and confirm.
+2. It runs each `run` page with the tag, each on its own kind cluster. It runs the commands as
+   written, but with the new KubeRay version. It also lists the old KubeRay versions in the docs and
+   the doc changes the release's commits need.
+3. Read `release-test/results/<tag>/REPORT.md`. It has a summary with ✅/❌ for each page, the release
+   blockers, the doc problems and the pages a human needs to run. The skill does not edit docs or
+   open issues.
+
+It needs kind, kubectl, helm, git, Docker and Python 3, and about 4 CPUs per page. It runs three pages
+at once. `release-test/` is a local work folder that git ignores. To run some pages again, use
+`/release-test <tag> <page>...`. The manual steps below are still the fallback.
+
 Perform basic validation to ensure the released artifacts work together.
 
 1. Update your local Helm repository:
@@ -327,3 +344,5 @@ Announce the new release in the [kuberay Slack channel](https://ray.slack.com/ar
 ### Step 11: Update ray.io documentation
 
 Update all references to the KubeRay version in the ray.io documentation.
+`release-test/results/<tag>/versions.md` from Step 8 lists every reference to update. `REPORT.md` lists
+the doc problems to fix at the same time.
