@@ -229,7 +229,7 @@ func (h *EventHandler) storeEvent(clusterSessionKey string, eventMap map[string]
 			}
 
 			stateEvents = append(stateEvents, types.ActorStateEvent{
-				State:      types.StateType(state),
+				State:      types.ActorState(state),
 				Timestamp:  timestamp,
 				NodeID:     nodeId,
 				WorkerID:   workerId,
@@ -284,7 +284,7 @@ func (h *EventHandler) storeEvent(clusterSessionKey string, eventMap map[string]
 			// --- UPDATE ADDRESS from ALIVE state ---
 			// NodeID and WorkerID are only populated in ALIVE state
 			for i := len(a.Events) - 1; i >= 0; i-- {
-				if a.Events[i].State == types.ALIVE && a.Events[i].NodeID != "" {
+				if a.Events[i].State == types.ACTOR_ALIVE && a.Events[i].NodeID != "" {
 					a.Address.NodeID = a.Events[i].NodeID
 					a.Address.WorkerID = a.Events[i].WorkerID
 					break
@@ -299,7 +299,7 @@ func (h *EventHandler) storeEvent(clusterSessionKey string, eventMap map[string]
 			// --- CALCULATE StartTime (first ALIVE timestamp) ---
 			if a.StartTime.IsZero() {
 				for _, e := range a.Events {
-					if e.State == types.ALIVE {
+					if e.State == types.ACTOR_ALIVE {
 						a.StartTime = e.Timestamp
 						break
 					}
@@ -307,7 +307,7 @@ func (h *EventHandler) storeEvent(clusterSessionKey string, eventMap map[string]
 			}
 
 			// --- HANDLE DEAD state ---
-			if lastEvent.State == types.DEAD {
+			if lastEvent.State == types.ACTOR_DEAD {
 				a.EndTime = lastEvent.Timestamp
 
 				// Parse deathCause to extract PID, IP, errorMessage
@@ -335,7 +335,7 @@ func (h *EventHandler) storeEvent(clusterSessionKey string, eventMap map[string]
 			// --- COUNT RESTARTS ---
 			restartCount := 0
 			for _, e := range a.Events {
-				if e.State == types.RESTARTING {
+				if e.State == types.ACTOR_RESTARTING {
 					restartCount++
 				}
 			}
@@ -495,14 +495,14 @@ func (h *EventHandler) storeEvent(clusterSessionKey string, eventMap map[string]
 
 			if j.StartTime.IsZero() {
 				for _, t := range j.StateTransitions {
-					if t.State == types.CREATED {
+					if t.State == types.JOB_CREATED {
 						j.StartTime = t.Timestamp
 						break
 					}
 				}
 			}
 
-			if lastStateTransition.State == types.JOBFINISHED {
+			if lastStateTransition.State == types.JOB_FINISHED {
 				j.EndTime = lastStateTransition.Timestamp
 			}
 		})
@@ -858,15 +858,15 @@ func (h *EventHandler) handleTaskLifecycleEvent(eventMap map[string]any, cluster
 		// Ref: https://github.com/ray-project/ray/blob/d0b1d151d8ea964a711e451d0ae736f8bf95b629/python/ray/util/state/common.py#L1660-L1685
 		for _, tr := range task.StateTransitions {
 			switch tr.State {
-			case types.PENDING_ARGS_AVAIL:
+			case types.TASK_PENDING_ARGS_AVAIL:
 				if task.CreationTime.IsZero() {
 					task.CreationTime = tr.Timestamp
 				}
-			case types.RUNNING:
+			case types.TASK_RUNNING:
 				if task.StartTime.IsZero() {
 					task.StartTime = tr.Timestamp
 				}
-			case types.FINISHED, types.FAILED:
+			case types.TASK_FINISHED, types.TASK_FAILED:
 				// Take the latest timestamp as the end time.
 				task.EndTime = tr.Timestamp
 			}

@@ -6,14 +6,14 @@ import (
 	"time"
 )
 
-type StateType string
+type ActorState string
 
 const (
-	DEPENDENCIES_UNREADY StateType = "DEPENDENCIES_UNREADY"
-	PENDING_CREATION     StateType = "PENDING_CREATION"
-	ALIVE                StateType = "ALIVE"
-	RESTARTING           StateType = "RESTARTING"
-	DEAD                 StateType = "DEAD"
+	ACTOR_DEPENDENCIES_UNREADY ActorState = "DEPENDENCIES_UNREADY"
+	ACTOR_PENDING_CREATION     ActorState = "PENDING_CREATION"
+	ACTOR_ALIVE                ActorState = "ALIVE"
+	ACTOR_RESTARTING           ActorState = "RESTARTING"
+	ACTOR_DEAD                 ActorState = "DEAD"
 )
 
 type Address struct {
@@ -33,19 +33,19 @@ type Address struct {
 // - ReprName: actor repr name (may change during lifecycle)
 // - DeathCause: JSON string containing death details (only in DEAD state)
 type ActorStateEvent struct {
-	State      StateType `json:"state"`
-	Timestamp  time.Time `json:"timestamp"`
-	NodeID     string    `json:"nodeId,omitempty"`
-	WorkerID   string    `json:"workerId,omitempty"`
-	ReprName   string    `json:"reprName,omitempty"`
-	DeathCause string    `json:"deathCause,omitempty"`
+	State      ActorState `json:"state"`
+	Timestamp  time.Time  `json:"timestamp"`
+	NodeID     string     `json:"nodeId,omitempty"`
+	WorkerID   string     `json:"workerId,omitempty"`
+	ReprName   string     `json:"reprName,omitempty"`
+	DeathCause string     `json:"deathCause,omitempty"`
 }
 
 type Actor struct {
 	ActorID          string `json:"actorId"`
 	JobID            string `json:"jobId"`
 	PlacementGroupID string `json:"placementGroupId,omitempty"`
-	State            StateType
+	State            ActorState
 
 	// PID is extracted from deathCause.actorDiedErrorContext.pid (not from definition event)
 	PID int `json:"pid,omitempty"`
