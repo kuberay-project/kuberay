@@ -9,6 +9,7 @@ import (
 	"github.com/jarcoal/httpmock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -129,6 +130,39 @@ var _ = Describe("RayFrameworkGenerator", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("GetJobInfo fail"))
 		Expect(err.Error()).To(ContainSubstring("Ray misbehaved"))
+	})
+
+	It("Test GetJobInfo with HTTP 404 Not Found", func() {
+		httpmock.Activate()
+		defer httpmock.DeactivateAndReset()
+		httpmock.RegisterResponder(http.MethodGet, rayDashboardClient.dashboardURL+JobPath+expectJobId,
+			httpmock.NewStringResponder(http.StatusNotFound, "Job not found"))
+
+		_, err := rayDashboardClient.GetJobInfo(context.TODO(), expectJobId)
+		Expect(err).To(HaveOccurred())
+		Expect(apierrors.IsBadRequest(err)).To(BeTrue())
+	})
+
+	It("Test GetJobInfo with non-2xx JSON response", func() {
+		httpmock.Activate()
+		defer httpmock.DeactivateAndReset()
+		// The Kubernetes API server proxy returns a metav1.Status body when the head service has no endpoints.
+		status := metav1.Status{
+			TypeMeta: metav1.TypeMeta{Kind: "Status", APIVersion: "v1"},
+			Status:   metav1.StatusFailure,
+			Message:  `no endpoints available for service "rayjob-sample-head-svc"`,
+			Reason:   metav1.StatusReasonServiceUnavailable,
+			Code:     http.StatusServiceUnavailable,
+		}
+		bodyBytes, _ := json.Marshal(status)
+		httpmock.RegisterResponder(http.MethodGet, rayDashboardClient.dashboardURL+JobPath+expectJobId,
+			httpmock.NewBytesResponder(http.StatusServiceUnavailable, bodyBytes))
+
+		rayJobInfo, err := rayDashboardClient.GetJobInfo(context.TODO(), expectJobId)
+		Expect(err).To(HaveOccurred())
+		Expect(apierrors.IsBadRequest(err)).To(BeFalse())
+		Expect(err.Error()).To(ContainSubstring("503"))
+		Expect(rayJobInfo).To(BeNil())
 	})
 
 	It("Test stop job", func() {
