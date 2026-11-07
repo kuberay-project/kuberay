@@ -27,7 +27,7 @@ Create a local Kubernetes cluster using [Kind](https://kind.sigs.k8s.io/). If yo
 have a Kubernetes cluster, you can skip this step.
 
 ```sh
-kind create cluster --image=kindest/node:v1.29.0
+kind create cluster --image=kindest/node:v1.35.0
 ```
 
 #### Install KubeRay Operator
@@ -106,7 +106,7 @@ The following steps allow you to validate the integration of the KubeRay APIServ
     apiVersion: kind.x-k8s.io/v1alpha4
     nodes:
     - role: control-plane
-      image: kindest/node:v1.29.0
+      image: kindest/node:v1.35.0
       kubeadmConfigPatches:
         - |
           kind: InitConfiguration
@@ -132,9 +132,9 @@ The following steps allow you to validate the integration of the KubeRay APIServ
         hostPort: 31887
         listenAddress: "0.0.0.0"
     - role: worker
-      image: kindest/node:v1.29.0
+      image: kindest/node:v1.35.0
     - role: worker
-      image: kindest/node:v1.29.0
+      image: kindest/node:v1.35.0
     EOF
     ```
 
