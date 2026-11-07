@@ -31,6 +31,7 @@ import (
 	schedulerinterface "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/interface"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/metrics/mocks"
 	utils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	utiltypes "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils/types"
 	"github.com/ray-project/kuberay/ray-operator/pkg/client/clientset/versioned/scheme"
 	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
@@ -1130,6 +1131,138 @@ func TestCheckJobStatusCheckTimeoutAndUpdateStatusIfNeeded(t *testing.T) {
 	assert.Equal(t, rayv1.JobDeploymentStatusFailed, rayJob.Status.JobDeploymentStatus)
 	assert.Equal(t, rayv1.JobStatusCheckTimeoutExceeded, rayJob.Status.Reason)
 	assert.Contains(t, rayJob.Status.Message, "exceeded timeout of 1s")
+}
+
+func TestCheckSubmitterFinishedTimeoutAndUpdateStatusIfNeeded(t *testing.T) {
+	ctx := context.Background()
+	justFinished := time.Now()
+	expired := time.Now().Add(-DefaultSubmitterFinishedTimeout - time.Second)
+
+	const driverNode = "3bbbda71075d7929d056881d8921592b969874dd65ea3ee2d2067ca8"
+
+	tests := []struct {
+		finishedAt *time.Time
+		jobInfo    *utiltypes.RayJobInfo
+		name       string
+		jobStatus  rayv1.JobStatus
+		aliveNode  string
+		wantDeploy rayv1.JobDeploymentStatus
+		wantReason rayv1.JobFailedReason
+		wantUpdate bool
+		aliveErr   bool
+	}{
+		{
+			name:       "submitter still running",
+			jobStatus:  rayv1.JobStatusRunning,
+			finishedAt: nil,
+			jobInfo:    &utiltypes.RayJobInfo{DriverNodeID: driverNode},
+			aliveNode:  driverNode,
+		},
+		{
+			name:       "grace period not yet elapsed",
+			jobStatus:  rayv1.JobStatusNew,
+			finishedAt: &justFinished,
+			jobInfo:    &utiltypes.RayJobInfo{DriverNodeID: driverNode},
+			aliveNode:  driverNode,
+		},
+		{
+			name:       "job RUNNING on a live driver node is left alone",
+			jobStatus:  rayv1.JobStatusRunning,
+			finishedAt: &expired,
+			jobInfo:    &utiltypes.RayJobInfo{DriverNodeID: driverNode},
+			aliveNode:  driverNode,
+		},
+		{
+			// Ray assigns driver_node_id only once it schedules the supervisor, so a PENDING job has
+			// none to check. These keep the existing timeout behavior rather than guessing.
+			name:       "job PENDING has no driver node yet and times out",
+			jobStatus:  rayv1.JobStatusPending,
+			finishedAt: &expired,
+			jobInfo:    &utiltypes.RayJobInfo{JobStatus: rayv1.JobStatusPending},
+			wantUpdate: true,
+			wantDeploy: rayv1.JobDeploymentStatusFailed,
+			wantReason: rayv1.JobDeploymentStatusTransitionGracePeriodExceeded,
+		},
+		{
+			name:       "job RUNNING but the driver node is gone times out",
+			jobStatus:  rayv1.JobStatusRunning,
+			finishedAt: &expired,
+			jobInfo:    &utiltypes.RayJobInfo{DriverNodeID: driverNode},
+			aliveNode:  "some-other-node",
+			wantUpdate: true,
+			wantDeploy: rayv1.JobDeploymentStatusFailed,
+			wantReason: rayv1.JobDeploymentStatusTransitionGracePeriodExceeded,
+		},
+		{
+			name:       "job RUNNING with no driver node reported times out",
+			jobStatus:  rayv1.JobStatusRunning,
+			finishedAt: &expired,
+			jobInfo:    &utiltypes.RayJobInfo{},
+			wantUpdate: true,
+			wantDeploy: rayv1.JobDeploymentStatusFailed,
+			wantReason: rayv1.JobDeploymentStatusTransitionGracePeriodExceeded,
+		},
+		{
+			name:       "job never observed times out",
+			jobStatus:  rayv1.JobStatusNew,
+			finishedAt: &expired,
+			jobInfo:    &utiltypes.RayJobInfo{DriverNodeID: driverNode},
+			aliveNode:  driverNode,
+			wantUpdate: true,
+			wantDeploy: rayv1.JobDeploymentStatusFailed,
+			wantReason: rayv1.JobDeploymentStatusTransitionGracePeriodExceeded,
+		},
+		{
+			// The dashboard is the fresher source: a job that has already succeeded must not be
+			// overwritten with a grace-period failure just because the CR has not caught up.
+			name:       "fresh job info is terminal, CR is stale",
+			jobStatus:  rayv1.JobStatusRunning,
+			finishedAt: &expired,
+			jobInfo:    &utiltypes.RayJobInfo{JobStatus: rayv1.JobStatusSucceeded, DriverNodeID: driverNode},
+			aliveNode:  "some-other-node",
+		},
+		{
+			// A dashboard error is inconclusive, not proof of a dead driver, and must not fail the
+			// job or return early and skip the reconcile's status update.
+			name:       "node liveness errors leave the job alone",
+			jobStatus:  rayv1.JobStatusRunning,
+			finishedAt: &expired,
+			jobInfo:    &utiltypes.RayJobInfo{JobStatus: rayv1.JobStatusRunning, DriverNodeID: driverNode},
+			aliveErr:   true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &nodeLivenessDashboardClient{aliveNode: tc.aliveNode, err: tc.aliveErr}
+			r := &RayJobReconciler{}
+			rayJob := &rayv1.RayJob{Status: rayv1.RayJobStatus{JobStatus: tc.jobStatus}}
+
+			got := r.checkSubmitterFinishedTimeoutAndUpdateStatusIfNeeded(ctx, rayJob, client, tc.jobInfo, tc.finishedAt)
+			assert.Equal(t, tc.wantUpdate, got)
+			if !tc.wantUpdate {
+				assert.Equal(t, tc.jobStatus, rayJob.Status.JobStatus, "job status must not be overwritten")
+				assert.Empty(t, rayJob.Status.Reason)
+				return
+			}
+			assert.Equal(t, tc.wantDeploy, rayJob.Status.JobDeploymentStatus)
+			assert.Equal(t, tc.wantReason, rayJob.Status.Reason)
+		})
+	}
+}
+
+// nodeLivenessDashboardClient answers IsNodeAlive for exactly one node.
+type nodeLivenessDashboardClient struct {
+	*utils.FakeRayDashboardClient
+	aliveNode string
+	err       bool
+}
+
+func (c *nodeLivenessDashboardClient) IsNodeAlive(_ context.Context, nodeID string) (bool, error) {
+	if c.err {
+		return false, errors.New("dashboard unreachable")
+	}
+	return nodeID != "" && nodeID == c.aliveNode, nil
 }
 
 // TestBatchSchedulerCleanupCalledWhenRayJobSuspending verifies that batch scheduler resources are

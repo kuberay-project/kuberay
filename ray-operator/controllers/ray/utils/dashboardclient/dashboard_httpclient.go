@@ -24,6 +24,9 @@ var (
 	DeployPathV2     = "/api/serve/applications/"
 	// Job URL paths
 	JobPath = "/api/jobs/"
+
+	// NodesPath reports the cluster's Ray nodes and their liveness.
+	NodesPath = "/api/v0/nodes"
 )
 
 type RayDashboardClientInterface interface {
@@ -32,6 +35,7 @@ type RayDashboardClientInterface interface {
 	GetServeDetails(ctx context.Context) (*utiltypes.ServeDetails, error)
 	GetMultiApplicationStatus(context.Context) (map[string]*utiltypes.ServeApplicationStatus, error)
 	GetJobInfo(ctx context.Context, jobId string) (*utiltypes.RayJobInfo, error)
+	IsNodeAlive(ctx context.Context, nodeID string) (bool, error)
 	ListJobs(ctx context.Context) (*[]utiltypes.RayJobInfo, error)
 	SubmitJob(ctx context.Context, rayJob *rayv1.RayJob) (string, error)
 	SubmitJobReq(ctx context.Context, request *utiltypes.RayJobRequest) (string, error)
@@ -151,6 +155,73 @@ func (r *RayDashboardClient) ConvertServeDetailsToApplicationStatuses(serveDetai
 
 // Note that RayJobInfo and error can't be nil at the same time.
 // Please make sure if the Ray job with JobId can't be found. Return a BadRequest error.
+// IsNodeAlive reports whether the given Ray node is currently ALIVE in the cluster.
+//
+// A job status read from the dashboard is only current while the node running its driver is up.
+// Once that node is gone the status is frozen at whatever it last was, so an active JobStatus on a
+// dead node must not be trusted.
+func (r *RayDashboardClient) IsNodeAlive(ctx context.Context, nodeID string) (bool, error) {
+	if nodeID == "" {
+		return false, nil
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.dashboardURL+NodesPath, nil)
+	if err != nil {
+		return false, err
+	}
+	query := req.URL.Query()
+	query.Set("filter_keys", "node_id")
+	query.Set("filter_predicates", "=")
+	query.Set("filter_values", nodeID)
+	query.Set("limit", "1")
+	req.URL.RawQuery = query.Encode()
+	r.setAuthHeader(req)
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	// A failed node query is inconclusive, not evidence that the driver is gone.
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return false, fmt.Errorf("listing nodes returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, fmt.Errorf("failed to read response when listing nodes: %w", err)
+	}
+
+	var nodes utiltypes.RayNodesResponse
+	if err = json.Unmarshal(body, &nodes); err != nil {
+		return false, fmt.Errorf("IsNodeAlive fail: %s", string(body))
+	}
+	if !nodes.Result || nodes.Data.Result == nil || nodes.Data.Result.Result == nil {
+		return false, fmt.Errorf("State API returned no node-list result: %s", nodes.Msg)
+	}
+	if nodes.Data.Result.PartialFailureWarning != "" {
+		return false, fmt.Errorf("State API returned partial node data: %s", nodes.Data.Result.PartialFailureWarning)
+	}
+	for _, node := range nodes.Data.Result.Result {
+		if node.NodeID != nodeID {
+			return false, fmt.Errorf("State API returned node %q for requested node %q", node.NodeID, nodeID)
+		}
+		switch node.State {
+		case "ALIVE":
+			return true, nil
+		case "DEAD":
+			return false, nil
+		default:
+			return false, fmt.Errorf("State API returned unknown node state %q", node.State)
+		}
+	}
+	if nodes.Data.Result.NumFiltered > len(nodes.Data.Result.Result) {
+		return false, fmt.Errorf("State API node-list result was truncated")
+	}
+	return false, nil
+}
+
 func (r *RayDashboardClient) GetJobInfo(ctx context.Context, jobId string) (*utiltypes.RayJobInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.dashboardURL+JobPath+jobId, nil)
 	if err != nil {
