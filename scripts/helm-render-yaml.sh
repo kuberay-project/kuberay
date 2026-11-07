@@ -9,7 +9,7 @@ export CURRENT_PATH
 export KUBERAY_HOME=${CURRENT_PATH}/..
 
 cd "$KUBERAY_HOME"/helm-chart/kuberay-operator/ || exit 1
-declare -a YAML_ARRAY=("role.yaml" "ray_rayjob_editor_role.yaml" "ray_rayjob_viewer_role.yaml" "leader_election_role.yaml" "ray_rayservice_editor_role.yaml" "ray_rayservice_viewer_role.yaml" "ray_raycronjob_editor_role.yaml" "ray_raycronjob_viewer_role.yaml" )
+declare -a YAML_ARRAY=("role.yaml" "ray_rayjob_editor_role.yaml" "ray_rayjob_viewer_role.yaml" "leader_election_role.yaml" "ray_rayservice_editor_role.yaml" "ray_rayservice_viewer_role.yaml" "ray_raycluster_editor_role.yaml" "ray_raycluster_viewer_role.yaml" "ray_raycronjob_editor_role.yaml" "ray_raycronjob_viewer_role.yaml")
 mkdir -p "$KUBERAY_HOME"/scripts/tmp
 for name in "${YAML_ARRAY[@]}"; do
   helm template -s templates/"$name" . > "$CURRENT_PATH"/tmp/"$name"
