@@ -165,6 +165,11 @@ func FindRayClusterSuspendStatus(instance *rayv1.RayCluster) rayv1.RayClusterCon
 	return ""
 }
 
+// IsRayClusterSuspendOrIdleSuspend returns true if either spec.Suspend=true or spec.IdleSuspend=true
+func IsRayClusterSuspendOrIdleSuspend(instance *rayv1.RayCluster) bool {
+	return instance.Spec.Suspend != nil && *instance.Spec.Suspend || instance.Spec.IdleSuspend != nil && *instance.Spec.IdleSuspend
+}
+
 // IsRunningAndReady returns true if pod is in the PodRunning Phase, if it has a condition of PodReady.
 func IsRunningAndReady(pod *corev1.Pod) bool {
 	if pod.Status.Phase != corev1.PodRunning {

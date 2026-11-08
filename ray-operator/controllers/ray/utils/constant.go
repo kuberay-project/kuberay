@@ -39,6 +39,8 @@ const (
 	// Values: "Recreate" (default) or "Fail". This is an internal annotation, not user-facing.
 	HeadFailurePolicyAnnotationKey = "ray.io/head-failure-policy"
 
+	// Finalizer for Idle Termination cleanup
+	IdleTerminationCleanupFinalizer = "ray.io/idle-termination-cleanup-finalizer"
 	// Labels for feature RayMultihostIndexing
 	//
 	// RayWorkerReplicaNameKey label is the unique name for the replica in a specific worker group. It is made up
@@ -464,6 +466,7 @@ const (
 	InvalidRayClusterStatus   K8sEventType = "InvalidRayClusterStatus"
 	InvalidRayClusterSpec     K8sEventType = "InvalidRayClusterSpec"
 	InvalidRayClusterMetadata K8sEventType = "InvalidRayClusterMetadata"
+	DeletedIdleRayCluster     K8sEventType = "DeletedIdleRayCluster"
 	// Head Pod event list
 	CreatedHeadPod        K8sEventType = "CreatedHeadPod"
 	FailedToCreateHeadPod K8sEventType = "FailedToCreateHeadPod"
@@ -505,6 +508,7 @@ const (
 	// RayCronJob event list
 	InvalidRayCronJobSpec K8sEventType = "InvalidRayCronJobSpec"
 	SuspendedRayCronJob   K8sEventType = "SuspendedRayCronJob"
+	FailedToCreateRayJob  K8sEventType = "FailedToCreateRayJob"
 
 	// RayService event list
 	CreatedGateway                  K8sEventType = "CreatedGateway"

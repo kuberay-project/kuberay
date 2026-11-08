@@ -1097,6 +1097,164 @@ func TestValidateRayClusterSpecAutoscaler_FlexibleRestartPolicy(t *testing.T) {
 	}
 }
 
+func TestValidateRayClusterSpec_IdleTerminationOptions(t *testing.T) {
+	createSpec := func() rayv1.RayClusterSpec {
+		return rayv1.RayClusterSpec{
+			EnableInTreeAutoscaling: new(true),
+			RayVersion:              "2.60.0",
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: podTemplateSpec(nil, nil),
+			},
+		}
+	}
+
+	tests := map[string]struct {
+		expectedErr string
+		spec        rayv1.RayClusterSpec
+	}{
+		"Valid: idleTerminationOptions.timeoutSeconds with explicit v2": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+		"Valid: idleTerminationOptions.timeoutSeconds with v2 enabled via env var": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.HeadGroupSpec.Template = podTemplateSpec([]corev1.EnvVar{
+					{Name: RAY_ENABLE_AUTOSCALER_V2, Value: "1"},
+				}, nil)
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+		"Valid: zero idleTerminationOptions.timeoutSeconds": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](0),
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+		"Invalid: negative idleTerminationOptions.timeoutSeconds": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](-1),
+				}
+				return s
+			}(),
+			expectedErr: "idleTerminationOptions.timeoutSeconds must be non-negative, got -1",
+		},
+		"Invalid: idleTerminationOptions.timeoutSeconds without autoscaling": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.EnableInTreeAutoscaling = new(false)
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return s
+			}(),
+			expectedErr: "idleTerminationOptions requires enableInTreeAutoscaling to be true",
+		},
+		"Invalid: autoscaler v2 not enabled": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return s
+			}(),
+			expectedErr: "idleTerminationOptions requires autoscaler v2. Please set .spec.autoscalerOptions.version to 'v2'",
+		},
+		"Invalid: idleTerminationOptions.timeoutSeconds with autoscaler v1": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV1),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return s
+			}(),
+			expectedErr: "idleTerminationOptions requires autoscaler v2. Please set .spec.autoscalerOptions.version to 'v2'",
+		},
+		"Invalid: idleTerminationOptions.timeoutSeconds with Ray version below minimum": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.RayVersion = "2.59.0"
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return s
+			}(),
+			expectedErr: "idleTerminationOptions requires Ray version 2.60.0 or later, got 2.59.0",
+		},
+		"Valid: idleTerminationOptions.policy=Delete": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+					Policy:         ptr.To(rayv1.IdleTerminationPolicyDelete),
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+		"Valid: idleTerminationOptions.policy=Suspend": {
+			spec: func() rayv1.RayClusterSpec {
+				s := createSpec()
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{
+					Version: ptr.To(rayv1.AutoscalerVersionV2),
+				}
+				s.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+					Policy:         ptr.To(rayv1.IdleTerminationPolicySuspend),
+				}
+				return s
+			}(),
+			expectedErr: "",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateRayClusterSpec(&tc.spec, nil)
+			if tc.expectedErr != "" {
+				require.Error(t, err)
+				require.EqualError(t, err, tc.expectedErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidateRayClusterSpec_Resources(t *testing.T) {
 	// Util function to create a RayCluster spec.
 	createSpec := func() rayv1.RayClusterSpec {
@@ -1428,6 +1586,20 @@ func TestValidateRayJobSpec(t *testing.T) {
 				RayClusterSpec:           createBasicRayClusterSpec(),
 			},
 			expectError: false,
+		},
+		{
+			name: "RayJob does not support idleTerminationOptions",
+			spec: func() rayv1.RayJobSpec {
+				clusterSpec := createBasicRayClusterSpec()
+				clusterSpec.IdleTerminationOptions = &rayv1.IdleTerminationOptions{
+					TimeoutSeconds: ptr.To[int32](600),
+				}
+				return rayv1.RayJobSpec{
+					ShutdownAfterJobFinishes: true,
+					RayClusterSpec:           clusterSpec,
+				}
+			}(),
+			expectError: true,
 		},
 		{
 			name: "the ClusterSelector mode doesn't support the suspend operation",
@@ -2367,6 +2539,17 @@ func TestValidateRayServiceSpec(t *testing.T) {
 			},
 			expectError: true,
 		},
+		{
+			name: "RayService does not support idleTerminationOptions",
+			spec: rayv1.RayServiceSpec{
+				RayClusterSpec: rayv1.RayClusterSpec{
+					IdleTerminationOptions: &rayv1.IdleTerminationOptions{
+						TimeoutSeconds: ptr.To[int32](600),
+					},
+				},
+			},
+			expectError: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -3020,16 +3203,18 @@ func TestValidateRayCronJobSpec(t *testing.T) {
 				},
 				Spec: rayv1.RayCronJobSpec{
 					Schedule: "*/5 * * * *",
-					JobTemplate: rayv1.RayJobSpec{
-						Entrypoint: "python test.py",
-						RayClusterSpec: &rayv1.RayClusterSpec{
-							HeadGroupSpec: rayv1.HeadGroupSpec{
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{
-										Containers: []corev1.Container{
-											{
-												Name:  "ray-head",
-												Image: "rayproject/ray:2.52.0",
+					JobTemplate: rayv1.RayJobTemplateSpec{
+						Spec: rayv1.RayJobSpec{
+							Entrypoint: "python test.py",
+							RayClusterSpec: &rayv1.RayClusterSpec{
+								HeadGroupSpec: rayv1.HeadGroupSpec{
+									Template: corev1.PodTemplateSpec{
+										Spec: corev1.PodSpec{
+											Containers: []corev1.Container{
+												{
+													Name:  "ray-head",
+													Image: "rayproject/ray:2.52.0",
+												},
 											},
 										},
 									},
@@ -3050,16 +3235,18 @@ func TestValidateRayCronJobSpec(t *testing.T) {
 				},
 				Spec: rayv1.RayCronJobSpec{
 					Schedule: "invalid cron",
-					JobTemplate: rayv1.RayJobSpec{
-						Entrypoint: "python test.py",
-						RayClusterSpec: &rayv1.RayClusterSpec{
-							HeadGroupSpec: rayv1.HeadGroupSpec{
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{
-										Containers: []corev1.Container{
-											{
-												Name:  "ray-head",
-												Image: "rayproject/ray:2.52.0",
+					JobTemplate: rayv1.RayJobTemplateSpec{
+						Spec: rayv1.RayJobSpec{
+							Entrypoint: "python test.py",
+							RayClusterSpec: &rayv1.RayClusterSpec{
+								HeadGroupSpec: rayv1.HeadGroupSpec{
+									Template: corev1.PodTemplateSpec{
+										Spec: corev1.PodSpec{
+											Containers: []corev1.Container{
+												{
+													Name:  "ray-head",
+													Image: "rayproject/ray:2.52.0",
+												},
 											},
 										},
 									},
@@ -3081,7 +3268,7 @@ func TestValidateRayCronJobSpec(t *testing.T) {
 				},
 				Spec: rayv1.RayCronJobSpec{
 					Schedule:    "*/5 * * * *",
-					JobTemplate: rayv1.RayJobSpec{},
+					JobTemplate: rayv1.RayJobTemplateSpec{},
 				},
 			},
 			expectError: true,
@@ -3097,13 +3284,15 @@ func TestValidateRayCronJobSpec(t *testing.T) {
 				},
 				Spec: rayv1.RayCronJobSpec{
 					Schedule: "*/5 * * * *",
-					JobTemplate: rayv1.RayJobSpec{
-						Entrypoint: "python test.py",
-						RayClusterSpec: &rayv1.RayClusterSpec{
-							HeadGroupSpec: rayv1.HeadGroupSpec{
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{
-										Containers: []corev1.Container{},
+					JobTemplate: rayv1.RayJobTemplateSpec{
+						Spec: rayv1.RayJobSpec{
+							Entrypoint: "python test.py",
+							RayClusterSpec: &rayv1.RayClusterSpec{
+								HeadGroupSpec: rayv1.HeadGroupSpec{
+									Template: corev1.PodTemplateSpec{
+										Spec: corev1.PodSpec{
+											Containers: []corev1.Container{},
+										},
 									},
 								},
 							},
@@ -3124,16 +3313,18 @@ func TestValidateRayCronJobSpec(t *testing.T) {
 				Spec: rayv1.RayCronJobSpec{
 					Schedule: "0 9 * * *",
 					TimeZone: new("Asia/Taipei"),
-					JobTemplate: rayv1.RayJobSpec{
-						Entrypoint: "python test.py",
-						RayClusterSpec: &rayv1.RayClusterSpec{
-							HeadGroupSpec: rayv1.HeadGroupSpec{
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{
-										Containers: []corev1.Container{
-											{
-												Name:  "ray-head",
-												Image: "rayproject/ray:2.52.0",
+					JobTemplate: rayv1.RayJobTemplateSpec{
+						Spec: rayv1.RayJobSpec{
+							Entrypoint: "python test.py",
+							RayClusterSpec: &rayv1.RayClusterSpec{
+								HeadGroupSpec: rayv1.HeadGroupSpec{
+									Template: corev1.PodTemplateSpec{
+										Spec: corev1.PodSpec{
+											Containers: []corev1.Container{
+												{
+													Name:  "ray-head",
+													Image: "rayproject/ray:2.52.0",
+												},
 											},
 										},
 									},
@@ -3155,16 +3346,18 @@ func TestValidateRayCronJobSpec(t *testing.T) {
 				Spec: rayv1.RayCronJobSpec{
 					Schedule: "0 0 * * *",
 					TimeZone: new("UTC"),
-					JobTemplate: rayv1.RayJobSpec{
-						Entrypoint: "python test.py",
-						RayClusterSpec: &rayv1.RayClusterSpec{
-							HeadGroupSpec: rayv1.HeadGroupSpec{
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{
-										Containers: []corev1.Container{
-											{
-												Name:  "ray-head",
-												Image: "rayproject/ray:2.52.0",
+					JobTemplate: rayv1.RayJobTemplateSpec{
+						Spec: rayv1.RayJobSpec{
+							Entrypoint: "python test.py",
+							RayClusterSpec: &rayv1.RayClusterSpec{
+								HeadGroupSpec: rayv1.HeadGroupSpec{
+									Template: corev1.PodTemplateSpec{
+										Spec: corev1.PodSpec{
+											Containers: []corev1.Container{
+												{
+													Name:  "ray-head",
+													Image: "rayproject/ray:2.52.0",
+												},
 											},
 										},
 									},
@@ -3186,16 +3379,18 @@ func TestValidateRayCronJobSpec(t *testing.T) {
 				Spec: rayv1.RayCronJobSpec{
 					Schedule: "*/5 * * * *",
 					TimeZone: new("Invalid/Zone"),
-					JobTemplate: rayv1.RayJobSpec{
-						Entrypoint: "python test.py",
-						RayClusterSpec: &rayv1.RayClusterSpec{
-							HeadGroupSpec: rayv1.HeadGroupSpec{
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{
-										Containers: []corev1.Container{
-											{
-												Name:  "ray-head",
-												Image: "rayproject/ray:2.52.0",
+					JobTemplate: rayv1.RayJobTemplateSpec{
+						Spec: rayv1.RayJobSpec{
+							Entrypoint: "python test.py",
+							RayClusterSpec: &rayv1.RayClusterSpec{
+								HeadGroupSpec: rayv1.HeadGroupSpec{
+									Template: corev1.PodTemplateSpec{
+										Spec: corev1.PodSpec{
+											Containers: []corev1.Container{
+												{
+													Name:  "ray-head",
+													Image: "rayproject/ray:2.52.0",
+												},
 											},
 										},
 									},
@@ -3217,16 +3412,18 @@ func TestValidateRayCronJobSpec(t *testing.T) {
 				},
 				Spec: rayv1.RayCronJobSpec{
 					Schedule: "TZ=UTC */5 * * * *",
-					JobTemplate: rayv1.RayJobSpec{
-						Entrypoint: "python test.py",
-						RayClusterSpec: &rayv1.RayClusterSpec{
-							HeadGroupSpec: rayv1.HeadGroupSpec{
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{
-										Containers: []corev1.Container{
-											{
-												Name:  "ray-head",
-												Image: "rayproject/ray:2.52.0",
+					JobTemplate: rayv1.RayJobTemplateSpec{
+						Spec: rayv1.RayJobSpec{
+							Entrypoint: "python test.py",
+							RayClusterSpec: &rayv1.RayClusterSpec{
+								HeadGroupSpec: rayv1.HeadGroupSpec{
+									Template: corev1.PodTemplateSpec{
+										Spec: corev1.PodSpec{
+											Containers: []corev1.Container{
+												{
+													Name:  "ray-head",
+													Image: "rayproject/ray:2.52.0",
+												},
 											},
 										},
 									},
@@ -3248,16 +3445,18 @@ func TestValidateRayCronJobSpec(t *testing.T) {
 				},
 				Spec: rayv1.RayCronJobSpec{
 					Schedule: "CRON_TZ=UTC */5 * * * *",
-					JobTemplate: rayv1.RayJobSpec{
-						Entrypoint: "python test.py",
-						RayClusterSpec: &rayv1.RayClusterSpec{
-							HeadGroupSpec: rayv1.HeadGroupSpec{
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{
-										Containers: []corev1.Container{
-											{
-												Name:  "ray-head",
-												Image: "rayproject/ray:2.52.0",
+					JobTemplate: rayv1.RayJobTemplateSpec{
+						Spec: rayv1.RayJobSpec{
+							Entrypoint: "python test.py",
+							RayClusterSpec: &rayv1.RayClusterSpec{
+								HeadGroupSpec: rayv1.HeadGroupSpec{
+									Template: corev1.PodTemplateSpec{
+										Spec: corev1.PodSpec{
+											Containers: []corev1.Container{
+												{
+													Name:  "ray-head",
+													Image: "rayproject/ray:2.52.0",
+												},
 											},
 										},
 									},
@@ -3279,16 +3478,18 @@ func TestValidateRayCronJobSpec(t *testing.T) {
 				},
 				Spec: rayv1.RayCronJobSpec{
 					Schedule: "*/5 * * * *",
-					JobTemplate: rayv1.RayJobSpec{
-						Entrypoint: "python test.py",
-						RayClusterSpec: &rayv1.RayClusterSpec{
-							HeadGroupSpec: rayv1.HeadGroupSpec{
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{
-										Containers: []corev1.Container{
-											{
-												Name:  "ray-head",
-												Image: "rayproject/ray:2.9.0",
+					JobTemplate: rayv1.RayJobTemplateSpec{
+						Spec: rayv1.RayJobSpec{
+							Entrypoint: "python test.py",
+							RayClusterSpec: &rayv1.RayClusterSpec{
+								HeadGroupSpec: rayv1.HeadGroupSpec{
+									Template: corev1.PodTemplateSpec{
+										Spec: corev1.PodSpec{
+											Containers: []corev1.Container{
+												{
+													Name:  "ray-head",
+													Image: "rayproject/ray:2.9.0",
+												},
 											},
 										},
 									},

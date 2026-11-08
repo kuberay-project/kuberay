@@ -3,13 +3,13 @@
 ## For developers
 
 1. `pip install -U pip setuptools`
-1. `cd clients/python-client && pip install -e .`
+1. `cd clients/kuberay-client && pip install -e .`
 
-Uninstall with `pip uninstall python-client`.
+Uninstall with `pip uninstall kuberay-client`.
 
 ## For testing run
 
-`python -m unittest discover 'clients/python-client/python_client_test/'`
+`python -m unittest discover 'clients/kuberay-client/kuberay_client_test/'`
 
 ### Coverage report
 

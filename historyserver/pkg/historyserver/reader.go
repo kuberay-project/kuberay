@@ -50,30 +50,6 @@ type logByteRange struct {
 	end   int64
 }
 
-// exactRangeReader reads exactly `remaining` bytes from the underlying reader.
-// Unlike io.LimitReader, it returns io.ErrUnexpectedEOF if the reader ends
-// early, so a truncated log file surfaces as an error instead of silently
-// returning a partial task log.
-type exactRangeReader struct {
-	reader    io.Reader
-	remaining int64
-}
-
-func (r *exactRangeReader) Read(p []byte) (int, error) {
-	if r.remaining == 0 {
-		return 0, io.EOF
-	}
-	if int64(len(p)) > r.remaining {
-		p = p[:r.remaining]
-	}
-	n, err := r.reader.Read(p)
-	r.remaining -= int64(n)
-	if errors.Is(err, io.EOF) && r.remaining > 0 {
-		return n, io.ErrUnexpectedEOF
-	}
-	return n, err
-}
-
 // filterAnsiEscapeCodes removes ANSI escape sequences from log content
 func filterAnsiEscapeCodes(content []byte) []byte {
 	return ansiEscapePattern.ReplaceAll(content, []byte(""))
@@ -236,13 +212,13 @@ func (s *ServerHandler) _getNodeLogs(clusterLogPathPrefix, sessionId, nodeId, fo
 	// Use recursive listing when glob contains ** to support cross-directory matching.
 	var matchedFiles []string
 	if glob == "" {
-		matchedFiles = s.reader.ListFiles(clusterLogPathPrefix, logPath)
+		matchedFiles = clusterlogs.ListLogFiles(s.reader, clusterLogPathPrefix, logPath)
 	} else {
 		var files []string
 		if strings.Contains(glob, "**") {
 			files = s.listFilesRecursive(clusterLogPathPrefix, logPath)
 		} else {
-			files = s.reader.ListFiles(clusterLogPathPrefix, logPath)
+			files = clusterlogs.ListLogFiles(s.reader, clusterLogPathPrefix, logPath)
 		}
 		for _, file := range files {
 			matched, err := doublestar.Match(glob, file)
@@ -273,7 +249,7 @@ func (s *ServerHandler) _getNodeLogs(clusterLogPathPrefix, sessionId, nodeId, fo
 // returning paths relative to dir (e.g. "subdir/foo.log", "bar.out").
 // It recurses into subdirectories returned by ListFiles (identified by a trailing "/").
 func (s *ServerHandler) listFilesRecursive(prefix, dir string) []string {
-	entries := s.reader.ListFiles(prefix, dir)
+	entries := clusterlogs.ListLogFiles(s.reader, prefix, dir)
 	var result []string
 	for _, entry := range entries {
 		if strings.HasSuffix(entry, "/") {
@@ -340,7 +316,7 @@ func (s *ServerHandler) _getNodeLogFile(clusterSessionKey, clusterLogPathPrefix,
 
 	// Build log path using clusterlogs helper (<nodeID>/<sessionID>/logs/<filename>)
 	logPath := path.Join(clusterlogs.RelLogsDir(sessionID, nodeID), filename)
-	reader := s.reader.GetContent(clusterLogPathPrefix, logPath)
+	reader := clusterlogs.ReadLogFile(s.reader, clusterLogPathPrefix, logPath)
 
 	if reader == nil {
 		return nil, utils.NewHTTPError(fmt.Errorf("log file not found: %s", logPath), http.StatusNotFound)
@@ -424,13 +400,17 @@ func applyLogByteRange(reader io.Reader, byteRange *logByteRange) (io.Reader, er
 		return nil, fmt.Errorf("invalid task log byte range [%d,%d)", byteRange.start, byteRange.end)
 	}
 
+	// Return whatever is available up to end and stop at EOF. For a running cluster the task event
+	// can arrive before the log chunk that holds its bytes. The next scan fills in the rest.
 	if byteRange.start > 0 {
 		if _, err := io.CopyN(io.Discard, reader, byteRange.start); err != nil {
-			return nil, fmt.Errorf("task log ended before byte range start %d: %w", byteRange.start, err)
+			if errors.Is(err, io.EOF) {
+				return strings.NewReader(""), nil
+			}
+			return nil, fmt.Errorf("failed to seek task log to byte %d: %w", byteRange.start, err)
 		}
 	}
-
-	return &exactRangeReader{reader: reader, remaining: byteRange.end - byteRange.start}, nil
+	return io.LimitReader(reader, byteRange.end-byteRange.start), nil
 }
 
 // resolveLogFilename resolves the log file node_id and filename based on the provided options.
@@ -484,7 +464,7 @@ func (s *ServerHandler) resolvePidLogFilename(clusterLogPathPrefix, sessionID, n
 	}
 
 	logPath := clusterlogs.RelLogsDir(sessionID, nodeIDHex)
-	files := s.reader.ListFiles(clusterLogPathPrefix, logPath)
+	files := clusterlogs.ListLogFiles(s.reader, clusterLogPathPrefix, logPath)
 
 	pidSuffix := fmt.Sprintf("-%d.%s", pid, suffix)
 
@@ -703,7 +683,7 @@ func (s *ServerHandler) findWorkerLogFile(clusterLogPathPrefix, sessionID, nodeI
 
 	// List all files in the node's log directory
 	logPath := clusterlogs.RelLogsDir(sessionID, nodeIDHex)
-	files := s.reader.ListFiles(clusterLogPathPrefix, logPath)
+	files := clusterlogs.ListLogFiles(s.reader, clusterLogPathPrefix, logPath)
 
 	// Search for files matching pattern: worker-{worker_id_hex}-*.{suffix}
 	workerPrefix := fmt.Sprintf("worker-%s-", workerIDHex)

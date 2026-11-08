@@ -1,6 +1,6 @@
 import unittest
-from python_client import kuberay_cluster_api, constants
-from python_client.utils import kuberay_cluster_builder
+from kuberay_client import kuberay_cluster_api, constants
+from kuberay_client.utils import kuberay_cluster_builder
 
 
 # Keep the original test cluster body for reference if needed

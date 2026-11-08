@@ -81,7 +81,7 @@ Finally, the `job_api` can be used to submit RayJobs to a pre-existing RayCluste
 #### Submitting to Existing Cluster
 
 ```python
-from python_client import kuberay_job_api, kuberay_cluster_api, constants
+from kuberay_client import kuberay_job_api, kuberay_cluster_api, constants
 
 job_body = {
     "apiVersion": "ray.io/v1",
@@ -106,7 +106,7 @@ kuberay_job_api.submit_job(
 
 ```text
 clients/
-└── python-client
+└── kuberay-client
     ├── examples
     │   ├── complete-example.py
     │   ├── use-builder.py
@@ -117,7 +117,7 @@ clients/
     ├── LICENSE
     ├── poetry.lock
     ├── pyproject.toml
-    ├── python_client
+    ├── kuberay_client
     │   ├── __init__.py
     │   ├── constants.py
     │   ├── kuberay_cluster_api.py
@@ -126,7 +126,7 @@ clients/
     │       ├── __init__.py
     │       ├── kuberay_cluster_builder.py
     │       └── kuberay_cluster_utils.py
-    ├── python_client_test
+    ├── kuberay_client_test
     │   ├── README.md
     │   ├── test_cluster_api.py
     │   ├── test_director.py
@@ -143,16 +143,16 @@ make sure you have installed setuptool
 
 ### run the pip command
 
-from the directory `path/to/kuberay/clients/python-client`
+from the directory `path/to/kuberay/clients/kuberay-client`
 
 `pip install -e .`
 
 ### to uninstall the module run
 
-`pip uninstall python-client`
+`pip uninstall kuberay-client`
 
 ### For testing run
 
- `python -m unittest discover 'path/to/kuberay/clients/python-client/python_client_test/'`
+ `python -m unittest discover 'path/to/kuberay/clients/kuberay-client/kuberay_client_test/'`
 
 [quick-start]: https://github.com/ray-project/kuberay#quick-start

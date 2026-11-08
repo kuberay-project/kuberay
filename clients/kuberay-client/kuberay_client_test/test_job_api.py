@@ -1,7 +1,7 @@
 import time
 import unittest
-from python_client import kuberay_job_api, kuberay_cluster_api
-from python_client.utils import kuberay_cluster_builder
+from kuberay_client import kuberay_job_api, kuberay_cluster_api
+from kuberay_client.utils import kuberay_cluster_builder
 from helpers import create_job_with_cluster_selector, create_job_with_ray_cluster_spec
 
 namespace = "default"
