@@ -2615,15 +2615,29 @@ func TestResolveNodeLabels(t *testing.T) {
 	}, labels)
 
 	_, err = ResolveNodeLabels(map[string]string{"topology.kubernetes.io/zone": "us-central1-a"}, refs, allowed)
+	require.ErrorIs(t, err, ErrMissingNodeLabel)
 	require.ErrorContains(t, err, `node lacks label "nvidia.com/gpu.clique"`)
 
+	_, err = ResolveNodeLabels(nil, refs, allowed)
+	require.ErrorIs(t, err, ErrMissingNodeLabel)
+	require.ErrorContains(t, err, `node lacks label "topology.kubernetes.io/zone"; node lacks label "nvidia.com/gpu.clique"`)
+
 	_, err = ResolveNodeLabels(nodeLabels, refs, sets.New("topology.kubernetes.io/zone"))
+	require.NotErrorIs(t, err, ErrMissingNodeLabel)
+	require.ErrorContains(t, err, `node label "nvidia.com/gpu.clique" is not in the operator's allowedNodeLabels`)
+
+	// Mixed missing allowlisted label + non-allowlisted label must not match ErrMissingNodeLabel,
+	// since re-reading the Node can never satisfy the disallowed labelRef.
+	_, err = ResolveNodeLabels(nil, refs, sets.New("topology.kubernetes.io/zone"))
+	require.NotErrorIs(t, err, ErrMissingNodeLabel)
+	require.ErrorContains(t, err, `node lacks label "topology.kubernetes.io/zone"`)
 	require.ErrorContains(t, err, `node label "nvidia.com/gpu.clique" is not in the operator's allowedNodeLabels`)
 
 	_, err = ResolveNodeLabels(nil, []rayv1.LabelRef{
 		{ValueFrom: rayv1.LabelRefSource{NodeRef: rayv1.NodeFieldRef{FieldPath: "spec.providerID"}}},
 		refs[0],
 	}, allowed)
+	require.NotErrorIs(t, err, ErrMissingNodeLabel)
 	require.ErrorContains(t, err, "only metadata.labels['<key>'] is supported")
 	require.ErrorContains(t, err, `node lacks label "topology.kubernetes.io/zone"`)
 }

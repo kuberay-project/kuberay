@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -110,12 +111,19 @@ func (w *PodBindingWebhook) Handle(ctx context.Context, req admission.Request) a
 	if group == nil {
 		return admission.Allowed("not a worker of a group with labelRefs")
 	}
-	nodeMeta, err := w.getNodeMetadata(ctx, types.NamespacedName{Name: nodeName})
+	nodeMeta, fromCache, err := w.getNodeMetadata(ctx, types.NamespacedName{Name: nodeName})
 	if err != nil {
 		w.withhold(req, podMeta, nodeName, fmt.Errorf("cannot read node %s: %w", nodeName, err))
 		return admission.Allowed("node labels withheld")
 	}
 	labels, err := utils.ResolveNodeLabels(nodeMeta.Labels, group.LabelRefs, w.AllowedNodeLabels)
+	if fromCache && errors.Is(err, utils.ErrMissingNodeLabel) {
+		// The informer cache may lag behind a label update that the scheduler just observed.
+		fresh := &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
+		if getErr := w.APIReader.Get(ctx, types.NamespacedName{Name: nodeName}, fresh); getErr == nil {
+			labels, err = utils.ResolveNodeLabels(fresh.Labels, group.LabelRefs, w.AllowedNodeLabels)
+		}
+	}
 	if err != nil {
 		w.withhold(req, podMeta, nodeName, err)
 		return admission.Allowed("node labels withheld")
@@ -184,20 +192,20 @@ func (w *PodBindingWebhook) getPodMetadata(ctx context.Context, key types.Namesp
 	return &podMeta.ObjectMeta, nil
 }
 
-func (w *PodBindingWebhook) getNodeMetadata(ctx context.Context, key types.NamespacedName) (*metav1.ObjectMeta, error) {
+func (w *PodBindingWebhook) getNodeMetadata(ctx context.Context, key types.NamespacedName) (meta *metav1.ObjectMeta, fromCache bool, err error) {
 	node := &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
-	err := w.Client.Get(ctx, key, node)
+	err = w.Client.Get(ctx, key, node)
 	if err == nil {
-		return &node.ObjectMeta, nil
+		return &node.ObjectMeta, true, nil
 	}
 	if !apierrors.IsNotFound(err) {
-		return nil, err
+		return nil, false, err
 	}
 	node = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
 	if err := w.APIReader.Get(ctx, key, node); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return &node.ObjectMeta, nil
+	return &node.ObjectMeta, false, nil
 }
 
 // Records why the labels were not delivered. The binding proceeds without the annotation and the pod exits before ray start
