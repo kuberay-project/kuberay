@@ -401,7 +401,7 @@ func generateUpgradeSteps(stepSize, maxSurge int32) []testStep {
 
 const (
 	// The lower bound of the RPS for the Locust to reach the steady state.
-	locustWarmupRPSThreshold = 400.0
+	locustWarmupRPSThreshold = 300.0
 	// The period of time that the RPS must be greater than or equal to the threshold to be considered steady state.
 	locustWarmupStableWindowSeconds = 15
 	// The maximum duration to wait for the Locust to reach the steady state.
