@@ -1,10 +1,10 @@
 # Project Information
 site_name: KubeRay Docs
-site_url: https://ray-project.github.io/kuberay
+site_url: https://kuberay-project.github.io/kuberay
 
 # Repository
-repo_name: ray-project/kuberay
-repo_url: https://github.com/ray-project/kuberay
+repo_name: kuberay-project/kuberay
+repo_url: https://github.com/kuberay-project/kuberay
 edit_uri: ""
 
 # Copyright
