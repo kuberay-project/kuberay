@@ -1615,11 +1615,13 @@ func shouldDeletePod(pod corev1.Pod, nodeType rayv1.RayNodeType) (bool, string) 
 	return false, reason
 }
 
-// shouldDeleteWorkerPod extends shouldDeletePod with self-healing for worker Pods prepared for NodeLabelDelivery
-// that terminated because the ray.io/node-labels annotation was not delivered at bind time (e.g., when a device
-// plugin applied the node label after binding or the binding webhook timed out under failurePolicy: Ignore).
-// Because pods/binding only executes once per Pod lifetime, the container cannot recover via in-place restart;
-// once the bound Node carries all requested and allowed labelRefs, the Pod is deleted so it can be recreated.
+// shouldDeleteWorkerPod extends shouldDeletePod with NodeLabelDelivery-specific self-healing for worker Pods
+// whose Ray container exited because the ray.io/node-labels annotation was not delivered at bind time
+// (e.g., when a node labeler applied the label after binding or the binding webhook timed out or was unavailable
+// under failurePolicy: Ignore).
+// Because pods/binding only executes once per Pod lifetime, container restarts never pick up the missing annotation.
+// Existing shouldDeletePod decisions are preserved; otherwise, the Pod is kept until every labelRef is allowlisted
+// and present on the bound Node, then deleted for recreation.
 func (r *RayClusterReconciler) shouldDeleteWorkerPod(ctx context.Context, pod corev1.Pod, worker *rayv1.WorkerGroupSpec) (bool, string) {
 	shouldDelete, reason := shouldDeletePod(pod, rayv1.WorkerNode)
 	if shouldDelete || !missedNodeLabelDelivery(pod, worker) {
