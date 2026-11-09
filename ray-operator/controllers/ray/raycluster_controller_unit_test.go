@@ -3340,7 +3340,7 @@ func TestReconcile_NumOfHostsZero_TreatedAsOne(t *testing.T) {
 			// Disable autoscaling so that the random Pod deletion is enabled, and clear `WorkersToDelete`.
 			testRayCluster.Spec.EnableInTreeAutoscaling = nil
 			testRayCluster.Spec.WorkerGroupSpecs[0].ScaleStrategy.WorkersToDelete = []string{}
-			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To(tc.replicas)
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(tc.replicas)
 			testRayCluster.Spec.WorkerGroupSpecs[0].NumOfHosts = 0
 
 			fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(tc.initialPods()...).Build()
