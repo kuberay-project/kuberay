@@ -392,6 +392,17 @@ func GenerateIdentifier(clusterName string, nodeType rayv1.RayNodeType) string {
 	return fmt.Sprintf("%s-%s", clusterName, nodeType)
 }
 
+// GetNumOfHosts returns the number of hosts per replica of the worker group, treating values below 1 as 1.
+// NumOfHosts is 0 when the RayCluster is stored by a CRD that predates the field (operator image upgraded
+// without the CRD) or when the user sets it to 0 explicitly. Multiplying by 0 would turn every Pod-count
+// computation into 0, and the controller would delete all worker Pods of the group.
+func GetNumOfHosts(workerGroupSpec rayv1.WorkerGroupSpec) int32 {
+	if workerGroupSpec.NumOfHosts < 1 {
+		return 1
+	}
+	return workerGroupSpec.NumOfHosts
+}
+
 func GetWorkerGroupDesiredReplicas(workerGroupSpec rayv1.WorkerGroupSpec) int32 {
 	// Always adhere to min/max replicas constraints.
 	var workerReplicas int32
@@ -409,7 +420,7 @@ func GetWorkerGroupDesiredReplicas(workerGroupSpec rayv1.WorkerGroupSpec) int32 
 	} else {
 		workerReplicas = *workerGroupSpec.Replicas
 	}
-	return workerReplicas * workerGroupSpec.NumOfHosts
+	return workerReplicas * GetNumOfHosts(workerGroupSpec)
 }
 
 // CalculateDesiredReplicas calculate desired worker replicas at the cluster level
@@ -430,7 +441,7 @@ func CalculateMinReplicas(cluster *rayv1.RayCluster) int32 {
 			continue
 		}
 		minReplicas := ptr.Deref(nodeGroup.MinReplicas, int32(0))
-		count += (minReplicas * nodeGroup.NumOfHosts)
+		count += (minReplicas * GetNumOfHosts(nodeGroup))
 	}
 
 	return count
@@ -444,7 +455,7 @@ func CalculateMaxReplicas(cluster *rayv1.RayCluster) int32 {
 			continue
 		}
 		maxReplicas := ptr.Deref(nodeGroup.MaxReplicas, int32(math.MaxInt32))
-		count += int64(maxReplicas) * int64(nodeGroup.NumOfHosts)
+		count += int64(maxReplicas) * int64(GetNumOfHosts(nodeGroup))
 	}
 
 	return SafeInt64ToInt32(count)
@@ -492,7 +503,7 @@ func CalculateDesiredResources(cluster *rayv1.RayCluster) corev1.ResourceList {
 		}
 		podResource := CalculatePodResource(nodeGroup.Template.Spec)
 		replicas := ptr.Deref(nodeGroup.Replicas, int32(0))
-		calculatePodResources(&podResource, int64(nodeGroup.NumOfHosts)*int64(replicas))
+		calculatePodResources(&podResource, int64(GetNumOfHosts(nodeGroup))*int64(replicas))
 		desiredResourcesList = append(desiredResourcesList, podResource)
 	}
 	return SumResourceList(desiredResourcesList)
@@ -508,7 +519,7 @@ func CalculateMinResources(cluster *rayv1.RayCluster) corev1.ResourceList {
 		}
 		podResource := CalculatePodResource(nodeGroup.Template.Spec)
 		minReplicas := ptr.Deref(nodeGroup.MinReplicas, int32(0))
-		calculatePodResources(&podResource, int64(nodeGroup.NumOfHosts)*int64(minReplicas))
+		calculatePodResources(&podResource, int64(GetNumOfHosts(nodeGroup))*int64(minReplicas))
 		minResourcesList = append(minResourcesList, podResource)
 	}
 	return SumResourceList(minResourcesList)
