@@ -681,6 +681,148 @@ func TestReconcile_RandomDelete_OK(t *testing.T) {
 	}
 }
 
+// newWorkerPodForScaleDownTest returns a worker Pod with the given phase and readiness,
+// used to verify the Pod selection order during scale-down.
+func newWorkerPodForScaleDownTest(name string, phase corev1.PodPhase, ready bool) *corev1.Pod {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespaceStr,
+			Labels: map[string]string{
+				utils.RayNodeLabelKey:      "yes",
+				utils.RayClusterLabelKey:   instanceName,
+				utils.RayNodeTypeLabelKey:  string(rayv1.WorkerNode),
+				utils.RayNodeGroupLabelKey: groupNameStr,
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:    "ray-worker",
+					Image:   "rayproject/autoscaler",
+					Command: []string{"echo"},
+					Args:    []string{"Hello Ray"},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: phase,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name:  "ray-worker",
+					State: corev1.ContainerState{},
+				},
+			},
+		},
+	}
+	if ready {
+		pod.Status.Conditions = []corev1.PodCondition{
+			{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+		}
+	}
+	return pod
+}
+
+func reconcileAndGetSurvivingWorkers(t *testing.T, workerPods ...runtime.Object) []string {
+	t.Helper()
+
+	// Disable the Autoscaler to enable random Pod deletion.
+	testRayCluster.Spec.EnableInTreeAutoscaling = nil
+	var localExpectReplicaNum int32 = 2
+	testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = &localExpectReplicaNum
+
+	// testPods[0] is the head Pod.
+	runtimeObjects := append([]runtime.Object{testPods[0]}, workerPods...)
+	fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(runtimeObjects...).Build()
+	ctx := context.Background()
+	testRayClusterReconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   &events.FakeRecorder{},
+		Scheme:                     scheme.Scheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}
+
+	err := testRayClusterReconciler.reconcilePods(ctx, testRayCluster)
+	require.NoError(t, err, "Fail to reconcile Pods")
+
+	podList := corev1.PodList{}
+	err = fakeClient.List(ctx, &podList, &client.ListOptions{
+		LabelSelector: workerSelector,
+		Namespace:     namespaceStr,
+	})
+	require.NoError(t, err, "Fail to get pod list after reconcile")
+
+	survivingPods := make([]string, 0, len(podList.Items))
+	for _, pod := range podList.Items {
+		survivingPods = append(survivingPods, pod.Name)
+	}
+	return survivingPods
+}
+
+func TestReconcile_RandomDelete_PreferPending(t *testing.T) {
+	setupTest(t)
+
+	// The running Pods have lexicographically smaller names than the pending Pods.
+	// Before the fix, scale-down deleted the first Pods in lexicographical order,
+	// which would delete the running Pods and keep the pending ones.
+	survivingPods := reconcileAndGetSurvivingWorkers(t,
+		newWorkerPodForScaleDownTest("aaa-running-a", corev1.PodRunning, true),
+		newWorkerPodForScaleDownTest("aab-running-b", corev1.PodRunning, true),
+		newWorkerPodForScaleDownTest("zzz-pending-a", corev1.PodPending, false),
+		newWorkerPodForScaleDownTest("zzx-pending-b", corev1.PodPending, false),
+	)
+
+	assert.ElementsMatch(t, []string{"aaa-running-a", "aab-running-b"}, survivingPods,
+		"Pending Pods should be deleted before running and ready Pods during scale-down")
+}
+
+func TestReconcile_RandomDelete_PreferNotReady(t *testing.T) {
+	setupTest(t)
+
+	survivingPods := reconcileAndGetSurvivingWorkers(t,
+		newWorkerPodForScaleDownTest("aaa-ready-a", corev1.PodRunning, true),
+		newWorkerPodForScaleDownTest("aab-ready-b", corev1.PodRunning, true),
+		newWorkerPodForScaleDownTest("zzz-notready-a", corev1.PodRunning, false),
+		newWorkerPodForScaleDownTest("zzx-notready-b", corev1.PodRunning, false),
+	)
+
+	assert.ElementsMatch(t, []string{"aaa-ready-a", "aab-ready-b"}, survivingPods,
+		"Running but not ready Pods should be deleted before running and ready Pods during scale-down")
+}
+
+func TestSortPodsForDeletion(t *testing.T) {
+	setupTest(t)
+
+	ready := *newWorkerPodForScaleDownTest("ready", corev1.PodRunning, true)
+	notReady := *newWorkerPodForScaleDownTest("notready", corev1.PodRunning, false)
+	unknown := *newWorkerPodForScaleDownTest("unknown", corev1.PodUnknown, false)
+	pendingA := *newWorkerPodForScaleDownTest("pending-a", corev1.PodPending, false)
+	pendingB := *newWorkerPodForScaleDownTest("pending-b", corev1.PodPending, false)
+
+	pods := []corev1.Pod{ready, notReady, pendingB, unknown, pendingA}
+	sortPodsForDeletion(pods)
+
+	gotNames := make([]string, 0, len(pods))
+	for _, pod := range pods {
+		gotNames = append(gotNames, pod.Name)
+	}
+	// Pending Pods first (ties broken by name), then not-Ready and unknown-phase Pods,
+	// and running, ready Pods last.
+	assert.Equal(t, []string{"pending-a", "pending-b", "notready", "unknown", "ready"}, gotNames)
+}
+
+func TestGroupDeletionPriority(t *testing.T) {
+	setupTest(t)
+
+	ready := *newWorkerPodForScaleDownTest("ready", corev1.PodRunning, true)
+	notReady := *newWorkerPodForScaleDownTest("notready", corev1.PodRunning, false)
+	pending := *newWorkerPodForScaleDownTest("pending", corev1.PodPending, false)
+
+	assert.Equal(t, 2, groupDeletionPriority([]corev1.Pod{ready, ready}))
+	assert.Equal(t, 1, groupDeletionPriority([]corev1.Pod{ready, notReady}))
+	assert.Equal(t, 0, groupDeletionPriority([]corev1.Pod{ready, notReady, pending}))
+}
+
 func TestReconcile_PodDeleted_Diff0_OK(t *testing.T) {
 	setupTest(t)
 
