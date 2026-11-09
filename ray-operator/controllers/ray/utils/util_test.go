@@ -599,6 +599,29 @@ func TestGetWorkerGroupDesiredReplicas(t *testing.T) {
 	workerGroupSpec.MinReplicas = &minReplicas
 	workerGroupSpec.MaxReplicas = &maxReplicas
 	assert.Equal(t, GetWorkerGroupDesiredReplicas(workerGroupSpec), replicas*numOfHosts)
+
+	// Test 7: `WorkerGroupSpec.NumOfHosts` is 0 (CRD without the field, or set explicitly). It counts as 1.
+	workerGroupSpec.NumOfHosts = 0
+	assert.Equal(t, GetWorkerGroupDesiredReplicas(workerGroupSpec), replicas)
+}
+
+func TestGetNumOfHosts(t *testing.T) {
+	tests := []struct {
+		name       string
+		numOfHosts int32
+		expected   int32
+	}{
+		{name: "zero counts as one", numOfHosts: 0, expected: 1},
+		{name: "negative counts as one", numOfHosts: -2, expected: 1},
+		{name: "one", numOfHosts: 1, expected: 1},
+		{name: "larger than one", numOfHosts: 4, expected: 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, GetNumOfHosts(rayv1.WorkerGroupSpec{NumOfHosts: tt.numOfHosts}))
+		})
+	}
 }
 
 func TestCalculateMinAndMaxReplicas(t *testing.T) {
@@ -692,6 +715,23 @@ func TestCalculateMinAndMaxReplicas(t *testing.T) {
 				maxReplicas: 0,
 			},
 		},
+		{
+			name: "Single group with NumOfHosts 0, which counts as one host",
+			specs: []rayv1.WorkerGroupSpec{
+				{
+					NumOfHosts:  0,
+					MinReplicas: ptr.To[int32](2),
+					MaxReplicas: ptr.To[int32](3),
+				},
+			},
+			expected: struct {
+				minReplicas int32
+				maxReplicas int32
+			}{
+				minReplicas: 2,
+				maxReplicas: 3,
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -770,6 +810,18 @@ func TestCalculateDesiredReplicas(t *testing.T) {
 			group2MaxReplicas: ptr.To[int32](5),
 			name:              "Group1's NumOfHosts is 4, and Group2's Replicas is 1.",
 			answer:            15,
+		},
+		{
+			group1Replicas:    ptr.To[int32](3),
+			group1NumOfHosts:  0,
+			group1MinReplicas: ptr.To[int32](1),
+			group1MaxReplicas: ptr.To[int32](6),
+			group2Replicas:    ptr.To[int32](2),
+			group2NumOfHosts:  2,
+			group2MinReplicas: ptr.To[int32](1),
+			group2MaxReplicas: ptr.To[int32](5),
+			name:              "Group1's NumOfHosts is 0 and counts as 1, and Group2's NumOfHosts is 2.",
+			answer:            7,
 		},
 	}
 
