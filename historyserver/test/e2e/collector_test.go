@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
+	"github.com/ray-project/kuberay/historyserver/pkg/historyserver"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 	. "github.com/ray-project/kuberay/historyserver/test/support"
@@ -135,7 +136,12 @@ func testCollectorUploadOnGracefulShutdown(test Test, g *WithT, namespace *corev
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
-	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID))
+	clusterInfo := utils.ClusterInfo{
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
+		SessionName: sessionID,
+	}
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
 	// Delete the Ray cluster to trigger log uploading and event flushing on deletion.
 	err := test.Client().Ray().RayV1().
@@ -181,7 +187,12 @@ func testCollectorSeparatesFilesBySession(test Test, g *WithT, namespace *corev1
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
-	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID))
+	clusterInfo := utils.ClusterInfo{
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
+		SessionName: sessionID,
+	}
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
 	// NOTE: We use `kill 1` to simulate Kubernetes OOMKilled behavior.
 	// Before Kubernetes 1.28 (cgroups v1), if one process in a multi-process container exceeded its memory limit,
@@ -224,7 +235,12 @@ func testCollectorResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 	// Use namespace name to ensure test isolation (avoid conflicts from previous test runs)
 	dummySessionID := fmt.Sprintf("test-recovery-session-%s", namespace.Name)
 	dummyNodeID := fmt.Sprintf("head-node-%s", namespace.Name)
-	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, dummySessionID))
+	clusterInfo := utils.ClusterInfo{
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
+		SessionName: dummySessionID,
+	}
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
 	// Inject "leftover" logs BEFORE killing collector.
 	// This ensures files exist when collector restarts and performs its initial scan.
@@ -344,7 +360,12 @@ func testCollectorStoresClusterMetadata(test Test, g *WithT, namespace *corev1.N
 
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	storageKey := utils.EndpointPathToStorageKey("/api/v0/cluster_metadata")
-	sessionDir := clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID)
+	clusterInfo := utils.ClusterInfo{
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
+		SessionName: sessionID,
+	}
+	sessionDir := clusterlogs.SessionDir("", clusterInfo)
 	metaKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
 
 	LogWithTimestamp(test.T(), "Waiting for cluster metadata to appear at S3 key: %s", metaKey)
@@ -396,7 +417,12 @@ func testCollectorStoresTimezone(test Test, g *WithT, namespace *corev1.Namespac
 func assertTimezoneStored(test Test, g *WithT, rayCluster *rayv1.RayCluster, s3Client *S3TestClient) {
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	storageKey := utils.EndpointPathToStorageKey(EndpointTimezone)
-	sessionDir := clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID)
+	clusterInfo := utils.ClusterInfo{
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
+		SessionName: sessionID,
+	}
+	sessionDir := clusterlogs.SessionDir("", clusterInfo)
 	timezoneKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
 
 	LogWithTimestamp(test.T(), "Waiting for timezone data to appear at S3 key: %s", timezoneKey)
@@ -435,7 +461,12 @@ func testCollectorStoresPlacementGroups(test Test, g *WithT, namespace *corev1.N
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	// Matches placementGroupsEndpoint in the collector's poll.go, query params included.
 	storageKey := utils.EndpointPathToStorageKey("/api/v0/placement_groups?detail=1&limit=10000")
-	sessionDir := clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID)
+	clusterInfo := utils.ClusterInfo{
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
+		SessionName: sessionID,
+	}
+	sessionDir := clusterlogs.SessionDir("", clusterInfo)
 	pgKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
 
 	LogWithTimestamp(test.T(), "Waiting for placement groups data to appear at S3 key: %s", pgKey)
@@ -638,11 +669,21 @@ func enterClusterForOwner(test Test, g *WithT, client *http.Client, historyServe
 	LogWithTimestamp(test.T(), "Setting cluster context: %s", enterURL)
 
 	g.Eventually(func(gg Gomega) {
-		var result map[string]any
-		gg.Expect(json.Unmarshal(getHistoryServerJSON(gg, client, enterURL), &result)).To(Succeed())
-		gg.Expect(result["result"]).To(Equal("success"))
-		gg.Expect(result["name"]).To(Equal(clusterName), "enter_cluster should resolve the owner to its generated cluster")
-		gg.Expect(result["session"]).To(Equal(session))
+		resp, err := client.Get(enterURL)
+		gg.Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close()
+		gg.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		gg.Expect(resp.Header.Get("Content-Type")).To(ContainSubstring("text/html"))
+
+		cookies := map[string]string{}
+		for _, cookie := range resp.Cookies() {
+			cookies[cookie.Name] = cookie.Value
+		}
+		gg.Expect(cookies[historyserver.COOKIE_CLUSTER_NAME_KEY]).To(Equal(clusterName), "enter_cluster should resolve the owner to its generated cluster")
+		gg.Expect(cookies[historyserver.COOKIE_SESSION_NAME_KEY]).To(Equal(session))
+		gg.Expect(cookies[historyserver.COOKIE_CLUSTER_NAMESPACE_KEY]).To(Equal(namespace))
+		gg.Expect(cookies[historyserver.COOKIE_OWNER_KIND_KEY]).To(Equal(ownerKind))
+		gg.Expect(cookies[historyserver.COOKIE_OWNER_NAME_KEY]).To(Equal(ownerName))
 	}, TestTimeoutShort).Should(Succeed())
 }
 
@@ -665,7 +706,12 @@ func getHistoryServerJSON(g Gomega, client *http.Client, url string) []byte {
 func testCollectorStoresServeApplications(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) {
 	rayService := ApplyRayServiceAndWaitForRunning(test, g, namespace)
 	clusterName := rayService.Status.ActiveServiceStatus.RayClusterName
-	clusterPrefix := clusterlogs.Prefix("", utils.RayServiceKind, rayService.Name, namespace.Name, clusterName)
+	clusterPrefix := clusterlogs.Prefix("", utils.ClusterInfo{
+		Namespace: namespace.Name,
+		Name:      clusterName,
+		OwnerName: rayService.Name,
+		OwnerKind: utils.RayServiceKind,
+	})
 
 	// Matches serveApplicationsEndpoint in the collector's poll.go.
 	storageKey := utils.EndpointPathToStorageKey("/api/serve/applications/")
@@ -724,7 +770,12 @@ func assertServeAppConverged(g Gomega, body []byte) {
 func testCollectorStoresDataDatasets(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) {
 	rayJob := ApplyRayDataJobAndWaitForCompletion(test, g, namespace)
 	clusterName := rayJob.Status.RayClusterName
-	clusterPrefix := clusterlogs.Prefix("", utils.RayJobKind, rayJob.Name, namespace.Name, clusterName)
+	clusterPrefix := clusterlogs.Prefix("", utils.ClusterInfo{
+		Namespace: namespace.Name,
+		Name:      clusterName,
+		OwnerName: rayJob.Name,
+		OwnerKind: utils.RayJobKind,
+	})
 
 	// "/api/data/datasets/" maps to "restful__api__data__datasets"; per-job keys append
 	// "__{job_id}", so this prefix matches every stored job.
