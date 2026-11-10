@@ -99,9 +99,6 @@ type Configuration struct {
 	// connectivity to Pods.
 	UseKubernetesProxy bool `json:"useKubernetesProxy,omitempty"`
 
-	// DeleteRayJobAfterJobFinishes deletes the RayJob CR itself if shutdownAfterJobFinishes is set to true.
-	DeleteRayJobAfterJobFinishes bool `json:"deleteRayJobAfterJobFinishes,omitempty"`
-
 	// EnableMetrics indicates whether KubeRay operator should emit control plane metrics.
 	EnableMetrics bool `json:"enableMetrics,omitempty"`
 

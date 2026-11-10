@@ -158,7 +158,6 @@ func main() {
 		config.EnableBatchScheduler = enableBatchScheduler
 		config.BatchScheduler = batchScheduler
 		config.UseKubernetesProxy = useKubernetesProxy
-		config.DeleteRayJobAfterJobFinishes = os.Getenv(utils.DELETE_RAYJOB_CR_AFTER_JOB_FINISHES) == "true"
 		config.EnableMetrics = enableMetrics
 		config.QPS = &qps
 		config.Burst = &burst
