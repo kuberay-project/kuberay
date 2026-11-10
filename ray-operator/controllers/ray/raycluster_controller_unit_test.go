@@ -5161,3 +5161,74 @@ func TestReconcilePodsKeepsBatchSchedulerReservationWhenRunning(t *testing.T) {
 	require.NoError(t, reconciler.reconcilePods(context.Background(), cluster))
 	assert.False(t, fakeScheduler.cleanupCalled, "a running RayCluster must keep its reserved capacity")
 }
+
+// failStatusUpdates makes every status update return statusErr, and counts the attempts in calls.
+func failStatusUpdates(statusErr error, calls *int) interceptor.Funcs {
+	return interceptor.Funcs{
+		SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+			if subResourceName != "status" {
+				return c.SubResource(subResourceName).Update(ctx, obj, opts...)
+			}
+			*calls++
+			return statusErr
+		},
+	}
+}
+
+// statusConflict returns the 409 that the API server sends when an object changed after the client read it.
+func statusConflict(resource, name string) error {
+	return k8serrors.NewConflict(rayv1.GroupVersion.WithResource(resource).GroupResource(), name, errors.New("the object has been modified"))
+}
+
+// A 409 on the status update means another client changed the RayCluster after the reconciler read it.
+// Reconcile should requeue without returning an error. Other status update errors are still returned.
+// See https://github.com/ray-project/kuberay/issues/745.
+func TestRayClusterReconcile_StatusUpdateConflict(t *testing.T) {
+	otherErr := errors.New("etcd is unavailable")
+	tests := []struct {
+		name     string
+		conflict bool
+	}{
+		{name: "conflict requeues without an error", conflict: true},
+		{name: "other errors are still returned", conflict: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setupTest(t)
+			statusErr := otherErr
+			if tc.conflict {
+				statusErr = statusConflict("rayclusters", instanceName)
+			}
+			newScheme := runtime.NewScheme()
+			require.NoError(t, rayv1.AddToScheme(newScheme))
+			require.NoError(t, corev1.AddToScheme(newScheme))
+			require.NoError(t, rbacv1.AddToScheme(newScheme))
+
+			calls := 0
+			fakeClient := clientFake.NewClientBuilder().
+				WithScheme(newScheme).
+				WithObjects(testRayCluster).
+				WithStatusSubresource(testRayCluster).
+				WithInterceptorFuncs(failStatusUpdates(statusErr, &calls)).
+				Build()
+			r := &RayClusterReconciler{
+				Client:                     fakeClient,
+				Recorder:                   &events.FakeRecorder{},
+				Scheme:                     newScheme,
+				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+			}
+
+			result, err := r.Reconcile(context.Background(), ctrl.Request{
+				NamespacedName: types.NamespacedName{Name: instanceName, Namespace: namespaceStr},
+			})
+
+			assert.Equal(t, 1, calls, "Reconcile should try to update the status once")
+			if !tc.conflict {
+				require.ErrorIs(t, err, otherErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, DefaultRequeueDuration, result.RequeueAfter)
+		})
+	}
+}

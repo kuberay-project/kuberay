@@ -18,6 +18,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -755,6 +756,16 @@ func ManagedByExternalController(controllerName *string) *string {
 		return controllerName
 	}
 	return nil
+}
+
+// IgnoreConflict returns nil on Conflict errors. All other values are returned unmodified.
+// A Conflict means another client updated the object after the reconciler read it. The caller
+// requeues, and the next reconcile reads the latest object, so it is not a reconcile error.
+func IgnoreConflict(err error) error {
+	if errors.IsConflict(err) {
+		return nil
+	}
+	return err
 }
 
 func IsAutoscalingEnabled(spec *rayv1.RayClusterSpec) bool {

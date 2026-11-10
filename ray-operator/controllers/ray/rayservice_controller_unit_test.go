@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -3539,4 +3540,67 @@ func TestHandleSuspendObservedGeneration(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int64(4), rayService.Status.ObservedGeneration)
 	})
+}
+
+// See TestRayClusterReconcile_StatusUpdateConflict and https://github.com/ray-project/kuberay/issues/745.
+func TestRayServiceReconcile_StatusUpdateConflict(t *testing.T) {
+	tests := []struct {
+		rayService func() *rayv1.RayService
+		name       string
+	}{
+		{
+			// The name is too long, so validation fails and Reconcile writes the status right away.
+			name: "status update after a validation failure",
+			rayService: func() *rayv1.RayService {
+				rayService := rayServiceTemplate(strings.Repeat("a", utils.MaxRayServiceNameLength+1), "default", "app")
+				rayService.Finalizers = []string{utils.RayServiceFinalizer}
+				return rayService
+			},
+		},
+		{
+			// The RayService resumes from suspend, so handleSuspend changes the status and
+			// Reconcile writes it before doing anything else. On a conflict it must stop there.
+			name: "status update after handleSuspend",
+			rayService: func() *rayv1.RayService {
+				rayService := rayServiceTemplate("test-rayservice", "default", "app")
+				rayService.Finalizers = []string{utils.RayServiceFinalizer}
+				meta.SetStatusCondition(&rayService.Status.Conditions, metav1.Condition{
+					Type:   string(rayv1.RayServiceSuspended),
+					Status: metav1.ConditionTrue,
+					Reason: "Suspended",
+				})
+				return rayService
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			newScheme := runtime.NewScheme()
+			require.NoError(t, rayv1.AddToScheme(newScheme))
+
+			rayService := tc.rayService()
+			calls := 0
+			fakeClient := clientFake.NewClientBuilder().
+				WithScheme(newScheme).
+				WithObjects(rayService).
+				WithStatusSubresource(rayService).
+				WithInterceptorFuncs(failStatusUpdates(statusConflict("rayservices", rayService.Name), &calls)).
+				Build()
+			reconciler := &RayServiceReconciler{
+				Client:                       fakeClient,
+				Recorder:                     &events.FakeRecorder{},
+				Scheme:                       newScheme,
+				ServeConfigs:                 lru.New(utils.ServeConfigLRUSize),
+				RayClusterDeletionTimestamps: cmap.New[time.Time](),
+			}
+
+			result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+				NamespacedName: types.NamespacedName{Name: rayService.Name, Namespace: rayService.Namespace},
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, 1, calls, "Reconcile should stop after the conflicting status update")
+			assert.Equal(t, ServiceDefaultRequeueDuration, result.RequeueAfter)
+		})
+	}
 }

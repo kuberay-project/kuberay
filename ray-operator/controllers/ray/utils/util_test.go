@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -2582,5 +2584,34 @@ func TestNodeLabelKey(t *testing.T) {
 	for _, bad := range []string{"", "metadata.labels", "metadata.labels[\"zone\"]", "metadata.annotations['zone']", "spec.providerID"} {
 		_, err := NodeLabelKey(bad)
 		require.ErrorContains(t, err, "only metadata.labels['<key>'] is supported", bad)
+	}
+}
+
+func TestIgnoreConflict(t *testing.T) {
+	rayClusters := rayv1.GroupVersion.WithResource("rayclusters").GroupResource()
+	conflict := k8serrors.NewConflict(rayClusters, "raycluster-sample", errors.New("the object has been modified"))
+	notFound := k8serrors.NewNotFound(rayClusters, "raycluster-sample")
+	other := errors.New("etcd is unavailable")
+
+	tests := []struct {
+		err     error
+		wantErr error
+		name    string
+	}{
+		{name: "nil stays nil", err: nil, wantErr: nil},
+		{name: "a Conflict is ignored", err: conflict, wantErr: nil},
+		{name: "a wrapped Conflict is ignored", err: fmt.Errorf("update status: %w", conflict), wantErr: nil},
+		{name: "NotFound is returned", err: notFound, wantErr: notFound},
+		{name: "other errors are returned", err: other, wantErr: other},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := IgnoreConflict(tc.err)
+			if tc.wantErr == nil {
+				require.NoError(t, got)
+				return
+			}
+			require.ErrorIs(t, got, tc.wantErr)
+		})
 	}
 }

@@ -1272,3 +1272,36 @@ func TestBatchSchedulerCleanupCalledWhenRayJobSuspendingOrRetrying(t *testing.T)
 		})
 	}
 }
+
+// See TestRayClusterReconcile_StatusUpdateConflict and https://github.com/ray-project/kuberay/issues/745.
+func TestRayJobReconcile_StatusUpdateConflict(t *testing.T) {
+	newScheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(newScheme))
+
+	// A suspended RayJob needs shutdownAfterJobFinishes, so validation fails
+	// and Reconcile writes the ValidationFailed status right away.
+	rayJob := &rayv1.RayJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-rayjob", Namespace: "default"},
+		Spec:       rayv1.RayJobSpec{Suspend: true, ShutdownAfterJobFinishes: false},
+	}
+	calls := 0
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(newScheme).
+		WithObjects(rayJob).
+		WithStatusSubresource(rayJob).
+		WithInterceptorFuncs(failStatusUpdates(statusConflict("rayjobs", rayJob.Name), &calls)).
+		Build()
+	reconciler := &RayJobReconciler{
+		Client:   fakeClient,
+		Recorder: &events.FakeRecorder{},
+		Scheme:   newScheme,
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: rayJob.Name, Namespace: rayJob.Namespace},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls, "Reconcile should try to update the status once")
+	assert.Equal(t, RayJobDefaultRequeueDuration, result.RequeueAfter)
+}
