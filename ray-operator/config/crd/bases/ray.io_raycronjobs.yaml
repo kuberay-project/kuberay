@@ -5683,6 +5683,7 @@ spec:
                             items:
                               properties:
                                 groupName:
+                                  maxLength: 63
                                   type: string
                                 idleTimeoutSeconds:
                                   format: int32
@@ -9709,6 +9710,7 @@ spec:
                               - minReplicas
                               - template
                               type: object
+                            maxItems: 100
                             type: array
                         required:
                         - headGroupSpec
