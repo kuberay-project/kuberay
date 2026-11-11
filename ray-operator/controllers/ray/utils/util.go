@@ -387,6 +387,31 @@ func GenerateRayWorkerReplicaGroupName(workerGroupName string) string {
 	return fmt.Sprintf("%s-%s", workerGroupName, rand.String(5))
 }
 
+// MultiHostWorkerPodNamePrefix returns the "<cluster>-<group>-worker-" prefix shared by the Pods of a multi-host
+// worker group. Unlike PodName, the cluster and group part is capped at 45 characters so that the full prefix never
+// exceeds 53 characters: 63 (DNS-1123 label limit) - 5 (random replica suffix) - 5 ("-" and up to 4 host index digits).
+func MultiHostWorkerPodNamePrefix(clusterName, groupName string) string {
+	const maxPrefixLength = 45
+	prefix := strings.Trim(clusterName+DashSymbol+groupName, DashSymbol)
+	if len(prefix) > maxPrefixLength {
+		prefix = strings.TrimRight(prefix[:maxPrefixLength], DashSymbol)
+	}
+	return PodName(prefix, rayv1.WorkerNode, true)
+}
+
+// FormatMultiHostWorkerPodName returns the deterministic DNS-1123 name of the Pod with hostIndex in the replica group
+// replicaGrpName of a multi-host worker group: "<cluster>-<group>-worker-<replica suffix>-<hostIndex>". The random
+// replica suffix is never shortened, so the Pods of two replica groups can never share a name; the cluster and group
+// names are shortened instead (see MultiHostWorkerPodNamePrefix).
+func FormatMultiHostWorkerPodName(clusterName, groupName, replicaGrpName string, hostIndex int) string {
+	replicaSuffix := replicaGrpName
+	if len(replicaGrpName) > len(groupName)+1 && strings.EqualFold(replicaGrpName[:len(groupName)+1], groupName+DashSymbol) {
+		replicaSuffix = replicaGrpName[len(groupName)+1:]
+	}
+	replicaSuffix = strings.Trim(strings.ToLower(replicaSuffix), DashSymbol)
+	return fmt.Sprintf("%s%s-%d", MultiHostWorkerPodNamePrefix(clusterName, groupName), replicaSuffix, hostIndex)
+}
+
 // GenerateIdentifier generates identifier of same group pods
 func GenerateIdentifier(clusterName string, nodeType rayv1.RayNodeType) string {
 	return fmt.Sprintf("%s-%s", clusterName, nodeType)

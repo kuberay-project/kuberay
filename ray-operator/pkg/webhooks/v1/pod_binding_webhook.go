@@ -140,7 +140,9 @@ func (w *PodBindingWebhook) labelRefsCandidate(ctx context.Context, namespace, p
 	}
 	for i := range clusters.Items {
 		for _, group := range clusters.Items[i].Spec.WorkerGroupSpecs {
-			if len(group.LabelRefs) > 0 && strings.HasPrefix(podName, utils.PodName(clusters.Items[i].Name+"-"+group.GroupName, rayv1.WorkerNode, true)) {
+			// multi-host groups name their pods deterministically with a shorter prefix
+			if len(group.LabelRefs) > 0 && (strings.HasPrefix(podName, utils.PodName(clusters.Items[i].Name+"-"+group.GroupName, rayv1.WorkerNode, true)) ||
+				strings.HasPrefix(podName, utils.MultiHostWorkerPodNamePrefix(clusters.Items[i].Name, group.GroupName))) {
 				return true, nil
 			}
 		}

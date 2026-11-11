@@ -1,6 +1,7 @@
 package ray
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -13,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -63,6 +65,14 @@ func NewReconciler(mgr manager.Manager, options RayClusterReconcilerOptions) *Ra
 	}
 }
 
+// multiHostReplicaKey identifies a multi-host replica group within a RayCluster worker group.
+type multiHostReplicaKey struct {
+	namespace string
+	cluster   string
+	group     string
+	replica   string
+}
+
 // RayClusterReconciler reconciles a RayCluster object
 type RayClusterReconciler struct {
 	client.Client
@@ -70,6 +80,14 @@ type RayClusterReconciler struct {
 	Recorder                   events.EventRecorder
 	rayClusterScaleExpectation expectations.RayClusterScaleExpectation
 	options                    RayClusterReconcilerOptions
+	// incompleteMultiHostReplicas holds the multi-host replica groups whose Pods this process is still creating,
+	// mapped to the hostIndex -> Pod UID entries already created for that group. A group in the map is backfilled
+	// only if every previously created host Pod is still present with the same UID; if an already-created Pod was
+	// externally deleted while the group was waiting to finish creation, Step 2 tears the group down atomically.
+	// Like rayClusterScaleExpectation the map is process-local on purpose: after an operator restart a partially
+	// created group is wiped once and recreated under a new replica name, so the cluster still converges.
+	incompleteMultiHostReplicas   map[multiHostReplicaKey]map[int]types.UID
+	incompleteMultiHostReplicasMu sync.Mutex
 }
 
 type RayClusterReconcilerOptions struct {
@@ -126,6 +144,7 @@ func (r *RayClusterReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 	if errors.IsNotFound(err) {
 		// Clear all related expectations
 		r.rayClusterScaleExpectation.Delete(request.Name, request.Namespace)
+		r.clearClusterIncompleteMultiHostReplicas(request.Namespace, request.Name)
 		cleanUpRayClusterMetrics(r.options.RayClusterMetricsManager, request.Name, request.Namespace)
 	} else {
 		logger.Error(err, "Read request instance error!")
@@ -995,6 +1014,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 				instance.Namespace, instance.Name, err)
 			return errstd.Join(utils.ErrFailedDeleteAllPods, err)
 		}
+		r.clearClusterIncompleteMultiHostReplicas(instance.Namespace, instance.Name)
 
 		r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedPod), string(utils.DeleteAction),
 			"Deleted Pods for RayCluster %s/%s due to suspension",
@@ -1030,6 +1050,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			return errstd.Join(utils.ErrFailedDeleteAllPods, err)
 		}
 		r.rayClusterScaleExpectation.Delete(instance.Name, instance.Namespace)
+		r.clearClusterIncompleteMultiHostReplicas(instance.Namespace, instance.Name)
 		r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedPod), string(utils.DeleteAction),
 			"Deleted all Pods for RayCluster %s/%s due to spec change with Recreate upgradeStrategy",
 			instance.Namespace, instance.Name)
@@ -1142,6 +1163,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 					"Failed deleting worker Pods for suspended group %s in RayCluster %s/%s, %v", worker.GroupName, instance.Namespace, instance.Name, err)
 				return errstd.Join(utils.ErrFailedDeleteWorkerPod, err)
 			}
+			r.clearGroupIncompleteMultiHostReplicas(instance.Namespace, instance.Name, worker.GroupName)
 			r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedWorkerPod), string(utils.DeleteAction),
 				"Deleted all pods for suspended worker group %s in RayCluster %s/%s", worker.GroupName, instance.Namespace, instance.Name)
 			continue
@@ -1333,65 +1355,264 @@ func (r *RayClusterReconciler) deletePods(ctx context.Context, instance *rayv1.R
 	return nil
 }
 
+// markIncompleteMultiHostReplica records that this process is creating the Pods of the replica group.
+func (r *RayClusterReconciler) markIncompleteMultiHostReplica(namespace, clusterName, groupName, replicaName string) {
+	r.incompleteMultiHostReplicasMu.Lock()
+	defer r.incompleteMultiHostReplicasMu.Unlock()
+	if r.incompleteMultiHostReplicas == nil {
+		r.incompleteMultiHostReplicas = make(map[multiHostReplicaKey]map[int]types.UID)
+	}
+	key := multiHostReplicaKey{namespace: namespace, cluster: clusterName, group: groupName, replica: replicaName}
+	if _, exists := r.incompleteMultiHostReplicas[key]; !exists {
+		r.incompleteMultiHostReplicas[key] = make(map[int]types.UID)
+	}
+}
+
+// recordIncompleteMultiHostPod records the UID of a host Pod created for an in-progress replica group.
+func (r *RayClusterReconciler) recordIncompleteMultiHostPod(namespace, clusterName, groupName, replicaName string, hostIndex int, uid types.UID) {
+	r.incompleteMultiHostReplicasMu.Lock()
+	defer r.incompleteMultiHostReplicasMu.Unlock()
+	key := multiHostReplicaKey{namespace: namespace, cluster: clusterName, group: groupName, replica: replicaName}
+	if createdHosts, ok := r.incompleteMultiHostReplicas[key]; ok {
+		createdHosts[hostIndex] = uid
+	}
+}
+
+// canBackfillIncompleteMultiHostReplica reports whether this process is still creating the Pods of the replica group,
+// every existing Pod in byHost is healthy and non-terminating, and every host Pod previously created for that group
+// is still present with the same UID.
+func (r *RayClusterReconciler) canBackfillIncompleteMultiHostReplica(namespace, clusterName, groupName, replicaName string, byHost map[int]corev1.Pod) bool {
+	for _, pod := range byHost {
+		if !pod.DeletionTimestamp.IsZero() {
+			return false
+		}
+		if shouldDelete, _ := shouldDeletePod(pod, rayv1.WorkerNode); shouldDelete {
+			return false
+		}
+	}
+	r.incompleteMultiHostReplicasMu.Lock()
+	defer r.incompleteMultiHostReplicasMu.Unlock()
+	createdHosts, ok := r.incompleteMultiHostReplicas[multiHostReplicaKey{namespace: namespace, cluster: clusterName, group: groupName, replica: replicaName}]
+	if !ok {
+		return false
+	}
+	for hostIdx, uid := range createdHosts {
+		pod, exists := byHost[hostIdx]
+		if !exists || pod.UID != uid {
+			return false
+		}
+	}
+	for hostIdx, pod := range byHost {
+		createdHosts[hostIdx] = pod.UID
+	}
+	return true
+}
+
+func (r *RayClusterReconciler) clearIncompleteMultiHostReplica(namespace, clusterName, groupName, replicaName string) {
+	r.incompleteMultiHostReplicasMu.Lock()
+	defer r.incompleteMultiHostReplicasMu.Unlock()
+	delete(r.incompleteMultiHostReplicas, multiHostReplicaKey{namespace: namespace, cluster: clusterName, group: groupName, replica: replicaName})
+}
+
+// pruneIncompleteMultiHostReplicas forgets the replica groups of the worker group that are complete or gone.
+func (r *RayClusterReconciler) pruneIncompleteMultiHostReplicas(namespace, clusterName, groupName string, replicaMap map[string][]corev1.Pod, numOfHosts int) {
+	r.incompleteMultiHostReplicasMu.Lock()
+	defer r.incompleteMultiHostReplicasMu.Unlock()
+	for key := range r.incompleteMultiHostReplicas {
+		if key.namespace != namespace || key.cluster != clusterName || key.group != groupName {
+			continue
+		}
+		pods := replicaMap[key.replica]
+		if len(pods) == 0 {
+			delete(r.incompleteMultiHostReplicas, key)
+			continue
+		}
+		if byHost, ok := validMultiHostPodsByHostIndex(pods, numOfHosts); ok && len(byHost) == numOfHosts {
+			delete(r.incompleteMultiHostReplicas, key)
+		}
+	}
+}
+
+func (r *RayClusterReconciler) clearClusterIncompleteMultiHostReplicas(namespace, clusterName string) {
+	r.incompleteMultiHostReplicasMu.Lock()
+	defer r.incompleteMultiHostReplicasMu.Unlock()
+	for key := range r.incompleteMultiHostReplicas {
+		if key.namespace == namespace && key.cluster == clusterName {
+			delete(r.incompleteMultiHostReplicas, key)
+		}
+	}
+}
+
+func (r *RayClusterReconciler) clearGroupIncompleteMultiHostReplicas(namespace, clusterName, groupName string) {
+	r.incompleteMultiHostReplicasMu.Lock()
+	defer r.incompleteMultiHostReplicasMu.Unlock()
+	for key := range r.incompleteMultiHostReplicas {
+		if key.namespace == namespace && key.cluster == clusterName && key.group == groupName {
+			delete(r.incompleteMultiHostReplicas, key)
+		}
+	}
+}
+
+// validMultiHostPodsByHostIndex indexes pods by ray.io/replica-host-index and returns false if any Pod has a missing
+// replica name, a missing/negative/mismatched replica index, or a missing/out-of-range/duplicate host index.
+func validMultiHostPodsByHostIndex(pods []corev1.Pod, numOfHosts int) (map[int]corev1.Pod, bool) {
+	byHost := make(map[int]corev1.Pod, len(pods))
+	expectedReplicaIndex := ""
+	for i, pod := range pods {
+		if pod.Labels[utils.RayWorkerReplicaNameKey] == "" {
+			return nil, false
+		}
+		replicaIdxStr := pod.Labels[utils.RayWorkerReplicaIndexKey]
+		if replicaIdx, err := strconv.Atoi(replicaIdxStr); err != nil || replicaIdx < 0 {
+			return nil, false
+		}
+		if i == 0 {
+			expectedReplicaIndex = replicaIdxStr
+		} else if replicaIdxStr != expectedReplicaIndex {
+			return nil, false
+		}
+		hostStr, ok := pod.Labels[utils.RayHostIndexKey]
+		if !ok {
+			return nil, false
+		}
+		h, err := strconv.Atoi(hostStr)
+		if err != nil || h < 0 || h >= numOfHosts {
+			return nil, false
+		}
+		if _, dup := byHost[h]; dup {
+			return nil, false
+		}
+		byHost[h] = pod
+	}
+	return byHost, true
+}
+
+// getMultiHostReplicaIndex returns the non-negative ray.io/worker-group-replica-index of the first Pod that carries it, or -1.
+func getMultiHostReplicaIndex(pods []corev1.Pod) int {
+	for _, pod := range pods {
+		if indexStr, ok := pod.Labels[utils.RayWorkerReplicaIndexKey]; ok {
+			if index, err := strconv.Atoi(indexStr); err == nil && index >= 0 {
+				return index
+			}
+		}
+	}
+	return -1
+}
+
+// nonTerminatingPods returns the Pods of pods that are not terminating yet.
+func nonTerminatingPods(pods []corev1.Pod) []corev1.Pod {
+	var active []corev1.Pod
+	for _, pod := range pods {
+		if pod.DeletionTimestamp.IsZero() {
+			active = append(active, pod)
+		}
+	}
+	return active
+}
+
 // reconcileMultiHostWorkerGroup handles reconciliation and Pod deletion for worker groups with NumOfHosts > 1 when
 // the RayMultihostIndexing feature is enabled. This function is responsible for:
-// 1. Deleting incomplete or unhealthy multi-host groups atomically.
+// 1. Deleting incomplete or unhealthy multi-host groups atomically (while allowing in-progress groups to backfill missing host slots).
 // 2. Explicit deletes of entire multi-host groups for the autoscaler.
 // 3. Scale up/down of multi-host groups.
 func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context, instance *rayv1.RayCluster, worker *rayv1.WorkerGroupSpec, workerPods []corev1.Pod) error {
 	logger := ctrl.LoggerFrom(ctx)
 
-	// 1. Group existing pods by ray.io/worker-group-replica-index.
+	// 1. Group existing pods by ray.io/worker-group-replica-name.
 	replicaMap := make(map[string][]corev1.Pod)
 	for _, pod := range workerPods {
-		if replicaName, ok := pod.Labels[utils.RayWorkerReplicaNameKey]; ok {
-			replicaMap[replicaName] = append(replicaMap[replicaName], pod)
-		}
+		replicaName := pod.Labels[utils.RayWorkerReplicaNameKey]
+		replicaMap[replicaName] = append(replicaMap[replicaName], pod)
 	}
+	r.pruneIncompleteMultiHostReplicas(instance.Namespace, instance.Name, worker.GroupName, replicaMap, int(worker.NumOfHosts))
 
-	// 2. Clean up incomplete replica groups with deleted Pods caused by external deletion.
+	terminatingReplicaGroups := make(map[string]struct{})
+	deletedPods := make(map[string]struct{})
+
+	// 2. Clean up incomplete replica groups with deleted Pods caused by external deletion,
+	// while preserving in-progress replica groups whose initial creation loop failed partway through.
+	// Delete is only sent to Pods that are not terminating yet. A group whose remaining Pods are terminating keeps its
+	// replica slot and replicaIndex occupied until its last Pod is removed from etcd, when the owned-Pod Delete watch
+	// event triggers a reconcile to create the replacement group.
+	incompleteReplicasToBackfill := make(map[string]int)
+	numCleanedUpIncompletePods := 0
 	for replicaName, podList := range replicaMap {
-		if len(podList) < int(worker.NumOfHosts) {
+		byHost, validSlots := validMultiHostPodsByHostIndex(podList, int(worker.NumOfHosts))
+		if !validSlots || len(byHost) < int(worker.NumOfHosts) {
+			replicaIndex := getMultiHostReplicaIndex(podList)
+			if validSlots && replicaIndex >= 0 && r.canBackfillIncompleteMultiHostReplica(instance.Namespace, instance.Name, worker.GroupName, replicaName, byHost) {
+				incompleteReplicasToBackfill[replicaName] = replicaIndex
+				logger.Info("Found in-progress multi-host replica group, will backfill missing host slots.", "group", worker.GroupName, "replica", replicaName, "found", len(podList), "expected", worker.NumOfHosts)
+				continue
+			}
+			r.clearIncompleteMultiHostReplica(instance.Namespace, instance.Name, worker.GroupName, replicaName)
+			terminatingReplicaGroups[replicaName] = struct{}{}
+			for _, p := range podList {
+				deletedPods[p.Name] = struct{}{}
+			}
+			podsToDelete := nonTerminatingPods(podList)
+			if len(podsToDelete) == 0 {
+				continue
+			}
 			logger.Info("Found incomplete multi-host replica group, deleting all remaining pods to maintain atomicity.", "group", worker.GroupName, "replica", replicaName, "found", len(podList), "expected", worker.NumOfHosts)
-			if err := r.deletePods(ctx, instance, podList, worker.GroupName, "cleanup of incomplete multi-host group"); err != nil {
+			if err := r.deletePods(ctx, instance, podsToDelete, worker.GroupName, "cleanup of incomplete multi-host group"); err != nil {
 				return err
 			}
-			// Requeue to avoid creating new Pods on this reconciliation.
-			return fmt.Errorf("cleaned up incomplete replica group %s, requeueing", replicaName)
+			numCleanedUpIncompletePods += len(podsToDelete)
 		}
 	}
 
-	// 3. Delete unhealthy replica groups.
-	deletedPods := make(map[string]struct{})
+	// 3. Delete unhealthy replica groups (including any group with a terminating Pod). As in step 2, Delete is only
+	// sent to Pods that are not terminating yet, and the group keeps its replica slot occupied until all of its Pods
+	// are gone from etcd.
+	numDeletedPods := 0
 	for _, pod := range workerPods {
 		if _, alreadyDeleted := deletedPods[pod.Name]; alreadyDeleted {
 			continue
 		}
 		shouldDelete, reason := shouldDeletePod(pod, rayv1.WorkerNode)
+		if !shouldDelete && !pod.DeletionTimestamp.IsZero() {
+			shouldDelete = true
+			reason = fmt.Sprintf("Pod %s is terminating", pod.Name)
+		}
 		if shouldDelete {
 			replicaName := pod.Labels[utils.RayWorkerReplicaNameKey]
-			podsToDelete, ok := replicaMap[replicaName]
+			replicaPods, ok := replicaMap[replicaName]
 			if !ok {
 				continue
 			}
-			logger.Info("Deleting unhealthy replica group.", "group", worker.GroupName, "replica", replicaName, "reason", reason)
-			if err := r.deletePods(ctx, instance, podsToDelete, worker.GroupName, reason); err != nil {
-				return err
+			r.clearIncompleteMultiHostReplica(instance.Namespace, instance.Name, worker.GroupName, replicaName)
+			delete(incompleteReplicasToBackfill, replicaName)
+			terminatingReplicaGroups[replicaName] = struct{}{}
+			podsToDelete := nonTerminatingPods(replicaPods)
+			if len(podsToDelete) > 0 {
+				logger.Info("Deleting unhealthy replica group.", "group", worker.GroupName, "replica", replicaName, "reason", reason)
+				if err := r.deletePods(ctx, instance, podsToDelete, worker.GroupName, reason); err != nil {
+					return err
+				}
+				numDeletedPods += len(podsToDelete)
 			}
 			// All Pods in the group have been deleted.
-			for _, p := range podsToDelete {
+			for _, p := range replicaPods {
 				deletedPods[p.Name] = struct{}{}
 			}
 		}
 	}
+	if numCleanedUpIncompletePods+numDeletedPods > 0 {
+		return nil
+	}
 
-	// 4. Handle explicit deletions from the autoscaler.
+	// 4. Handle explicit deletions from the autoscaler. Pods that are terminating already are skipped like in steps 2
+	// and 3; step 3 has already recorded their groups in terminatingReplicaGroups.
 	if len(worker.ScaleStrategy.WorkersToDelete) > 0 {
 		podsToDeleteFromStrategy := make(map[string]corev1.Pod)
 		for _, podName := range worker.ScaleStrategy.WorkersToDelete {
 			for _, pod := range workerPods {
 				if pod.Name == podName {
 					replicaName := pod.Labels[utils.RayWorkerReplicaNameKey]
+					r.clearIncompleteMultiHostReplica(instance.Namespace, instance.Name, worker.GroupName, replicaName)
+					delete(incompleteReplicasToBackfill, replicaName)
+					terminatingReplicaGroups[replicaName] = struct{}{}
 					for _, p := range replicaMap[replicaName] {
 						podsToDeleteFromStrategy[p.Name] = p
 					}
@@ -1400,16 +1621,9 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 			}
 		}
 
-		if len(podsToDeleteFromStrategy) > 0 {
-			logger.Info("removing the pods in the scaleStrategy of", "group", worker.GroupName, "podsToDelete", len(podsToDeleteFromStrategy))
-			var podsToDel []corev1.Pod
-			for _, p := range podsToDeleteFromStrategy {
-				podsToDel = append(podsToDel, p)
-			}
-			if err := r.deletePods(ctx, instance, podsToDel, worker.GroupName, "autoscaler scale-down request"); err != nil {
-				return err
-			}
-			return fmt.Errorf("deleted %d worker Pods based on ScaleStrategy, requeueing", len(podsToDel))
+		if podsToDel := nonTerminatingPods(slices.Collect(maps.Values(podsToDeleteFromStrategy))); len(podsToDel) > 0 {
+			logger.Info("removing the pods in the scaleStrategy of", "group", worker.GroupName, "podsToDelete", len(podsToDel))
+			return r.deletePods(ctx, instance, podsToDel, worker.GroupName, "autoscaler scale-down request")
 		}
 	}
 
@@ -1417,6 +1631,12 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 
 	validReplicaGroups := make(map[string]struct{})
 	for replicaName, podList := range replicaMap {
+		if _, isIncomplete := incompleteReplicasToBackfill[replicaName]; isIncomplete {
+			continue
+		}
+		if _, isTerminating := terminatingReplicaGroups[replicaName]; isTerminating {
+			continue
+		}
 		isHealthyAndComplete := true
 		for _, pod := range podList {
 			if _, isDeleted := deletedPods[pod.Name]; isDeleted {
@@ -1428,7 +1648,6 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 			validReplicaGroups[replicaName] = struct{}{}
 		}
 	}
-	numRunningReplicas := len(validReplicaGroups)
 	numExpectedWorkerPods := int(utils.GetWorkerGroupDesiredReplicas(*worker))
 
 	// Ensure that if numExpectedWorkerPods is not a multiple of NumOfHosts, we log an error.
@@ -1437,22 +1656,84 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 			numExpectedWorkerPods, worker.NumOfHosts, worker.GroupName)
 	}
 	numExpectedReplicas := numExpectedWorkerPods / int(worker.NumOfHosts)
-	replicasToCreate := numExpectedReplicas - numRunningReplicas
 
-	// Track full replica groups to determine next replica index to assign to.
+	// Track full, terminating, and in-progress replica groups to determine next replica index to assign to.
 	validReplicaIndices := make(map[int]bool)
 	for replicaName := range validReplicaGroups {
-		if len(replicaMap[replicaName]) > 0 {
-			pod := replicaMap[replicaName][0]
-			if indexStr, ok := pod.Labels[utils.RayWorkerReplicaIndexKey]; ok {
-				if index, err := strconv.Atoi(indexStr); err == nil {
-					validReplicaIndices[index] = true
+		if idx := getMultiHostReplicaIndex(replicaMap[replicaName]); idx >= 0 {
+			validReplicaIndices[idx] = true
+		}
+	}
+	for replicaName := range terminatingReplicaGroups {
+		if idx := getMultiHostReplicaIndex(replicaMap[replicaName]); idx >= 0 {
+			validReplicaIndices[idx] = true
+		}
+	}
+	for _, idx := range incompleteReplicasToBackfill {
+		validReplicaIndices[idx] = true
+	}
+
+	var createErrs []error
+
+	// Backfill any in-progress replica groups needed to satisfy numExpectedReplicas.
+	if len(incompleteReplicasToBackfill) > 0 && len(validReplicaGroups)+len(terminatingReplicaGroups) < numExpectedReplicas {
+		if utils.IsTLSEnabled(&instance.Spec) {
+			if err := r.checkMTLSSecretsReady(ctx, instance); err != nil {
+				logger.Info("mTLS secrets not ready, requeuing before multi-host worker pod backfill", "error", err.Error())
+				return fmt.Errorf("mTLS secrets not ready: %w", err)
+			}
+		}
+		incompleteNames := slices.Collect(maps.Keys(incompleteReplicasToBackfill))
+		slices.SortFunc(incompleteNames, func(a, b string) int {
+			if idxCmp := cmp.Compare(incompleteReplicasToBackfill[a], incompleteReplicasToBackfill[b]); idxCmp != 0 {
+				return idxCmp
+			}
+			return cmp.Compare(a, b)
+		})
+		for _, replicaName := range incompleteNames {
+			if len(validReplicaGroups)+len(terminatingReplicaGroups) >= numExpectedReplicas {
+				break
+			}
+			replicaIndex := incompleteReplicasToBackfill[replicaName]
+			existingHosts, _ := validMultiHostPodsByHostIndex(replicaMap[replicaName], int(worker.NumOfHosts))
+			logger.Info("Backfilling in-progress multi-host replica group", "group", worker.GroupName, "replicaName", replicaName, "replicaIndex", replicaIndex, "existingHosts", len(existingHosts), "numOfHosts", worker.NumOfHosts)
+			backfillFailed := false
+			for j := range int(worker.NumOfHosts) {
+				if _, exists := existingHosts[j]; exists {
+					continue
 				}
+				if err := r.createWorkerPodWithIndex(ctx, *instance, *worker.DeepCopy(), replicaName, replicaIndex, j); err != nil {
+					createErrs = append(createErrs, errstd.Join(utils.ErrFailedCreateWorkerPod, err))
+					backfillFailed = true
+					break
+				}
+			}
+			delete(incompleteReplicasToBackfill, replicaName)
+			validReplicaGroups[replicaName] = struct{}{}
+			if !backfillFailed {
+				r.clearIncompleteMultiHostReplica(instance.Namespace, instance.Name, worker.GroupName, replicaName)
 			}
 		}
 	}
-	logger.Info("Reconciling multi-host group", "group", worker.GroupName, "expectedReplicas", numExpectedReplicas, "runningReplicas", numRunningReplicas, "replicasToCreate", replicasToCreate, "inUseIndices", validReplicaIndices)
-	if replicasToCreate > 0 {
+	// In-progress replica groups that are not needed anymore were never complete and the autoscaler never asked for
+	// them, so they are deleted regardless of how scale-down is decided for complete groups.
+	for _, replicaName := range slices.Sorted(maps.Keys(incompleteReplicasToBackfill)) {
+		logger.Info("Deleting surplus in-progress multi-host replica group", "group", worker.GroupName, "replicaName", replicaName)
+		r.clearIncompleteMultiHostReplica(instance.Namespace, instance.Name, worker.GroupName, replicaName)
+		terminatingReplicaGroups[replicaName] = struct{}{}
+		if podsToDelete := nonTerminatingPods(replicaMap[replicaName]); len(podsToDelete) > 0 {
+			if err := r.deletePods(ctx, instance, podsToDelete, worker.GroupName, "cleanup of surplus in-progress multi-host group"); err != nil {
+				return err
+			}
+		}
+	}
+
+	numRunningReplicas := len(validReplicaGroups)
+	numOccupiedReplicas := numRunningReplicas + len(terminatingReplicaGroups)
+	replicasToCreate := numExpectedReplicas - numOccupiedReplicas
+
+	logger.Info("Reconciling multi-host group", "group", worker.GroupName, "expectedReplicas", numExpectedReplicas, "runningReplicas", numRunningReplicas, "terminatingReplicas", len(terminatingReplicaGroups), "replicasToCreate", replicasToCreate, "inUseIndices", validReplicaIndices)
+	if len(createErrs) == 0 && replicasToCreate > 0 {
 		logger.Info("Scaling up multi-host group", "group", worker.GroupName, "replicasToCreate", replicasToCreate)
 		if utils.IsTLSEnabled(&instance.Spec) {
 			if err := r.checkMTLSSecretsReady(ctx, instance); err != nil {
@@ -1467,14 +1748,26 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 			}
 			validReplicaIndices[newReplicaIndex] = true
 			replicaName := utils.GenerateRayWorkerReplicaGroupName(worker.GroupName)
+			r.markIncompleteMultiHostReplica(instance.Namespace, instance.Name, worker.GroupName, replicaName)
 			logger.Info("Creating new replica group", "group", worker.GroupName, "replicaName", replicaName, "replicaIndex", newReplicaIndex)
-			for j := 0; j < int(worker.NumOfHosts); j++ {
+			createFailed := false
+			createdAnyPod := false
+			for j := range int(worker.NumOfHosts) {
 				if err := r.createWorkerPodWithIndex(ctx, *instance, *worker.DeepCopy(), replicaName, newReplicaIndex, j); err != nil {
-					return errstd.Join(utils.ErrFailedCreateWorkerPod, err)
+					createErrs = append(createErrs, errstd.Join(utils.ErrFailedCreateWorkerPod, err))
+					createFailed = true
+					break
 				}
+				createdAnyPod = true
+			}
+			if !createFailed || !createdAnyPod {
+				r.clearIncompleteMultiHostReplica(instance.Namespace, instance.Name, worker.GroupName, replicaName)
+			}
+			if createFailed && !createdAnyPod {
+				break
 			}
 		}
-	} else if replicasToCreate < 0 {
+	} else if len(createErrs) == 0 && numRunningReplicas > numExpectedReplicas {
 		// Scale down NumOfHost workers per replica.
 		enableInTreeAutoscaling := utils.IsAutoscalingEnabled(&instance.Spec)
 		enableRandomPodDelete := false
@@ -1484,11 +1777,19 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 			}
 		}
 		if !enableInTreeAutoscaling || enableRandomPodDelete {
-			replicasToRemove := -replicasToCreate
-			logger.Info("Scaling down multi-host group by randomly deleting replica groups", "group", worker.GroupName, "groupsToRemove", replicasToRemove)
+			replicasToRemove := numRunningReplicas - numExpectedReplicas
+			logger.Info("Scaling down multi-host group by deleting highest-indexed replica groups", "group", worker.GroupName, "groupsToRemove", replicasToRemove)
+			sortedReplicaIDs := slices.Collect(maps.Keys(validReplicaGroups))
+			slices.SortFunc(sortedReplicaIDs, func(a, b string) int {
+				idxA := getMultiHostReplicaIndex(replicaMap[a])
+				idxB := getMultiHostReplicaIndex(replicaMap[b])
+				if idxA != idxB {
+					return cmp.Compare(idxB, idxA)
+				}
+				return cmp.Compare(b, a)
+			})
 			replicasDeleted := 0
-			// Iterate over validReplicaGroups which contains the IDs of replica groups with NumOfHosts running Pods.
-			for replicaID := range validReplicaGroups {
+			for _, replicaID := range sortedReplicaIDs {
 				if replicasDeleted >= replicasToRemove {
 					break
 				}
@@ -1501,6 +1802,10 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 		} else {
 			logger.Info("Random replica group deletion is disabled for the cluster. The only decision-maker for Pod deletions is the Ray Autoscaler.")
 		}
+	}
+
+	if len(createErrs) > 0 {
+		return errstd.Join(createErrs...)
 	}
 
 	return nil
@@ -1755,13 +2060,44 @@ func (r *RayClusterReconciler) createWorkerPodWithIndex(ctx context.Context, ins
 
 	replica := pod
 	if err := r.Create(ctx, &replica); err != nil {
+		if errors.IsAlreadyExists(err) && replica.GenerateName == "" {
+			// Multi-host Pods have deterministic names, so a retried Create can find the Pod of a previous attempt.
+			// The Pod is only ours if it is not terminating and fills the same host slot of the same replica group.
+			if existing, ok := r.ownedMultiHostWorkerPod(ctx, &instance, &replica); ok {
+				logger.Info("Worker Pod already exists, no need to create", "pod", replica.Name)
+				r.recordIncompleteMultiHostPod(instance.Namespace, instance.Name, worker.GroupName, replicaGrpName, hostIndex, existing.UID)
+				return nil
+			}
+			err = fmt.Errorf("worker Pod %s exists but is terminating, not yet in cache, or belongs to another replica group: %w", replica.Name, err)
+		}
 		r.Recorder.Eventf(&instance, nil, corev1.EventTypeWarning, string(utils.FailedToCreateWorkerPod), string(utils.CreateAction), "Failed to create worker Pod for the cluster %s/%s, %v", instance.Namespace, instance.Name, err)
 		return err
 	}
+	r.recordIncompleteMultiHostPod(instance.Namespace, instance.Name, worker.GroupName, replicaGrpName, hostIndex, replica.UID)
 	r.rayClusterScaleExpectation.ExpectScalePod(replica.Namespace, instance.Name, worker.GroupName, replica.Name, expectations.Create)
 	logger.Info("Created worker Pod for RayCluster", "name", replica.Name)
 	r.Recorder.Eventf(&instance, nil, corev1.EventTypeNormal, string(utils.CreatedWorkerPod), string(utils.CreateAction), "Created worker Pod %s/%s", replica.Namespace, replica.Name)
 	return nil
+}
+
+// ownedMultiHostWorkerPod returns the existing Pod named like pod if it is a live, healthy member of the same cluster,
+// worker group, replica group, replica index, and host slot. The cached read may lag right after a Create timed out;
+// the caller then requeues.
+func (r *RayClusterReconciler) ownedMultiHostWorkerPod(ctx context.Context, instance *rayv1.RayCluster, pod *corev1.Pod) (*corev1.Pod, bool) {
+	existing := &corev1.Pod{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), existing); err != nil {
+		return nil, false
+	}
+	shouldDelete, _ := shouldDeletePod(*existing, rayv1.WorkerNode)
+	owned := existing.DeletionTimestamp.IsZero() &&
+		!shouldDelete &&
+		metav1.IsControlledBy(existing, instance) &&
+		existing.Labels[utils.RayClusterLabelKey] == pod.Labels[utils.RayClusterLabelKey] &&
+		existing.Labels[utils.RayNodeGroupLabelKey] == pod.Labels[utils.RayNodeGroupLabelKey] &&
+		existing.Labels[utils.RayWorkerReplicaNameKey] == pod.Labels[utils.RayWorkerReplicaNameKey] &&
+		existing.Labels[utils.RayWorkerReplicaIndexKey] == pod.Labels[utils.RayWorkerReplicaIndexKey] &&
+		existing.Labels[utils.RayHostIndexKey] == pod.Labels[utils.RayHostIndexKey]
+	return existing, owned
 }
 
 // Build head instance pod(s).
