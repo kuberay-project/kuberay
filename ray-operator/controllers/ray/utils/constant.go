@@ -32,6 +32,13 @@ const (
 	RayJobSubmissionModeLabelKey             = "ray.io/job-submission-mode"
 	// DisableProvisionedHeadRestartAnnotationKey marks RayClusters created for sidecar-mode RayJobs to skip head Pod recreation after provisioning.
 	DisableProvisionedHeadRestartAnnotationKey = "ray.io/disable-provisioned-head-restart"
+	// HeadFailurePolicyAnnotationKey is set by the RayJob controller on the RayCluster it creates
+	// to control whether a failed head pod should be recreated or left in place for debugging.
+	// When set to "Fail", the RayCluster controller skips head pod recreation and sets the
+	// HeadPodFailed condition, allowing the RayJob to fast-fail.
+	// Values: "Recreate" (default) or "Fail". This is an internal annotation, not user-facing.
+	HeadFailurePolicyAnnotationKey = "ray.io/head-failure-policy"
+
 	// Finalizer for Idle Termination cleanup
 	IdleTerminationCleanupFinalizer = "ray.io/idle-termination-cleanup-finalizer"
 	// Labels for feature RayMultihostIndexing

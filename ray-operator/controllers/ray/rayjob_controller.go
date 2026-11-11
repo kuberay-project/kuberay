@@ -13,6 +13,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -211,6 +212,10 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
 		}
 
+		if shouldUpdate := checkHeadPodFailedAndUpdateStatusIfNeeded(ctx, rayJobInstance, rayClusterInstance); shouldUpdate {
+			break
+		}
+
 		// Check the current status of RayCluster before submitting.
 		if clientURL := rayJobInstance.Status.DashboardURL; clientURL == "" {
 			if rayClusterInstance.Status.State != rayv1.Ready {
@@ -246,6 +251,14 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			break
 		}
 
+		var rayClusterInstance *rayv1.RayCluster
+		if rayClusterInstance, err = r.getOrCreateRayClusterInstance(ctx, rayJobInstance); err != nil {
+			return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
+		}
+		if shouldUpdate := checkHeadPodFailedAndUpdateStatusIfNeeded(ctx, rayJobInstance, rayClusterInstance); shouldUpdate {
+			break
+		}
+
 		// Try to get the Ray job id from rayJob.Spec.JobId
 		if rayJobInstance.Spec.JobId == "" {
 			return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, nil
@@ -275,6 +288,10 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 		// before transitioning the status from `Initializing` to `Running`.
 		if rayClusterInstance, err = r.getOrCreateRayClusterInstance(ctx, rayJobInstance); err != nil {
 			return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
+		}
+
+		if shouldUpdate := checkHeadPodFailedAndUpdateStatusIfNeeded(ctx, rayJobInstance, rayClusterInstance); shouldUpdate {
+			break
 		}
 
 		err = r.reconcileServices(ctx, rayJobInstance, rayClusterInstance)
@@ -1013,6 +1030,9 @@ func (r *RayJobReconciler) constructRayClusterForRayJob(rayJobInstance *rayv1.Ra
 	if rayJobInstance.Spec.SubmissionMode == rayv1.SidecarMode {
 		annotations[utils.DisableProvisionedHeadRestartAnnotationKey] = "true"
 	}
+	if rayJobInstance.Spec.HeadFailurePolicy != nil {
+		annotations[utils.HeadFailurePolicyAnnotationKey] = string(*rayJobInstance.Spec.HeadFailurePolicy)
+	}
 
 	rayCluster := &rayv1.RayCluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1041,6 +1061,12 @@ func (r *RayJobReconciler) constructRayClusterForRayJob(rayJobInstance *rayv1.Ra
 		// This mainly handles WebSocket connection failures caused by transient network issues.
 		// In SidecarMode, the pod-level RestartPolicy is set to Never.
 		// The submitter container may override this with per-container restart rules when the SidecarSubmitterRestart feature gate is enabled.
+		rayCluster.Spec.HeadGroupSpec.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
+	} else if rayJobInstance.Spec.HeadFailurePolicy != nil &&
+		*rayJobInstance.Spec.HeadFailurePolicy == rayv1.HeadFailurePolicyFail &&
+		rayCluster.Spec.HeadGroupSpec.Template.Spec.RestartPolicy == "" {
+		// Fail needs Never so a crashed head stays failed and RayJob can fast-fail.
+		// Set Never here before Kubernetes defaults an empty restartPolicy to Always.
 		rayCluster.Spec.HeadGroupSpec.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
 	}
 
@@ -1264,6 +1290,23 @@ func checkPreRunningDeadlineAndUpdateStatusIfNeeded(ctx context.Context, rayJob 
 	rayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusFailed
 	rayJob.Status.Reason = rayv1.PreRunningDeadlineExceeded
 	rayJob.Status.Message = fmt.Sprintf("The RayJob has passed the preRunningDeadlineSeconds. StartTime: %v. PreRunningDeadlineSeconds: %d", rayJob.Status.StartTime, *rayJob.Spec.PreRunningDeadlineSeconds)
+	return true
+}
+
+// checkHeadPodFailedAndUpdateStatusIfNeeded transitions the RayJob to Failed when the associated
+// RayCluster reports HeadPodFailed=True (set when headFailurePolicy is Fail).
+func checkHeadPodFailedAndUpdateStatusIfNeeded(ctx context.Context, rayJob *rayv1.RayJob, rayCluster *rayv1.RayCluster) bool {
+	logger := ctrl.LoggerFrom(ctx)
+	if rayCluster == nil || !meta.IsStatusConditionTrue(rayCluster.Status.Conditions, string(rayv1.HeadPodFailed)) {
+		return false
+	}
+
+	logger.Info("RayCluster HeadPodFailed condition is True. Transition the RayJob status to Failed.",
+		"RayCluster", rayCluster.Name)
+	rayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusFailed
+	rayJob.Status.Reason = rayv1.HeadPodFailedReason
+	rayJob.Status.Message = fmt.Sprintf("RayCluster %s/%s head Pod failed", rayCluster.Namespace, rayCluster.Name)
+	rayJob.Status.RayClusterStatus = rayCluster.Status
 	return true
 }
 

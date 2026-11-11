@@ -79,6 +79,14 @@ type RayJobSpecApplyConfiguration struct {
 	// If the RayCluster is already created, it will be deleted.
 	// In case of transition to false a new RayCluster will be created.
 	Suspend *bool `json:"suspend,omitempty"`
+	// HeadFailurePolicy controls the behavior when the head pod fails.
+	// - If set to Recreate, the head pod will be recreated (existing behavior).
+	// - If set to Fail, the RayJob fails when the head pod fails, without recreating it.
+	// Fail requires the head Pod restartPolicy to be Never. If restartPolicy is unset,
+	// the controller sets it to Never when creating the RayCluster. Explicit Always or
+	// OnFailure is rejected. SidecarMode already forces Never for the same reason.
+	// Defaults to Recreate if not set.
+	HeadFailurePolicy *rayv1.HeadFailurePolicy `json:"headFailurePolicy,omitempty"`
 }
 
 // RayJobSpecApplyConfiguration constructs a declarative configuration of the RayJobSpec type for use with
@@ -256,5 +264,13 @@ func (b *RayJobSpecApplyConfiguration) WithShutdownAfterJobFinishes(value bool) 
 // If called multiple times, the Suspend field is set to the value of the last call.
 func (b *RayJobSpecApplyConfiguration) WithSuspend(value bool) *RayJobSpecApplyConfiguration {
 	b.Suspend = &value
+	return b
+}
+
+// WithHeadFailurePolicy sets the HeadFailurePolicy field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the HeadFailurePolicy field is set to the value of the last call.
+func (b *RayJobSpecApplyConfiguration) WithHeadFailurePolicy(value rayv1.HeadFailurePolicy) *RayJobSpecApplyConfiguration {
+	b.HeadFailurePolicy = &value
 	return b
 }

@@ -373,6 +373,23 @@ _Appears in:_
 | `activePassiveHeadOptions` _[ActivePassiveHeadOptions](#activepassiveheadoptions)_ | ActivePassiveHeadOptions configures active-passive high availability for the GCS.<br />It is only supported with the "redis" backend, not with "rocksdb". |  |  |
 
 
+#### HeadFailurePolicy
+
+_Underlying type:_ _string_
+
+HeadFailurePolicy controls the behavior when the head pod fails.
+
+
+
+_Appears in:_
+- [RayJobSpec](#rayjobspec)
+
+| Field | Description |
+| --- | --- |
+| `Recreate` | HeadFailurePolicyRecreate recreates the head pod when it fails (existing behavior).<br /> |
+| `Fail` | HeadFailurePolicyFail marks the RayJob as failed when the head pod fails, without recreating it.<br /> |
+
+
 #### HeadGroupSpec
 
 
@@ -790,6 +807,7 @@ _Appears in:_
 | `preRunningDeadlineSeconds` _integer_ | PreRunningDeadlineSeconds is the deadline in seconds for a RayJob to reach the Running state<br />from when it is first initialized (StartTime). If the RayJob does not transition to<br />Running within this time, it will be marked as Failed.<br />This is useful for cleaning up jobs stuck in Initializing or Waiting states.<br />If not set, there is no deadline. Value must be a positive integer. |  | Minimum: 1 <br /> |
 | `shutdownAfterJobFinishes` _boolean_ | ShutdownAfterJobFinishes will determine whether to delete the ray cluster once rayJob succeed or failed. |  |  |
 | `suspend` _boolean_ | suspend specifies whether the RayJob controller should create a RayCluster instance<br />If a job is applied with the suspend field set to true,<br />the RayCluster will not be created and will wait for the transition to false.<br />If the RayCluster is already created, it will be deleted.<br />In case of transition to false a new RayCluster will be created. |  |  |
+| `headFailurePolicy` _[HeadFailurePolicy](#headfailurepolicy)_ | HeadFailurePolicy controls the behavior when the head pod fails.<br />- If set to Recreate, the head pod will be recreated (existing behavior).<br />- If set to Fail, the RayJob fails when the head pod fails, without recreating it.<br />  Fail requires the head Pod restartPolicy to be Never. If restartPolicy is unset,<br />  the controller sets it to Never when creating the RayCluster. Explicit Always or<br />  OnFailure is rejected. SidecarMode already forces Never for the same reason.<br />Defaults to Recreate if not set. |  | Enum: [Recreate Fail] <br /> |
 
 
 

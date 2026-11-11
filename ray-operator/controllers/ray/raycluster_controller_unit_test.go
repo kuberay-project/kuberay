@@ -5015,6 +5015,260 @@ func TestReconcile_TLSAutoGenerate_RejectsWithoutCertManager(t *testing.T) {
 	assert.True(t, foundEvent, "expected a warning event about cert-manager")
 }
 
+func TestReconcilePods_HeadFailurePolicyFail_SkipsHeadDeletion(t *testing.T) {
+	setupTest(t)
+	features.SetFeatureGateDuringTest(t, features.RayClusterStatusConditions, true)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+
+	runtimeObjects := testPods[0:1]
+	cluster := testRayCluster.DeepCopy()
+	cluster.Spec.WorkerGroupSpecs = nil
+	cluster.Spec.HeadGroupSpec.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
+	if cluster.Annotations == nil {
+		cluster.Annotations = map[string]string{}
+	}
+	cluster.Annotations[utils.HeadFailurePolicyAnnotationKey] = string(rayv1.HeadFailurePolicyFail)
+
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(newScheme).
+		WithRuntimeObjects(runtimeObjects...).
+		WithStatusSubresource(cluster).
+		Build()
+	ctx := context.Background()
+
+	podList := corev1.PodList{}
+	err := fakeClient.List(ctx, &podList, client.InNamespace(namespaceStr))
+	require.NoError(t, err)
+	assert.Len(t, podList.Items, 1)
+
+	podList.Items[0].Spec.RestartPolicy = corev1.RestartPolicyNever
+	err = fakeClient.Update(ctx, &podList.Items[0])
+	require.NoError(t, err)
+
+	podList.Items[0].Status.Phase = corev1.PodFailed
+	err = fakeClient.Status().Update(ctx, &podList.Items[0])
+	require.NoError(t, err)
+
+	testRayClusterReconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   events.NewFakeRecorder(10),
+		Scheme:                     newScheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}
+
+	err = testRayClusterReconciler.reconcilePods(ctx, cluster)
+	require.NoError(t, err)
+
+	err = fakeClient.List(ctx, &podList, client.InNamespace(namespaceStr))
+	require.NoError(t, err)
+	assert.Len(t, podList.Items, 1, "head Pod should be retained when head-failure-policy is Fail")
+	assert.Equal(t, "headNode", podList.Items[0].Name)
+}
+
+func TestCalculateStatus_HeadPodFailedCondition(t *testing.T) {
+	setupTest(t)
+	features.SetFeatureGateDuringTest(t, features.RayClusterStatusConditions, true)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+
+	headService, err := common.BuildServiceForHeadPod(context.Background(), *testRayCluster, nil, nil)
+	require.NoError(t, err)
+	headService.Spec.ClusterIP = "1.2.3.4"
+
+	makeHeadPod := func(phase corev1.PodPhase, terminated bool, deleting bool) *corev1.Pod {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "headNode",
+				Namespace: namespaceStr,
+				Labels: map[string]string{
+					utils.RayClusterLabelKey:  instanceName,
+					utils.RayNodeTypeLabelKey: string(rayv1.HeadNode),
+				},
+			},
+			Spec: corev1.PodSpec{
+				RestartPolicy: corev1.RestartPolicyNever,
+				Containers: []corev1.Container{
+					{Name: "ray-head"},
+				},
+			},
+			Status: corev1.PodStatus{
+				Phase: phase,
+				PodIP: headNodeIP,
+			},
+		}
+		if terminated {
+			pod.Status.ContainerStatuses = []corev1.ContainerStatus{
+				{
+					Name: "ray-head",
+					State: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{ExitCode: 1},
+					},
+				},
+			}
+		}
+		if deleting {
+			now := metav1.Now()
+			pod.DeletionTimestamp = &now
+			pod.Finalizers = []string{"test.finalizer"}
+		}
+		return pod
+	}
+
+	tests := []struct {
+		name            string
+		annotation      string
+		headPod         *corev1.Pod
+		expectCondition bool
+		expectStatus    metav1.ConditionStatus
+	}{
+		{
+			name:            "Fail policy with Failed phase sets True",
+			annotation:      string(rayv1.HeadFailurePolicyFail),
+			headPod:         makeHeadPod(corev1.PodFailed, false, false),
+			expectCondition: true,
+			expectStatus:    metav1.ConditionTrue,
+		},
+		{
+			name:            "Fail policy with Succeeded phase sets True",
+			annotation:      string(rayv1.HeadFailurePolicyFail),
+			headPod:         makeHeadPod(corev1.PodSucceeded, false, false),
+			expectCondition: true,
+			expectStatus:    metav1.ConditionTrue,
+		},
+		{
+			name:            "Fail policy with terminated ray container sets True",
+			annotation:      string(rayv1.HeadFailurePolicyFail),
+			headPod:         makeHeadPod(corev1.PodRunning, true, false),
+			expectCondition: true,
+			expectStatus:    metav1.ConditionTrue,
+		},
+		{
+			name:            "Fail policy with DeletionTimestamp sets False",
+			annotation:      string(rayv1.HeadFailurePolicyFail),
+			headPod:         makeHeadPod(corev1.PodFailed, false, true),
+			expectCondition: true,
+			expectStatus:    metav1.ConditionFalse,
+		},
+		{
+			name:            "Recreate policy removes HeadPodFailed condition",
+			annotation:      string(rayv1.HeadFailurePolicyRecreate),
+			headPod:         makeHeadPod(corev1.PodFailed, false, false),
+			expectCondition: false,
+		},
+		{
+			name:            "Fail policy with healthy head sets False",
+			annotation:      string(rayv1.HeadFailurePolicyFail),
+			headPod:         makeHeadPod(corev1.PodRunning, false, false),
+			expectCondition: true,
+			expectStatus:    metav1.ConditionFalse,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := testRayCluster.DeepCopy()
+			cluster.Spec.WorkerGroupSpecs = nil
+			cluster.Spec.HeadGroupSpec.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
+			cluster.Annotations = map[string]string{
+				utils.HeadFailurePolicyAnnotationKey: tt.annotation,
+			}
+
+			runtimeObjects := []runtime.Object{tt.headPod, headService}
+			fakeClient := clientFake.NewClientBuilder().
+				WithScheme(newScheme).
+				WithRuntimeObjects(runtimeObjects...).
+				Build()
+
+			r := &RayClusterReconciler{
+				Client:   fakeClient,
+				Recorder: events.NewFakeRecorder(10),
+				Scheme:   newScheme,
+			}
+
+			newInstance, err := r.calculateStatus(context.Background(), cluster, nil)
+			require.NoError(t, err)
+
+			cond := meta.FindStatusCondition(newInstance.Status.Conditions, string(rayv1.HeadPodFailed))
+			if !tt.expectCondition {
+				assert.Nil(t, cond)
+				return
+			}
+			require.NotNil(t, cond)
+			assert.Equal(t, tt.expectStatus, cond.Status)
+		})
+	}
+}
+
+func TestResolveHeadFailurePolicy(t *testing.T) {
+	setupTest(t)
+
+	r := &RayClusterReconciler{
+		Recorder: events.NewFakeRecorder(10),
+	}
+	ctx := context.Background()
+
+	tests := []struct {
+		name                        string
+		annotation                  string
+		restartPolicy               corev1.RestartPolicy
+		disableStatusConditionsGate bool
+		expected                    rayv1.HeadFailurePolicy
+	}{
+		{
+			name:     "missing annotation defaults to Recreate",
+			expected: rayv1.HeadFailurePolicyRecreate,
+		},
+		{
+			name:          "Fail with Never restartPolicy",
+			annotation:    string(rayv1.HeadFailurePolicyFail),
+			restartPolicy: corev1.RestartPolicyNever,
+			expected:      rayv1.HeadFailurePolicyFail,
+		},
+		{
+			name:       "Fail with unset restartPolicy falls back to Recreate",
+			annotation: string(rayv1.HeadFailurePolicyFail),
+			expected:   rayv1.HeadFailurePolicyRecreate,
+		},
+		{
+			name:          "Fail with Always restartPolicy falls back to Recreate",
+			annotation:    string(rayv1.HeadFailurePolicyFail),
+			restartPolicy: corev1.RestartPolicyAlways,
+			expected:      rayv1.HeadFailurePolicyRecreate,
+		},
+		{
+			name:       "unrecognized value falls back to Recreate",
+			annotation: "Unknown",
+			expected:   rayv1.HeadFailurePolicyRecreate,
+		},
+		{
+			name:                        "Fail ignored when status conditions gate disabled",
+			annotation:                  string(rayv1.HeadFailurePolicyFail),
+			restartPolicy:               corev1.RestartPolicyNever,
+			disableStatusConditionsGate: true,
+			expected:                    rayv1.HeadFailurePolicyRecreate,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.RayClusterStatusConditions, !tc.disableStatusConditionsGate)
+
+			cluster := testRayCluster.DeepCopy()
+			if tc.annotation != "" {
+				cluster.Annotations = map[string]string{utils.HeadFailurePolicyAnnotationKey: tc.annotation}
+			}
+			cluster.Spec.HeadGroupSpec.Template.Spec.RestartPolicy = tc.restartPolicy
+
+			assert.Equal(t, tc.expected, r.resolveHeadFailurePolicy(ctx, cluster))
+		})
+	}
+}
+
 // TestReconcilePodsCleansUpBatchSchedulerOnSuspend is a regression test for
 // https://github.com/ray-project/kuberay/issues/5183: every suspend early-return in reconcilePods
 // must release the batch scheduler reservation.

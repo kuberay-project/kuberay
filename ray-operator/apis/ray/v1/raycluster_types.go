@@ -783,6 +783,9 @@ const (
 	RayClusterSuspending RayClusterConditionType = "RayClusterSuspending"
 	// RayClusterSuspended is set to true when all Pods belonging to a suspending RayCluster are deleted. Note that RayClusterSuspending and RayClusterSuspended cannot both be true at the same time.
 	RayClusterSuspended RayClusterConditionType = "RayClusterSuspended"
+	// HeadPodFailed indicates whether RayCluster's head Pod has failed.
+	// It is only set when ray.io/head-failure-policy is Fail. RayJob uses it to fast-fail.
+	HeadPodFailed RayClusterConditionType = "HeadPodFailed"
 )
 
 // HeadInfo gives info about head
