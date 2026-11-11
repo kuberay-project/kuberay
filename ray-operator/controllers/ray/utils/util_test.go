@@ -2623,6 +2623,25 @@ func TestFormatMultiHostWorkerPodName(t *testing.T) {
 			}
 		})
 	}
+
+	// Non-standard replica group names, large host indices, and dash-only inputs must still produce valid <= 63-char DNS-1123 labels.
+	edgeCases := []struct {
+		clusterName    string
+		groupName      string
+		replicaGrpName string
+		hostIndex      int
+	}{
+		{clusterName: strings.Repeat("a", 40), groupName: strings.Repeat("b", 20), replicaGrpName: "custom-long-replica-group-x9k2m", hostIndex: 7},
+		{clusterName: strings.Repeat("a", 40), groupName: strings.Repeat("b", 20), replicaGrpName: "custom-x9k2m", hostIndex: 12345},
+		{clusterName: "---", groupName: "---", replicaGrpName: "---", hostIndex: 0},
+		{clusterName: "---", groupName: "---", replicaGrpName: strings.Repeat("x", 60), hostIndex: 99},
+	}
+	for _, tc := range edgeCases {
+		got := FormatMultiHostWorkerPodName(tc.clusterName, tc.groupName, tc.replicaGrpName, tc.hostIndex)
+		assert.LessOrEqual(t, len(got), 63, got)
+		assert.Regexp(t, dns1123Label, got)
+		assert.NotContains(t, got, "--")
+	}
 }
 
 func TestResolveNodeLabels(t *testing.T) {

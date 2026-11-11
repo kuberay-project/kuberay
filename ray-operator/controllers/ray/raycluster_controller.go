@@ -1145,6 +1145,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 	}
 
 	// Reconcile worker pods now
+	r.pruneClusterIncompleteMultiHostGroups(instance)
 	for _, worker := range instance.Spec.WorkerGroupSpecs {
 		if !r.rayClusterScaleExpectation.IsSatisfied(ctx, instance.Namespace, instance.Name, worker.GroupName) {
 			logger.Info("reconcilePods", "worker group", worker.GroupName, "Expectation", "NotSatisfiedGroupExpectations, reconcile the group later")
@@ -1166,7 +1167,6 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 					"Failed deleting worker Pods for suspended group %s in RayCluster %s/%s, %v", worker.GroupName, instance.Namespace, instance.Name, err)
 				return errstd.Join(utils.ErrFailedDeleteWorkerPod, err)
 			}
-			r.clearGroupIncompleteMultiHostReplicas(instance.Namespace, instance.Name, worker.GroupName)
 			r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedWorkerPod), string(utils.DeleteAction),
 				"Deleted all pods for suspended worker group %s in RayCluster %s/%s", worker.GroupName, instance.Namespace, instance.Name)
 			continue
@@ -1446,12 +1446,22 @@ func (r *RayClusterReconciler) clearClusterIncompleteMultiHostReplicas(namespace
 	}
 }
 
-func (r *RayClusterReconciler) clearGroupIncompleteMultiHostReplicas(namespace, clusterName, groupName string) {
+func (r *RayClusterReconciler) pruneClusterIncompleteMultiHostGroups(instance *rayv1.RayCluster) {
+	activeGroups := make(map[string]struct{}, len(instance.Spec.WorkerGroupSpecs))
+	if features.Enabled(features.RayMultiHostIndexing) {
+		for _, worker := range instance.Spec.WorkerGroupSpecs {
+			if worker.NumOfHosts > 1 && (worker.Suspend == nil || !*worker.Suspend) {
+				activeGroups[worker.GroupName] = struct{}{}
+			}
+		}
+	}
 	r.incompleteMultiHostReplicasMu.Lock()
 	defer r.incompleteMultiHostReplicasMu.Unlock()
 	for key := range r.incompleteMultiHostReplicas {
-		if key.namespace == namespace && key.cluster == clusterName && key.group == groupName {
-			delete(r.incompleteMultiHostReplicas, key)
+		if key.namespace == instance.Namespace && key.cluster == instance.Name {
+			if _, active := activeGroups[key.group]; !active {
+				delete(r.incompleteMultiHostReplicas, key)
+			}
 		}
 	}
 }
@@ -1677,6 +1687,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 	}
 
 	var createErrs []error
+	numInProgressReplicas := 0
 
 	// Backfill any in-progress replica groups needed to satisfy numExpectedReplicas.
 	if len(incompleteReplicasToBackfill) > 0 && len(validReplicaGroups)+len(terminatingReplicaGroups) < numExpectedReplicas {
@@ -1694,7 +1705,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 			return cmp.Compare(a, b)
 		})
 		for _, replicaName := range incompleteNames {
-			if len(validReplicaGroups)+len(terminatingReplicaGroups) >= numExpectedReplicas {
+			if len(validReplicaGroups)+len(terminatingReplicaGroups)+numInProgressReplicas >= numExpectedReplicas {
 				break
 			}
 			replicaIndex := incompleteReplicasToBackfill[replicaName]
@@ -1712,8 +1723,10 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 				}
 			}
 			delete(incompleteReplicasToBackfill, replicaName)
-			validReplicaGroups[replicaName] = struct{}{}
-			if !backfillFailed {
+			if backfillFailed {
+				numInProgressReplicas++
+			} else {
+				validReplicaGroups[replicaName] = struct{}{}
 				r.clearIncompleteMultiHostReplica(instance.Namespace, instance.Name, worker.GroupName, replicaName)
 			}
 		}
@@ -1732,7 +1745,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 	}
 
 	numRunningReplicas := len(validReplicaGroups)
-	numOccupiedReplicas := numRunningReplicas + len(terminatingReplicaGroups)
+	numOccupiedReplicas := numRunningReplicas + len(terminatingReplicaGroups) + numInProgressReplicas
 	replicasToCreate := numExpectedReplicas - numOccupiedReplicas
 
 	logger.Info("Reconciling multi-host group", "group", worker.GroupName, "expectedReplicas", numExpectedReplicas, "runningReplicas", numRunningReplicas, "terminatingReplicas", len(terminatingReplicaGroups), "replicasToCreate", replicasToCreate, "inUseIndices", validReplicaIndices)

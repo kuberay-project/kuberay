@@ -5960,4 +5960,72 @@ func TestReconcileMultiHostWorkerGroup_InProgressExternalLossAndParallelMultiSli
 		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, pods))
 		assert.Empty(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace))
 	})
+
+	t.Run("reconcilePods prunes tracked slices when worker group is removed or resized to single-host", func(t *testing.T) {
+		cluster, workerSpec := newMultiHostTestCluster()
+		createCalls := 0
+		r, _ := newMultiHostTestReconciler(func(ctx context.Context, c client.WithWatch, pod *corev1.Pod, opts ...client.CreateOption) error {
+			createCalls++
+			if createCalls == 3 {
+				return errors.New("simulated error on hostIndex=2")
+			}
+			return c.Create(ctx, pod, opts...)
+		})
+
+		require.Error(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+		require.Len(t, r.incompleteMultiHostReplicas, 1)
+
+		// Resizing NumOfHosts to 1 prunes the multi-host backfill entry.
+		workerSpec.NumOfHosts = 1
+		workerSpec.Replicas = ptr.To[int32](0)
+		require.NoError(t, r.reconcilePods(ctx, cluster))
+		assert.Empty(t, r.incompleteMultiHostReplicas)
+
+		// Removing the worker group also prunes any tracked multi-host entry.
+		workerSpec.NumOfHosts = 4
+		workerSpec.Replicas = ptr.To[int32](1)
+		createCalls = 0
+		require.Error(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+		require.Len(t, r.incompleteMultiHostReplicas, 1)
+
+		cluster.Spec.WorkerGroupSpecs = nil
+		require.NoError(t, r.reconcilePods(ctx, cluster))
+		assert.Empty(t, r.incompleteMultiHostReplicas)
+	})
+
+	t.Run("failed backfill holds replica slot and index until completed without starting surplus slices", func(t *testing.T) {
+		cluster, workerSpec := newMultiHostTestCluster()
+		workerSpec.Replicas = ptr.To[int32](2)
+
+		failHost3Once := true
+		failFirstSliceHost2Once := true
+		r, fakeClient := newMultiHostTestReconciler(func(ctx context.Context, c client.WithWatch, pod *corev1.Pod, opts ...client.CreateOption) error {
+			if pod.Labels[utils.RayWorkerReplicaIndexKey] == "0" && pod.Labels[utils.RayHostIndexKey] == "2" && failFirstSliceHost2Once {
+				failFirstSliceHost2Once = false
+				return errors.New("simulated transient error on slice 0 hostIndex=2")
+			}
+			if pod.Labels[utils.RayWorkerReplicaIndexKey] == "0" && pod.Labels[utils.RayHostIndexKey] == "3" && failHost3Once {
+				failHost3Once = false
+				return errors.New("simulated transient error during backfill on slice 0 hostIndex=3")
+			}
+			return c.Create(ctx, pod, opts...)
+		})
+
+		// Reconcile 1: slice 0 creates hosts 0..1 then fails on host 2; slice 1 creates hosts 0..3 cleanly.
+		require.ErrorContains(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil), "hostIndex=2")
+		pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 6)
+
+		// Reconcile 2: slice 0 backfills host 2, then fails on host 3; its slot stays occupied (no 3rd slice created) and it remains tracked.
+		require.ErrorContains(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, pods), "hostIndex=3")
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 7)
+		require.Len(t, r.incompleteMultiHostReplicas, 1)
+
+		// Reconcile 3: slice 0 backfills host 3 and completes both slices (8 pods total, indices 0 and 1).
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, pods))
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 8)
+		assert.Empty(t, r.incompleteMultiHostReplicas)
+	})
 }
