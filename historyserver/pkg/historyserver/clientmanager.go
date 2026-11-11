@@ -93,7 +93,7 @@ func (c *ClientManager) GetAuthTokenForRayCluster(ctx context.Context, namespace
 	// The shared read must not be tied to the lifetime of whichever caller won the
 	// race. WithoutCancel keeps request-scoped values while detaching cancellation,
 	// so one caller giving up cannot fail the remaining waiters.
-	ch := c.authTokenSF.DoChan(namespace+"/"+name, func() (interface{}, error) {
+	ch := c.authTokenSF.DoChan(namespace+"/"+name, func() (any, error) {
 		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authTokenFetchTimeout)
 		defer cancel()
 		return c.fetchAuthTokenForRayCluster(fetchCtx, namespace, name)
