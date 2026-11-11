@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -98,6 +99,7 @@ type RayClusterReconcilerOptions struct {
 	DefaultContainerEnvs     []corev1.EnvVar
 	DefaultPodAnnotations    map[string]string
 	DefaultPodLabels         map[string]string
+	AllowedNodeLabels        []string
 	CollectorImage           string
 	IsOpenShift              bool
 	UseIngressOnOpenShift    bool
@@ -111,6 +113,7 @@ type RayClusterReconcilerOptions struct {
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete;deletecollection
 // +kubebuilder:rbac:groups=core,resources=pods/status,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods/resize,verbs=patch
@@ -1183,7 +1186,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		deleted := struct{}{}
 		numDeletedUnhealthyWorkerPods := 0
 		for _, workerPod := range workerPods.Items {
-			shouldDelete, reason := shouldDeletePod(workerPod, rayv1.WorkerNode)
+			shouldDelete, reason := r.shouldDeleteWorkerPod(ctx, workerPod, &worker)
 			logger.Info("reconcilePods", "worker Pod", workerPod.Name, "shouldDelete", shouldDelete, "reason", reason)
 			if shouldDelete {
 				numDeletedUnhealthyWorkerPods++
@@ -1196,8 +1199,8 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 				}
 				r.rayClusterScaleExpectation.ExpectScalePod(workerPod.Namespace, instance.Name, worker.GroupName, workerPod.Name, expectations.Delete)
 				r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedWorkerPod), string(utils.DeleteAction),
-					"Deleted worker Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v",
-					workerPod.Namespace, workerPod.Name, workerPod.Status.Phase, workerPod.Spec.RestartPolicy, getRayContainerStateTerminated(workerPod))
+					"Deleted worker Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v; reason: %s",
+					workerPod.Namespace, workerPod.Name, workerPod.Status.Phase, workerPod.Spec.RestartPolicy, getRayContainerStateTerminated(workerPod), reason)
 			}
 		}
 
@@ -1381,18 +1384,18 @@ func (r *RayClusterReconciler) recordIncompleteMultiHostPod(namespace, clusterNa
 // canBackfillIncompleteMultiHostReplica reports whether this process is still creating the Pods of the replica group,
 // every existing Pod in byHost is healthy and non-terminating, and every host Pod previously created for that group
 // is still present with the same UID.
-func (r *RayClusterReconciler) canBackfillIncompleteMultiHostReplica(namespace, clusterName, groupName, replicaName string, byHost map[int]corev1.Pod) bool {
+func (r *RayClusterReconciler) canBackfillIncompleteMultiHostReplica(ctx context.Context, namespace, clusterName string, worker *rayv1.WorkerGroupSpec, replicaName string, byHost map[int]corev1.Pod) bool {
 	for _, pod := range byHost {
 		if !pod.DeletionTimestamp.IsZero() {
 			return false
 		}
-		if shouldDelete, _ := shouldDeletePod(pod, rayv1.WorkerNode); shouldDelete {
+		if shouldDelete, _ := r.shouldDeleteWorkerPod(ctx, pod, worker); shouldDelete {
 			return false
 		}
 	}
 	r.incompleteMultiHostReplicasMu.Lock()
 	defer r.incompleteMultiHostReplicasMu.Unlock()
-	createdHosts, ok := r.incompleteMultiHostReplicas[multiHostReplicaKey{namespace: namespace, cluster: clusterName, group: groupName, replica: replicaName}]
+	createdHosts, ok := r.incompleteMultiHostReplicas[multiHostReplicaKey{namespace: namespace, cluster: clusterName, group: worker.GroupName, replica: replicaName}]
 	if !ok {
 		return false
 	}
@@ -1540,7 +1543,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 		byHost, validSlots := validMultiHostPodsByHostIndex(podList, int(worker.NumOfHosts))
 		if !validSlots || len(byHost) < int(worker.NumOfHosts) {
 			replicaIndex := getMultiHostReplicaIndex(podList)
-			if validSlots && replicaIndex >= 0 && r.canBackfillIncompleteMultiHostReplica(instance.Namespace, instance.Name, worker.GroupName, replicaName, byHost) {
+			if validSlots && replicaIndex >= 0 && r.canBackfillIncompleteMultiHostReplica(ctx, instance.Namespace, instance.Name, worker, replicaName, byHost) {
 				incompleteReplicasToBackfill[replicaName] = replicaIndex
 				logger.Info("Found in-progress multi-host replica group, will backfill missing host slots.", "group", worker.GroupName, "replica", replicaName, "found", len(podList), "expected", worker.NumOfHosts)
 				continue
@@ -1570,7 +1573,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 		if _, alreadyDeleted := deletedPods[pod.Name]; alreadyDeleted {
 			continue
 		}
-		shouldDelete, reason := shouldDeletePod(pod, rayv1.WorkerNode)
+		shouldDelete, reason := r.shouldDeleteWorkerPod(ctx, pod, worker)
 		if !shouldDelete && !pod.DeletionTimestamp.IsZero() {
 			shouldDelete = true
 			reason = fmt.Sprintf("Pod %s is terminating", pod.Name)
@@ -1917,6 +1920,67 @@ func shouldDeletePod(pod corev1.Pod, nodeType rayv1.RayNodeType) (bool, string) 
 	return false, reason
 }
 
+// shouldDeleteWorkerPod extends shouldDeletePod with NodeLabelDelivery-specific self-healing for worker Pods
+// whose Ray container exited because the ray.io/node-labels annotation was not delivered at bind time
+// (e.g., when a node labeler applied the label after binding or the binding webhook timed out or was unavailable
+// under failurePolicy: Ignore).
+// Because pods/binding only executes once per Pod lifetime, container restarts never pick up the missing annotation.
+// Existing shouldDeletePod decisions are preserved; otherwise, the Pod is kept until every labelRef is allowlisted
+// and present on the bound Node, then deleted for recreation.
+func (r *RayClusterReconciler) shouldDeleteWorkerPod(ctx context.Context, pod corev1.Pod, worker *rayv1.WorkerGroupSpec) (bool, string) {
+	shouldDelete, reason := shouldDeletePod(pod, rayv1.WorkerNode)
+	if shouldDelete || !missedNodeLabelDelivery(pod, worker) {
+		return shouldDelete, reason
+	}
+	node := &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
+	if err := r.Get(ctx, client.ObjectKey{Name: pod.Spec.NodeName}, node); err != nil {
+		return false, fmt.Sprintf(
+			"The worker Pod %s/%s terminated without the %s annotation, and bound Node %s could not be read: %v.",
+			pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, pod.Spec.NodeName, err)
+	}
+	if _, err := utils.ResolveNodeLabels(node.Labels, worker.LabelRefs, sets.New(r.options.AllowedNodeLabels...)); err != nil {
+		return false, fmt.Sprintf(
+			"The worker Pod %s/%s terminated without the %s annotation, and bound Node %s cannot satisfy labelRefs: %v.",
+			pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, pod.Spec.NodeName, err)
+	}
+	return true, fmt.Sprintf(
+		"The worker Pod %s/%s terminated without the %s annotation while bound Node %s carries all requested labelRefs.",
+		pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, pod.Spec.NodeName)
+}
+
+func missedNodeLabelDelivery(pod corev1.Pod, worker *rayv1.WorkerGroupSpec) bool {
+	return features.Enabled(features.NodeLabelDelivery) &&
+		worker != nil && len(worker.LabelRefs) > 0 &&
+		worker.Template.Spec.NodeName == "" &&
+		pod.Spec.NodeName != "" &&
+		pod.Annotations[utils.RayNodeLabelsAnnotationKey] == "" &&
+		hasRayContainerLabelsEnv(pod) &&
+		hasRayContainerTerminated(pod)
+}
+
+func hasRayContainerLabelsEnv(pod corev1.Pod) bool {
+	if len(pod.Spec.Containers) <= utils.RayContainerIndex {
+		return false
+	}
+	return utils.EnvVarExists(utils.RAY_NODE_LABELS_JSON, pod.Spec.Containers[utils.RayContainerIndex].Env)
+}
+
+func hasRayContainerTerminated(pod corev1.Pod) bool {
+	if len(pod.Spec.Containers) <= utils.RayContainerIndex {
+		return false
+	}
+	rayContainerName := pod.Spec.Containers[utils.RayContainerIndex].Name
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.Name != rayContainerName {
+			continue
+		}
+		if cs.State.Terminated != nil || cs.LastTerminationState.Terminated != nil || cs.RestartCount > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // `ContainerStatuses` does not guarantee the order of the containers. Therefore, we need to find the Ray
 // container's status by name. See the following links for more details:
 // (1) https://discuss.kubernetes.io/t/pod-spec-containers-and-pod-status-containerstatuses-can-have-a-different-order-why/25273
@@ -2063,7 +2127,7 @@ func (r *RayClusterReconciler) createWorkerPodWithIndex(ctx context.Context, ins
 		if errors.IsAlreadyExists(err) && replica.GenerateName == "" {
 			// Multi-host Pods have deterministic names, so a retried Create can find the Pod of a previous attempt.
 			// The Pod is only ours if it is not terminating and fills the same host slot of the same replica group.
-			if existing, ok := r.ownedMultiHostWorkerPod(ctx, &instance, &replica); ok {
+			if existing, ok := r.ownedMultiHostWorkerPod(ctx, &instance, &worker, &replica); ok {
 				logger.Info("Worker Pod already exists, no need to create", "pod", replica.Name)
 				r.recordIncompleteMultiHostPod(instance.Namespace, instance.Name, worker.GroupName, replicaGrpName, hostIndex, existing.UID)
 				return nil
@@ -2083,12 +2147,12 @@ func (r *RayClusterReconciler) createWorkerPodWithIndex(ctx context.Context, ins
 // ownedMultiHostWorkerPod returns the existing Pod named like pod if it is a live, healthy member of the same cluster,
 // worker group, replica group, replica index, and host slot. The cached read may lag right after a Create timed out;
 // the caller then requeues.
-func (r *RayClusterReconciler) ownedMultiHostWorkerPod(ctx context.Context, instance *rayv1.RayCluster, pod *corev1.Pod) (*corev1.Pod, bool) {
+func (r *RayClusterReconciler) ownedMultiHostWorkerPod(ctx context.Context, instance *rayv1.RayCluster, worker *rayv1.WorkerGroupSpec, pod *corev1.Pod) (*corev1.Pod, bool) {
 	existing := &corev1.Pod{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), existing); err != nil {
 		return nil, false
 	}
-	shouldDelete, _ := shouldDeletePod(*existing, rayv1.WorkerNode)
+	shouldDelete, _ := r.shouldDeleteWorkerPod(ctx, *existing, worker)
 	owned := existing.DeletionTimestamp.IsZero() &&
 		!shouldDelete &&
 		metav1.IsControlledBy(existing, instance) &&

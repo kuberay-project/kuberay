@@ -3,6 +3,7 @@ package managercache
 import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
@@ -16,7 +17,8 @@ import (
 
 // K8sControllerRuntimeCacheSelectors returns a map[client.Object]cache.ByObject that scopes the manager's
 // informer cache to only watch KubeRay-managed Jobs (filtered by app.kubernetes.io/created-by=kuberay-operator)
-// and Ray node Pods (filtered by ray.io/node-type in head|worker|redis-cleanup).
+// and Ray node Pods (filtered by ray.io/node-type in head|worker|redis-cleanup), and strips managedFields and
+// annotations from cached Node objects.
 func K8sControllerRuntimeCacheSelectors() (map[client.Object]cache.ByObject, error) {
 	createByLabel, err := labels.NewRequirement(utils.KubernetesCreatedByLabelKey, selection.Equals, []string{utils.ComponentName})
 	if err != nil {
@@ -36,7 +38,22 @@ func K8sControllerRuntimeCacheSelectors() (map[client.Object]cache.ByObject, err
 	return map[client.Object]cache.ByObject{
 		&batchv1.Job{}: {Label: jobSelector},
 		&corev1.Pod{}:  {Label: podSelector},
+		&corev1.Node{}: {Transform: transformNodeMetadata},
 	}, nil
+}
+
+// transformNodeMetadata strips managedFields and annotations from cached Node objects, as KubeRay only reads
+// Node labels for NodeLabelDelivery. Any future code that needs Node annotations must read via APIReader.
+func transformNodeMetadata(in any) (any, error) {
+	if obj, err := meta.Accessor(in); err == nil {
+		if obj.GetManagedFields() != nil {
+			obj.SetManagedFields(nil)
+		}
+		if obj.GetAnnotations() != nil {
+			obj.SetAnnotations(nil)
+		}
+	}
+	return in, nil
 }
 
 // EventForwarderCacheByObject returns the cache.ByObject scoping the Event informer
