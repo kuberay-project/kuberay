@@ -431,32 +431,29 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			}
 		}()
 
-		// The RayJob has reached a terminal state. Handle the cleanup and deletion logic.
-		// If the RayJob uses an existing RayCluster, we must not delete it.
-		if len(rayJobInstance.Spec.ClusterSelector) > 0 {
-			logger.Info("RayJob is using an existing RayCluster via clusterSelector; skipping resource deletion.", "RayClusterSelector", rayJobInstance.Spec.ClusterSelector)
-			return ctrl.Result{}, nil
+		cancellationPending, cancellationErr := r.reconcileDeadlineJob(ctx, rayJobInstance)
+		if cancellationErr != nil {
+			logger.Error(cancellationErr, "Failed to terminate deadline-exceeded Ray job; will retry")
+		}
+		if rayJobInstance.Status.JobStatus != originalRayJobInstance.Status.JobStatus {
+			// Persist the observed outcome through the common status writer before cleanup.
+			break
 		}
 
-		if features.Enabled(features.RayJobDeletionPolicy) && rayJobInstance.Spec.DeletionStrategy != nil {
-			// The previous validation logic ensures that either DeletionRules or the legacy policies are set, but not both.
-			if rayJobInstance.Spec.DeletionStrategy.DeletionRules != nil {
-				return r.handleDeletionRules(ctx, rayJobInstance)
-			}
-			return r.handleLegacyDeletionPolicy(ctx, rayJobInstance)
+		// Dashboard failures must not block an owned cluster's configured cleanup.
+		result, cleanupErr := r.handleTerminalRayJobCleanup(ctx, rayJobInstance)
+		if cancellationPending && (result.RequeueAfter == 0 || result.RequeueAfter > RayJobDefaultRequeueDuration) {
+			result.RequeueAfter = RayJobDefaultRequeueDuration
 		}
-
-		if rayJobInstance.Spec.ShutdownAfterJobFinishes {
-			return r.handleShutdownAfterJobFinishes(ctx, rayJobInstance)
-		}
-
-		// Default: No deletion policy is configured. The reconciliation is complete for this RayJob.
-		return ctrl.Result{}, nil
+		return result, cleanupErr
 	default:
 		logger.Info("Unknown JobDeploymentStatus", "JobDeploymentStatus", rayJobInstance.Status.JobDeploymentStatus)
 		return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, nil
 	}
-	checkBackoffLimitAndUpdateStatusIfNeeded(ctx, rayJobInstance)
+	// Refreshing the runtime outcome of an already failed deployment is not another attempt.
+	if !rayv1.IsJobDeploymentTerminal(originalRayJobInstance.Status.JobDeploymentStatus) {
+		checkBackoffLimitAndUpdateStatusIfNeeded(ctx, rayJobInstance)
+	}
 
 	// This is one of the only 2 places where we update the RayJob status. Please do NOT add any
 	// code between `checkBackoffLimitAndUpdateStatusIfNeeded` and the following code.
@@ -938,7 +935,8 @@ func (r *RayJobReconciler) updateRayJobStatus(ctx context.Context, oldRayJob *ra
 		oldRayJobStatus.JobDeploymentStatus != newRayJobStatus.JobDeploymentStatus ||
 		rayClusterStatusChanged ||
 		jobStatusCheckFailureStartTimeChanged {
-		if rayv1.IsJobDeploymentTerminal(newRayJobStatus.JobDeploymentStatus) {
+		if rayv1.IsJobDeploymentTerminal(newRayJobStatus.JobDeploymentStatus) &&
+			!rayv1.IsJobDeploymentTerminal(oldRayJobStatus.JobDeploymentStatus) {
 			newRayJob.Status.EndTime = &metav1.Time{Time: time.Now()}
 		}
 
@@ -949,6 +947,82 @@ func (r *RayJobReconciler) updateRayJobStatus(ctx context.Context, oldRayJob *ra
 		}
 	}
 	return nil
+}
+
+// reconcileDeadlineJob stops an observed Ray execution after its deployment deadline.
+// The returned bool requests another poll; accepting a stop request is not completion.
+func (r *RayJobReconciler) reconcileDeadlineJob(ctx context.Context, rayJob *rayv1.RayJob) (bool, error) {
+	if rayJob.Status.JobDeploymentStatus != rayv1.JobDeploymentStatusFailed ||
+		rayJob.Status.Reason != rayv1.DeadlineExceeded ||
+		(rayJob.Status.JobStatus != rayv1.JobStatusPending && rayJob.Status.JobStatus != rayv1.JobStatusRunning) {
+		return false, nil
+	}
+
+	// Never recreate a cluster or submit a job while recovering deadline cancellation.
+	rayCluster := &rayv1.RayCluster{}
+	if err := r.Get(ctx, common.RayJobRayClusterNamespacedName(rayJob), rayCluster); err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+		return true, err
+	}
+	if rayJob.Status.JobId == "" || rayJob.Status.DashboardURL == "" {
+		return true, fmt.Errorf("cannot stop Ray job without job ID and dashboard URL")
+	}
+	rayDashboardClient, err := r.dashboardClientFunc(rayCluster, rayJob.Status.DashboardURL)
+	if err != nil {
+		return true, err
+	}
+	jobInfo, err := rayDashboardClient.GetJobInfo(ctx, rayJob.Status.JobId)
+	if err != nil {
+		// GetJobInfo maps a missing Ray job (HTTP 404) to BadRequest. There is
+		// no record to stop or poll; preserve the last observed runtime status.
+		if errors.IsBadRequest(err) {
+			ctrl.LoggerFrom(ctx).Info("Deadline-exceeded Ray job not found; skipping cancellation polling", "JobId", rayJob.Status.JobId)
+			return false, nil
+		}
+		return true, err
+	}
+	if jobInfo == nil {
+		return true, fmt.Errorf("no status returned for Ray job %q", rayJob.Status.JobId)
+	}
+	switch jobInfo.JobStatus {
+	case rayv1.JobStatusStopped, rayv1.JobStatusSucceeded, rayv1.JobStatusFailed:
+		// Preserve DeadlineExceeded and its EndTime, but record what Ray actually did.
+		rayJob.Status.JobStatus = jobInfo.JobStatus
+		if jobInfo.StartTime != 0 {
+			rayJob.Status.RayJobStatusInfo.StartTime = &metav1.Time{Time: time.UnixMilli(utils.SafeUint64ToInt64(jobInfo.StartTime))}
+		}
+		if jobInfo.EndTime != 0 {
+			rayJob.Status.RayJobStatusInfo.EndTime = &metav1.Time{Time: time.UnixMilli(utils.SafeUint64ToInt64(jobInfo.EndTime))}
+		}
+		return false, nil
+	case rayv1.JobStatusPending, rayv1.JobStatusRunning:
+		return true, rayDashboardClient.StopJob(ctx, rayJob.Status.JobId)
+	default:
+		return true, fmt.Errorf("unexpected status %q for Ray job %q", jobInfo.JobStatus, rayJob.Status.JobId)
+	}
+}
+
+// handleTerminalRayJobCleanup applies the configured deletion policy to owned resources.
+func (r *RayJobReconciler) handleTerminalRayJobCleanup(ctx context.Context, rayJob *rayv1.RayJob) (ctrl.Result, error) {
+	// If the RayJob uses an existing RayCluster, we must not delete it.
+	if len(rayJob.Spec.ClusterSelector) > 0 {
+		ctrl.LoggerFrom(ctx).Info("RayJob is using an existing RayCluster via clusterSelector; skipping resource deletion.", "RayClusterSelector", rayJob.Spec.ClusterSelector)
+		return ctrl.Result{}, nil
+	}
+
+	if features.Enabled(features.RayJobDeletionPolicy) && rayJob.Spec.DeletionStrategy != nil {
+		// Validation ensures that either DeletionRules or the legacy policies are set, but not both.
+		if rayJob.Spec.DeletionStrategy.DeletionRules != nil {
+			return r.handleDeletionRules(ctx, rayJob)
+		}
+		return r.handleLegacyDeletionPolicy(ctx, rayJob)
+	}
+	if rayJob.Spec.ShutdownAfterJobFinishes {
+		return r.handleShutdownAfterJobFinishes(ctx, rayJob)
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *RayJobReconciler) getOrCreateRayClusterInstance(ctx context.Context, rayJobInstance *rayv1.RayJob) (*rayv1.RayCluster, error) {

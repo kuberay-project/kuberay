@@ -661,6 +661,14 @@ func testDeletionRulesWithJobDeploymentStatusFailedAndDeleteNonePolicy(test Test
 			WithSubmitterPodTemplate(JobSubmitterPodTemplateApplyConfiguration()))
 	rayJob := applyRayJobAndWaitForJobDeploymentStatusFailed(test, g, namespace, rayJobAC)
 
+	// Retaining the cluster must not leave the expired execution running.
+	g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
+		Should(SatisfyAll(
+			WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusFailed)),
+			WithTransform(RayJobReason, Equal(rayv1.DeadlineExceeded)),
+			WithTransform(RayJobStatus, Equal(rayv1.JobStatusStopped)),
+		))
+
 	// Get the associated RayCluster name (early assertion for clearer diagnostics).
 	rayJob, err := GetRayJob(test, rayJob.Namespace, rayJob.Name)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -736,7 +744,6 @@ func applyRayJobAndWaitForJobDeploymentStatusFailed(test Test, g *WithT, namespa
 		Should(SatisfyAll(
 			WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusFailed)),
 			WithTransform(RayJobReason, Equal(rayv1.DeadlineExceeded)),
-			WithTransform(RayJobStatus, Equal(rayv1.JobStatusRunning)),
 		))
 
 	return rayJob
