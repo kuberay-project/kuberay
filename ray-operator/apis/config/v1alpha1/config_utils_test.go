@@ -85,11 +85,11 @@ func TestValidateBatchSchedulerConfig(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "invalid option, batch-scheduler=kubernetes-was-v1alpha2 requires the KubernetesWAS feature gate",
+			name: "invalid option, batch-scheduler=kubernetes-was-v1alpha3 requires the KubernetesWAS feature gate",
 			args: args{
 				logger: testr.New(t),
 				config: Configuration{
-					BatchScheduler: "kubernetes-was-v1alpha2",
+					BatchScheduler: "kubernetes-was-v1alpha3",
 				},
 			},
 			wantErr: true,

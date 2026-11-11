@@ -4,6 +4,6 @@ metadata:
   name: rayjob-use-existing-raycluster
 spec:
   entrypoint: python -c "import ray; ray.init(); print(ray.cluster_resources())"
-  # Select an existing RayCluster called "ray-cluster-kuberay" instead of creating a new one.
+  # Select an existing RayCluster called "raycluster-kuberay" instead of creating a new one.
   clusterSelector:
-    ray.io/cluster: ray-cluster-kuberay
+    ray.io/cluster: raycluster-kuberay

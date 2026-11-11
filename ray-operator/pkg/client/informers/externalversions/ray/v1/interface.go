@@ -9,13 +9,13 @@ import (
 // Interface provides access to all the informers in this group version.
 type Interface interface {
 	// RayClusters returns a RayClusterInformer.
-	RayClusters() RayClusterInformer
+	RayClusters() TypedRayClusterInformer
 	// RayCronJobs returns a RayCronJobInformer.
-	RayCronJobs() RayCronJobInformer
+	RayCronJobs() TypedRayCronJobInformer
 	// RayJobs returns a RayJobInformer.
-	RayJobs() RayJobInformer
+	RayJobs() TypedRayJobInformer
 	// RayServices returns a RayServiceInformer.
-	RayServices() RayServiceInformer
+	RayServices() TypedRayServiceInformer
 }
 
 type version struct {
@@ -29,22 +29,22 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
-// RayClusters returns a RayClusterInformer.
-func (v *version) RayClusters() RayClusterInformer {
+// RayClusters returns a TypedRayClusterInformer.
+func (v *version) RayClusters() TypedRayClusterInformer {
 	return &rayClusterInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
-// RayCronJobs returns a RayCronJobInformer.
-func (v *version) RayCronJobs() RayCronJobInformer {
+// RayCronJobs returns a TypedRayCronJobInformer.
+func (v *version) RayCronJobs() TypedRayCronJobInformer {
 	return &rayCronJobInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
-// RayJobs returns a RayJobInformer.
-func (v *version) RayJobs() RayJobInformer {
+// RayJobs returns a TypedRayJobInformer.
+func (v *version) RayJobs() TypedRayJobInformer {
 	return &rayJobInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
-// RayServices returns a RayServiceInformer.
-func (v *version) RayServices() RayServiceInformer {
+// RayServices returns a TypedRayServiceInformer.
+func (v *version) RayServices() TypedRayServiceInformer {
 	return &rayServiceInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

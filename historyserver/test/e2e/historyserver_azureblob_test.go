@@ -50,13 +50,13 @@ func TestAzureHistoryServer(t *testing.T) {
 func testAzureLiveClusters(test Test, g *WithT, namespace *corev1.Namespace, azureClient *azblob.Client) {
 	rayCluster := PrepareAzureBlobTestEnv(test, g, namespace, azureClient)
 	ApplyRayJobAndWaitForCompletion(test, g, namespace, rayCluster)
-	ApplyHistoryServer(test, g, namespace, AzureHistoryServerManifestPath)
+	ApplyHistoryServer(test, g, namespace, AzureHistoryServerManifestPath, EnableLiveClustersArg)
 	historyServerURL := GetHistoryServerURL(test, g, namespace)
 
 	clusterInfo := getClusterFromList(test, g, historyServerURL, rayCluster.Name, namespace.Name)
 	g.Expect(clusterInfo.SessionName).To(Equal(LiveSessionName), "Live cluster should have sessionName='live'")
 
-	client := CreateHTTPClientWithCookieJar(g)
+	client := CreateHTTPClientWithCookieJar(test, g)
 	setClusterContext(test, g, client, historyServerURL, namespace.Name, rayCluster.Name, clusterInfo.SessionName)
 	verifyHistoryServerEndpoints(test, g, client, historyServerURL)
 
@@ -76,7 +76,7 @@ func testAzureDeadClusters(test Test, g *WithT, namespace *corev1.Namespace, azu
 	clusterInfo := getClusterFromList(test, g, historyServerURL, rayCluster.Name, namespace.Name)
 	g.Expect(clusterInfo.SessionName).NotTo(Equal(LiveSessionName), "Dead cluster should not have sessionName='live'")
 
-	client := CreateHTTPClientWithCookieJar(g)
+	client := CreateHTTPClientWithCookieJar(test, g)
 	setClusterContext(test, g, client, historyServerURL, namespace.Name, rayCluster.Name, clusterInfo.SessionName)
 	verifyHistoryServerEndpoints(test, g, client, historyServerURL)
 
@@ -87,11 +87,11 @@ func testAzureDeadClusters(test Test, g *WithT, namespace *corev1.Namespace, azu
 func testAzureLogFileEndpointLiveCluster(test Test, g *WithT, namespace *corev1.Namespace, azureClient *azblob.Client) {
 	rayCluster := PrepareAzureBlobTestEnv(test, g, namespace, azureClient)
 	ApplyRayJobAndWaitForCompletion(test, g, namespace, rayCluster)
-	ApplyHistoryServer(test, g, namespace, AzureHistoryServerManifestPath)
+	ApplyHistoryServer(test, g, namespace, AzureHistoryServerManifestPath, EnableLiveClustersArg)
 	historyServerURL := GetHistoryServerURL(test, g, namespace)
 
 	clusterInfo := getClusterFromList(test, g, historyServerURL, rayCluster.Name, namespace.Name)
-	client := CreateHTTPClientWithCookieJar(g)
+	client := CreateHTTPClientWithCookieJar(test, g)
 	setClusterContext(test, g, client, historyServerURL, namespace.Name, rayCluster.Name, clusterInfo.SessionName)
 
 	nodeID := GetOneOfNodeID(g, client, historyServerURL, false)
@@ -120,7 +120,7 @@ func testAzureLogFileEndpointDeadCluster(test Test, g *WithT, namespace *corev1.
 	clusterInfo := getClusterFromList(test, g, historyServerURL, rayCluster.Name, namespace.Name)
 	g.Expect(clusterInfo.SessionName).NotTo(Equal(LiveSessionName))
 
-	client := CreateHTTPClientWithCookieJar(g)
+	client := CreateHTTPClientWithCookieJar(test, g)
 	setClusterContext(test, g, client, historyServerURL, namespace.Name, rayCluster.Name, clusterInfo.SessionName)
 
 	nodeID := GetOneOfNodeID(g, client, historyServerURL, false)

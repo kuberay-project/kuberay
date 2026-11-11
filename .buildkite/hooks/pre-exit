@@ -1,0 +1,36 @@
+#!/bin/bash
+# Repository pre-exit hook: runs on the agent after every step. Uploads any
+# JUnit results produced by the step to Buildkite Test Engine. Stale results
+# from a previous job will be removed by the checkout phase, which runs git
+# clean before commands, so any junit.xml found here was produced by this job.
+# Best-effort: this hook must never fail the build.
+set +e
+
+echo "--- Running repository pre-exit hook (Test Engine upload)"
+
+if [ -z "$BUILDKITE_ANALYTICS_TOKEN" ]; then
+  echo "BUILDKITE_ANALYTICS_TOKEN not set; skipping Test Engine upload"
+  exit 0
+fi
+
+found=0
+while IFS= read -r f; do
+  found=1
+  echo "Uploading $f to Test Engine"
+  curl -sf -X POST \
+    -H "Authorization: Token token=\"$BUILDKITE_ANALYTICS_TOKEN\"" \
+    -F "format=junit" \
+    -F "data=@$f" \
+    -F "run_env[CI]=buildkite" \
+    -F "run_env[key]=$BUILDKITE_BUILD_ID" \
+    -F "run_env[number]=$BUILDKITE_BUILD_NUMBER" \
+    -F "run_env[job_id]=$BUILDKITE_JOB_ID" \
+    -F "run_env[branch]=$BUILDKITE_BRANCH" \
+    -F "run_env[commit_sha]=$BUILDKITE_COMMIT" \
+    -F "run_env[url]=$BUILDKITE_BUILD_URL" \
+    https://analytics-api.buildkite.com/v1/uploads \
+    && echo "Uploaded $f" || echo "Upload failed for $f (non-fatal)"
+done < <(find . -path "*/tmp/junit*.xml" 2>/dev/null)
+
+[ "$found" -eq 0 ] && echo "No JUnit results found; nothing to upload"
+exit 0

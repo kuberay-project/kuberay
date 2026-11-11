@@ -68,6 +68,17 @@ The history server can be configured using command-line flags:
 - `--kubeconfigs`: Path to kubeconfig file(s) for accessing Kubernetes clusters
 - `--dashboard-dir`: Directory containing dashboard assets (default: "/dashboard")
 - `--storage-backend-config-path`: Path to storage backend configuration file
+- `--enable-live-clusters`: Serve RayClusters that are still running by reverse-proxying to their
+  head dashboard (default: `false`). When disabled, a running RayCluster is served from storage
+  using whatever the collector has uploaded so far. The cached snapshot does not refresh on its
+  own; use the reload button on the cluster selector page (or enter the cluster with
+  `?reload=true`) to re-read it.
+
+> [!WARNING]
+> The history server does not authenticate its own callers, and the RayCluster it proxies to is
+> chosen from a client-supplied cookie. With `--enable-live-clusters` enabled, anyone who can reach
+> the history server can reach the Ray Dashboard API of every RayCluster the history server can
+> access. Only turn it on where that access is already restricted by other means.
 
 ### Collector Configuration
 
@@ -83,11 +94,46 @@ The collector can be configured using command-line flags:
 - `--push-interval`: Interval between pushes to storage
 - `--storage-backend-config-path`: Path to storage backend configuration file
 
+And using environment variables:
+
+- `RAY_COLLECTOR_LOG_UPLOAD_INTERVAL`: How often the collector uploads rotated log backups
+  and new active log content (default: `5m`). Shorter intervals produce more log chunks for
+  the History Server to merge on read.
+
+#### Active log upload
+
+On the same schedule the collector also uploads the active logs of a running cluster.
+`debug_state.txt` is rewritten by Ray on every dump and is re-uploaded in full each pass. Every
+other log under `logs/` is append-only and uploads only the bytes added since the previous pass,
+as one object per pass under `<file>.chunks/<offset>`.
+
+The History Server joins the chunks when reading. On shutdown and on a session change the collector uploads
+the remaining tail as one more chunk. Ray log rotation is not supported for chunked uploads yet.
+
+#### Rotated log collection
+
+Ray keeps only a limited number of local rotation backups per log stream (`raylet.out.1`,
+`raylet.out.2`, ...) and overwrites the oldest as the ring advances. The collector periodically
+scans the active session for those backups and uploads each one before Ray can overwrite it,
+highest rotation index first because that is the generation Ray evicts next.
+
+Collection is best effort: a backup Ray removes before the collector reaches it is lost, so set
+`RAY_COLLECTOR_LOG_UPLOAD_INTERVAL` shorter than the time Ray takes to cycle through its
+rotation backups. That time depends on `RAY_ROTATION_MAX_BYTES`, `RAY_ROTATION_BACKUP_COUNT` and
+how fast the node writes logs; see the
+[Ray log rotation docs](https://docs.ray.io/en/latest/ray-observability/user-guides/configure-logging.html#log-rotation).
+
+Rotation indexes are reused as the ring advances, so an uploaded backup is named after the
+generation it holds rather than its index: `raylet.out.2` is stored as
+`raylet.rotated.<modification-time-ns>-<inode>.out`. Rotated objects are listed and can be
+fetched by explicit filename; `task_id`, `actor_id` and `pid` lookups continue to resolve the
+canonical active log, since one worker stream can span several generations.
+
 ## Supported Storage Backends
 
 History Server supports multiple storage backends:
 
-1. **S3/MinIO**: For AWS S3 or MinIO compatible storage
+1. **S3**: For AWS S3 or S3-compatible storage (e.g. RustFS)
 2. **Aliyun OSS**: For Alibaba Cloud Object Storage Service
 3. **Local Test**: For local testing and development
 
@@ -136,17 +182,17 @@ make test
 To run lint checks:
 
 ```bash
-make alllint
+make lint
 ```
 
 ## Smoke Tests
 
 ### 1. Deploy History Server
 
-Apply MinIO and the History Server manifests:
+Apply RustFS and the History Server manifests:
 
 ```bash
-kubectl apply -f historyserver/config/minio.yaml
+kubectl apply -f historyserver/config/rustfs.yaml
 kubectl apply -f historyserver/config/service_account.yaml
 kubectl apply -f historyserver/config/historyserver.yaml
 ```
@@ -171,8 +217,9 @@ kubectl wait rayjob/rayjob-historyserver --for=jsonpath='{.status.jobStatus}=SUC
 # Delete the RayJob only to skip the TTL wait:
 kubectl delete -f historyserver/config/rayjob.yaml
 
-# Discover the session name. /clusters lists both live and dead sessions;
-# dead sessions carry the `session_*` name you'll feed into /enter_cluster.
+# Discover the session name. /clusters lists dead sessions, plus live ones when
+# --enable-live-clusters is set; dead sessions carry the `session_*` name you'll
+# feed into /enter_cluster.
 curl -sS http://localhost:8080/clusters
 ```
 
@@ -213,5 +260,5 @@ per first-time cold-path call. Warm-path calls produce no parse log lines.
 
 ## Deployment
 
-History Server can be deployed in Kubernetes using the manifests in the `config/samples/` directory.
-Examples are provided for different storage backends including MinIO and Aliyun OSS.
+History Server can be deployed in Kubernetes using the manifests in the `config/` directory.
+Examples are provided for different storage backends including S3 (RustFS) and Aliyun OSS.

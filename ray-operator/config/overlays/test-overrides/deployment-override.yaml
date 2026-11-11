@@ -9,4 +9,5 @@ spec:
       containers:
       - name: kuberay-operator
         args:
-        - --feature-gates=RayClusterStatusConditions=true,RayJobDeletionPolicy=true,RayMultiHostIndexing=true,RayCronJob=true,RayServiceIncrementalUpgrade=true,SidecarSubmitterRestart=true,GCSFaultToleranceEmbeddedStorage=true,RayClusterMTLS=true
+        - --feature-gates=RayClusterStatusConditions=true,RayJobDeletionPolicy=true,RayMultiHostIndexing=true,RayCronJob=true,RayServiceIncrementalUpgrade=true,SidecarSubmitterRestart=true,GCSFaultToleranceEmbeddedStorage=true,RayClusterMTLS=true,GCSFaultToleranceActivePassiveHead=true,RayNodeEventForwarder=true
+        - --enable-node-event-forwarder=true

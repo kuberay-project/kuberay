@@ -173,6 +173,8 @@ spec:
 | configuration.defaultPodLabels | object | `{}` | Default labels to add to all Ray pod templates. User-specified labels take precedence. Example: defaultPodLabels:   app.kubernetes.io/managed-by: kuberay |
 | configuration.headSidecarContainers | list | `[]` | Sidecar containers to inject into every Ray head pod. Example: headSidecarContainers: - name: fluentbit   image: fluent/fluent-bit:1.9 |
 | configuration.workerSidecarContainers | list | `[]` | Sidecar containers to inject into every Ray worker pod. Example: workerSidecarContainers: - name: fluentbit   image: fluent/fluent-bit:1.9 |
+| configuration.allowedNodeLabels | list | `[]` | Node label keys worker groups may deliver as Ray node labels through workerGroupSpecs[].labelRefs. Enforced by the validating webhooks, so it requires ENABLE_WEBHOOKS to be enabled. Empty disables delivery. Example: allowedNodeLabels: - nvidia.com/gpu.clique - topology.kubernetes.io/zone |
+| webhooks.enabled | bool | `false` | Deploy the admission webhooks. Currently requires cert-manager in the cluster for the serving certificate and CA injection. The webhook configurations are cluster-scoped, so the install fails with singleNamespaceInstall. The pod webhooks for node label delivery are registered only when the NodeLabelDelivery feature gate is enabled. |
 | featureGates[0].name | string | `"RayClusterStatusConditions"` |  |
 | featureGates[0].enabled | bool | `true` |  |
 | featureGates[1].name | string | `"RayJobDeletionPolicy"` |  |
@@ -189,6 +191,15 @@ spec:
 | featureGates[6].enabled | bool | `false` |  |
 | featureGates[7].name | string | `"RayClusterHistoryServer"` |  |
 | featureGates[7].enabled | bool | `false` |  |
+| featureGates[8].name | string | `"RayNodeEventForwarder"` |  |
+| featureGates[8].enabled | bool | `false` |  |
+| featureGates[9].name | string | `"NodeLabelDelivery"` |  |
+| featureGates[9].enabled | bool | `false` |  |
+| nodeEventForwarder.enabled | bool | `false` | Whether KubeRay operator should forward Kubernetes Node events to RayCluster custom resources. Note: not supported when singleNamespaceInstall is true. |
+| nodeEventForwarder.sources | list | `[]` | Only forward Node events emitted by these components, matched against both source.component and reportingController. Empty means all sources. |
+| nodeEventForwarder.reasons | list | `[]` | Only forward Node events with these reasons, e.g. ["XIDError"]. Empty means all reasons. |
+| nodeEventForwarder.types | list | `["Warning"]` | Only forward Node events with these types. Valid values are "Warning" and "Normal". Empty means all types. Note: Removing the "Warning" filter (or including "Normal") may result in a large number of noisy Normal Node events being forwarded. |
+| collectorImage | string | `""` | Default image for the History Server collector sidecar. A RayCluster can override it with `spec.historyServerOptions.collectorOptions.image`. If empty, defaults to `quay.io/kuberay/collector` with the tag matching the operator version. |
 | metrics.enabled | bool | `true` | Whether KubeRay operator should emit control plane metrics. |
 | metrics.serviceMonitor.enabled | bool | `false` | Enable a prometheus ServiceMonitor |
 | metrics.serviceMonitor.interval | string | `"30s"` | Prometheus ServiceMonitor interval |
@@ -203,7 +214,7 @@ spec:
 | kubeClient.burst | int | `200` | The maximum burst for throttling requests from this client to the Kubernetes API server. Must be a non-negative integer. |
 | rbacEnable | bool | `true` | If rbacEnable is set to false, no RBAC resources will be created, including the Role for leader election, the Role for Pods and Services, and so on. |
 | crNamespacedRbacEnable | bool | `true` | When crNamespacedRbacEnable is set to true, the KubeRay operator will create a Role for RayCluster preparation (e.g., Pods, Services) and a corresponding RoleBinding for each namespace listed in the "watchNamespace" parameter. Please note that even if crNamespacedRbacEnable is set to false, the Role and RoleBinding for leader election will still be created.  Note: (1) This variable is only effective when rbacEnable and singleNamespaceInstall are both set to true. (2) In most cases, it should be set to true, unless you are using a Kubernetes cluster managed by GitOps tools such as ArgoCD. |
-| singleNamespaceInstall | bool | `false` | When singleNamespaceInstall is true: - Install namespaced RBAC resources such as Role and RoleBinding instead of cluster-scoped ones like ClusterRole and ClusterRoleBinding so that   the chart can be installed by users with permissions restricted to a single namespace.   (Please note that this excludes the CRDs, which can only be installed at the cluster scope.) - If "watchNamespace" is not set, the KubeRay operator will, by default, only listen   to resource events within its own namespace. |
+| singleNamespaceInstall | bool | `false` | When singleNamespaceInstall is true: - Install namespaced RBAC resources such as Role and RoleBinding instead of cluster-scoped ones like ClusterRole and ClusterRoleBinding so that   the chart can be installed by users with permissions restricted to a single namespace.   (Please note that this excludes the CRDs, which can only be installed at the cluster scope.) - If "watchNamespace" is not set, the KubeRay operator will, by default, only listen   to resource events within its own namespace. - Node event forwarding (nodeEventForwarder.enabled) is not supported when singleNamespaceInstall is true. |
 | env | string | `nil` | Environment variables. |
 | resources | object | `{"limits":{"cpu":"100m","memory":"512Mi"}}` | Resource requests and limits for containers. |
 | livenessProbe.initialDelaySeconds | int | `10` |  |

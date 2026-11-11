@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	. "github.com/ray-project/kuberay/ray-operator/test/support"
 )
 
@@ -45,6 +46,16 @@ func TestRayJob(t *testing.T) {
 			g.Eventually(RayJob(test, namespace.Name, rayJobFromYaml.Name), TestTimeoutMedium).Should(WithTransform(RayJobStatus, Equal(rayv1.JobStatusSucceeded)))
 		})
 	}
+}
+
+func TestRayJobUseExistingRayClusterSampleConsistency(t *testing.T) {
+	test := With(t)
+	g := NewWithT(t)
+	sampleYAMLDir := GetSampleYAMLDir(test)
+	rayCluster := DeserializeRayClusterYAML(test, path.Join(sampleYAMLDir, "ray-cluster.sample.yaml"))
+	rayJob := DeserializeRayJobYAML(test, path.Join(sampleYAMLDir, "ray-job.use-existing-raycluster.yaml"))
+
+	g.Expect(rayJob.Spec.ClusterSelector).To(HaveKeyWithValue(utils.RayJobClusterSelectorKey, rayCluster.Name))
 }
 
 func TestRayJobInteractiveMode(t *testing.T) {

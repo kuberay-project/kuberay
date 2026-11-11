@@ -2084,6 +2084,72 @@ func TestIsHTTPRouteEqual(t *testing.T) {
 			expected: false,
 		},
 		{
+			name: "Different ParentRef SectionName",
+			existing: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", SectionName: ptr.To(gwv1.SectionName("http"))},
+						},
+					},
+				},
+			},
+			desired: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", SectionName: ptr.To(gwv1.SectionName("https"))},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Different ParentRef Port",
+			existing: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", Port: ptr.To(gwv1.PortNumber(80))},
+						},
+					},
+				},
+			},
+			desired: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", Port: ptr.To(gwv1.PortNumber(443))},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Equal ParentRef SectionName and Port",
+			existing: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", SectionName: ptr.To(gwv1.SectionName("http")), Port: ptr.To(gwv1.PortNumber(80))},
+						},
+					},
+				},
+			},
+			desired: &gwv1.HTTPRoute{
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{
+							{Name: "gw", SectionName: ptr.To(gwv1.SectionName("http")), Port: ptr.To(gwv1.PortNumber(80))},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
 			name: "Different Hostnames",
 			existing: &gwv1.HTTPRoute{
 				Spec: gwv1.HTTPRouteSpec{
@@ -2481,6 +2547,21 @@ func TestIsGCSFaultToleranceEmbedded(t *testing.T) {
 	assert.True(t, IsGCSFaultToleranceEmbedded(&rayv1.GcsFaultToleranceOptions{Backend: rayv1.GcsFTBackendRocksDB}))
 }
 
+func TestSupportsFlexibleRestartPolicy(t *testing.T) {
+	// Empty / unspecified version → original behavior (restrict to Never).
+	assert.False(t, SupportsFlexibleRestartPolicy(""))
+	// Invalid version string → treated as unsupported.
+	assert.False(t, SupportsFlexibleRestartPolicy("not-a-version"))
+	// Below the minimum → restrict to Never.
+	assert.False(t, SupportsFlexibleRestartPolicy("2.55.0"))
+	assert.False(t, SupportsFlexibleRestartPolicy("2.55.9"))
+	// Exactly the minimum → flexible policy allowed.
+	assert.True(t, SupportsFlexibleRestartPolicy("2.56.0"))
+	// Above the minimum → flexible policy allowed.
+	assert.True(t, SupportsFlexibleRestartPolicy("2.57.0"))
+	assert.True(t, SupportsFlexibleRestartPolicy("3.0.0"))
+}
+
 func TestGetGCSStoragePVCName(t *testing.T) {
 	instance := &rayv1.RayCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cluster"},
@@ -2492,4 +2573,14 @@ func TestGetGCSStoragePVCName(t *testing.T) {
 
 	instance.Spec.GcsFaultToleranceOptions.Storage = &rayv1.GcsEmbeddedStorage{ClaimName: "byo-pvc"}
 	assert.Equal(t, "byo-pvc", GetGCSStoragePVCName(instance))
+}
+
+func TestNodeLabelKey(t *testing.T) {
+	key, err := NodeLabelKey("metadata.labels['topology.kubernetes.io/zone']")
+	require.NoError(t, err)
+	assert.Equal(t, "topology.kubernetes.io/zone", key)
+	for _, bad := range []string{"", "metadata.labels", "metadata.labels[\"zone\"]", "metadata.annotations['zone']", "spec.providerID"} {
+		_, err := NodeLabelKey(bad)
+		require.ErrorContains(t, err, "only metadata.labels['<key>'] is supported", bad)
+	}
 }

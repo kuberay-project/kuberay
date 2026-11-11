@@ -148,7 +148,7 @@ func NewClusterLogCommand(cmdFactory cmdutil.Factory, streams genericclioptions.
 			return options.Run(cmd.Context(), cmdFactory)
 		},
 	}
-	cmd.Flags().StringVar(&options.outputDir, "out-dir", options.outputDir, "directory to save the logs to")
+	cmd.Flags().StringVar(&options.outputDir, "out-dir", "", "directory to save the logs to")
 	cmd.Flags().Var(&options.nodeType, "node-type", "type of Ray node from which to download logs, supports: 'worker', 'head', or 'all'")
 	cmd.Flags().StringVar(&options.link, "link", "", "print a link to a cloud console to view logs, supports: 'gke'")
 

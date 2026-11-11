@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -222,7 +223,9 @@ func (ec *EventCollector) UpdateNodeID(newNodeID string) {
 	}
 	logrus.Infof("Node ID changed from %s to %s, rotating active files", ec.currentNodeID, newNodeID)
 	ec.currentNodeID = newNodeID
-	ec.rotateAllFilesLocked()
+	if err := ec.rotateAllFilesLocked(); err != nil {
+		logrus.Errorf("Failed to rotate active files after node ID change: %v", err)
+	}
 }
 
 func (ec *EventCollector) Run(stop <-chan struct{}, port int) {
@@ -324,7 +327,7 @@ func (ec *EventCollector) PersistEvents(req *restful.Request, resp *restful.Resp
 		return
 	}
 
-	var eventDatas []map[string]interface{}
+	var eventDatas []map[string]any
 	if err := json.Unmarshal(body, &eventDatas); err != nil {
 		logrus.Errorf("Failed to unmarshal event: %v", err)
 		resp.WriteError(http.StatusBadRequest, err)
@@ -450,7 +453,7 @@ func (ec *EventCollector) PersistEvents(req *restful.Request, resp *restful.Resp
 // - NODE_* events → "node_events"
 // - others with a jobID → "job_events/{jobID}"
 // - fallback → "node_events" (matches previous behavior)
-func (ec *EventCollector) categorize(eventData map[string]interface{}) string {
+func (ec *EventCollector) categorize(eventData map[string]any) string {
 	if isNodeEvent(eventData) {
 		return categoryNodeEvents
 	}
@@ -837,10 +840,17 @@ func (ec *EventCollector) buildEventStorageKey(task rotationTask) string {
 	fileName := fmt.Sprintf("%s-%s-%d%s", nodeID, hour, task.createdAt.UnixNano(), ext)
 
 	var dir string
+	clusterInfo := utils.ClusterInfo{
+		OwnerKind:   ec.ownerKind,
+		OwnerName:   ec.ownerName,
+		Namespace:   ec.clusterNamespace,
+		Name:        ec.clusterName,
+		SessionName: sessionName,
+	}
 	if jobID, ok := strings.CutPrefix(task.category, categoryJobPrefix+"/"); ok {
-		dir = clusterlogs.JobEventsDir(ec.root, ec.ownerKind, ec.ownerName, ec.clusterNamespace, ec.clusterName, sessionName, nodeID, jobID)
+		dir = clusterlogs.JobEventsDir(ec.root, clusterInfo, nodeID, jobID)
 	} else {
-		dir = clusterlogs.NodeEventsDir(ec.root, ec.ownerKind, ec.ownerName, ec.clusterNamespace, ec.clusterName, sessionName, nodeID)
+		dir = clusterlogs.NodeEventsDir(ec.root, clusterInfo, nodeID)
 	}
 	return path.Join(dir, fileName)
 }
@@ -1010,23 +1020,18 @@ func (ec *EventCollector) underDiskPressure() bool {
 }
 
 // isNodeEvent checks if event is node-related.
-func isNodeEvent(eventData map[string]interface{}) bool {
+func isNodeEvent(eventData map[string]any) bool {
 	eventType, ok := eventData["eventType"].(string)
 	if !ok {
 		return false
 	}
-	for _, nodeEvent := range nodeEventType {
-		if eventType == nodeEvent {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(nodeEventType, eventType)
 }
 
 // getJobID extracts a jobId from known nested event payloads.
-func getJobID(eventData map[string]interface{}) string {
+func getJobID(eventData map[string]any) string {
 	for _, eventType := range eventTypesWithJobID {
-		if nestedEvent, ok := eventData[eventType].(map[string]interface{}); ok {
+		if nestedEvent, ok := eventData[eventType].(map[string]any); ok {
 			if jobID, hasJob := nestedEvent["jobId"]; hasJob && jobID != "" {
 				id := fmt.Sprintf("%v", jobID)
 				// Payload job IDs arrive base64-encoded (e.g. "AQAAAA=="). Normalize to hex for safe path validation.

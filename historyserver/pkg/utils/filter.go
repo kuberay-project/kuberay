@@ -2,10 +2,12 @@ package utils
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 
 	"github.com/emicklei/go-restful/v3"
+
 	eventtypes "github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
 )
 
@@ -51,7 +53,7 @@ func ParseOptionsFromReq(req *restful.Request) (ListAPIOptions, error) {
 		ExcludeDriver: true,
 	}
 
-	parse := func(key string, opt interface{}) error {
+	parse := func(key string, opt any) error {
 		val := req.QueryParameter(key)
 		if val == "" {
 			return nil
@@ -121,15 +123,15 @@ func getFiltersFromReq(req *restful.Request) ([]Filter, error) {
 	filters := make([]Filter, len(filterKeys))
 	for i := range filterKeys {
 		// TODO(jiangjiawei1103): Add error handling for invalid filter keys based on filterable fields.
-		predicate, err := parsePredicate(string(filterPredicates[i]))
+		predicate, err := parsePredicate(filterPredicates[i])
 		if err != nil {
 			return nil, fmt.Errorf("invalid predicate: %w", err)
 		}
 
 		filters[i] = Filter{
-			FilterKey:       string(filterKeys[i]),
+			FilterKey:       filterKeys[i],
 			FilterPredicate: predicate,
-			FilterValue:     string(filterValues[i]),
+			FilterValue:     filterValues[i],
 		}
 	}
 
@@ -178,7 +180,8 @@ func ApplyTaskFilters(tasks []eventtypes.Task, listAPIOptions ListAPIOptions) ([
 		return []eventtypes.Task{}, 0
 	}
 
-	// Sort tasks by task_id and task_attempt.
+	// The caller's slice may be a shared cached snapshot; never sort it in place.
+	tasks = slices.Clone(tasks)
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].TaskID < tasks[j].TaskID || (tasks[i].TaskID == tasks[j].TaskID && tasks[i].TaskAttempt < tasks[j].TaskAttempt)
 	})
@@ -195,7 +198,7 @@ func ApplyTaskFilters(tasks []eventtypes.Task, listAPIOptions ListAPIOptions) ([
 func filterTasks(tasks []eventtypes.Task, filter Filter) []eventtypes.Task {
 	filteredTasks := make([]eventtypes.Task, 0)
 	for _, task := range tasks {
-		predicateFunc, _ := PredicateMap[filter.FilterPredicate]
+		predicateFunc := PredicateMap[filter.FilterPredicate]
 
 		fieldValue := task.GetFilterableFieldValue(filter.FilterKey)
 		if predicateFunc(fieldValue, filter.FilterValue) {

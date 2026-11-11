@@ -2222,6 +2222,1459 @@
                     }
                 }
             ]
+        },
+        {
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 66
+            },
+            "id": 21,
+            "title": "Data Ingestion",
+            "type": "row",
+            "panels": []
+        },
+        {
+            "aliasColors": {},
+            "bars": false,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": "${datasource}",
+            "description": "Per-batch data loading time exposed as training stall, not hidden behind data loader pipelining, taken as the max across ranks so it reflects the slowest rank, per dataset, over the last ${window}. Use to identify if training is stalled on data loading; ideally this value is 0, and any non-zero value indicates stall.",
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms/batch"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 67
+            },
+            "fill": 0,
+            "fillGradient": 0,
+            "hiddenSeries": false,
+            "id": 18,
+            "legend": {
+                "alignAsTable": true,
+                "avg": true,
+                "current": true,
+                "hideEmpty": false,
+                "hideZero": true,
+                "max": true,
+                "min": false,
+                "rightSide": false,
+                "show": true,
+                "sort": "current",
+                "sortDesc": true,
+                "total": false,
+                "values": true
+            },
+            "lines": true,
+            "linewidth": 1,
+            "nullPointMode": null,
+            "options": {
+                "alertThreshold": true
+            },
+            "percentage": false,
+            "pluginVersion": "7.5.17",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX",
+                    "dashes": true,
+                    "color": "#1F60C4",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "$$hashKey": "object:78",
+                    "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                    "hiddenSeries": true
+                },
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX + PENDING",
+                    "dashes": true,
+                    "color": "#777777",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
+                }
+            ],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+                {
+                    "exemplar": true,
+                    "expr": "max by (dataset) (1000 * sum(rate(ray_data_iter_total_blocked_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset, split) / sum(rate(ray_data_iter_batches_total{SessionName=~\"$SessionName\"}[$window])) by (dataset, split))",
+                    "interval": "",
+                    "legendFormat": "{{dataset}}",
+                    "queryType": "randomWalk",
+                    "refId": "A"
+                }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "Max Exposed Data Loading Time",
+            "tooltip": {
+                "shared": true,
+                "sort": 0,
+                "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+                "buckets": null,
+                "mode": "time",
+                "name": null,
+                "show": true,
+                "values": []
+            },
+            "yaxes": [
+                {
+                    "$$hashKey": "object:628",
+                    "format": "ms/batch",
+                    "label": "",
+                    "logBase": 1,
+                    "max": null,
+                    "min": "0",
+                    "show": true
+                },
+                {
+                    "$$hashKey": "object:629",
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": true
+                }
+            ],
+            "yaxis": {
+                "align": false,
+                "alignLevel": null
+            }
+        },
+        {
+            "aliasColors": {},
+            "bars": false,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": "${datasource}",
+            "description": "Share of per-batch data loading time spent in each stage (production wait -> data transfer -> batching -> format -> collate -> finalize), across ranks, over the last ${window}. If exposed data loading time is 0, the stages do not contribute to training stall and are hidden by data loading pipelining; otherwise, use this graph to identify the offending stages.",
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 67
+            },
+            "fill": 10,
+            "fillGradient": 0,
+            "hiddenSeries": false,
+            "id": 19,
+            "legend": {
+                "alignAsTable": true,
+                "avg": true,
+                "current": true,
+                "hideEmpty": false,
+                "hideZero": true,
+                "max": true,
+                "min": false,
+                "rightSide": false,
+                "show": true,
+                "sort": "current",
+                "sortDesc": true,
+                "total": false,
+                "values": true
+            },
+            "lines": true,
+            "linewidth": 1,
+            "nullPointMode": "connected",
+            "options": {
+                "alertThreshold": true
+            },
+            "percentage": false,
+            "pluginVersion": "7.5.17",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX",
+                    "dashes": true,
+                    "color": "#1F60C4",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "$$hashKey": "object:78",
+                    "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                    "hiddenSeries": true
+                },
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX + PENDING",
+                    "dashes": true,
+                    "color": "#777777",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
+                }
+            ],
+            "spaceLength": 10,
+            "stack": true,
+            "steppedLine": false,
+            "targets": [
+                {
+                    "exemplar": true,
+                    "expr": "sum(rate(ray_data_iter_get_ref_bundles_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) / (sum(rate(ray_data_iter_get_ref_bundles_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_get_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_next_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_format_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_collate_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_finalize_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset))",
+                    "interval": "",
+                    "legendFormat": "Production Wait: {{dataset}}",
+                    "queryType": "randomWalk",
+                    "refId": "A"
+                },
+                {
+                    "exemplar": true,
+                    "expr": "sum(rate(ray_data_iter_get_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) / (sum(rate(ray_data_iter_get_ref_bundles_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_get_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_next_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_format_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_collate_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_finalize_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset))",
+                    "interval": "",
+                    "legendFormat": "Data Transfer: {{dataset}}",
+                    "queryType": "randomWalk",
+                    "refId": "B"
+                },
+                {
+                    "exemplar": true,
+                    "expr": "sum(rate(ray_data_iter_next_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) / (sum(rate(ray_data_iter_get_ref_bundles_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_get_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_next_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_format_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_collate_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_finalize_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset))",
+                    "interval": "",
+                    "legendFormat": "Batching: {{dataset}}",
+                    "queryType": "randomWalk",
+                    "refId": "C"
+                },
+                {
+                    "exemplar": true,
+                    "expr": "sum(rate(ray_data_iter_format_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) / (sum(rate(ray_data_iter_get_ref_bundles_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_get_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_next_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_format_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_collate_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_finalize_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset))",
+                    "interval": "",
+                    "legendFormat": "Format: {{dataset}}",
+                    "queryType": "randomWalk",
+                    "refId": "D"
+                },
+                {
+                    "exemplar": true,
+                    "expr": "sum(rate(ray_data_iter_collate_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) / (sum(rate(ray_data_iter_get_ref_bundles_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_get_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_next_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_format_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_collate_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_finalize_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset))",
+                    "interval": "",
+                    "legendFormat": "Collate: {{dataset}}",
+                    "queryType": "randomWalk",
+                    "refId": "E"
+                },
+                {
+                    "exemplar": true,
+                    "expr": "sum(rate(ray_data_iter_finalize_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) / (sum(rate(ray_data_iter_get_ref_bundles_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_get_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_next_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_format_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_collate_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset) + sum(rate(ray_data_iter_finalize_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset))",
+                    "interval": "",
+                    "legendFormat": "Finalize: {{dataset}}",
+                    "queryType": "randomWalk",
+                    "refId": "F"
+                }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "Percentage Data Loading Breakdown by Stage",
+            "tooltip": {
+                "shared": true,
+                "sort": 0,
+                "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+                "buckets": null,
+                "mode": "time",
+                "name": null,
+                "show": true,
+                "values": []
+            },
+            "yaxes": [
+                {
+                    "$$hashKey": "object:628",
+                    "format": "percentunit",
+                    "label": "",
+                    "logBase": 1,
+                    "max": null,
+                    "min": "0",
+                    "show": true
+                },
+                {
+                    "$$hashKey": "object:629",
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": true
+                }
+            ],
+            "yaxis": {
+                "align": false,
+                "alignLevel": null
+            }
+        },
+        {
+            "aliasColors": {},
+            "bars": false,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": "${datasource}",
+            "description": "Rows per second consumed by the training loop, one line per rank, averaged over the last ${window}.",
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "rowsps"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 75
+            },
+            "fill": 0,
+            "fillGradient": 0,
+            "hiddenSeries": false,
+            "id": 27,
+            "legend": {
+                "alignAsTable": true,
+                "avg": true,
+                "current": true,
+                "hideEmpty": false,
+                "hideZero": true,
+                "max": true,
+                "min": false,
+                "rightSide": false,
+                "show": true,
+                "sort": "current",
+                "sortDesc": true,
+                "total": false,
+                "values": true
+            },
+            "lines": true,
+            "linewidth": 1,
+            "nullPointMode": null,
+            "options": {
+                "alertThreshold": true
+            },
+            "percentage": false,
+            "pluginVersion": "7.5.17",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX",
+                    "dashes": true,
+                    "color": "#1F60C4",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "$$hashKey": "object:78",
+                    "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                    "hiddenSeries": true
+                },
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX + PENDING",
+                    "dashes": true,
+                    "color": "#777777",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
+                }
+            ],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+                {
+                    "exemplar": true,
+                    "expr": "sum(rate(ray_data_iter_rows_total{SessionName=~\"$SessionName\"}[$window])) by (dataset, split)",
+                    "interval": "",
+                    "legendFormat": "{{dataset}}, {{split}}",
+                    "queryType": "randomWalk",
+                    "refId": "A"
+                }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "Data Ingest Throughput by Rank",
+            "tooltip": {
+                "shared": true,
+                "sort": 0,
+                "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+                "buckets": null,
+                "mode": "time",
+                "name": null,
+                "show": true,
+                "values": []
+            },
+            "yaxes": [
+                {
+                    "$$hashKey": "object:628",
+                    "format": "rowsps",
+                    "label": "",
+                    "logBase": 1,
+                    "max": null,
+                    "min": "0",
+                    "show": true
+                },
+                {
+                    "$$hashKey": "object:629",
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": true
+                }
+            ],
+            "yaxis": {
+                "align": false,
+                "alignLevel": null
+            }
+        },
+        {
+            "aliasColors": {},
+            "bars": false,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": "${datasource}",
+            "description": "Rows/sec the Ray Data pipeline delivers to the training workers, over the last ${window}; only reported for datasets split across workers (DataConfig `datasets_to_split`), so non-split datasets show no data here.",
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "rowsps"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 75
+            },
+            "fill": 0,
+            "fillGradient": 0,
+            "hiddenSeries": false,
+            "id": 29,
+            "legend": {
+                "alignAsTable": true,
+                "avg": true,
+                "current": true,
+                "hideEmpty": false,
+                "hideZero": true,
+                "max": true,
+                "min": false,
+                "rightSide": false,
+                "show": true,
+                "sort": "current",
+                "sortDesc": true,
+                "total": false,
+                "values": true
+            },
+            "lines": true,
+            "linewidth": 1,
+            "nullPointMode": null,
+            "options": {
+                "alertThreshold": true
+            },
+            "percentage": false,
+            "pluginVersion": "7.5.17",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX",
+                    "dashes": true,
+                    "color": "#1F60C4",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "$$hashKey": "object:78",
+                    "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                    "hiddenSeries": true
+                },
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX + PENDING",
+                    "dashes": true,
+                    "color": "#777777",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
+                }
+            ],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+                {
+                    "exemplar": true,
+                    "expr": "sum(rate(ray_data_output_rows{operator=~\"split.*\", SessionName=~\"$SessionName\"}[$window])) by (dataset)",
+                    "interval": "",
+                    "legendFormat": "{{dataset}}",
+                    "queryType": "randomWalk",
+                    "refId": "A"
+                }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "Data Production Throughput",
+            "tooltip": {
+                "shared": true,
+                "sort": 0,
+                "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+                "buckets": null,
+                "mode": "time",
+                "name": null,
+                "show": true,
+                "values": []
+            },
+            "yaxes": [
+                {
+                    "$$hashKey": "object:628",
+                    "format": "rowsps",
+                    "label": "",
+                    "logBase": 1,
+                    "max": null,
+                    "min": "0",
+                    "show": true
+                },
+                {
+                    "$$hashKey": "object:629",
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": true
+                }
+            ],
+            "yaxis": {
+                "align": false,
+                "alignLevel": null
+            }
+        },
+        {
+            "aliasColors": {},
+            "bars": false,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": "${datasource}",
+            "description": "Average per-batch time the data loader spends waiting for the Ray Data pipeline to produce the next block, one line per rank, over the last ${window}. Use to identify data production stragglers.",
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms/batch"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 83
+            },
+            "fill": 0,
+            "fillGradient": 0,
+            "hiddenSeries": false,
+            "id": 30,
+            "legend": {
+                "alignAsTable": true,
+                "avg": true,
+                "current": true,
+                "hideEmpty": false,
+                "hideZero": true,
+                "max": true,
+                "min": false,
+                "rightSide": false,
+                "show": true,
+                "sort": "current",
+                "sortDesc": true,
+                "total": false,
+                "values": true
+            },
+            "lines": true,
+            "linewidth": 1,
+            "nullPointMode": null,
+            "options": {
+                "alertThreshold": true
+            },
+            "percentage": false,
+            "pluginVersion": "7.5.17",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX",
+                    "dashes": true,
+                    "color": "#1F60C4",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "$$hashKey": "object:78",
+                    "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                    "hiddenSeries": true
+                },
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX + PENDING",
+                    "dashes": true,
+                    "color": "#777777",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
+                }
+            ],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+                {
+                    "exemplar": true,
+                    "expr": "1000 * sum(rate(ray_data_iter_get_ref_bundles_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset, split) / sum(rate(ray_data_iter_batches_total{SessionName=~\"$SessionName\"}[$window])) by (dataset, split)",
+                    "interval": "",
+                    "legendFormat": "{{dataset}}, {{split}}",
+                    "queryType": "randomWalk",
+                    "refId": "A"
+                }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "Production Wait Time by Rank",
+            "tooltip": {
+                "shared": true,
+                "sort": 0,
+                "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+                "buckets": null,
+                "mode": "time",
+                "name": null,
+                "show": true,
+                "values": []
+            },
+            "yaxes": [
+                {
+                    "$$hashKey": "object:628",
+                    "format": "ms/batch",
+                    "label": "",
+                    "logBase": 1,
+                    "max": null,
+                    "min": "0",
+                    "show": true
+                },
+                {
+                    "$$hashKey": "object:629",
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": true
+                }
+            ],
+            "yaxis": {
+                "align": false,
+                "alignLevel": null
+            }
+        },
+        {
+            "aliasColors": {},
+            "bars": false,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": "${datasource}",
+            "description": "Average per-batch time spent resolving and transferring data blocks, one line per rank, over the last ${window}. Use to identify data transfer stragglers.",
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms/batch"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 83
+            },
+            "fill": 0,
+            "fillGradient": 0,
+            "hiddenSeries": false,
+            "id": 22,
+            "legend": {
+                "alignAsTable": true,
+                "avg": true,
+                "current": true,
+                "hideEmpty": false,
+                "hideZero": true,
+                "max": true,
+                "min": false,
+                "rightSide": false,
+                "show": true,
+                "sort": "current",
+                "sortDesc": true,
+                "total": false,
+                "values": true
+            },
+            "lines": true,
+            "linewidth": 1,
+            "nullPointMode": null,
+            "options": {
+                "alertThreshold": true
+            },
+            "percentage": false,
+            "pluginVersion": "7.5.17",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX",
+                    "dashes": true,
+                    "color": "#1F60C4",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "$$hashKey": "object:78",
+                    "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                    "hiddenSeries": true
+                },
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX + PENDING",
+                    "dashes": true,
+                    "color": "#777777",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
+                }
+            ],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+                {
+                    "exemplar": true,
+                    "expr": "1000 * sum(rate(ray_data_iter_get_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset, split) / sum(rate(ray_data_iter_batches_total{SessionName=~\"$SessionName\"}[$window])) by (dataset, split)",
+                    "interval": "",
+                    "legendFormat": "{{dataset}}, {{split}}",
+                    "queryType": "randomWalk",
+                    "refId": "A"
+                }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "Data Transfer Time by Rank",
+            "tooltip": {
+                "shared": true,
+                "sort": 0,
+                "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+                "buckets": null,
+                "mode": "time",
+                "name": null,
+                "show": true,
+                "values": []
+            },
+            "yaxes": [
+                {
+                    "$$hashKey": "object:628",
+                    "format": "ms/batch",
+                    "label": "",
+                    "logBase": 1,
+                    "max": null,
+                    "min": "0",
+                    "show": true
+                },
+                {
+                    "$$hashKey": "object:629",
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": true
+                }
+            ],
+            "yaxis": {
+                "align": false,
+                "alignLevel": null
+            }
+        },
+        {
+            "aliasColors": {},
+            "bars": false,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": "${datasource}",
+            "description": "Average per-batch time spent building batches (slicing, local shuffle), one line per rank, over the last ${window}. Use to identify batching stragglers.",
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms/batch"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 91
+            },
+            "fill": 0,
+            "fillGradient": 0,
+            "hiddenSeries": false,
+            "id": 23,
+            "legend": {
+                "alignAsTable": true,
+                "avg": true,
+                "current": true,
+                "hideEmpty": false,
+                "hideZero": true,
+                "max": true,
+                "min": false,
+                "rightSide": false,
+                "show": true,
+                "sort": "current",
+                "sortDesc": true,
+                "total": false,
+                "values": true
+            },
+            "lines": true,
+            "linewidth": 1,
+            "nullPointMode": null,
+            "options": {
+                "alertThreshold": true
+            },
+            "percentage": false,
+            "pluginVersion": "7.5.17",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX",
+                    "dashes": true,
+                    "color": "#1F60C4",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "$$hashKey": "object:78",
+                    "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                    "hiddenSeries": true
+                },
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX + PENDING",
+                    "dashes": true,
+                    "color": "#777777",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
+                }
+            ],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+                {
+                    "exemplar": true,
+                    "expr": "1000 * sum(rate(ray_data_iter_next_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset, split) / sum(rate(ray_data_iter_batches_total{SessionName=~\"$SessionName\"}[$window])) by (dataset, split)",
+                    "interval": "",
+                    "legendFormat": "{{dataset}}, {{split}}",
+                    "queryType": "randomWalk",
+                    "refId": "A"
+                }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "Batching Time by Rank",
+            "tooltip": {
+                "shared": true,
+                "sort": 0,
+                "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+                "buckets": null,
+                "mode": "time",
+                "name": null,
+                "show": true,
+                "values": []
+            },
+            "yaxes": [
+                {
+                    "$$hashKey": "object:628",
+                    "format": "ms/batch",
+                    "label": "",
+                    "logBase": 1,
+                    "max": null,
+                    "min": "0",
+                    "show": true
+                },
+                {
+                    "$$hashKey": "object:629",
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": true
+                }
+            ],
+            "yaxis": {
+                "align": false,
+                "alignLevel": null
+            }
+        },
+        {
+            "aliasColors": {},
+            "bars": false,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": "${datasource}",
+            "description": "Average per-batch time spent converting blocks to the batch format, one line per rank, over the last ${window}. Use to identify formatting stragglers.",
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms/batch"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 91
+            },
+            "fill": 0,
+            "fillGradient": 0,
+            "hiddenSeries": false,
+            "id": 24,
+            "legend": {
+                "alignAsTable": true,
+                "avg": true,
+                "current": true,
+                "hideEmpty": false,
+                "hideZero": true,
+                "max": true,
+                "min": false,
+                "rightSide": false,
+                "show": true,
+                "sort": "current",
+                "sortDesc": true,
+                "total": false,
+                "values": true
+            },
+            "lines": true,
+            "linewidth": 1,
+            "nullPointMode": null,
+            "options": {
+                "alertThreshold": true
+            },
+            "percentage": false,
+            "pluginVersion": "7.5.17",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX",
+                    "dashes": true,
+                    "color": "#1F60C4",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "$$hashKey": "object:78",
+                    "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                    "hiddenSeries": true
+                },
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX + PENDING",
+                    "dashes": true,
+                    "color": "#777777",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
+                }
+            ],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+                {
+                    "exemplar": true,
+                    "expr": "1000 * sum(rate(ray_data_iter_format_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset, split) / sum(rate(ray_data_iter_batches_total{SessionName=~\"$SessionName\"}[$window])) by (dataset, split)",
+                    "interval": "",
+                    "legendFormat": "{{dataset}}, {{split}}",
+                    "queryType": "randomWalk",
+                    "refId": "A"
+                }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "Format Time by Rank",
+            "tooltip": {
+                "shared": true,
+                "sort": 0,
+                "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+                "buckets": null,
+                "mode": "time",
+                "name": null,
+                "show": true,
+                "values": []
+            },
+            "yaxes": [
+                {
+                    "$$hashKey": "object:628",
+                    "format": "ms/batch",
+                    "label": "",
+                    "logBase": 1,
+                    "max": null,
+                    "min": "0",
+                    "show": true
+                },
+                {
+                    "$$hashKey": "object:629",
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": true
+                }
+            ],
+            "yaxis": {
+                "align": false,
+                "alignLevel": null
+            }
+        },
+        {
+            "aliasColors": {},
+            "bars": false,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": "${datasource}",
+            "description": "Average per-batch time spent in the user collate function, one line per rank, over the last ${window}. Use to identify collation stragglers.",
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms/batch"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 99
+            },
+            "fill": 0,
+            "fillGradient": 0,
+            "hiddenSeries": false,
+            "id": 25,
+            "legend": {
+                "alignAsTable": true,
+                "avg": true,
+                "current": true,
+                "hideEmpty": false,
+                "hideZero": true,
+                "max": true,
+                "min": false,
+                "rightSide": false,
+                "show": true,
+                "sort": "current",
+                "sortDesc": true,
+                "total": false,
+                "values": true
+            },
+            "lines": true,
+            "linewidth": 1,
+            "nullPointMode": null,
+            "options": {
+                "alertThreshold": true
+            },
+            "percentage": false,
+            "pluginVersion": "7.5.17",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX",
+                    "dashes": true,
+                    "color": "#1F60C4",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "$$hashKey": "object:78",
+                    "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                    "hiddenSeries": true
+                },
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX + PENDING",
+                    "dashes": true,
+                    "color": "#777777",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
+                }
+            ],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+                {
+                    "exemplar": true,
+                    "expr": "1000 * sum(rate(ray_data_iter_collate_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset, split) / sum(rate(ray_data_iter_batches_total{SessionName=~\"$SessionName\"}[$window])) by (dataset, split)",
+                    "interval": "",
+                    "legendFormat": "{{dataset}}, {{split}}",
+                    "queryType": "randomWalk",
+                    "refId": "A"
+                }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "Collate Time by Rank",
+            "tooltip": {
+                "shared": true,
+                "sort": 0,
+                "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+                "buckets": null,
+                "mode": "time",
+                "name": null,
+                "show": true,
+                "values": []
+            },
+            "yaxes": [
+                {
+                    "$$hashKey": "object:628",
+                    "format": "ms/batch",
+                    "label": "",
+                    "logBase": 1,
+                    "max": null,
+                    "min": "0",
+                    "show": true
+                },
+                {
+                    "$$hashKey": "object:629",
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": true
+                }
+            ],
+            "yaxis": {
+                "align": false,
+                "alignLevel": null
+            }
+        },
+        {
+            "aliasColors": {},
+            "bars": false,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": "${datasource}",
+            "description": "Average per-batch time spent in finalize (e.g. host-to-device transfer), one line per rank, over the last ${window}. Use to identify finalization stragglers.",
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms/batch"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 99
+            },
+            "fill": 0,
+            "fillGradient": 0,
+            "hiddenSeries": false,
+            "id": 26,
+            "legend": {
+                "alignAsTable": true,
+                "avg": true,
+                "current": true,
+                "hideEmpty": false,
+                "hideZero": true,
+                "max": true,
+                "min": false,
+                "rightSide": false,
+                "show": true,
+                "sort": "current",
+                "sortDesc": true,
+                "total": false,
+                "values": true
+            },
+            "lines": true,
+            "linewidth": 1,
+            "nullPointMode": null,
+            "options": {
+                "alertThreshold": true
+            },
+            "percentage": false,
+            "pluginVersion": "7.5.17",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX",
+                    "dashes": true,
+                    "color": "#1F60C4",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "$$hashKey": "object:78",
+                    "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                    "hiddenSeries": true
+                },
+                {
+                    "$$hashKey": "object:2987",
+                    "alias": "MAX + PENDING",
+                    "dashes": true,
+                    "color": "#777777",
+                    "fill": 0,
+                    "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
+                }
+            ],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+                {
+                    "exemplar": true,
+                    "expr": "1000 * sum(rate(ray_data_iter_finalize_batch_seconds{SessionName=~\"$SessionName\"}[$window])) by (dataset, split) / sum(rate(ray_data_iter_batches_total{SessionName=~\"$SessionName\"}[$window])) by (dataset, split)",
+                    "interval": "",
+                    "legendFormat": "{{dataset}}, {{split}}",
+                    "queryType": "randomWalk",
+                    "refId": "A"
+                }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "Finalize Time by Rank",
+            "tooltip": {
+                "shared": true,
+                "sort": 0,
+                "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+                "buckets": null,
+                "mode": "time",
+                "name": null,
+                "show": true,
+                "values": []
+            },
+            "yaxes": [
+                {
+                    "$$hashKey": "object:628",
+                    "format": "ms/batch",
+                    "label": "",
+                    "logBase": 1,
+                    "max": null,
+                    "min": "0",
+                    "show": true
+                },
+                {
+                    "$$hashKey": "object:629",
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": true
+                }
+            ],
+            "yaxis": {
+                "align": false,
+                "alignLevel": null
+            }
         }
     ],
     "time": {
@@ -2256,6 +3709,45 @@
                 "current": {
                     "selected": false
                 }
+            },
+            {
+                "name": "window",
+                "label": "Window",
+                "type": "interval",
+                "description": "Averaging window for rate() calculations. Use a smaller window to surface spikes, a larger window to smooth out the whole run.",
+                "query": "30s,1m,5m,15m",
+                "options": [
+                    {
+                        "selected": false,
+                        "text": "30s",
+                        "value": "30s"
+                    },
+                    {
+                        "selected": true,
+                        "text": "1m",
+                        "value": "1m"
+                    },
+                    {
+                        "selected": false,
+                        "text": "5m",
+                        "value": "5m"
+                    },
+                    {
+                        "selected": false,
+                        "text": "15m",
+                        "value": "15m"
+                    }
+                ],
+                "current": {
+                    "selected": true,
+                    "text": "1m",
+                    "value": "1m"
+                },
+                "auto": false,
+                "auto_count": 30,
+                "auto_min": "10s",
+                "refresh": 2,
+                "hide": 0
             },
             {
                 "name": "SessionName",
@@ -2501,7 +3993,7 @@
         ]
     },
     "tags": [
-        "rayVersion:2.56.0"
+        "rayVersion:2.58.0"
     ],
     "rayMeta": [
         "supportsGlobalFilterOverride"

@@ -9,7 +9,8 @@
     - pushd ray-operator
     - |
       for attempt in 1 2; do
-        if source ../.buildkite/build-start-operator.sh; then
+        # Use bash to propagate the script's failure status and trigger the retry on failure.
+        if bash ../.buildkite/build-start-operator.sh; then
           break
         fi
         if [ "$attempt" -eq 2 ]; then
@@ -31,7 +32,7 @@
     - popd
     # Setup Python environment and install Python client
     - echo "--- START:Setting up Python environment"
-    - pushd clients/python-client
+    - pushd clients/kuberay-client
     - python3 -m venv venv
     - source venv/bin/activate
     - pip install -e .
@@ -39,5 +40,5 @@
     # Run Python client tests
     - echo "--- START:Running Python client tests"
     - set -o pipefail
-    - pytest python_client_test/ -v || (kubectl logs --tail=50 -l app.kubernetes.io/name=kuberay && exit 1)
+    - pytest kuberay_client_test/ -v || (kubectl logs --tail=50 -l app.kubernetes.io/name=kuberay && exit 1)
     - echo "--- END:Python client tests finished"

@@ -3,12 +3,16 @@ package historyserver
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
-	"reflect"
+	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/ray-project/kuberay/historyserver/pkg/eventserver"
 	eventtypes "github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
@@ -64,19 +68,32 @@ func TestParseSessionCacheMaxMemory(t *testing.T) {
 
 // fakeProcessor is a configurable test double for processor.
 type fakeProcessor struct {
-	calls int32
-	fn    func(ctx context.Context, info utils.ClusterInfo) (SessionStatus, *eventserver.SessionSnapshot, error)
+	calls     atomic.Int32
+	deadCalls atomic.Int32
+	fn        func(ctx context.Context, info utils.ClusterInfo) (SessionStatus, *eventserver.SessionSnapshot, error)
+	// dead is what IsDead reports.
+	dead atomic.Bool
+	// deadErr, when set, is returned by IsDead instead of dead.
+	deadErr error
+}
+
+func (f *fakeProcessor) IsDead(context.Context, utils.ClusterInfo) (bool, error) {
+	f.deadCalls.Add(1)
+	if f.deadErr != nil {
+		return false, f.deadErr
+	}
+	return f.dead.Load(), nil
 }
 
 func (f *fakeProcessor) ProcessSession(ctx context.Context, info utils.ClusterInfo) (SessionStatus, *eventserver.SessionSnapshot, error) {
-	atomic.AddInt32(&f.calls, 1)
+	f.calls.Add(1)
 	if f.fn == nil {
 		return SessionStatusProcessed, &eventserver.SessionSnapshot{}, nil
 	}
 	return f.fn(ctx, info)
 }
 
-func (f *fakeProcessor) callCount() int32 { return atomic.LoadInt32(&f.calls) }
+func (f *fakeProcessor) callCount() int32 { return f.calls.Load() }
 
 func (f *fakeProcessor) setFn(fn func(ctx context.Context, info utils.ClusterInfo) (SessionStatus, *eventserver.SessionSnapshot, error)) {
 	f.fn = fn
@@ -94,7 +111,7 @@ func newTestLoader(t *testing.T, p processor, cfg loaderTestConfig) *SessionLoad
 	if cacheSize <= 0 {
 		cacheSize = DefaultSessionCacheSize
 	}
-	return NewSessionLoader(p, context.Background(), DefaultSessionProcessTimeout, cacheSize, cfg.maxBytes, cfg.cacheTTL)
+	return NewSessionLoader(context.Background(), p, DefaultSessionProcessTimeout, cacheSize, cfg.maxBytes, cfg.cacheTTL)
 }
 
 func testClusterInfo() utils.ClusterInfo {
@@ -182,7 +199,7 @@ func TestLoadSession_ProcessorError(t *testing.T) {
 		const n = 5
 		var wg sync.WaitGroup
 		errs := make([]error, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			wg.Add(1)
 			go func(idx int) {
 				defer wg.Done()
@@ -283,7 +300,7 @@ func TestLoadSession_FastPath_SkipsSingleflight(t *testing.T) {
 	}
 
 	// Subsequent calls: fast path, processor must NOT be invoked again.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if _, err := sl.LoadSession(context.Background(), info); err != nil {
 			t.Fatalf("fast path LoadSession #%d: %v", i, err)
 		}
@@ -300,7 +317,7 @@ func TestGetSnapshot_PutThenGet(t *testing.T) {
 
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{})
 	stored := testSnapshot(key)
-	sl.putSnapshot(key, stored)
+	require.NoError(t, sl.putSnapshot(key, stored, utils.ClusterInfo{}, false))
 
 	got, ok := sl.GetSnapshot(key)
 	if !ok {
@@ -311,10 +328,45 @@ func TestGetSnapshot_PutThenGet(t *testing.T) {
 	}
 }
 
+// TestGetSnapshot_SharesDecodedCopyWhileHeld verifies that while a caller still
+// holds the decoded snapshot, further GetSnapshot calls return that same pointer
+// instead of decoding again.
+func TestGetSnapshot_SharesDecodedCopyWhileHeld(t *testing.T) {
+	key := testClusterSessionKey()
+	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{})
+	stored := testSnapshot(key)
+	require.NoError(t, sl.putSnapshot(key, stored, utils.ClusterInfo{}, false))
+
+	want, ok := sl.GetSnapshot(key)
+	if !ok {
+		t.Fatal("GetSnapshot: ok=false")
+	}
+	for i := range 3 {
+		if got, ok := sl.GetSnapshot(key); !ok || got != want {
+			t.Fatalf("GetSnapshot #%d returned a different decoded copy", i+1)
+		}
+	}
+}
+
 // TestGetSnapshot_ColdMiss verifies that a miss returns (nil, false).
 func TestGetSnapshot_ColdMiss(t *testing.T) {
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{})
 	requireSnapshotCached(t, sl, testClusterSessionKey(), false)
+}
+
+// TestGetSnapshot_CorruptEntry_TreatedAsMiss verifies that a non-decodable cache
+// entry is dropped and reported as a miss instead of panicking.
+func TestGetSnapshot_CorruptEntry_TreatedAsMiss(t *testing.T) {
+	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{})
+	sl.cache.Add("corrupt", &cacheEntry{encoded: []byte("{not valid json")})
+
+	snap, ok := sl.GetSnapshot("corrupt")
+	if ok || snap != nil {
+		t.Fatalf("corrupt entry: got (%v, %v), want (nil, false)", snap, ok)
+	}
+	if _, stillCached := sl.cache.Get("corrupt"); stillCached {
+		t.Fatal("corrupt entry should have been dropped")
+	}
 }
 
 // TestGetSnapshot_PutOverwrites verifies that putSnapshot replaces any prior entry.
@@ -327,8 +379,8 @@ func TestGetSnapshot_PutOverwrites(t *testing.T) {
 	fresh.Tasks = []eventtypes.Task{{TaskID: "fresh-task"}}
 
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{})
-	sl.putSnapshot(key, stale)
-	sl.putSnapshot(key, fresh)
+	require.NoError(t, sl.putSnapshot(key, stale, utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(key, fresh, utils.ClusterInfo{}, false))
 
 	got, ok := sl.GetSnapshot(key)
 	if !ok {
@@ -339,72 +391,81 @@ func TestGetSnapshot_PutOverwrites(t *testing.T) {
 	}
 }
 
-// TestGetSnapshot_ConcurrentReadsAreThreadSafe verifies the thread-safety
-// of the byte cache under data race detection (-race).
+// TestGetSnapshot_ConcurrentReadsAreThreadSafe verifies that concurrent
+// putSnapshot/GetSnapshot calls are free of data races (-race).
 func TestGetSnapshot_ConcurrentReadsAreThreadSafe(t *testing.T) {
 	key := testClusterSessionKey()
 
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{})
-	sl.putSnapshot(key, richSnapshot(key))
+	require.NoError(t, sl.putSnapshot(key, richSnapshot(key), utils.ClusterInfo{}, false))
 
 	const goroutines = 50
 	var wg sync.WaitGroup
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := sl.putSnapshot(key, richSnapshot(key)); err != nil {
+	for range goroutines {
+		wg.Go(func() {
+			if err := sl.putSnapshot(key, richSnapshot(key), utils.ClusterInfo{}, false); err != nil {
 				t.Errorf("putSnapshot: %v", err)
 			}
-		}()
+		})
 	}
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			mine, ok := sl.GetSnapshot(key)
+	for range goroutines {
+		wg.Go(func() {
+			snap, ok := sl.GetSnapshot(key)
 			if !ok {
 				t.Errorf("GetSnapshot: unexpected miss")
 				return
 			}
-			mine.Actors["actor-e2e-cafe"] = eventtypes.Actor{ActorID: "MUTATED"}
-			delete(mine.Nodes, "node-e2e-dead")
-			mine.Jobs["injected"] = eventtypes.Job{}
-
-			fresh, ok := sl.GetSnapshot(key)
-			if !ok {
-				t.Errorf("GetSnapshot: unexpected miss on re-read")
-				return
+			if snap.Actors["actor-e2e-cafe"].ActorID != "actor-e2e-cafe" {
+				t.Errorf("unexpected snapshot content")
 			}
-			if fresh.Actors["actor-e2e-cafe"].ActorID != "actor-e2e-cafe" {
-				t.Errorf("Actors map leaked across requests")
-			}
-			if _, ok := fresh.Nodes["node-e2e-dead"]; !ok {
-				t.Errorf("Nodes map leaked across requests")
-			}
-			if _, ok := fresh.Jobs["injected"]; ok {
-				t.Errorf("Jobs map leaked across requests")
-			}
-		}()
+		})
 	}
 
 	wg.Wait()
 }
 
-// TestGetSnapshot_CorruptEntry_TreatedAsMiss verifies that a non-decodable cache
-// entry is dropped and reported as a miss instead of panicking.
-func TestGetSnapshot_CorruptEntry_TreatedAsMiss(t *testing.T) {
+// TestSnapshotConsumers_DoNotMutateSharedSnapshot runs the snapshot consumers
+// concurrently on one cached snapshot and verifies it is unchanged afterwards.
+func TestSnapshotConsumers_DoNotMutateSharedSnapshot(t *testing.T) {
+	key := testClusterSessionKey()
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{})
-	sl.cache.Add("corrupt", []byte("{not valid json"))
-
-	snap, ok := sl.GetSnapshot("corrupt")
-	if ok || snap != nil {
-		t.Fatalf("corrupt entry: got (%v, %v), want (nil, false)", snap, ok)
+	stored := richSnapshot(key)
+	// Store tasks out of order so an in-place sort would actually move elements.
+	slices.Reverse(stored.Tasks)
+	require.NoError(t, sl.putSnapshot(key, stored, utils.ClusterInfo{}, false))
+	snap, ok := sl.GetSnapshot(key)
+	if !ok {
+		t.Fatal("GetSnapshot: ok=false")
 	}
-	if _, stillCached := sl.cache.Get("corrupt"); stillCached {
-		t.Fatal("corrupt entry should have been dropped")
+
+	// Marshal freezes an independent copy of the snapshot's state as bytes for
+	// before/after comparison.
+	before, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Go(func() {
+			utils.ApplyTaskFilters(snap.Tasks, utils.ListAPIOptions{Limit: utils.DefaultLimit})
+			getTasksTimeline(snap, "")
+			GetLastTimestamp(snap.Tasks, nil)
+			b := NewClusterStatusBuilder()
+			b.AddFailedNodesFromNodes(snap.Nodes)
+			b.AddPendingDemandsFromTasks(snap.Tasks)
+		})
+	}
+	wg.Wait()
+
+	after, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("a snapshot consumer mutated the shared snapshot")
 	}
 }
 
@@ -416,10 +477,10 @@ func TestGetSnapshot_LRUEviction(t *testing.T) {
 	k3 := testClusterSessionKeyFor("session_2026-04-22_12-00-00_000000_1")
 
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheSize: 2})
-	sl.putSnapshot(k1, testSnapshot(k1))
-	sl.putSnapshot(k2, testSnapshot(k2))
+	require.NoError(t, sl.putSnapshot(k1, testSnapshot(k1), utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(k2, testSnapshot(k2), utils.ClusterInfo{}, false))
 	// Third session evicts the first (LRU).
-	sl.putSnapshot(k3, testSnapshot(k3))
+	require.NoError(t, sl.putSnapshot(k3, testSnapshot(k3), utils.ClusterInfo{}, false))
 
 	requireSnapshotCached(t, sl, k1, false)
 	requireSnapshotCached(t, sl, k2, true)
@@ -433,7 +494,7 @@ func TestGetSnapshot_TTLExpiry(t *testing.T) {
 
 	const ttl = 30 * time.Millisecond
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheTTL: ttl})
-	sl.putSnapshot(key, testSnapshot(key))
+	require.NoError(t, sl.putSnapshot(key, testSnapshot(key), utils.ClusterInfo{}, false))
 
 	requireSnapshotCached(t, sl, key, true)
 
@@ -448,7 +509,7 @@ func TestGetSnapshot_SlidingTTLRenewal(t *testing.T) {
 
 	const ttl = 30 * time.Millisecond
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheTTL: ttl})
-	sl.putSnapshot(key, testSnapshot(key))
+	require.NoError(t, sl.putSnapshot(key, testSnapshot(key), utils.ClusterInfo{}, false))
 
 	deadline := time.Now().Add(100 * time.Millisecond)
 	for time.Now().Before(deadline) {
@@ -469,12 +530,12 @@ func TestCache_ByteBudgetEviction(t *testing.T) {
 	s1 := richSnapshot(olderKey)
 
 	// Budget large enough for one richSnapshot but not two.
-	enc1, _ := encodeSnapshot(s1)
+	enc1, _ := json.Marshal(s1)
 	maxBytes := len(enc1) + 1
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheSize: 1000, maxBytes: maxBytes})
 
-	sl.putSnapshot(olderKey, s1)
-	sl.putSnapshot(newerKey, richSnapshot(newerKey))
+	require.NoError(t, sl.putSnapshot(olderKey, s1, utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(newerKey, richSnapshot(newerKey), utils.ClusterInfo{}, false))
 
 	requireSnapshotCached(t, sl, olderKey, false)
 	requireSnapshotCached(t, sl, newerKey, true)
@@ -488,52 +549,11 @@ func TestCache_ByteBudgetEviction(t *testing.T) {
 func TestCache_ByteBudgetKeepsOversizedSoleEntry(t *testing.T) {
 	key := testClusterSessionKey()
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheSize: 1000, maxBytes: 1})
-	sl.putSnapshot(key, richSnapshot(key))
+	require.NoError(t, sl.putSnapshot(key, richSnapshot(key), utils.ClusterInfo{}, false))
 
 	requireSnapshotCached(t, sl, key, true)
 	if entries, total := sl.cache.Len(), sl.totalBytes(); entries != 1 || total <= sl.maxBytes {
 		t.Fatalf("oversized sole entry: got (entries=%d, bytes=%d), want (1, >%d)", entries, total, sl.maxBytes)
-	}
-}
-
-// TestSnapshotCache_RoundTripPreservesData verifies the encode/decode round-trip
-// is lossless.
-func TestSnapshotCache_RoundTripPreservesData(t *testing.T) {
-	snap := richSnapshot(testClusterSessionKey())
-
-	b1, err := encodeSnapshot(snap)
-	if err != nil {
-		t.Fatalf("encode: %v", err)
-	}
-	got, err := decodeSnapshot(b1)
-	if err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	b2, err := encodeSnapshot(got)
-	if err != nil {
-		t.Fatalf("re-encode: %v", err)
-	}
-	if !bytes.Equal(b1, b2) {
-		t.Fatalf("round-trip changed the snapshot:\n before=%s\n  after=%s", b1, b2)
-	}
-
-	// byte equality can hide int to float64 drift inside map[string]any after JSON unmarshal.
-	wantCF := snap.LogEventsByJobID["job-e2e-aaaa"][0].CustomFields
-	gotCF := got.LogEventsByJobID["job-e2e-aaaa"][0].CustomFields
-	if !reflect.DeepEqual(wantCF, gotCF) {
-		t.Fatalf("CustomFields round-trip mismatch:\n want=%#v\n  got=%#v", wantCF, gotCF)
-	}
-
-	wantTask, gotTask := snap.Tasks[0], got.Tasks[0]
-	if gotTask.State != wantTask.State ||
-		!gotTask.CreationTime.Equal(wantTask.CreationTime) ||
-		!gotTask.StartTime.Equal(wantTask.StartTime) ||
-		!gotTask.EndTime.Equal(wantTask.EndTime) {
-		t.Fatalf("Task derived fields lost in round-trip:\n want=%+v\n  got=%+v", wantTask, gotTask)
-	}
-	if got.Actors["actor-e2e-cafe"].State != snap.Actors["actor-e2e-cafe"].State {
-		t.Fatalf("Actor.State lost in round-trip: want=%q got=%q",
-			snap.Actors["actor-e2e-cafe"].State, got.Actors["actor-e2e-cafe"].State)
 	}
 }
 
@@ -595,4 +615,178 @@ func richSnapshot(clusterSessionKey string) *eventserver.SessionSnapshot {
 			},
 		},
 	}
+}
+
+// newRunningBuiltLoader returns a loader holding a "stale" snapshot built while
+// the cluster was running (needsRevalidation=true). Later ProcessSession calls,
+// i.e. the reloads, go to reloadFn.
+func newRunningBuiltLoader(t *testing.T, reloadFn func(ctx context.Context) (SessionStatus, *eventserver.SessionSnapshot, error)) (*SessionLoader, *fakeProcessor) {
+	t.Helper()
+	fp := &fakeProcessor{}
+	fp.setFn(func(ctx context.Context, _ utils.ClusterInfo) (SessionStatus, *eventserver.SessionSnapshot, error) {
+		if fp.callCount() == 1 {
+			return SessionStatusProcessedRunning, testSnapshot("stale"), nil
+		}
+		return reloadFn(ctx)
+	})
+	sl := newTestLoader(t, fp, loaderTestConfig{})
+	_, err := sl.LoadSession(context.Background(), testClusterInfo())
+	require.NoError(t, err)
+	return sl, fp
+}
+
+// expireLivenessThrottle makes the next Revalidate call check liveness, standing
+// in for livenessCheckInterval passing. It first waits for the previous
+// background check, as a real interval would have.
+func expireLivenessThrottle(t *testing.T, sl *SessionLoader) *cacheEntry {
+	t.Helper()
+	sl.Wait()
+	entry, ok := sl.cache.Peek(testClusterSessionKey())
+	require.True(t, ok)
+	entry.livenessMu.Lock()
+	entry.lastLivenessCheck = time.Time{}
+	entry.livenessMu.Unlock()
+	return entry
+}
+
+// TestRevalidate_ReloadsAfterSecondDeadSighting verifies that the first NotFound
+// only starts the grace period, and the second one reloads the snapshot into a
+// final entry that is no longer revalidated.
+func TestRevalidate_ReloadsAfterSecondDeadSighting(t *testing.T) {
+	sl, fp := newRunningBuiltLoader(t, func(context.Context) (SessionStatus, *eventserver.SessionSnapshot, error) {
+		return SessionStatusProcessed, testSnapshot("fresh"), nil
+	})
+	fp.dead.Store(true)
+	key := testClusterSessionKey()
+
+	// First NotFound: grace period, ProcessSession is still at the initial load only.
+	expireLivenessThrottle(t, sl)
+	sl.Revalidate(key)
+	sl.Wait()
+	require.Equal(t, int32(1), fp.callCount(), "first dead sighting is a grace period, not a reload")
+
+	// Second NotFound: background reload replaces the entry.
+	expireLivenessThrottle(t, sl)
+	sl.Revalidate(key)
+	sl.Wait()
+
+	snap, ok := sl.GetSnapshot(key)
+	require.True(t, ok)
+	require.Equal(t, "fresh", snap.SessionKey)
+	entry, _ := sl.cache.Peek(key)
+	entry.livenessMu.Lock()
+	defer entry.livenessMu.Unlock()
+	require.False(t, entry.needsRevalidation)
+}
+
+// TestReload_KeepsRevalidationUntilBackgroundReload verifies that a manual Reload
+// issued right after the RayCluster CR is deleted, while the collector may still
+// be uploading, does not end revalidation. Revalidate still reloads once more
+// after two NotFound sightings and only then marks the entry final.
+func TestReload_KeepsRevalidationUntilBackgroundReload(t *testing.T) {
+	var reloads atomic.Int32
+	sl, fp := newRunningBuiltLoader(t, func(context.Context) (SessionStatus, *eventserver.SessionSnapshot, error) {
+		return SessionStatusProcessed, testSnapshot(fmt.Sprintf("reload-%d", reloads.Add(1))), nil
+	})
+	fp.dead.Store(true)
+	key := testClusterSessionKey()
+
+	// Manual reload while the CR is already gone.
+	_, err := sl.Reload(context.Background(), testClusterInfo())
+	require.NoError(t, err)
+	snap, _ := sl.GetSnapshot(key)
+	require.Equal(t, "reload-1", snap.SessionKey)
+
+	// Two NotFound sightings still trigger the background reload.
+	expireLivenessThrottle(t, sl)
+	sl.Revalidate(key)
+	expireLivenessThrottle(t, sl)
+	sl.Revalidate(key)
+	sl.Wait()
+
+	snap, _ = sl.GetSnapshot(key)
+	require.Equal(t, "reload-2", snap.SessionKey)
+	entry, _ := sl.cache.Peek(key)
+	entry.livenessMu.Lock()
+	defer entry.livenessMu.Unlock()
+	require.False(t, entry.needsRevalidation, "background reload marks the entry final")
+}
+
+// TestRevalidate_ThrottlesLivenessChecks verifies that Revalidate sends at most
+// one Kubernetes GET per livenessCheckInterval.
+func TestRevalidate_ThrottlesLivenessChecks(t *testing.T) {
+	sl, fp := newRunningBuiltLoader(t, nil)
+	key := testClusterSessionKey()
+
+	// A fresh entry was just checked by ProcessSession, so no GET yet.
+	sl.Revalidate(key)
+	sl.Wait()
+	require.Equal(t, int32(0), fp.deadCalls.Load())
+
+	// Once the interval passes, only the first of several requests checks.
+	expireLivenessThrottle(t, sl)
+	for range 3 {
+		sl.Revalidate(key)
+	}
+	sl.Wait()
+	require.Equal(t, int32(1), fp.deadCalls.Load())
+}
+
+// TestRevalidate_ReloadFailureKeepsStaleSnapshot verifies that a failed reload
+// keeps serving the old snapshot and stays ready to retry on the next interval.
+func TestRevalidate_ReloadFailureKeepsStaleSnapshot(t *testing.T) {
+	// Let the processor return an error on reload.
+	sl, fp := newRunningBuiltLoader(t, func(context.Context) (SessionStatus, *eventserver.SessionSnapshot, error) {
+		return SessionStatusEventsErr, nil, errors.New("boom")
+	})
+	fp.dead.Store(true)
+	key := testClusterSessionKey()
+
+	// Two NotFound sightings trigger a reload, which fails.
+	expireLivenessThrottle(t, sl)
+	sl.Revalidate(key)
+	expireLivenessThrottle(t, sl)
+	sl.Revalidate(key)
+	sl.Wait()
+
+	require.Equal(t, int32(2), fp.callCount(), "reload must have been attempted")
+	snap, ok := sl.GetSnapshot(key)
+	require.True(t, ok)
+	// Still returns the stale snapshot because the reload failed.
+	require.Equal(t, "stale", snap.SessionKey)
+	entry, _ := sl.cache.Peek(key)
+	entry.livenessMu.Lock()
+	defer entry.livenessMu.Unlock()
+	require.True(t, entry.seenDead, "seenDead must stay set so the next interval retries")
+}
+
+// TestRevalidate_CheckErrorKeepsGracePeriod verifies that a failed liveness check
+// counts as no observation, so NotFound -> error -> NotFound still reloads.
+func TestRevalidate_CheckErrorKeepsGracePeriod(t *testing.T) {
+	sl, fp := newRunningBuiltLoader(t, func(context.Context) (SessionStatus, *eventserver.SessionSnapshot, error) {
+		return SessionStatusProcessed, testSnapshot("fresh"), nil
+	})
+	fp.dead.Store(true)
+	key := testClusterSessionKey()
+
+	// First NotFound, then a failed check.
+	expireLivenessThrottle(t, sl)
+	sl.Revalidate(key)
+	sl.Wait()
+	fp.deadErr = errors.New("apiserver unavailable")
+	expireLivenessThrottle(t, sl)
+	sl.Revalidate(key)
+	sl.Wait()
+	require.Equal(t, int32(1), fp.callCount(), "a failed check must not trigger a reload")
+
+	// The next NotFound is still the second sighting.
+	fp.deadErr = nil
+	expireLivenessThrottle(t, sl)
+	sl.Revalidate(key)
+	sl.Wait()
+
+	// Reload is still triggered, so we get fresh data.
+	snap, ok := sl.GetSnapshot(key)
+	require.True(t, ok)
+	require.Equal(t, "fresh", snap.SessionKey)
 }

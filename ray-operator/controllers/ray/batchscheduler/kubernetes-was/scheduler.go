@@ -1,7 +1,7 @@
 // Package kuberneteswas selects a versioned Kubernetes workload-aware scheduling
 // (WAS) provider and exposes it as a KubeRay batch scheduler. Each supported
 // scheduling.k8s.io API version has its own provider in a versioned subpackage
-// (e.g. v1alpha2); this package picks the one served by the cluster.
+// (e.g. v1alpha3); this package picks the one served by the cluster.
 package kuberneteswas
 
 import (
@@ -16,7 +16,7 @@ import (
 	schedulerinterface "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/interface"
 )
 
-const pluginName = "kubernetes-was-v1alpha2"
+const pluginName = "kubernetes-was-v1alpha3"
 
 // GetPluginName returns the batch scheduler plugin name for Kubernetes WAS.
 func GetPluginName() string { return pluginName }

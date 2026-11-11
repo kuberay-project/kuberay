@@ -18,11 +18,39 @@ import (
 )
 
 // RayJobInformer provides access to a shared informer and lister for
-// RayJobs.
+// RayJobs. Prefer using the type-safe variant (see [TypedRayJobInformer]).
 type RayJobInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() rayv1.RayJobLister
 }
+
+// TypedRayJobInformer provides access to a shared informer and lister for
+// RayJobs, including the type-safe TypedInformer variant.
+// It is a superset of RayJobInformer.
+type TypedRayJobInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() RayJobIndexInformer
+	Lister() rayv1.RayJobLister
+}
+
+// RayJobIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type RayJobIndexInformer cache.TypedSharedIndexInformer[*apisrayv1.RayJob]
+
+// RayJobHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for RayJob.
+type RayJobHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*apisrayv1.RayJob]
+
+// RayJobDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for RayJob.
+type RayJobDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*apisrayv1.RayJob]
+
+// RayJobFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for RayJob.
+type RayJobFilteringHandler = cache.TypedFilteringResourceEventHandler[*apisrayv1.RayJob]
+
+// RayJobIndexers is a specialization of [cache.TypedIndexers] for RayJob.
+type RayJobIndexers = cache.TypedIndexers[*apisrayv1.RayJob]
+
+// DeletedRayJob is a specialization of [cache.DeletedObject] for RayJob.
+type DeletedRayJob = cache.DeletedObject[*apisrayv1.RayJob]
 
 type rayJobInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -33,25 +61,49 @@ type rayJobInformer struct {
 // NewRayJobInformer constructs a new informer for RayJob type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedRayJobInformer]).
 func NewRayJobInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
 	return NewRayJobInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedRayJobInformer constructs a new informer for RayJob type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedRayJobInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers RayJobIndexers) RayJobIndexInformer {
+	return NewTypedRayJobInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredRayJobInformer constructs a new informer for RayJob type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredRayJobInformer]).
 func NewFilteredRayJobInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return NewRayJobInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+	return NewTypedRayJobInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredRayJobInformer constructs a new informer for RayJob type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredRayJobInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers RayJobIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) RayJobIndexInformer {
+	return NewTypedRayJobInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
 }
 
 // NewRayJobInformerWithOptions constructs a new informer for RayJob type with additional options.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedRayJobInformerWithOptions]).
 func NewRayJobInformerWithOptions(client versioned.Interface, namespace string, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedRayJobInformerWithOptions(client, namespace, options)
+}
+
+// NewTypedRayJobInformerWithOptions constructs a new informer for RayJob type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedRayJobInformerWithOptions(client versioned.Interface, namespace string, options internalinterfaces.InformerOptions) RayJobIndexInformer {
 	gvr := schema.GroupVersionResource{Group: "ray.io", Version: "v1", Resource: "rayjobs"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*apisrayv1.RayJob](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts metav1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -84,17 +136,57 @@ func NewRayJobInformerWithOptions(client versioned.Interface, namespace string, 
 			Indexers:     options.Indexers,
 			Identifier:   identifier,
 		},
-	)
+	))
 }
 
 func (f *rayJobInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewRayJobInformerWithOptions(client, f.namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
+	return NewTypedRayJobInformerWithOptions(client, f.namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *rayJobInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apisrayv1.RayJob{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *rayJobInformer) TypedInformer() RayJobIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apisrayv1.RayJob](f.factory.InformerFor(&apisrayv1.RayJob{}, f.defaultInformer))
 }
 
 func (f *rayJobInformer) Lister() rayv1.RayJobLister {
 	return rayv1.NewRayJobLister(f.Informer().GetIndexer())
+}
+
+// ToTypedRayJobInformer converts an untyped informer into a TypedRayJobInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *RayJob. If that is not the case, calling type-safe methods of the returned
+// TypedRayJobInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedRayJobInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedRayJobInformer(informer RayJobInformer) TypedRayJobInformer {
+	if informer, ok := informer.(TypedRayJobInformer); ok {
+		return informer
+	}
+	return &rayJobTypedInformerAdapter{informer}
+}
+
+type rayJobTypedInformerAdapter struct {
+	RayJobInformer
+}
+
+func (a *rayJobTypedInformerAdapter) TypedInformer() RayJobIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apisrayv1.RayJob](a.Informer())
+}
+
+// ToRayJobIndexInformer converts an untyped informer into a RayJobIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *RayJob. If that is not the case, calling type-safe methods of the returned
+// RayJobIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a RayJobIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToRayJobIndexInformer(informer cache.SharedIndexInformer) RayJobIndexInformer {
+	if informer, ok := informer.(RayJobIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*apisrayv1.RayJob](informer)
 }

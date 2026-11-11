@@ -9,9 +9,9 @@ spec:
         import_path: stable_diffusion.stable_diffusion:entrypoint
         runtime_env:
           working_dir: "https://github.com/ray-project/serve_config_examples/archive/b8af221bc0e5d6cc7daa0dd071295fd9e456e671.zip"
-          pip: ["diffusers==0.32.2", "transformers==4.48.2"]
+          pip: ["diffusers==0.32.2", "transformers==4.48.2", "torch"]
   rayClusterConfig:
-    rayVersion: "2.46.0" # Should match the Ray version in the image of the containers
+    rayVersion: "2.58.0" # Should match the Ray version in the image of the containers
     ######################headGroupSpecs#################################
     # Ray head pod template.
     headGroupSpec:
@@ -21,7 +21,7 @@ spec:
         spec:
           containers:
           - name: ray-head
-            image: rayproject/ray-ml:2.46.0.0e19ea-py39-gpu
+            image: rayproject/ray:2.58.0-py311-gpu
             volumeMounts:
             - mountPath: /tmp/ray
               name: ray-logs
@@ -47,7 +47,7 @@ spec:
         spec:
           containers:
           - name: ray-worker
-            image: rayproject/ray-ml:2.46.0.0e19ea-py39-gpu
+            image: rayproject/ray:2.58.0-py311-gpu
             resources:
               limits:
                 cpu: "4"

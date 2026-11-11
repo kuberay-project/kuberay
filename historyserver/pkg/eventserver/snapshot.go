@@ -6,7 +6,8 @@ import (
 )
 
 // SessionSnapshot is the in-memory representation of a dead session's processed
-// event state.
+// event state. It is cached and shared across requests, so treat it as
+// immutable and clone a field before modifying it.
 type SessionSnapshot struct {
 	SessionKey string `json:"sessionKey"`
 

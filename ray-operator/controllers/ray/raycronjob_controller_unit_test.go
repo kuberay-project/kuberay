@@ -31,16 +31,18 @@ func rayCronJobTemplate(name string, namespace string, schedule string) *rayv1.R
 		},
 		Spec: rayv1.RayCronJobSpec{
 			Schedule: schedule,
-			JobTemplate: rayv1.RayJobSpec{
-				Entrypoint: "python test.py",
-				RayClusterSpec: &rayv1.RayClusterSpec{
-					HeadGroupSpec: rayv1.HeadGroupSpec{
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
-										Name:  "ray-head",
-										Image: "rayproject/ray:2.52.0",
+			JobTemplate: rayv1.RayJobTemplateSpec{
+				Spec: rayv1.RayJobSpec{
+					Entrypoint: "python test.py",
+					RayClusterSpec: &rayv1.RayClusterSpec{
+						HeadGroupSpec: rayv1.HeadGroupSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{
+											Name:  "ray-head",
+											Image: "rayproject/ray:2.52.0",
+										},
 									},
 								},
 							},
@@ -545,4 +547,30 @@ func TestFormatSchedule(t *testing.T) {
 			assert.Equal(t, tc.expected, formatSchedule(cronJob))
 		})
 	}
+}
+
+func TestConstructRayJob_CopiesTemplateMetadata(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(scheme))
+
+	cronJob := rayCronJobTemplate("test-cronjob", "default", "*/5 * * * *")
+	cronJob.Spec.JobTemplate.Labels = map[string]string{
+		"user-label":                 "copied",
+		utils.RayCronJobNameLabelKey: "user-override",
+	}
+	cronJob.Spec.JobTemplate.Annotations = map[string]string{
+		"user-annotation":                      "copied",
+		utils.RayCronJobTimestampAnnotationKey: "user-override",
+	}
+
+	reconciler := &RayCronJobReconciler{Scheme: scheme}
+	scheduledTime := time.Date(2024, 1, 1, 0, 5, 0, 0, time.UTC)
+	rayJob, err := reconciler.constructRayJob(cronJob, scheduledTime)
+	require.NoError(t, err)
+
+	assert.Equal(t, "copied", rayJob.Labels["user-label"])
+	assert.Equal(t, "copied", rayJob.Annotations["user-annotation"])
+	assert.Equal(t, cronJob.Name, rayJob.Labels[utils.RayCronJobNameLabelKey])
+	assert.Equal(t, scheduledTime.UTC().Format(time.RFC3339), rayJob.Annotations[utils.RayCronJobTimestampAnnotationKey])
+	assert.Equal(t, "python test.py", rayJob.Spec.Entrypoint)
 }

@@ -32,7 +32,7 @@ tests:
           kind: ClusterRole
           name: kuberay-operator
 
-  - it: Should include scheduling.k8s.io rules for Kubernetes WAS v1alpha2
+  - it: Should include scheduling.k8s.io rules for Kubernetes WAS v1alpha3
     set:
       rbacEnable: true
       singleNamespaceInstall: false
@@ -56,3 +56,18 @@ tests:
               - patch
               - update
               - watch
+
+  - it: Should grant nodes get for the pods/binding webhook
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - nodes
+            verbs:
+              - get

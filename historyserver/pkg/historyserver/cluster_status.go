@@ -394,7 +394,7 @@ func (b *ClusterStatusBuilder) FormatStatus() string {
 		sb.WriteString(" (no active nodes)\n")
 	} else {
 		for _, group := range sortedKeys(b.ActiveNodes) {
-			sb.WriteString(fmt.Sprintf(" %d %s\n", b.ActiveNodes[group], group))
+			fmt.Fprintf(&sb, " %d %s\n", b.ActiveNodes[group], group)
 		}
 	}
 
@@ -404,7 +404,7 @@ func (b *ClusterStatusBuilder) FormatStatus() string {
 		sb.WriteString(" (no idle nodes)\n")
 	} else {
 		for _, group := range sortedKeys(b.IdleNodes) {
-			sb.WriteString(fmt.Sprintf(" %d %s\n", b.IdleNodes[group], group))
+			fmt.Fprintf(&sb, " %d %s\n", b.IdleNodes[group], group)
 		}
 	}
 
@@ -422,9 +422,9 @@ func (b *ClusterStatusBuilder) FormatStatus() string {
 		for _, node := range b.FailedNodes {
 			// Use instance_id when available (autoscaler v2 format), fall back to ip (v1 format).
 			if node.InstanceID != "" {
-				sb.WriteString(fmt.Sprintf(" %s: NodeTerminated (instance_id: %s)\n", node.NodeType, node.InstanceID))
+				fmt.Fprintf(&sb, " %s: NodeTerminated (instance_id: %s)\n", node.NodeType, node.InstanceID)
 			} else {
-				sb.WriteString(fmt.Sprintf(" %s: NodeTerminated (ip: %s)\n", node.NodeType, node.NodeIPAddress))
+				fmt.Fprintf(&sb, " %s: NodeTerminated (ip: %s)\n", node.NodeType, node.NodeIPAddress)
 			}
 		}
 	}
@@ -448,10 +448,10 @@ func (b *ClusterStatusBuilder) FormatStatus() string {
 			}
 			total := b.TotalResources[key]
 			used := b.UsedResources[key]
-			sb.WriteString(fmt.Sprintf(" %s/%s %s\n",
+			fmt.Fprintf(&sb, " %s/%s %s\n",
 				formatResourceValue(key, used),
 				formatResourceValue(key, total),
-				key))
+				key)
 		}
 	}
 
@@ -470,8 +470,8 @@ func (b *ClusterStatusBuilder) FormatStatus() string {
 		for _, demand := range b.PendingDemands {
 			// Ref: https://github.com/ray-project/ray/blob/d99d5d375c9c4e6533c15edb37d93a3ee9066be4/python/ray/autoscaler/_private/util.py#L776 (get_demand_report)
 			// Ref: https://github.com/ray-project/ray/blob/d99d5d375c9c4e6533c15edb37d93a3ee9066be4/python/ray/autoscaler/v2/utils.py#L635 (ClusterStatusFormatter._demand_report)
-			sb.WriteString(fmt.Sprintf(" %s: %d+ pending tasks/actors\n",
-				formatResourceMapForDisplay(demand.Resources), demand.Count))
+			fmt.Fprintf(&sb, " %s: %d+ pending tasks/actors\n",
+				formatResourceMapForDisplay(demand.Resources), demand.Count)
 		}
 	}
 

@@ -130,4 +130,8 @@ assert num_failures == 0, f"num_failures: {num_failures}"
 assert num_requests != 0, f"num_requests: {num_requests}"
 
 print("returncode:", proc.returncode)
-sys.exit(proc.returncode)
+# We are not propagating proc.returncode because Locust can exit on code 2
+# on a gevent/SIGINT race during shutdown even when the run succeeded.
+# The assertions above already verify correctness.
+# See a more detailed discussion at https://github.com/ray-project/kuberay/issues/5109
+sys.exit(0)

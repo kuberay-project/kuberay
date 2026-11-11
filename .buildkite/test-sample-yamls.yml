@@ -14,7 +14,10 @@
     # Run sample YAML tests
     - echo "--- START:Running Sample YAMLs (nightly operator) tests"
     - set -o pipefail
-    - KUBERAY_TEST_TIMEOUT_SHORT=1m KUBERAY_TEST_TIMEOUT_MEDIUM=5m KUBERAY_TEST_TIMEOUT_LONG=10m go test -timeout 30m -v ./test/sampleyaml 2>&1 | awk -f ../.buildkite/format.awk
+    # JUnit results are uploaded to Buildkite Test Engine by .buildkite/hooks/pre-exit.
+    # KUBERAY_TEST_OUTPUT_DIR is deliberately not exported here (unlike the e2e steps),
+    # so the tests keep their original behavior of not persisting pod logs.
+    - KUBERAY_TEST_TIMEOUT_SHORT=1m KUBERAY_TEST_TIMEOUT_MEDIUM=5m KUBERAY_TEST_TIMEOUT_LONG=10m bash ../.buildkite/run-gotest.sh 30m ./test/sampleyaml
     - echo "--- END:Sample YAMLs (nightly operator) tests finished"
     # Printing KubeRay operator logs
     - kubectl logs --tail -1 -l app.kubernetes.io/name=kuberay
@@ -33,7 +36,10 @@
     # Run sample YAML tests
     - echo "--- START:Running Sample YAMLs (latest release) tests"
     - set -o pipefail
-    - KUBERAY_TEST_TIMEOUT_SHORT=1m KUBERAY_TEST_TIMEOUT_MEDIUM=5m KUBERAY_TEST_TIMEOUT_LONG=10m go test -timeout 30m -v ./test/sampleyaml 2>&1 | awk -f ../.buildkite/format.awk
+    # JUnit results are uploaded to Buildkite Test Engine by .buildkite/hooks/pre-exit.
+    # KUBERAY_TEST_OUTPUT_DIR is deliberately not exported here (unlike the e2e steps),
+    # so the tests keep their original behavior of not persisting pod logs.
+    - KUBERAY_TEST_TIMEOUT_SHORT=1m KUBERAY_TEST_TIMEOUT_MEDIUM=5m KUBERAY_TEST_TIMEOUT_LONG=10m bash ../.buildkite/run-gotest.sh 30m ./test/sampleyaml
     - echo "--- END:Sample YAMLs (latest release) tests finished"
     # Printing KubeRay operator logs
     - kubectl logs --tail -1 -l app.kubernetes.io/name=kuberay

@@ -24,3 +24,7 @@ featureGates:
     enabled: true
   - name: RayClusterMTLS
     enabled: true
+  - name: RayNodeEventForwarder
+    enabled: true
+nodeEventForwarder:
+  enabled: true

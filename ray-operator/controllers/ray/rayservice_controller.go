@@ -516,18 +516,21 @@ func (r *RayServiceReconciler) deleteRayServiceOwnedResources(ctx context.Contex
 	}
 
 	if utils.IsIncrementalUpgradeEnabled(&rayServiceInstance.Spec) {
+		// Delete only the Gateway owned by the RayService, not one referenced via GatewayRef.
 		gateway := &gwv1.Gateway{}
-		if err := r.Get(ctx, common.RayServiceGatewayNamespacedName(rayServiceInstance), gateway); err == nil {
-			allDeleted = false
-			if gateway.DeletionTimestamp.IsZero() {
-				logger.Info("Deleting Gateway for suspend", "name", gateway.Name)
-				if err := r.Delete(ctx, gateway, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
-					r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteGateway), string(utils.DeleteAction),
-						"Failed to delete the Gateway %s/%s during suspend: %v", gateway.Namespace, gateway.Name, err)
-					return false, err
+		if err := r.Get(ctx, common.RayServiceOwnedGatewayNamespacedName(rayServiceInstance), gateway); err == nil {
+			if metav1.IsControlledBy(gateway, rayServiceInstance) {
+				allDeleted = false
+				if gateway.DeletionTimestamp.IsZero() {
+					logger.Info("Deleting Gateway for suspend", "name", gateway.Name)
+					if err := r.Delete(ctx, gateway, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
+						r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteGateway), string(utils.DeleteAction),
+							"Failed to delete the Gateway %s/%s during suspend: %v", gateway.Namespace, gateway.Name, err)
+						return false, err
+					}
+					r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeNormal, string(utils.DeletedGateway), string(utils.DeleteAction),
+						"Deleted the Gateway %s/%s during suspend", gateway.Namespace, gateway.Name)
 				}
-				r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeNormal, string(utils.DeletedGateway), string(utils.DeleteAction),
-					"Deleted the Gateway %s/%s during suspend", gateway.Namespace, gateway.Name)
 			}
 		} else if !errors.IsNotFound(err) {
 			return false, err
@@ -930,6 +933,20 @@ func (r *RayServiceReconciler) reconcileGateway(ctx context.Context, rayServiceI
 	logger := ctrl.LoggerFrom(ctx)
 	var err error
 
+	// For a shared Gateway, verify it exists before managing the HTTPRoute.
+	if opts := utils.GetRayServiceClusterUpgradeOptions(&rayServiceInstance.Spec); opts != nil && opts.GatewayRef != nil {
+		gatewayName := common.RayServiceGatewayNamespacedName(rayServiceInstance)
+		if err := r.Get(ctx, gatewayName, &gwv1.Gateway{}); err != nil {
+			if errors.IsNotFound(err) {
+				r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeWarning, string(utils.FailedToGetGateway), string(utils.GetAction),
+					"Referenced Gateway %s/%s not found for RayService %s/%s", gatewayName.Namespace, gatewayName.Name, rayServiceInstance.Namespace, rayServiceInstance.Name)
+				return nil
+			}
+			return err
+		}
+		return nil
+	}
+
 	// Construct desired Gateway object for RayService
 	desiredGateway, err := r.createGateway(rayServiceInstance)
 	if err != nil {
@@ -1087,12 +1104,14 @@ func (r *RayServiceReconciler) createHTTPRoute(ctx context.Context, rayServiceIn
 	activeClusterServeSvcName := utils.GenerateServeServiceName(activeRayCluster.Name)
 	activeServePort := common.GetServePort(activeRayCluster)
 
+	// Serve services are in the RayService's namespace, which may differ from the
+	// Gateway's namespace when using a shared Gateway.
 	backendRefs := []gwv1.HTTPBackendRef{
 		{
 			BackendRef: gwv1.BackendRef{
 				BackendObjectReference: gwv1.BackendObjectReference{
 					Name:      gwv1.ObjectName(activeClusterServeSvcName),
-					Namespace: new(gwv1.Namespace(gatewayInstance.Namespace)),
+					Namespace: new(gwv1.Namespace(rayServiceInstance.Namespace)),
 					Port:      new(activeServePort),
 				},
 				Weight: new(activeClusterWeight),
@@ -1109,7 +1128,7 @@ func (r *RayServiceReconciler) createHTTPRoute(ctx context.Context, rayServiceIn
 			BackendRef: gwv1.BackendRef{
 				BackendObjectReference: gwv1.BackendObjectReference{
 					Name:      gwv1.ObjectName(pendingClusterServeSvcName),
-					Namespace: new(gwv1.Namespace(gatewayInstance.Namespace)),
+					Namespace: new(gwv1.Namespace(rayServiceInstance.Namespace)),
 					Port:      new(pendingServePort),
 				},
 				Weight: new(pendingClusterWeight),
@@ -1118,16 +1137,26 @@ func (r *RayServiceReconciler) createHTTPRoute(ctx context.Context, rayServiceIn
 	}
 
 	httpRouteName := rayServiceInstance.Name + "-httproute"
+	parentRef := gwv1.ParentReference{
+		Name:      gwv1.ObjectName(gatewayInstance.Name),
+		Namespace: new(gwv1.Namespace(gatewayInstance.Namespace)),
+	}
+
+	// GatewayRef pins the parentRef to a specific listener on the referenced Gateway.
+	if opts := utils.GetRayServiceClusterUpgradeOptions(&rayServiceInstance.Spec); opts != nil && opts.GatewayRef != nil {
+		if opts.GatewayRef.SectionName != "" {
+			parentRef.SectionName = new(gwv1.SectionName(opts.GatewayRef.SectionName))
+		}
+		if opts.GatewayRef.Port != nil {
+			parentRef.Port = new(*opts.GatewayRef.Port)
+		}
+	}
+
 	desiredHTTPRoute := &gwv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{Name: httpRouteName, Namespace: gatewayInstance.Namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: httpRouteName, Namespace: rayServiceInstance.Namespace},
 		Spec: gwv1.HTTPRouteSpec{
 			CommonRouteSpec: gwv1.CommonRouteSpec{
-				ParentRefs: []gwv1.ParentReference{
-					{
-						Name:      gwv1.ObjectName(gatewayInstance.Name),
-						Namespace: new(gwv1.Namespace(gatewayInstance.Namespace)),
-					},
-				},
+				ParentRefs: []gwv1.ParentReference{parentRef},
 			},
 			Rules: []gwv1.HTTPRouteRule{
 				{

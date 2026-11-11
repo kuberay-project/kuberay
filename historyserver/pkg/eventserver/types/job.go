@@ -1,6 +1,7 @@
 package types
 
 import (
+	"maps"
 	"sync"
 	"time"
 )
@@ -157,15 +158,11 @@ func (j Job) DeepCopy() Job {
 	}
 	if len(j.Config.Metadata) > 0 {
 		cp.Config.Metadata = make(map[string]string, len(j.Config.Metadata))
-		for k, v := range j.Config.Metadata {
-			cp.Config.Metadata[k] = v
-		}
+		maps.Copy(cp.Config.Metadata, j.Config.Metadata)
 	}
 	if len(j.RuntimeEnv) > 0 {
 		cp.RuntimeEnv = make(map[string]string, len(j.RuntimeEnv))
-		for k, v := range j.RuntimeEnv {
-			cp.RuntimeEnv[k] = v
-		}
+		maps.Copy(cp.RuntimeEnv, j.RuntimeEnv)
 	}
 
 	return cp

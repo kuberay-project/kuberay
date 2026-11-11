@@ -30,7 +30,7 @@ tests:
               - update
               - watch
 
-  - it: Should include scheduling.k8s.io RBAC rules for Kubernetes WAS v1alpha2
+  - it: Should include scheduling.k8s.io RBAC rules for Kubernetes WAS v1alpha3
     set:
       singleNamespaceInstall: true
       crNamespacedRbacEnable: true
@@ -54,3 +54,20 @@ tests:
               - patch
               - update
               - watch
+
+  - it: Should not carry the cluster-scoped nodes rule
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: true
+      crNamespacedRbacEnable: true
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - nodes
+            verbs:
+              - get
+        documentIndex: 0

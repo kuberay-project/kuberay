@@ -113,58 +113,46 @@ func TestRayClusterTLSAutoGenerate(t *testing.T) {
 		t.Skip("cert-manager CRDs not found; skipping TLS auto-generate e2e test")
 	}
 
+	g := NewWithT(t)
+
 	namespace := test.NewTestNamespace()
+	clusterName := "raycluster-tls-autogen"
 
-	t.Run("mTLS auto-generate cluster becomes Ready", func(t *testing.T) {
-		t.Parallel()
+	rayClusterAC := rayv1ac.RayCluster(clusterName, namespace.Name).
+		WithSpec(NewRayClusterSpecWithMTLS().WithRayVersion(GetRayVersion()))
+	rayCluster, err := test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), rayClusterAC, TestApplyOptions)
+	g.Expect(err).NotTo(HaveOccurred())
+	LogWithTimestamp(t, "Created RayCluster %s/%s successfully with mTLS auto-generate", rayCluster.Namespace, rayCluster.Name)
+
+	// Wait for cluster to become Ready
+	g.Eventually(RayCluster(test, rayCluster.Namespace, rayCluster.Name), TestTimeoutLong).
+		Should(WithTransform(RayClusterState, Equal(rayv1.Ready)))
+	LogWithTimestamp(t, "RayCluster %s is Ready", clusterName)
+
+	// Verify head pod is running
+	headPod, err := GetHeadPod(test, rayCluster)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(headPod).NotTo(BeNil())
+	g.Expect(IsPodRunningAndReady(headPod)).To(BeTrue(), "head pod should be running and ready")
+
+	// Verify worker pods are running
+	workerPods, err := GetWorkerPods(test, rayCluster)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(workerPods).NotTo(BeEmpty())
+	g.Expect(AllPodsRunningAndReady(workerPods)).To(BeTrue(), "all worker pods should be running and ready")
+
+	headSecretName := fmt.Sprintf("%s-%s", utils.RayHeadSecretPrefix, clusterName)
+	workerSecretName := fmt.Sprintf("%s-%s", utils.RayWorkerSecretPrefix, clusterName)
+
+	test.T().Run("cert-manager resources created", func(t *testing.T) {
+		LogWithTimestamp(t, "Testing cert-manager resources")
 		g := NewWithT(t)
 
-		clusterName := "tls-autogen-mtls"
-		rayClusterAC := rayv1ac.RayCluster(clusterName, namespace.Name).
-			WithSpec(NewRayClusterSpecWithMTLS().WithRayVersion(GetRayVersion()))
-
-		rayCluster, err := test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), rayClusterAC, TestApplyOptions)
-		g.Expect(err).NotTo(HaveOccurred())
-		LogWithTimestamp(t, "Created RayCluster %s/%s with mTLS auto-generate", rayCluster.Namespace, rayCluster.Name)
-
-		// Wait for cluster to become Ready
-		g.Eventually(RayCluster(test, rayCluster.Namespace, rayCluster.Name), TestTimeoutLong).
-			Should(WithTransform(RayClusterState, Equal(rayv1.Ready)))
-		LogWithTimestamp(t, "RayCluster %s is Ready", clusterName)
-
-		// Verify head pod is running
-		headPod, err := GetHeadPod(test, rayCluster)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(headPod).NotTo(BeNil())
-		g.Expect(IsPodRunningAndReady(headPod)).To(BeTrue(), "head pod should be running and ready")
-
-		// Verify worker pods are running
-		workerPods, err := GetWorkerPods(test, rayCluster)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(workerPods).NotTo(BeEmpty())
-		g.Expect(AllPodsRunningAndReady(workerPods)).To(BeTrue(), "all worker pods should be running and ready")
-	})
-
-	t.Run("mTLS auto-generate cert-manager resources created", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		clusterName := "tls-certmgr-res"
-		rayClusterAC := rayv1ac.RayCluster(clusterName, namespace.Name).
-			WithSpec(NewRayClusterSpecWithMTLS().WithRayVersion(GetRayVersion()))
-
-		rayCluster, err := test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), rayClusterAC, TestApplyOptions)
-		g.Expect(err).NotTo(HaveOccurred())
-
-		g.Eventually(RayCluster(test, rayCluster.Namespace, rayCluster.Name), TestTimeoutLong).
-			Should(WithTransform(RayClusterState, Equal(rayv1.Ready)))
-
-		// Re-fetch to get the UID assigned by the API server.
-		rayCluster, err = test.Client().Ray().RayV1().RayClusters(namespace.Name).Get(test.Ctx(), clusterName, metav1.GetOptions{})
+		refetchedRayCluster, err := test.Client().Ray().RayV1().RayClusters(namespace.Name).Get(test.Ctx(), clusterName, metav1.GetOptions{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		// Verify cert-manager CA secret was created.
-		caSecretName := utils.GetCASecretName(clusterName, rayCluster.UID)
+		caSecretName := utils.GetCASecretName(clusterName, refetchedRayCluster.UID)
 		caSecret, err := test.Client().Core().CoreV1().Secrets(namespace.Name).Get(test.Ctx(), caSecretName, metav1.GetOptions{})
 		g.Expect(err).NotTo(HaveOccurred(), "CA secret %s should exist", caSecretName)
 		g.Expect(caSecret.Data).To(HaveKey("tls.crt"), "CA secret should have tls.crt")
@@ -172,7 +160,6 @@ func TestRayClusterTLSAutoGenerate(t *testing.T) {
 		g.Expect(caSecret.Data).To(HaveKey("ca.crt"), "CA secret should have ca.crt")
 
 		// Verify head certificate secret was created by cert-manager.
-		headSecretName := fmt.Sprintf("%s-%s", utils.RayHeadSecretPrefix, clusterName)
 		headSecret, err := test.Client().Core().CoreV1().Secrets(namespace.Name).Get(test.Ctx(), headSecretName, metav1.GetOptions{})
 		g.Expect(err).NotTo(HaveOccurred(), "head secret %s should exist", headSecretName)
 		g.Expect(headSecret.Data).To(HaveKey("tls.crt"), "head secret should have tls.crt")
@@ -180,7 +167,6 @@ func TestRayClusterTLSAutoGenerate(t *testing.T) {
 		g.Expect(headSecret.Data).To(HaveKey("ca.crt"), "head secret should have ca.crt")
 
 		// Verify worker certificate secret was created by cert-manager.
-		workerSecretName := fmt.Sprintf("%s-%s", utils.RayWorkerSecretPrefix, clusterName)
 		workerSecret, err := test.Client().Core().CoreV1().Secrets(namespace.Name).Get(test.Ctx(), workerSecretName, metav1.GetOptions{})
 		g.Expect(err).NotTo(HaveOccurred(), "worker secret %s should exist", workerSecretName)
 		g.Expect(workerSecret.Data).To(HaveKey("tls.crt"), "worker secret should have tls.crt")
@@ -190,33 +176,15 @@ func TestRayClusterTLSAutoGenerate(t *testing.T) {
 		LogWithTimestamp(t, "Cert-manager CA, head, and worker secrets verified for cluster %s", clusterName)
 	})
 
-	t.Run("mTLS auto-generate pod TLS configuration", func(t *testing.T) {
-		t.Parallel()
+	test.T().Run("pod TLS configuration", func(t *testing.T) {
+		LogWithTimestamp(t, "Testing pod TLS configuration")
 		g := NewWithT(t)
 
-		clusterName := "tls-pod-config"
-		rayClusterAC := rayv1ac.RayCluster(clusterName, namespace.Name).
-			WithSpec(NewRayClusterSpecWithMTLS().WithRayVersion(GetRayVersion()))
-
-		rayCluster, err := test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), rayClusterAC, TestApplyOptions)
-		g.Expect(err).NotTo(HaveOccurred())
-
-		g.Eventually(RayCluster(test, rayCluster.Namespace, rayCluster.Name), TestTimeoutLong).
-			Should(WithTransform(RayClusterState, Equal(rayv1.Ready)))
-
-		// Auto-generate mode: head pod mounts the head secret, workers mount the worker secret.
-		headSecretName := fmt.Sprintf("%s-%s", utils.RayHeadSecretPrefix, clusterName)
-		workerSecretName := fmt.Sprintf("%s-%s", utils.RayWorkerSecretPrefix, clusterName)
-
 		// Verify head pod configuration
-		headPod, err := GetHeadPod(test, rayCluster)
-		g.Expect(err).NotTo(HaveOccurred())
 		verifyContainerTLSEnvVars(g, &headPod.Spec.Containers[utils.RayContainerIndex])
 		verifyTLSVolumeMount(g, headPod, headSecretName)
 
 		// Verify worker pod configuration
-		workerPods, err := GetWorkerPods(test, rayCluster)
-		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(workerPods).NotTo(BeEmpty())
 		for i := range workerPods {
 			verifyContainerTLSEnvVars(g, &workerPods[i].Spec.Containers[utils.RayContainerIndex])
@@ -226,22 +194,9 @@ func TestRayClusterTLSAutoGenerate(t *testing.T) {
 		LogWithTimestamp(t, "Pod TLS configuration verified for cluster %s", clusterName)
 	})
 
-	t.Run("mTLS auto-generate Ray job submission succeeds", func(t *testing.T) {
-		t.Parallel()
+	test.T().Run("Ray job submission succeeds", func(t *testing.T) {
+		LogWithTimestamp(t, "Testing Ray job submission with auto-generated")
 		g := NewWithT(t)
-
-		clusterName := "tls-job-submit"
-		rayClusterAC := rayv1ac.RayCluster(clusterName, namespace.Name).
-			WithSpec(NewRayClusterSpecWithMTLS().WithRayVersion(GetRayVersion()))
-
-		rayCluster, err := test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), rayClusterAC, TestApplyOptions)
-		g.Expect(err).NotTo(HaveOccurred())
-
-		g.Eventually(RayCluster(test, rayCluster.Namespace, rayCluster.Name), TestTimeoutLong).
-			Should(WithTransform(RayClusterState, Equal(rayv1.Ready)))
-
-		headPod, err := GetHeadPod(test, rayCluster)
-		g.Expect(err).NotTo(HaveOccurred())
 
 		// Submit a simple Ray job and verify it completes.
 		// This proves head-worker mTLS communication is functional.
@@ -527,4 +482,105 @@ func TestRayClusterTLSEdgeCases(t *testing.T) {
 
 		LogWithTimestamp(t, "Init container TLS configuration verified for cluster %s", clusterName)
 	})
+}
+
+// --- Test: Autoscaler + mTLS scale-up ---
+
+// TestRayClusterTLSAutoscalerScaleUp verifies that the autoscaler and the mTLS controller
+// work together: worker pods added by the autoscaler complete the mTLS handshake and the
+// cluster scales back down afterwards.
+//
+// The existing "mTLS with autoscaler enabled" case pins the worker group to
+// replicas = minReplicas = maxReplicas = 1, so it never triggers a scale-up. Worker
+// certificates rely on a wildcard DNS SAN rather than per-pod IP SANs, so no certificate
+// update is needed on scale-up; worker pods only reach Running after wait-gcs-ready
+// succeeds, so asserting readiness covers the mTLS handshake.
+func TestRayClusterTLSAutoscalerScaleUp(t *testing.T) {
+	test := With(t)
+
+	if !certManagerAvailable(test) {
+		t.Skip("cert-manager CRDs not found; skipping autoscaler mTLS scale-up e2e test")
+	}
+	// mTLS with autoscaling requires `ray kuberay-autoscaler --gcs-address` (Ray >= 2.60.0);
+	// validation rejects older versions.
+	if v, err := version.ParseGeneric(GetRayVersion()); err != nil || !v.AtLeast(version.MustParseGeneric("2.60.0")) {
+		t.Skipf("mTLS with autoscaler requires Ray >= 2.60.0, test Ray version is %q", GetRayVersion())
+	}
+
+	g := NewWithT(t)
+	namespace := test.NewTestNamespace()
+
+	// Scripts for creating and terminating detached actors to trigger autoscaling
+	scriptsAC := NewConfigMap(namespace.Name, Files(test, "create_detached_actor.py", "terminate_detached_actor.py"))
+	scripts, err := test.Client().Core().CoreV1().ConfigMaps(namespace.Name).Apply(test.Ctx(), scriptsAC, TestApplyOptions)
+	g.Expect(err).NotTo(HaveOccurred())
+	LogWithTimestamp(t, "Created ConfigMap %s/%s successfully", scripts.Namespace, scripts.Name)
+
+	clusterName := "tls-autoscaler-scaleup"
+	specAC := rayv1ac.RayClusterSpec().
+		WithRayVersion(GetRayVersion()).
+		WithEnableInTreeAutoscaling(true).
+		WithTLSOptions(rayv1ac.TLSOptions().WithEnabled(true)).
+		WithHeadGroupSpec(rayv1ac.HeadGroupSpec().
+			WithRayStartParams(map[string]string{"num-cpus": "0"}).
+			WithTemplate(HeadPodTemplateApplyConfiguration())).
+		WithWorkerGroupSpecs(rayv1ac.WorkerGroupSpec().
+			WithReplicas(0).
+			WithMinReplicas(0).
+			WithMaxReplicas(2).
+			WithGroupName("small-group").
+			WithRayStartParams(map[string]string{"num-cpus": "1"}).
+			WithTemplate(WorkerPodTemplateApplyConfiguration()))
+
+	rayClusterAC := rayv1ac.RayCluster(clusterName, namespace.Name).
+		WithSpec(Apply(specAC, MountConfigMap[rayv1ac.RayClusterSpecApplyConfiguration](scripts, "/home/ray/test_scripts")))
+
+	rayCluster, err := test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), rayClusterAC, TestApplyOptions)
+	g.Expect(err).NotTo(HaveOccurred())
+	LogWithTimestamp(t, "Created mTLS RayCluster %s/%s with autoscaler enabled", rayCluster.Namespace, rayCluster.Name)
+
+	// Wait for RayCluster to become ready and verify there is no worker replica.
+	g.Eventually(RayCluster(test, rayCluster.Namespace, rayCluster.Name), TestTimeoutLong).
+		Should(WithTransform(RayClusterState, Equal(rayv1.Ready)))
+	g.Expect(GetRayCluster(test, rayCluster.Namespace, rayCluster.Name)).
+		To(WithTransform(RayClusterDesiredWorkerReplicas, Equal(int32(0))))
+
+	headPod, err := GetHeadPod(test, rayCluster)
+	g.Expect(err).NotTo(HaveOccurred())
+	rayContainerName := headPod.Spec.Containers[utils.RayContainerIndex].Name
+	workerSecretName := utils.GetTLSSecretName(clusterName, rayv1.WorkerNode)
+
+	// Each detached actor requests 1 CPU, so creating one actor adds one worker pod.
+	for i, actorName := range []string{"actor1", "actor2"} {
+		expectedReplicas := int32(i + 1)
+
+		ExecPodCmd(test, headPod, rayContainerName, []string{"python", "/home/ray/test_scripts/create_detached_actor.py", actorName, "--num-cpus=1"})
+
+		g.Eventually(RayCluster(test, rayCluster.Namespace, rayCluster.Name), TestTimeoutMedium).
+			Should(WithTransform(RayClusterDesiredWorkerReplicas, Equal(expectedReplicas)))
+		LogWithTimestamp(t, "Autoscaler scaled the worker group to %d replica(s) after creating %s", expectedReplicas, actorName)
+
+		// The scaled-up worker pods must become ready and be configured for mTLS.
+		g.Eventually(func(gg Gomega) {
+			workerPods, err := GetWorkerPods(test, rayCluster)
+			gg.Expect(err).NotTo(HaveOccurred())
+			gg.Expect(workerPods).To(HaveLen(int(expectedReplicas)))
+			gg.Expect(AllPodsRunningAndReady(workerPods)).To(BeTrue(),
+				"all worker pods should be running and ready after scale-up")
+
+			for j := range workerPods {
+				verifyContainerTLSEnvVars(gg, &workerPods[j].Spec.Containers[utils.RayContainerIndex])
+				verifyTLSVolumeMount(gg, &workerPods[j], workerSecretName)
+			}
+		}, TestTimeoutLong).Should(Succeed())
+	}
+
+	// Terminating the actors releases the CPUs and the autoscaler scales back down.
+	for _, actorName := range []string{"actor1", "actor2"} {
+		ExecPodCmd(test, headPod, rayContainerName,
+			[]string{"python", "/home/ray/test_scripts/terminate_detached_actor.py", actorName})
+	}
+	g.Eventually(RayCluster(test, rayCluster.Namespace, rayCluster.Name), TestTimeoutLong).
+		Should(WithTransform(RayClusterDesiredWorkerReplicas, Equal(int32(0))))
+	LogWithTimestamp(t, "Autoscaler scaled the worker group back down to 0 replicas")
 }

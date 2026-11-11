@@ -14,11 +14,6 @@ spec:
     @ray.remote(num_cpus=1)
     def my_task(x):
         print(f'Processing {x}', flush=True)
-        if x == 1:
-            # TODO: Remove this sleep once ray#65288 is released.
-            # Ray 2.56 overwrites task log metadata when start and end events
-            # are flushed together, which causes tasks to lose their log file path.
-            time.sleep(2)
         return x * 2
 
     # --- Scenario 2: Nested tasks (parent spawns child) ---

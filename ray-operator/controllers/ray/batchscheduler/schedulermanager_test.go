@@ -75,14 +75,14 @@ func TestGetSchedulerFactory(t *testing.T) {
 			want: reflect.TypeFor[*kaischeduler.KaiSchedulerFactory](),
 		},
 		{
-			name: "enableBatchScheduler=false, batchScheduler set to kubernetes-was-v1alpha2 is rejected without the gate",
+			name: "enableBatchScheduler=false, batchScheduler set to kubernetes-was-v1alpha3 is rejected without the gate",
 			args: args{
 				rayConfigs: v1alpha1.Configuration{
 					EnableBatchScheduler: false,
-					BatchScheduler:       "kubernetes-was-v1alpha2",
+					BatchScheduler:       "kubernetes-was-v1alpha3",
 				},
 			},
-			expectedErrMsg: "the scheduler is not supported, name=kubernetes-was-v1alpha2",
+			expectedErrMsg: "the scheduler is not supported, name=kubernetes-was-v1alpha3",
 		},
 		{
 			name: "enableBatchScheduler not set, batchScheduler set to yunikorn",

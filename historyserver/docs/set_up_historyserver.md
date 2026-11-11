@@ -20,23 +20,23 @@ kind create cluster --image=kindest/node:v1.29.0
 Build and deploy the KubeRay operator (binary or deployment). For details, please refer to the
 [ray-operator development guide](https://github.com/ray-project/kuberay/blob/master/ray-operator/DEVELOPMENT.md#run-the-operator-inside-the-cluster).
 
-### 3. Deploy & Access MinIO
+### 3. Deploy & Access RustFS
 
 ```bash
-kubectl apply -f historyserver/config/minio.yaml
+kubectl apply -f historyserver/config/rustfs.yaml
 ```
 
 Use the following command to port-forward the console and API ports. The API port is required only when running the
 history server outside the kind cluster.
 
 ```bash
-kubectl --namespace minio-dev port-forward svc/minio-service 9001:9001 9000:9000
+kubectl --namespace rustfs-dev port-forward svc/rustfs-service 9001:9001 9000:9000
 ```
 
 > [!NOTE]
-> Get the correct session directory from MinIO console.
-> Login: `minioadmin` / `minioadmin`
-> See: [MinIO Setup Guide](./set_up_collector.md#deploy-minio-for-log-and-event-storage)
+> Get the correct session directory from the RustFS console (`http://localhost:9001/rustfs/console/`).
+> Login: `rustfsadmin` / `rustfsadmin`
+> See: [RustFS Setup Guide](./set_up_collector.md#option-a-rustfs-s3-compatible)
 
 ### 4. Build and Load Collector & History Server Images
 
@@ -84,6 +84,13 @@ kubectl apply -f historyserver/config/historyserver.yaml
 kubectl port-forward svc/historyserver 8080:30080
 ```
 
+> [!IMPORTANT]
+> Access to live RayClusters is disabled by default. When disabled, a running RayCluster is served
+> from the data the collector has uploaded to storage so far, and `/enter_cluster/.../live` returns
+> 404; use the reload button on the cluster selector page (or enter the cluster with
+> `?reload=true`) to pick up newer uploads. To proxy requests to the live Ray Dashboard instead,
+> set `--enable-live-clusters=true`.
+
 #### Run History Server Outside the Kind Cluster
 
 You can also run the history server outside the Kind cluster to accelerate the development iteration and enable
@@ -101,13 +108,14 @@ debugging in your own IDE. For example, you can set up `.vscode/launch.json` as 
             "cwd": "${workspaceFolder}",
             "args": [
                 "--storage-backend=s3",
+                "--enable-live-clusters=true",
             ],
             "env": {
                 "S3_REGION": "test",
                 "S3_ENDPOINT": "localhost:9000",
                 "S3_BUCKET": "ray-historyserver",
-                "AWS_ACCESS_KEY_ID": "minioadmin",
-                "AWS_SECRET_ACCESS_KEY": "minioadmin",
+                "AWS_ACCESS_KEY_ID": "rustfsadmin",
+                "AWS_SECRET_ACCESS_KEY": "rustfsadmin",
                 "AWS_SESSION_TOKEN": "",
                 "S3FORCE_PATH_STYLE": "true",
                 "S3DISABLE_SSL": "true"
@@ -131,8 +139,8 @@ make buildhistoryserver
 export S3_REGION=test
 export S3_ENDPOINT=localhost:9000
 export S3_BUCKET=ray-historyserver
-export AWS_ACCESS_KEY_ID=minioadmin
-export AWS_SECRET_ACCESS_KEY=minioadmin
+export AWS_ACCESS_KEY_ID=rustfsadmin
+export AWS_SECRET_ACCESS_KEY=rustfsadmin
 export AWS_SESSION_TOKEN=
 export S3FORCE_PATH_STYLE=true
 export S3DISABLE_SSL=true
@@ -140,7 +148,8 @@ export S3DISABLE_SSL=true
 # Run the history server.
 ./output/bin/historyserver \
   --storage-backend=s3 \
-  --use-kubernetes-proxy=true
+  --use-kubernetes-proxy=true \
+  --enable-live-clusters=true
 ```
 
 ## API Endpoints
@@ -164,6 +173,10 @@ curl "http://localhost:8080/clusters"
 SESSION="session_2026-01-11_19-38-40_146706_1"  # Replace with actual session
 curl -c ~/cookies.txt "http://localhost:8080/enter_cluster/default/rayjob/rayjob-historyserver/$SESSION"
 ```
+
+The response body is an HTML page that forwards a browser to the dashboard (the URL
+fragment picks the landing page); with `curl` you only need the cookies it sets,
+saved by `-c`.
 
 ### Dead Cluster Endpoints
 

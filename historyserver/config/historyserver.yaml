@@ -37,15 +37,15 @@ spec:
           - name: S3DISABLE_SSL
             value: "true"
           - name: AWS_ACCESS_KEY_ID
-            value: minioadmin
+            value: rustfsadmin
           - name: AWS_SECRET_ACCESS_KEY
-            value: minioadmin
+            value: rustfsadmin
           - name: AWS_SESSION_TOKEN
             value: ""
           - name: S3_BUCKET
             value: "ray-historyserver"
           - name: S3_ENDPOINT
-            value: "minio-service.minio-dev:9000"
+            value: "rustfs-service.rustfs-dev:9000"
           - name: S3_REGION
             value: "test"
           - name: S3FORCE_PATH_STYLE
@@ -54,19 +54,20 @@ spec:
             value: "s3"
         image: historyserver:v0.1.0
         imagePullPolicy: IfNotPresent
-        # Enable proxying to live RayClusters with token authentication enabled.
-        # The history server reads the auth Secret and forwards requests with the
-        # appropriate authorization header. Requires the RBAC in
-        # service_account_auth_token_mode.yaml.
-        # command:
-        # - historyserver
-        # - --use-auth-token-mode=true
         ports:
         - containerPort: 8080
         # Cache is soft-bounded at 8 GiB; 12 GiB leaves decode headroom.
         # The 2 GiB request keeps examples schedulable; size production requests to residency.
         args:
         - --session-cache-max-memory=8Gi
+        # Enable access to live RayClusters through the History Server.
+        # - --enable-live-clusters=true
+        #
+        # Enable proxying to live RayClusters with token authentication enabled.
+        # The history server reads the auth Secret and forwards requests with the
+        # appropriate authorization header. Requires the RBAC in
+        # service_account_auth_token_mode.yaml.
+        # - --use-auth-token-mode=true
         resources:
           requests:
             cpu: "500m"

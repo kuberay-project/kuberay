@@ -14,18 +14,18 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"github.com/sirupsen/logrus"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/ray-project/kuberay/historyserver/pkg/compression"
 	"github.com/ray-project/kuberay/historyserver/pkg/eventserver"
 	eventtypes "github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
-	"github.com/sirupsen/logrus"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -48,30 +48,6 @@ var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]+m`)
 type logByteRange struct {
 	start int64
 	end   int64
-}
-
-// exactRangeReader reads exactly `remaining` bytes from the underlying reader.
-// Unlike io.LimitReader, it returns io.ErrUnexpectedEOF if the reader ends
-// early, so a truncated log file surfaces as an error instead of silently
-// returning a partial task log.
-type exactRangeReader struct {
-	reader    io.Reader
-	remaining int64
-}
-
-func (r *exactRangeReader) Read(p []byte) (int, error) {
-	if r.remaining == 0 {
-		return 0, io.EOF
-	}
-	if int64(len(p)) > r.remaining {
-		p = p[:r.remaining]
-	}
-	n, err := r.reader.Read(p)
-	r.remaining -= int64(n)
-	if errors.Is(err, io.EOF) && r.remaining > 0 {
-		return n, io.ErrUnexpectedEOF
-	}
-	return n, err
 }
 
 // filterAnsiEscapeCodes removes ANSI escape sequences from log content
@@ -118,19 +94,21 @@ func crdLabelValueFor(kindLower string) string {
 func (s *ServerHandler) listClusters(limit int) []utils.ClusterInfo {
 	// Initial continuation marker
 	logrus.Debugf("Prepare to get list clusters info ...")
-	ctx := context.Background()
-	liveClusterNames := []string{}
 	liveClusterInfos := []utils.ClusterInfo{}
-	liveClusters, err := s.clientManager.ListRayClusters(ctx)
-	if err != nil {
-		logrus.Errorf("Failed to list live RayClusters: %v", err)
+	if s.enableLiveClusters {
+		ctx := context.Background()
+		liveClusterNames := []string{}
+		liveClusters, err := s.clientManager.ListRayClusters(ctx)
+		if err != nil {
+			logrus.Errorf("Failed to list live RayClusters: %v", err)
+		}
+		for _, liveCluster := range liveClusters {
+			liveClusterInfo := buildLiveClusterInfo(liveCluster)
+			liveClusterInfos = append(liveClusterInfos, liveClusterInfo)
+			liveClusterNames = append(liveClusterNames, liveCluster.Name)
+		}
+		logrus.Infof("live clusters: %v", liveClusterNames)
 	}
-	for _, liveCluster := range liveClusters {
-		liveClusterInfo := buildLiveClusterInfo(liveCluster)
-		liveClusterInfos = append(liveClusterInfos, liveClusterInfo)
-		liveClusterNames = append(liveClusterNames, liveCluster.Name)
-	}
-	logrus.Infof("live clusters: %v", liveClusterNames)
 	clusters := s.reader.List()
 	sort.Sort(utils.ClusterInfoList(clusters))
 	if limit > 0 && limit < len(clusters) {
@@ -149,8 +127,13 @@ func (s *ServerHandler) resolveSession(ctx context.Context, namespace, resourceT
 		return utils.ClusterInfo{}, false, fmt.Errorf("unsupported resource kind: %q (must be raycluster, rayjob, or rayservice)", resourceType)
 	}
 
+	// "live" is not a valid session while --enable-live-clusters is disabled.
+	if session == "live" && !s.enableLiveClusters {
+		return utils.ClusterInfo{}, false, nil
+	}
+
 	// Check live clusters first if applicable
-	if isLatestOrEmpty || session == "live" {
+	if s.enableLiveClusters && (isLatestOrEmpty || session == "live") {
 		if resTypeLower == utils.RayClusterKind {
 			liveCluster, err := s.clientManager.GetRayCluster(ctx, namespace, resourceName)
 			if err == nil {
@@ -229,13 +212,13 @@ func (s *ServerHandler) _getNodeLogs(clusterLogPathPrefix, sessionId, nodeId, fo
 	// Use recursive listing when glob contains ** to support cross-directory matching.
 	var matchedFiles []string
 	if glob == "" {
-		matchedFiles = s.reader.ListFiles(clusterLogPathPrefix, logPath)
+		matchedFiles = clusterlogs.ListLogFiles(s.reader, clusterLogPathPrefix, logPath)
 	} else {
 		var files []string
 		if strings.Contains(glob, "**") {
 			files = s.listFilesRecursive(clusterLogPathPrefix, logPath)
 		} else {
-			files = s.reader.ListFiles(clusterLogPathPrefix, logPath)
+			files = clusterlogs.ListLogFiles(s.reader, clusterLogPathPrefix, logPath)
 		}
 		for _, file := range files {
 			matched, err := doublestar.Match(glob, file)
@@ -252,10 +235,10 @@ func (s *ServerHandler) _getNodeLogs(clusterLogPathPrefix, sessionId, nodeId, fo
 	// Ref: Ray Dashboard's LogsManager._categorize_log_files in log_manager.py
 	categorized := categorizeLogFiles(matchedFiles)
 
-	ret := map[string]interface{}{
+	ret := map[string]any{
 		"result": true,
 		"msg":    "",
-		"data": map[string]interface{}{
+		"data": map[string]any{
 			"result": categorized,
 		},
 	}
@@ -265,13 +248,13 @@ func (s *ServerHandler) _getNodeLogs(clusterLogPathPrefix, sessionId, nodeId, fo
 // listFilesRecursive recursively lists all files under dir,
 // returning paths relative to dir (e.g. "subdir/foo.log", "bar.out").
 // It recurses into subdirectories returned by ListFiles (identified by a trailing "/").
-func (s *ServerHandler) listFilesRecursive(clusterID, dir string) []string {
-	entries := s.reader.ListFiles(clusterID, dir)
+func (s *ServerHandler) listFilesRecursive(prefix, dir string) []string {
+	entries := clusterlogs.ListLogFiles(s.reader, prefix, dir)
 	var result []string
 	for _, entry := range entries {
 		if strings.HasSuffix(entry, "/") {
 			subDir := path.Join(dir, entry)
-			subFiles := s.listFilesRecursive(clusterID, subDir)
+			subFiles := s.listFilesRecursive(prefix, subDir)
 			for _, f := range subFiles {
 				result = append(result, path.Join(strings.TrimSuffix(entry, "/"), f))
 			}
@@ -333,7 +316,7 @@ func (s *ServerHandler) _getNodeLogFile(clusterSessionKey, clusterLogPathPrefix,
 
 	// Build log path using clusterlogs helper (<nodeID>/<sessionID>/logs/<filename>)
 	logPath := path.Join(clusterlogs.RelLogsDir(sessionID, nodeID), filename)
-	reader := s.reader.GetContent(clusterLogPathPrefix, logPath)
+	reader := clusterlogs.ReadLogFile(s.reader, clusterLogPathPrefix, logPath)
 
 	if reader == nil {
 		return nil, utils.NewHTTPError(fmt.Errorf("log file not found: %s", logPath), http.StatusNotFound)
@@ -365,43 +348,44 @@ func (s *ServerHandler) _getNodeLogFile(clusterSessionKey, clusterLogPathPrefix,
 		maxLines = MAX_LOG_LIMIT
 	}
 
-	scanner := bufio.NewScanner(reader)
+	logReader := bufio.NewReader(reader)
 	buffer := make([]string, maxLines)
-	index := 0
-	totalLines := 0
+	index, count, retainedBytes := 0, 0, 0
 
-	// TODO(nary): Optimize this to prevent scanning through the whole log file to get last n lines
-	// Get the last N lines following Ray Dashboard API behavior with circular buffer
-	// Example with maxLines=3, file has 5 lines:
-	// 	Line 1: buffer[0], Line 2: buffer[1], Line 3: buffer[2]
-	// 	Line 4: buffer[0] (overwrites Line 1), Line 5: buffer[1] (overwrites Line 2)
-	// 	Final buffer: ["Line 4", "Line 5", "Line 3"]
-	for scanner.Scan() {
-		buffer[index%maxLines] = scanner.Text()
-		index++
-		totalLines++
+	// TODO(nary): Avoid reading the whole log file to get the last N lines.
+	// index points to the next slot to overwrite, or the oldest line once full.
+	for {
+		line, err := logReader.ReadString('\n')
+		atEOF := errors.Is(err, io.EOF)
+		if err != nil && !atEOF {
+			return nil, err
+		}
+		if len(line) == 0 && atEOF {
+			break
+		}
+		// Match ScanLines: strip LF and an optional trailing CR, even at EOF.
+		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		retainedBytes += len(line) - len(buffer[index])
+		buffer[index] = line
+		index = (index + 1) % maxLines
+		count = min(count+1, maxLines)
+		if atEOF {
+			break
+		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, err
+	start := 0
+	if count == maxLines {
+		start = index
 	}
-
-	// Reconstruct lines in correct order
-	var lines []string
-	if totalLines <= maxLines {
-		// File has fewer lines than requested, return all
-		lines = buffer[:totalLines]
-	} else {
-		// Construct response with correct log line order from the circular buffer
-		// Example: buffer=["Line 4", "Line 5", "Line 3"], start=2
-		//   buffer[2:] = ["Line 3"] (oldest)
-		//   buffer[:2] = ["Line 4", "Line 5"] (newest)
-		//   Result: ["Line 3", "Line 4", "Line 5"]
-		start := index % maxLines
-		lines = append(buffer[start:], buffer[:start]...)
+	// Build the response directly without a reordered slice or intermediate string.
+	result := make([]byte, 0, retainedBytes+max(0, count-1))
+	for i := range count {
+		if i > 0 {
+			result = append(result, '\n')
+		}
+		result = append(result, buffer[(start+i)%count]...)
 	}
-
-	result := []byte(strings.Join(lines, "\n"))
 	if options.FilterAnsiCode {
 		result = filterAnsiEscapeCodes(result)
 	}
@@ -417,13 +401,17 @@ func applyLogByteRange(reader io.Reader, byteRange *logByteRange) (io.Reader, er
 		return nil, fmt.Errorf("invalid task log byte range [%d,%d)", byteRange.start, byteRange.end)
 	}
 
+	// Return whatever is available up to end and stop at EOF. For a running cluster the task event
+	// can arrive before the log chunk that holds its bytes. The next scan fills in the rest.
 	if byteRange.start > 0 {
 		if _, err := io.CopyN(io.Discard, reader, byteRange.start); err != nil {
-			return nil, fmt.Errorf("task log ended before byte range start %d: %w", byteRange.start, err)
+			if errors.Is(err, io.EOF) {
+				return strings.NewReader(""), nil
+			}
+			return nil, fmt.Errorf("failed to seek task log to byte %d: %w", byteRange.start, err)
 		}
 	}
-
-	return &exactRangeReader{reader: reader, remaining: byteRange.end - byteRange.start}, nil
+	return io.LimitReader(reader, byteRange.end-byteRange.start), nil
 }
 
 // resolveLogFilename resolves the log file node_id and filename based on the provided options.
@@ -477,11 +465,15 @@ func (s *ServerHandler) resolvePidLogFilename(clusterLogPathPrefix, sessionID, n
 	}
 
 	logPath := clusterlogs.RelLogsDir(sessionID, nodeIDHex)
-	files := s.reader.ListFiles(clusterLogPathPrefix, logPath)
+	files := clusterlogs.ListLogFiles(s.reader, clusterLogPathPrefix, logPath)
 
 	pidSuffix := fmt.Sprintf("-%d.%s", pid, suffix)
 
 	for _, file := range files {
+		// A rotated generation is never the canonical stream for a pid.
+		if utils.IsRotatedLogName(file) {
+			continue
+		}
 		if strings.HasSuffix(file, pidSuffix) {
 			return nodeIDHex, file, nil
 		}
@@ -692,13 +684,18 @@ func (s *ServerHandler) findWorkerLogFile(clusterLogPathPrefix, sessionID, nodeI
 
 	// List all files in the node's log directory
 	logPath := clusterlogs.RelLogsDir(sessionID, nodeIDHex)
-	files := s.reader.ListFiles(clusterLogPathPrefix, logPath)
+	files := clusterlogs.ListLogFiles(s.reader, clusterLogPathPrefix, logPath)
 
 	// Search for files matching pattern: worker-{worker_id_hex}-*.{suffix}
 	workerPrefix := fmt.Sprintf("worker-%s-", workerIDHex)
 	workerSuffix := fmt.Sprintf(".%s", suffix)
 
 	for _, file := range files {
+		// A worker stream can span several rotated generations, so none of them is
+		// the canonical file a task or actor lookup should resolve to.
+		if utils.IsRotatedLogName(file) {
+			continue
+		}
 		if strings.HasPrefix(file, workerPrefix) && strings.HasSuffix(file, workerSuffix) {
 			return nodeIDHex, file, nil
 		}
@@ -720,11 +717,8 @@ func (s *ServerHandler) ipToNodeId(clusterLogPathPrefix, sessionID, nodeIP strin
 
 	// Use targeted listing to find node_events directories under each node
 	var candidatePrefixes []string
-	for _, rawEntry := range s.reader.ListFiles(clusterLogPathPrefix, sessionID) {
-		if strings.HasSuffix(rawEntry, "/") {
-			nodeName := strings.TrimSuffix(rawEntry, "/")
-			candidatePrefixes = append(candidatePrefixes, clusterlogs.RelNodeEventsDir(sessionID, nodeName)+"/")
-		}
+	for _, nodeName := range clusterlogs.ListSessionNodeDirs(s.reader, clusterLogPathPrefix, sessionID) {
+		candidatePrefixes = append(candidatePrefixes, clusterlogs.RelNodeEventsDir(sessionID, nodeName)+"/")
 	}
 
 	for _, nodeEventDirPrefix := range candidatePrefixes {
@@ -790,7 +784,7 @@ func (s *ServerHandler) searchNodeIDHexInEventFile(clusterLogPathPrefix, filePat
 			continue
 		}
 
-		nodeDefEvent, ok := event["nodeDefinitionEvent"].(map[string]interface{})
+		nodeDefEvent, ok := event["nodeDefinitionEvent"].(map[string]any)
 		if !ok {
 			continue
 		}

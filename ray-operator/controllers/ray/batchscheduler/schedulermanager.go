@@ -14,7 +14,7 @@ import (
 	schedulerinterface "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/interface"
 	kaischeduler "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/kai-scheduler"
 	kuberneteswas "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/kubernetes-was"
-	_ "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/kubernetes-was/v1alpha2" // register the v1alpha2 WAS provider
+	_ "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/kubernetes-was/v1alpha3" // register the v1alpha3 WAS provider
 	schedulerplugins "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/scheduler-plugins"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/volcano"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/yunikorn"

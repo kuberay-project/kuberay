@@ -57,7 +57,7 @@ func getAuthMode() AuthMode {
 	return parseAuthMode(os.Getenv("AZURE_STORAGE_AUTH_MODE"))
 }
 
-func (c *config) populateFromEnvAndJSON(jd map[string]interface{}) {
+func (c *config) populateFromEnvAndJSON(jd map[string]any) {
 	c.ConnectionString = os.Getenv("AZURE_STORAGE_CONNECTION_STRING")
 	c.AccountURL = os.Getenv("AZURE_STORAGE_ACCOUNT_URL")
 	c.ContainerName = getContainerNameWithDefault()
@@ -87,12 +87,12 @@ func (c *config) populateFromEnvAndJSON(jd map[string]interface{}) {
 	}
 }
 
-func (c *config) complete(rcc *types.RayCollectorConfig, jd map[string]interface{}) {
+func (c *config) complete(rcc *types.RayCollectorConfig, jd map[string]any) {
 	c.RayCollectorConfig = *rcc
 	c.populateFromEnvAndJSON(jd)
 }
 
-func (c *config) completeHSConfig(rcc *types.RayHistoryServerConfig, jd map[string]interface{}) {
+func (c *config) completeHSConfig(rcc *types.RayHistoryServerConfig, jd map[string]any) {
 	c.RayCollectorConfig = types.RayCollectorConfig{RootDir: rcc.RootDir}
 	c.populateFromEnvAndJSON(jd)
 }

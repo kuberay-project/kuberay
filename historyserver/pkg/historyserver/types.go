@@ -32,12 +32,12 @@ type GetLogFileOptions struct {
 
 // TODO(jiangjiawei1103): Can be extracted to a task-specific interface, e.g., TaskSummaryProvider.
 type TaskDataResult struct {
-	Total                 int                      `json:"total"`
-	NumAfterTruncation    int                      `json:"num_after_truncation"`
-	NumFiltered           int                      `json:"num_filtered"`
-	Result                []map[string]interface{} `json:"result"`
-	PartialFailureWarning string                   `json:"partial_failure_warning"`
-	Warnings              []string                 `json:"warnings"`
+	Total                 int              `json:"total"`
+	NumAfterTruncation    int              `json:"num_after_truncation"`
+	NumFiltered           int              `json:"num_filtered"`
+	Result                []map[string]any `json:"result"`
+	PartialFailureWarning string           `json:"partial_failure_warning"`
+	Warnings              []string         `json:"warnings"`
 }
 
 type TaskData struct {
@@ -57,7 +57,7 @@ type ReplyActorInfo struct {
 }
 
 type ActorInfoData struct {
-	Detail map[string]interface{} `json:"detail"`
+	Detail map[string]any `json:"detail"`
 }
 
 type ClusterStatusResponse struct {

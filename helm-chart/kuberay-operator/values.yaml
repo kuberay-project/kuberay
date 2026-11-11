@@ -146,6 +146,22 @@ configuration:
   #   image: fluent/fluent-bit:1.9
   workerSidecarContainers: []
 
+  # -- Node label keys worker groups may deliver as Ray node labels through workerGroupSpecs[].labelRefs.
+  # Enforced by the validating webhooks, so it requires ENABLE_WEBHOOKS to be enabled. Empty disables delivery.
+  # Example:
+  # allowedNodeLabels:
+  # - nvidia.com/gpu.clique
+  # - topology.kubernetes.io/zone
+  allowedNodeLabels: []
+
+# Admission webhooks: validating webhooks for RayCluster, RayJob and RayService, and the pod mutating webhooks
+# that deliver node labels to Ray workers (workerGroupSpecs[].labelRefs, NodeLabelDelivery feature gate).
+webhooks:
+  # -- Deploy the admission webhooks. Currently requires cert-manager in the cluster for the serving certificate
+  # and CA injection. The webhook configurations are cluster-scoped, so the install fails with singleNamespaceInstall.
+  # The pod webhooks for node label delivery are registered only when the NodeLabelDelivery feature gate is enabled.
+  enabled: false
+
 featureGates:
 - name: RayClusterStatusConditions
   enabled: true
@@ -163,6 +179,33 @@ featureGates:
   enabled: false
 - name: RayClusterHistoryServer
   enabled: false
+- name: RayNodeEventForwarder
+  enabled: false
+- name: NodeLabelDelivery
+  enabled: false
+
+# Configurations for KubeRay node event forwarder controller.
+# The controller forwards Kubernetes Node events to the corresponding RayCluster custom resources.
+# Ref: https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/k8s-events.html
+# Note: Node event forwarding is not supported when singleNamespaceInstall is true.
+nodeEventForwarder:
+  # -- Whether KubeRay operator should forward Kubernetes Node events to RayCluster custom resources. Note: not supported when singleNamespaceInstall is true.
+  enabled: false
+  # -- Only forward Node events emitted by these components, matched against both source.component and reportingController. Empty means all sources.
+  sources: []
+    # - node-problem-detector
+    # - nvidia-gpu-device-plugin
+  # -- Only forward Node events with these reasons, e.g. ["XIDError"]. Empty means all reasons.
+  reasons: []
+  # -- Only forward Node events with these types. Valid values are "Warning" and "Normal". Empty means all types.
+  # Note: Removing the "Warning" filter (or including "Normal") may result in a large number of noisy Normal Node events being forwarded.
+  types:
+    - Warning
+
+# -- Default image for the History Server collector sidecar. A RayCluster can override it with
+# `spec.historyServerOptions.collectorOptions.image`. If empty, defaults to
+# `quay.io/kuberay/collector` with the tag matching the operator version.
+collectorImage: ""
 
 # Configurations for KubeRay operator metrics.
 metrics:
@@ -225,6 +268,7 @@ crNamespacedRbacEnable: true
 #   (Please note that this excludes the CRDs, which can only be installed at the cluster scope.)
 # - If "watchNamespace" is not set, the KubeRay operator will, by default, only listen
 #   to resource events within its own namespace.
+# - Node event forwarding (nodeEventForwarder.enabled) is not supported when singleNamespaceInstall is true.
 singleNamespaceInstall: false
 
 # The KubeRay operator will watch the custom resources in the namespaces listed in the "watchNamespace" parameter.

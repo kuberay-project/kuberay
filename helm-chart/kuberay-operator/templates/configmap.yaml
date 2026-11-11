@@ -20,6 +20,24 @@ data:
     {{- if and (hasKey .Values "metrics") (hasKey .Values.metrics "enabled") }}
     enableMetrics: {{ .Values.metrics.enabled }}
     {{- end }}
+    {{- if and (hasKey .Values "nodeEventForwarder") (hasKey .Values.nodeEventForwarder "enabled") }}
+    nodeEventForwarder:
+      enabled: {{ .Values.nodeEventForwarder.enabled }}
+      {{- if .Values.nodeEventForwarder.enabled }}
+      {{- if .Values.nodeEventForwarder.sources }}
+      sources:
+        {{- toYaml .Values.nodeEventForwarder.sources | nindent 8 }}
+      {{- end }}
+      {{- if .Values.nodeEventForwarder.reasons }}
+      reasons:
+        {{- toYaml .Values.nodeEventForwarder.reasons | nindent 8 }}
+      {{- end }}
+      {{- if .Values.nodeEventForwarder.types }}
+      types:
+        {{- toYaml .Values.nodeEventForwarder.types | nindent 8 }}
+      {{- end }}
+      {{- end }}
+    {{- end }}
     {{- if hasKey .Values "reconcileConcurrency" }}
     reconcileConcurrency: {{ .Values.reconcileConcurrency }}
     {{- end }}
@@ -33,6 +51,9 @@ data:
     {{- if hasKey .Values.kubeClient "burst" }}
     burst: {{ .Values.kubeClient.burst }}
     {{- end }}
+    {{- end }}
+    {{- if .Values.collectorImage }}
+    collectorImage: {{ .Values.collectorImage | quote }}
     {{- end }}
     {{- if .Values.watchNamespace }}
     watchNamespace: {{ join "," .Values.watchNamespace | quote }}
@@ -75,5 +96,9 @@ data:
     {{- if .Values.configuration.defaultPodLabels }}
     defaultPodLabels:
     {{- toYaml .Values.configuration.defaultPodLabels | nindent 6 }}
+    {{- end }}
+    {{- if .Values.configuration.allowedNodeLabels }}
+    allowedNodeLabels:
+    {{- toYaml .Values.configuration.allowedNodeLabels | nindent 4 }}
     {{- end }}
 {{- end }}
