@@ -1,0 +1,21 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ray-cluster.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ray-cluster.labels" . | nindent 4 }}
+spec:
+  {{- if not (kindIs "invalid" .Values.podDisruptionBudget.minAvailable) }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else if and (not (kindIs "invalid" .Values.podDisruptionBudget.maxUnavailable)) (ne (toString .Values.podDisruptionBudget.maxUnavailable) "") }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      ray.io/cluster: {{ include "ray-cluster.fullname" . }}
+      {{- with .Values.podDisruptionBudget.selectorLabels }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+{{- end }}

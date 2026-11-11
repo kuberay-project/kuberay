@@ -468,3 +468,21 @@ additionalWorkerGroups:
 service:
   # This is optional, and the default is ClusterIP.
   type: ClusterIP
+
+# Configuration for an optional PodDisruptionBudget covering the RayCluster pods.
+# Disabled by default. Enable to limit voluntary disruptions (node drains, cluster
+# autoscaler scale-down) of the Ray head and worker pods.
+# See https://kubernetes.io/docs/tasks/run-application/configure-pdb/
+podDisruptionBudget:
+  # -- Whether to create a PodDisruptionBudget for the RayCluster.
+  enabled: false
+  # -- Minimum number of pods that must remain available during a voluntary disruption.
+  # An absolute number or a percentage (e.g. "50%"). Mutually exclusive with maxUnavailable;
+  # when both are set, minAvailable takes precedence.
+  minAvailable: 1
+  # -- Maximum number of pods that can be unavailable during a voluntary disruption.
+  # An absolute number or a percentage (e.g. "50%"). Set minAvailable to null to use this instead.
+  maxUnavailable: ""
+  # -- Extra labels to merge into the PDB selector. By default the PDB selects every pod
+  # of this RayCluster through the operator-managed `ray.io/cluster` label.
+  selectorLabels: {}

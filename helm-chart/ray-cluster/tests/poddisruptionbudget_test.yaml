@@ -1,0 +1,96 @@
+suite: Test RayCluster PodDisruptionBudget
+
+templates:
+  - poddisruptionbudget.yaml
+
+release:
+  name: test
+  namespace: ray
+
+tests:
+  - it: Should not create a PodDisruptionBudget by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Should create a PodDisruptionBudget when `podDisruptionBudget.enabled` is `true`
+    set:
+      podDisruptionBudget:
+        enabled: true
+    asserts:
+      - containsDocument:
+          apiVersion: policy/v1
+          kind: PodDisruptionBudget
+          name: test-kuberay
+          namespace: ray
+      - equal:
+          path: spec.minAvailable
+          value: 1
+      - equal:
+          path: spec.selector.matchLabels["ray.io/cluster"]
+          value: test-kuberay
+
+  - it: Should use `maxUnavailable` when `minAvailable` is unset
+    set:
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: null
+        maxUnavailable: "50%"
+    asserts:
+      - equal:
+          path: spec.maxUnavailable
+          value: "50%"
+      - notExists:
+          path: spec.minAvailable
+
+  - it: Should render `minAvailable` when set to `0`
+    set:
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 0
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 0
+      - notExists:
+          path: spec.maxUnavailable
+
+  - it: Should render `maxUnavailable` when set to `0`
+    set:
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: null
+        maxUnavailable: 0
+    asserts:
+      - equal:
+          path: spec.maxUnavailable
+          value: 0
+      - notExists:
+          path: spec.minAvailable
+
+  - it: Should prefer `minAvailable` when both are set
+    set:
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 2
+        maxUnavailable: "50%"
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 2
+      - notExists:
+          path: spec.maxUnavailable
+
+  - it: Should merge `podDisruptionBudget.selectorLabels` into the selector
+    set:
+      podDisruptionBudget:
+        enabled: true
+        selectorLabels:
+          ray.io/node-type: head
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels["ray.io/cluster"]
+          value: test-kuberay
+      - equal:
+          path: spec.selector.matchLabels["ray.io/node-type"]
+          value: head
