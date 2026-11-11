@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -80,6 +81,7 @@ type RayClusterReconcilerOptions struct {
 	DefaultContainerEnvs     []corev1.EnvVar
 	DefaultPodAnnotations    map[string]string
 	DefaultPodLabels         map[string]string
+	AllowedNodeLabels        []string
 	CollectorImage           string
 	IsOpenShift              bool
 	UseIngressOnOpenShift    bool
@@ -93,6 +95,7 @@ type RayClusterReconcilerOptions struct {
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete;deletecollection
 // +kubebuilder:rbac:groups=core,resources=pods/status,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods/resize,verbs=patch
@@ -1161,7 +1164,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		deleted := struct{}{}
 		numDeletedUnhealthyWorkerPods := 0
 		for _, workerPod := range workerPods.Items {
-			shouldDelete, reason := shouldDeletePod(workerPod, rayv1.WorkerNode)
+			shouldDelete, reason := r.shouldDeleteWorkerPod(ctx, workerPod, &worker)
 			logger.Info("reconcilePods", "worker Pod", workerPod.Name, "shouldDelete", shouldDelete, "reason", reason)
 			if shouldDelete {
 				numDeletedUnhealthyWorkerPods++
@@ -1174,8 +1177,8 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 				}
 				r.rayClusterScaleExpectation.ExpectScalePod(workerPod.Namespace, instance.Name, worker.GroupName, workerPod.Name, expectations.Delete)
 				r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedWorkerPod), string(utils.DeleteAction),
-					"Deleted worker Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v",
-					workerPod.Namespace, workerPod.Name, workerPod.Status.Phase, workerPod.Spec.RestartPolicy, getRayContainerStateTerminated(workerPod))
+					"Deleted worker Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v; reason: %s",
+					workerPod.Namespace, workerPod.Name, workerPod.Status.Phase, workerPod.Spec.RestartPolicy, getRayContainerStateTerminated(workerPod), reason)
 			}
 		}
 
@@ -1367,7 +1370,7 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 		if _, alreadyDeleted := deletedPods[pod.Name]; alreadyDeleted {
 			continue
 		}
-		shouldDelete, reason := shouldDeletePod(pod, rayv1.WorkerNode)
+		shouldDelete, reason := r.shouldDeleteWorkerPod(ctx, pod, worker)
 		if shouldDelete {
 			replicaName := pod.Labels[utils.RayWorkerReplicaNameKey]
 			podsToDelete, ok := replicaMap[replicaName]
@@ -1610,6 +1613,67 @@ func shouldDeletePod(pod corev1.Pod, nodeType rayv1.RayNodeType) (bool, string) 
 		"KubeRay does not need to delete the %s Pod %s. The Pod status is %s, and the Ray container terminated status is %v.",
 		nodeType, pod.Name, pod.Status.Phase, rayContainerTerminated)
 	return false, reason
+}
+
+// shouldDeleteWorkerPod extends shouldDeletePod with NodeLabelDelivery-specific self-healing for worker Pods
+// whose Ray container exited because the ray.io/node-labels annotation was not delivered at bind time
+// (e.g., when a node labeler applied the label after binding or the binding webhook timed out or was unavailable
+// under failurePolicy: Ignore).
+// Because pods/binding only executes once per Pod lifetime, container restarts never pick up the missing annotation.
+// Existing shouldDeletePod decisions are preserved; otherwise, the Pod is kept until every labelRef is allowlisted
+// and present on the bound Node, then deleted for recreation.
+func (r *RayClusterReconciler) shouldDeleteWorkerPod(ctx context.Context, pod corev1.Pod, worker *rayv1.WorkerGroupSpec) (bool, string) {
+	shouldDelete, reason := shouldDeletePod(pod, rayv1.WorkerNode)
+	if shouldDelete || !missedNodeLabelDelivery(pod, worker) {
+		return shouldDelete, reason
+	}
+	node := &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
+	if err := r.Get(ctx, client.ObjectKey{Name: pod.Spec.NodeName}, node); err != nil {
+		return false, fmt.Sprintf(
+			"The worker Pod %s/%s terminated without the %s annotation, and bound Node %s could not be read: %v.",
+			pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, pod.Spec.NodeName, err)
+	}
+	if _, err := utils.ResolveNodeLabels(node.Labels, worker.LabelRefs, sets.New(r.options.AllowedNodeLabels...)); err != nil {
+		return false, fmt.Sprintf(
+			"The worker Pod %s/%s terminated without the %s annotation, and bound Node %s cannot satisfy labelRefs: %v.",
+			pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, pod.Spec.NodeName, err)
+	}
+	return true, fmt.Sprintf(
+		"The worker Pod %s/%s terminated without the %s annotation while bound Node %s carries all requested labelRefs.",
+		pod.Namespace, pod.Name, utils.RayNodeLabelsAnnotationKey, pod.Spec.NodeName)
+}
+
+func missedNodeLabelDelivery(pod corev1.Pod, worker *rayv1.WorkerGroupSpec) bool {
+	return features.Enabled(features.NodeLabelDelivery) &&
+		worker != nil && len(worker.LabelRefs) > 0 &&
+		worker.Template.Spec.NodeName == "" &&
+		pod.Spec.NodeName != "" &&
+		pod.Annotations[utils.RayNodeLabelsAnnotationKey] == "" &&
+		hasRayContainerLabelsEnv(pod) &&
+		hasRayContainerTerminated(pod)
+}
+
+func hasRayContainerLabelsEnv(pod corev1.Pod) bool {
+	if len(pod.Spec.Containers) <= utils.RayContainerIndex {
+		return false
+	}
+	return utils.EnvVarExists(utils.RAY_NODE_LABELS_JSON, pod.Spec.Containers[utils.RayContainerIndex].Env)
+}
+
+func hasRayContainerTerminated(pod corev1.Pod) bool {
+	if len(pod.Spec.Containers) <= utils.RayContainerIndex {
+		return false
+	}
+	rayContainerName := pod.Spec.Containers[utils.RayContainerIndex].Name
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.Name != rayContainerName {
+			continue
+		}
+		if cs.State.Terminated != nil || cs.LastTerminationState.Terminated != nil || cs.RestartCount > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // `ContainerStatuses` does not guarantee the order of the containers. Therefore, we need to find the Ray

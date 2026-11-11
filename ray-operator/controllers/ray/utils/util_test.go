@@ -12,6 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -2583,4 +2584,60 @@ func TestNodeLabelKey(t *testing.T) {
 		_, err := NodeLabelKey(bad)
 		require.ErrorContains(t, err, "only metadata.labels['<key>'] is supported", bad)
 	}
+}
+
+func TestResolveNodeLabels(t *testing.T) {
+	allowed := sets.New("topology.kubernetes.io/zone", "nvidia.com/gpu.clique")
+	refs := []rayv1.LabelRef{
+		{
+			ValueFrom: rayv1.LabelRefSource{
+				NodeRef: rayv1.NodeFieldRef{FieldPath: "metadata.labels['topology.kubernetes.io/zone']"},
+			},
+		},
+		{
+			Name: "ray.io/accelerator-domain",
+			ValueFrom: rayv1.LabelRefSource{
+				NodeRef: rayv1.NodeFieldRef{FieldPath: "metadata.labels['nvidia.com/gpu.clique']"},
+			},
+		},
+	}
+	nodeLabels := map[string]string{
+		"topology.kubernetes.io/zone": "us-central1-a",
+		"nvidia.com/gpu.clique":       "abc.0",
+		"unrelated":                   "x",
+	}
+
+	labels, err := ResolveNodeLabels(nodeLabels, refs, allowed)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"topology.kubernetes.io/zone": "us-central1-a",
+		"ray.io/accelerator-domain":   "abc.0",
+	}, labels)
+
+	_, err = ResolveNodeLabels(map[string]string{"topology.kubernetes.io/zone": "us-central1-a"}, refs, allowed)
+	require.ErrorIs(t, err, ErrMissingNodeLabel)
+	require.ErrorContains(t, err, `node lacks label "nvidia.com/gpu.clique"`)
+
+	_, err = ResolveNodeLabels(nil, refs, allowed)
+	require.ErrorIs(t, err, ErrMissingNodeLabel)
+	require.ErrorContains(t, err, `node lacks label "topology.kubernetes.io/zone"; node lacks label "nvidia.com/gpu.clique"`)
+
+	_, err = ResolveNodeLabels(nodeLabels, refs, sets.New("topology.kubernetes.io/zone"))
+	require.NotErrorIs(t, err, ErrMissingNodeLabel)
+	require.ErrorContains(t, err, `node label "nvidia.com/gpu.clique" is not in the operator's allowedNodeLabels`)
+
+	// Mixed missing allowlisted label + non-allowlisted label must not match ErrMissingNodeLabel,
+	// since re-reading the Node can never satisfy the disallowed labelRef.
+	_, err = ResolveNodeLabels(nil, refs, sets.New("topology.kubernetes.io/zone"))
+	require.NotErrorIs(t, err, ErrMissingNodeLabel)
+	require.ErrorContains(t, err, `node lacks label "topology.kubernetes.io/zone"`)
+	require.ErrorContains(t, err, `node label "nvidia.com/gpu.clique" is not in the operator's allowedNodeLabels`)
+
+	_, err = ResolveNodeLabels(nil, []rayv1.LabelRef{
+		{ValueFrom: rayv1.LabelRefSource{NodeRef: rayv1.NodeFieldRef{FieldPath: "spec.providerID"}}},
+		refs[0],
+	}, allowed)
+	require.NotErrorIs(t, err, ErrMissingNodeLabel)
+	require.ErrorContains(t, err, "only metadata.labels['<key>'] is supported")
+	require.ErrorContains(t, err, `node lacks label "topology.kubernetes.io/zone"`)
 }

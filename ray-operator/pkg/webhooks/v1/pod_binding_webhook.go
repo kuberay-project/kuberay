@@ -32,11 +32,18 @@ const FailedToDeliverNodeLabels = "FailedToDeliverNodeLabels"
 var podBindingLog = logf.Log.WithName("pod-binding-webhook")
 
 //+kubebuilder:webhook:path=/mutate-v1-pod-binding,mutating=true,failurePolicy=ignore,sideEffects=NoneOnDryRun,groups="",resources=pods/binding,verbs=create,versions=v1,name=mpodbinding.kb.io,admissionReviewVersions=v1,timeoutSeconds=5
-//+kubebuilder:rbac:groups=core,resources=nodes,verbs=get
+//+kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
 
 // SetupPodBindingWebhookWithManager registers the pods/binding CREATE mutating webhook, which writes the bound node's
 // mapped labels into the Binding annotations. The API server copies them onto the pod together with spec.nodeName.
 func SetupPodBindingWebhookWithManager(mgr ctrl.Manager, config configapi.Configuration) error {
+	if features.Enabled(features.NodeLabelDelivery) {
+		if _, err := mgr.GetCache().GetInformer(context.Background(), &metav1.PartialObjectMetadata{
+			TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"},
+		}); err != nil {
+			return fmt.Errorf("failed to register Node metadata informer: %w", err)
+		}
+	}
 	mgr.GetWebhookServer().Register("/mutate-v1-pod-binding", &webhook.Admission{Handler: &PodBindingWebhook{
 		Client:            mgr.GetClient(),
 		APIReader:         mgr.GetAPIReader(),
@@ -48,9 +55,9 @@ func SetupPodBindingWebhookWithManager(mgr ctrl.Manager, config configapi.Config
 }
 
 type PodBindingWebhook struct {
-	// Client reads pods and RayClusters from the manager cache
+	// Client reads pods, RayClusters, and node metadata from the manager cache
 	Client client.Reader
-	// APIReader reads pods the cache does not hold and node metadata from the API server
+	// APIReader reads pods and node metadata that the cache does not hold yet from the API server
 	APIReader client.Reader
 	// Recorder emits the Warning event when labels are withheld, may be nil
 	Recorder events.EventRecorder
@@ -104,13 +111,19 @@ func (w *PodBindingWebhook) Handle(ctx context.Context, req admission.Request) a
 	if group == nil {
 		return admission.Allowed("not a worker of a group with labelRefs")
 	}
-	// metadata-only GET
-	node := &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
-	if err := w.APIReader.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
+	nodeMeta, fromCache, err := w.getNodeMetadata(ctx, types.NamespacedName{Name: nodeName})
+	if err != nil {
 		w.withhold(req, podMeta, nodeName, fmt.Errorf("cannot read node %s: %w", nodeName, err))
 		return admission.Allowed("node labels withheld")
 	}
-	labels, err := buildNodeLabels(node.Labels, group.LabelRefs, w.AllowedNodeLabels)
+	labels, err := utils.ResolveNodeLabels(nodeMeta.Labels, group.LabelRefs, w.AllowedNodeLabels)
+	if fromCache && errors.Is(err, utils.ErrMissingNodeLabel) {
+		// The informer cache may lag behind a label update that the scheduler just observed.
+		fresh := &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
+		if getErr := w.APIReader.Get(ctx, types.NamespacedName{Name: nodeName}, fresh); getErr == nil {
+			labels, err = utils.ResolveNodeLabels(fresh.Labels, group.LabelRefs, w.AllowedNodeLabels)
+		}
+	}
 	if err != nil {
 		w.withhold(req, podMeta, nodeName, err)
 		return admission.Allowed("node labels withheld")
@@ -160,36 +173,6 @@ func (w *PodBindingWebhook) labelRefsGroup(ctx context.Context, namespace, clust
 	return nil, nil
 }
 
-func buildNodeLabels(nodeLabels map[string]string, refs []rayv1.LabelRef, allowed sets.Set[string]) (map[string]string, error) {
-	labels := make(map[string]string, len(refs))
-	var errList []string
-	for _, ref := range refs {
-		nodeLabel, err := utils.NodeLabelKey(ref.ValueFrom.NodeRef.FieldPath)
-		if err != nil {
-			errList = append(errList, err.Error())
-			continue
-		}
-		value, ok := nodeLabels[nodeLabel]
-		switch {
-		case !allowed.Has(nodeLabel):
-			errList = append(errList, fmt.Sprintf("node label %q is not in the operator's allowedNodeLabels", nodeLabel))
-		case !ok:
-			errList = append(errList, fmt.Sprintf("node lacks label %q", nodeLabel))
-		default:
-			// name defaults to the node label key
-			key := ref.Name
-			if key == "" {
-				key = nodeLabel
-			}
-			labels[key] = value
-		}
-	}
-	if len(errList) > 0 {
-		return nil, errors.New(strings.Join(errList, "; "))
-	}
-	return labels, nil
-}
-
 func (w *PodBindingWebhook) getPodMetadata(ctx context.Context, key types.NamespacedName) (*metav1.ObjectMeta, error) {
 	pod := &corev1.Pod{}
 	err := w.Client.Get(ctx, key, pod)
@@ -207,6 +190,22 @@ func (w *PodBindingWebhook) getPodMetadata(ctx context.Context, key types.Namesp
 		return nil, err
 	}
 	return &podMeta.ObjectMeta, nil
+}
+
+func (w *PodBindingWebhook) getNodeMetadata(ctx context.Context, key types.NamespacedName) (meta *metav1.ObjectMeta, fromCache bool, err error) {
+	node := &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
+	err = w.Client.Get(ctx, key, node)
+	if err == nil {
+		return &node.ObjectMeta, true, nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return nil, false, err
+	}
+	node = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
+	if err := w.APIReader.Get(ctx, key, node); err != nil {
+		return nil, false, err
+	}
+	return &node.ObjectMeta, false, nil
 }
 
 // Records why the labels were not delivered. The binding proceeds without the annotation and the pod exits before ray start
