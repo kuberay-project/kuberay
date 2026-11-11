@@ -143,6 +143,8 @@ The object layout is the same as for the other backends:
 <STORAGE_ROOT_DIR>/<namespace>_<name>/<session>/logs/<node-id>/...
 ```
 
-Directories are represented by zero-byte objects whose name ends in `/`, so
-they show up as folders in the OCI Console; `ListFiles` filters those markers
-out of its results.
+Object Storage is a flat namespace, so the backend does not write directory
+marker objects: directories are inferred from object name prefixes, and the OCI
+Console shows them as folders. `ListFiles` skips zero-byte objects whose name
+ends in `/` (for example folders created in the Console) so they are not
+reported as files.

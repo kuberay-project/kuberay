@@ -45,7 +45,6 @@ type objectStorageClient interface {
 	GetNamespace(ctx context.Context, request objectstorage.GetNamespaceRequest) (objectstorage.GetNamespaceResponse, error)
 	HeadBucket(ctx context.Context, request objectstorage.HeadBucketRequest) (objectstorage.HeadBucketResponse, error)
 	CreateBucket(ctx context.Context, request objectstorage.CreateBucketRequest) (objectstorage.CreateBucketResponse, error)
-	HeadObject(ctx context.Context, request objectstorage.HeadObjectRequest) (objectstorage.HeadObjectResponse, error)
 	PutObject(ctx context.Context, request objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error)
 	GetObject(ctx context.Context, request objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error)
 	ListObjects(ctx context.Context, request objectstorage.ListObjectsRequest) (objectstorage.ListObjectsResponse, error)
@@ -72,13 +71,6 @@ type RayLogsHandler struct {
 	PushInterval        time.Duration
 }
 
-// requestMetadata attaches the SDK default retry policy (exponential backoff on
-// throttling and transient 5xx errors). Without it every request is issued exactly once.
-func requestMetadata() common.RequestMetadata {
-	policy := common.DefaultRetryPolicy()
-	return common.RequestMetadata{RetryPolicy: &policy}
-}
-
 // objectName joins path elements into an Object Storage name. Object Storage is a
 // flat namespace, so a leading slash would become part of the name and hide the
 // object from the Console folder view.
@@ -93,7 +85,8 @@ func isHTTPStatus(err error, status int) bool {
 	return false
 }
 
-// readSeekCloser lets the SDK rewind the request body when it retries an upload.
+// readSeekCloser lets the SDK rewind the request body when its default retry policy
+// retries an upload.
 type readSeekCloser struct {
 	io.ReadSeeker
 }
@@ -123,22 +116,20 @@ func (r *RayLogsHandler) putObject(ctx context.Context, name string, body io.Rea
 		return fmt.Errorf("determine size of %s: %w", name, err)
 	}
 	_, err = r.Client.PutObject(ctx, objectstorage.PutObjectRequest{
-		NamespaceName:   &r.Namespace,
-		BucketName:      &r.Bucket,
-		ObjectName:      &name,
-		ContentLength:   &size,
-		PutObjectBody:   readSeekCloser{body},
-		RequestMetadata: requestMetadata(),
+		NamespaceName: &r.Namespace,
+		BucketName:    &r.Bucket,
+		ObjectName:    &name,
+		ContentLength: &size,
+		PutObjectBody: readSeekCloser{body},
 	})
 	return err
 }
 
 func (r *RayLogsHandler) getObject(ctx context.Context, name string) ([]byte, error) {
 	resp, err := r.Client.GetObject(ctx, objectstorage.GetObjectRequest{
-		NamespaceName:   &r.Namespace,
-		BucketName:      &r.Bucket,
-		ObjectName:      &name,
-		RequestMetadata: requestMetadata(),
+		NamespaceName: &r.Namespace,
+		BucketName:    &r.Bucket,
+		ObjectName:    &name,
 	})
 	if err != nil {
 		return nil, err
@@ -147,33 +138,10 @@ func (r *RayLogsHandler) getObject(ctx context.Context, name string) ([]byte, er
 	return io.ReadAll(resp.Content)
 }
 
-// CreateDirectory stores a zero-byte "<dir>/" marker so the directory shows up as a
-// folder in the OCI Console, matching the S3, GCS and Aliyun OSS backends.
-func (r *RayLogsHandler) CreateDirectory(d string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), uploadTimeout)
-	defer cancel()
-
-	marker := objectName(d) + "/"
-	_, err := r.Client.HeadObject(ctx, objectstorage.HeadObjectRequest{
-		NamespaceName:   &r.Namespace,
-		BucketName:      &r.Bucket,
-		ObjectName:      &marker,
-		RequestMetadata: requestMetadata(),
-	})
-	if err == nil {
-		return nil
-	}
-	if !isHTTPStatus(err, http.StatusNotFound) {
-		logrus.Errorf("Failed to check if directory %s exists: %v", marker, err)
-		return err
-	}
-
-	logrus.Infof("Begin to create oci dir %s ...", marker)
-	if err := r.putObject(ctx, marker, bytes.NewReader(nil)); err != nil {
-		logrus.Errorf("Failed to create directory '%s': %v", marker, err)
-		return err
-	}
-	logrus.Infof("Create oci dir %s success", marker)
+func (r *RayLogsHandler) CreateDirectory(_ string) error {
+	// OCI Object Storage is a flat namespace and doesn't require explicit directory
+	// markers. Prefix listing with a "/" delimiter infers directories from object
+	// names, and the OCI Console shows them as folders.
 	return nil
 }
 
@@ -193,12 +161,11 @@ func (r *RayLogsHandler) WriteFile(file string, reader io.ReadSeeker) error {
 // the common prefixes one level below it. An empty delimiter lists recursively.
 func (r *RayLogsHandler) listObjects(ctx context.Context, prefix string, delimiter string) (objects []string, prefixes []string, err error) {
 	request := objectstorage.ListObjectsRequest{
-		NamespaceName:   &r.Namespace,
-		BucketName:      &r.Bucket,
-		Prefix:          new(prefix),
-		Fields:          new("name"),
-		Limit:           new(listPageSize),
-		RequestMetadata: requestMetadata(),
+		NamespaceName: &r.Namespace,
+		BucketName:    &r.Bucket,
+		Prefix:        new(prefix),
+		Fields:        new("name"),
+		Limit:         new(listPageSize),
 	}
 	if delimiter != "" {
 		request.Delimiter = new(delimiter)
@@ -387,7 +354,7 @@ func newObjectStorageClient(c *config) (*objectstorage.ObjectStorageClient, erro
 }
 
 func resolveNamespace(ctx context.Context, client objectStorageClient, compartmentID string) (string, error) {
-	request := objectstorage.GetNamespaceRequest{RequestMetadata: requestMetadata()}
+	request := objectstorage.GetNamespaceRequest{}
 	if compartmentID != "" {
 		request.CompartmentId = &compartmentID
 	}
@@ -406,9 +373,8 @@ func resolveNamespace(ctx context.Context, client objectStorageClient, compartme
 // exist and when the principal may not read it, so the error message mentions both.
 func (r *RayLogsHandler) ensureBucketExists(ctx context.Context, compartmentID string) error {
 	_, err := r.Client.HeadBucket(ctx, objectstorage.HeadBucketRequest{
-		NamespaceName:   &r.Namespace,
-		BucketName:      &r.Bucket,
-		RequestMetadata: requestMetadata(),
+		NamespaceName: &r.Namespace,
+		BucketName:    &r.Bucket,
 	})
 	if err == nil {
 		logrus.Infof("Bucket %s already exists", r.Bucket)
@@ -429,7 +395,6 @@ func (r *RayLogsHandler) ensureBucketExists(ctx context.Context, compartmentID s
 			Name:          &r.Bucket,
 			CompartmentId: &compartmentID,
 		},
-		RequestMetadata: requestMetadata(),
 	})
 	if err != nil {
 		if isHTTPStatus(err, http.StatusConflict) {

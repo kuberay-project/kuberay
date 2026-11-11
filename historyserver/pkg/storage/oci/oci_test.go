@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -129,18 +130,6 @@ func (f *fakeClient) CreateBucket(_ context.Context, request objectstorage.Creat
 	}
 	f.buckets[*request.Name] = true
 	return objectstorage.CreateBucketResponse{}, nil
-}
-
-func (f *fakeClient) HeadObject(_ context.Context, request objectstorage.HeadObjectRequest) (objectstorage.HeadObjectResponse, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if err := f.checkBucket(request.NamespaceName, request.BucketName); err != nil {
-		return objectstorage.HeadObjectResponse{}, err
-	}
-	if _, ok := f.objects[*request.ObjectName]; !ok {
-		return objectstorage.HeadObjectResponse{}, notFound("ObjectNotFound")
-	}
-	return objectstorage.HeadObjectResponse{}, nil
 }
 
 func (f *fakeClient) PutObject(_ context.Context, request objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error) {
@@ -330,22 +319,29 @@ func (r *racingClient) CreateBucket(ctx context.Context, request objectstorage.C
 	return r.fakeClient.CreateBucket(ctx, request)
 }
 
-func TestCreateDirectory(t *testing.T) {
+func TestCreateDirectoryIsNoOp(t *testing.T) {
 	client := newFakeClient(nil)
 	handler := newTestHandler(client)
 
 	require.NoError(t, handler.CreateDirectory("new/dir"))
-	_, ok := client.objects["new/dir/"]
-	assert.True(t, ok, "expected directory marker new/dir/")
-	assert.Equal(t, 1, client.putCalls)
-	assert.Equal(t, int64(0), client.contentLengths["new/dir/"])
-
-	require.NoError(t, handler.CreateDirectory("new/dir"))
-	assert.Equal(t, 1, client.putCalls, "existing directory must not be recreated")
-
 	require.NoError(t, handler.CreateDirectory("/leading/slash/"))
-	_, ok = client.objects["leading/slash/"]
-	assert.True(t, ok, "leading slash must be trimmed and trailing slash normalized")
+	assert.Empty(t, client.objects, "no directory marker objects must be written")
+	assert.Equal(t, 0, client.putCalls)
+}
+
+func TestListFilesInfersDirectoriesWithoutMarkers(t *testing.T) {
+	client := newFakeClient(nil)
+	handler := newTestHandler(client)
+
+	dir := path.Join(testRootDir, "cluster1", utils.RAY_SESSIONDIR_LOGDIR_NAME)
+	require.NoError(t, handler.CreateDirectory(path.Join(dir, "node1")))
+	require.NoError(t, handler.WriteFile(path.Join(dir, "file1.txt"), strings.NewReader("a")))
+	require.NoError(t, handler.WriteFile(path.Join(dir, "node1", "raylet.out"), strings.NewReader("b")))
+
+	files := handler.ListFiles("cluster1", utils.RAY_SESSIONDIR_LOGDIR_NAME)
+	sort.Strings(files)
+	assert.Equal(t, []string{"file1.txt", "node1/"}, files)
+	assert.Equal(t, []string{"raylet.out"}, handler.ListFiles("cluster1", path.Join(utils.RAY_SESSIONDIR_LOGDIR_NAME, "node1")))
 }
 
 func TestWriteFile(t *testing.T) {
