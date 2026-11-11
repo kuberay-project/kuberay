@@ -1722,6 +1722,43 @@ func (r *RayServiceReconciler) checkIfNeedTargetCapacityUpdate(ctx context.Conte
 	return true, "Active RayCluster TargetCapacity has not finished scaling down."
 }
 
+// targetCapacityAsInt32 coerces a target_capacity value as decoded from a
+// ServeConfigV2 YAML/JSON document into an int32. Returns ok=false for nil,
+// missing entries, values of any other type, or numeric values that don't
+// fit in int32. See #4777 for why both int64 and float64 must be accepted.
+//
+// Out-of-range int64 / int / float64 values are rejected rather than
+// silently truncated, gosec G115 flagged the previous unconditional
+// `int32(n)` conversions, and silent truncation here would put garbage in
+// the dashboard's target_capacity field instead of producing a clear
+// "unsupported value" log line upstream.
+func targetCapacityAsInt32(v any) (int32, bool) {
+	const maxInt32 = int64(math.MaxInt32)
+	const minInt32 = int64(math.MinInt32)
+	switch n := v.(type) {
+	case int64:
+		if n < minInt32 || n > maxInt32 {
+			return 0, false
+		}
+		return int32(n), true
+	case float64:
+		// Reject NaN/Inf, non-integral values and values outside the int32 range.
+		if math.IsNaN(n) || math.IsInf(n, 0) || math.Trunc(n) != n || n < float64(minInt32) || n > float64(maxInt32) {
+			return 0, false
+		}
+		return int32(n), true
+	case int:
+		if int64(n) < minInt32 || int64(n) > maxInt32 {
+			return 0, false
+		}
+		return int32(n), true
+	case int32:
+		return n, true
+	default:
+		return 0, false
+	}
+}
+
 // applyServeTargetCapacity updates the target_capacity for a given RayCluster's Serve applications.
 func (r *RayServiceReconciler) applyServeTargetCapacity(ctx context.Context, rayServiceInstance *rayv1.RayService, rayClusterInstance *rayv1.RayCluster, rayDashboardClient dashboardclient.RayDashboardClientInterface, goalTargetCapacity int32) error {
 	logger := ctrl.LoggerFrom(ctx).WithValues("RayCluster", rayClusterInstance.Name)
@@ -1737,9 +1774,20 @@ func (r *RayServiceReconciler) applyServeTargetCapacity(ctx context.Context, ray
 		return err
 	}
 
-	// Check if ServeConfig requires update
-	if currentTargetCapacity, ok := serveConfig["target_capacity"].(float64); ok {
-		if int32(currentTargetCapacity) == goalTargetCapacity {
+	// Check if ServeConfig requires update.
+	//
+	// k8s.io/apimachinery/util/yaml decodes integers as int64 (it routes
+	// JSON-compatible input through encoding/json with UseNumber off, and
+	// gopkg.in/yaml.v2 also returns int64 for plain integer scalars). The
+	// previous \`.(float64)\` assertion therefore *always* failed for
+	// ServeConfigV2 strings whose target_capacity is an integer, every
+	// reconcile took the slow path and called UpdateDeployments
+	// unconditionally even when the value was already current (#4777).
+	//
+	// Accept both int64 and float64 so the idempotency guard fires for
+	// either source.
+	if currentTargetCapacity, ok := targetCapacityAsInt32(serveConfig["target_capacity"]); ok {
+		if currentTargetCapacity == goalTargetCapacity {
 			logger.Info("target_capacity already updated on RayCluster", "target_capacity", currentTargetCapacity)
 			// No update required, return early
 			return nil
