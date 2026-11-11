@@ -398,7 +398,9 @@ var _ = Context("RayJob with different submission modes", func() {
 			rayJob := rayJobTemplate("rayjob-invalid-test", namespace)
 			rayCluster := &rayv1.RayCluster{Spec: *rayJob.Spec.RayClusterSpec}
 			template := common.GetSubmitterTemplate(&rayJob.Spec, &rayCluster.Spec)
-			template.Spec.RestartPolicy = "" // Make it invalid to create a submitter. Ref: https://github.com/ray-project/kuberay/pull/2389#issuecomment-2359564334
+			// Make it invalid to create a submitter. We use an invalid label key to guarantee
+			// the Kubernetes API server rejects the Job creation.
+			template.ObjectMeta.Labels = map[string]string{"invalid key": "invalid value"}
 			rayJob.Spec.SubmitterPodTemplate = &template
 
 			It("Verify RayJob spec", func() {
