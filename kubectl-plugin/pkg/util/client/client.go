@@ -102,16 +102,27 @@ func (c *k8sClient) GetKubeRayOperatorVersion(ctx context.Context) (string, erro
 }
 
 func (c *k8sClient) GetRayHeadSvcName(ctx context.Context, namespace string, resourceType util.ResourceType, name string) (string, error) {
+	var svcName string
+	var err error
 	switch resourceType {
 	case util.RayCluster:
-		return c.getRayHeadSvcNameByRayCluster(ctx, namespace, name)
+		svcName, err = c.getRayHeadSvcNameByRayCluster(ctx, namespace, name)
 	case util.RayJob:
-		return c.getRayHeadSvcNameByRayJob(ctx, namespace, name)
+		svcName, err = c.getRayHeadSvcNameByRayJob(ctx, namespace, name)
 	case util.RayService:
-		return c.getRayHeadSvcNameByRayService(ctx, namespace, name)
+		svcName, err = c.getRayHeadSvcNameByRayService(ctx, namespace, name)
 	default:
 		return "", fmt.Errorf("unsupported resource type: %s", resourceType)
 	}
+	if err != nil {
+		return "", err
+	}
+	// The status has no head service name until the head service exists, e.g. while a
+	// RayService's first cluster is starting or after a RayJob is suspended.
+	if svcName == "" {
+		return "", fmt.Errorf("the head service of %s %s/%s is not available yet", resourceType, namespace, name)
+	}
+	return svcName, nil
 }
 
 // WaitRayClusterProvisioned blocks until the RayCluster has a status condition with type=RayClusterProvisioned and status=true.
