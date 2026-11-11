@@ -9,7 +9,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/version"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -37,6 +36,11 @@ func NewRayClusterSpecWithMTLS() *rayv1ac.RayClusterSpecApplyConfiguration {
 	return NewRayClusterSpec().
 		WithTLSOptions(rayv1ac.TLSOptions().WithEnabled(true))
 }
+
+// mTLS with autoscaling requires `ray kuberay-autoscaler --gcs-address` (Ray >= 2.60.0),
+// validation rejects older versions.
+// TODO: remove once the default test Ray version (test/support/defaults.go) is >= 2.60.0.
+const mtlsAutoscalerRayImage = "rayproject/ray:2.60.0"
 
 // verifyContainerTLSEnvVars asserts a container has the expected TLS environment variables.
 func verifyContainerTLSEnvVars(g Gomega, container *corev1.Container) {
@@ -382,18 +386,15 @@ func TestRayClusterTLSEdgeCases(t *testing.T) {
 		if !certManagerAvailable(test) {
 			t.Skip("cert-manager CRDs not found; skipping auto-generate mTLS test")
 		}
-		// mTLS with autoscaling requires `ray kuberay-autoscaler --gcs-address` (Ray >= 2.60.0);
-		// validation rejects older versions.
-		if v, err := version.ParseGeneric(GetRayVersion()); err != nil || !v.AtLeast(version.MustParseGeneric("2.60.0")) {
-			t.Skipf("mTLS with autoscaler requires Ray >= 2.60.0, test Ray version is %q", GetRayVersion())
-		}
 		t.Parallel()
 		g := NewWithT(t)
 
 		clusterName := "tls-autoscaler"
 		spec := NewRayClusterSpecWithMTLS().
-			WithRayVersion(GetRayVersion()).
+			WithRayVersion("2.60.0").
 			WithEnableInTreeAutoscaling(true)
+		spec.HeadGroupSpec.Template.Spec.Containers[utils.RayContainerIndex].WithImage(mtlsAutoscalerRayImage)
+		spec.WorkerGroupSpecs[0].Template.Spec.Containers[utils.RayContainerIndex].WithImage(mtlsAutoscalerRayImage)
 
 		rayClusterAC := rayv1ac.RayCluster(clusterName, namespace.Name).WithSpec(spec)
 		rayCluster, err := test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), rayClusterAC, TestApplyOptions)
@@ -501,11 +502,6 @@ func TestRayClusterTLSAutoscalerScaleUp(t *testing.T) {
 	if !certManagerAvailable(test) {
 		t.Skip("cert-manager CRDs not found; skipping autoscaler mTLS scale-up e2e test")
 	}
-	// mTLS with autoscaling requires `ray kuberay-autoscaler --gcs-address` (Ray >= 2.60.0);
-	// validation rejects older versions.
-	if v, err := version.ParseGeneric(GetRayVersion()); err != nil || !v.AtLeast(version.MustParseGeneric("2.60.0")) {
-		t.Skipf("mTLS with autoscaler requires Ray >= 2.60.0, test Ray version is %q", GetRayVersion())
-	}
 
 	g := NewWithT(t)
 	namespace := test.NewTestNamespace()
@@ -517,20 +513,25 @@ func TestRayClusterTLSAutoscalerScaleUp(t *testing.T) {
 	LogWithTimestamp(t, "Created ConfigMap %s/%s successfully", scripts.Namespace, scripts.Name)
 
 	clusterName := "tls-autoscaler-scaleup"
+	headTemplate := HeadPodTemplateApplyConfiguration()
+	headTemplate.Spec.Containers[utils.RayContainerIndex].WithImage(mtlsAutoscalerRayImage)
+	workerTemplate := WorkerPodTemplateApplyConfiguration()
+	workerTemplate.Spec.Containers[utils.RayContainerIndex].WithImage(mtlsAutoscalerRayImage)
+
 	specAC := rayv1ac.RayClusterSpec().
-		WithRayVersion(GetRayVersion()).
+		WithRayVersion("2.60.0").
 		WithEnableInTreeAutoscaling(true).
 		WithTLSOptions(rayv1ac.TLSOptions().WithEnabled(true)).
 		WithHeadGroupSpec(rayv1ac.HeadGroupSpec().
 			WithRayStartParams(map[string]string{"num-cpus": "0"}).
-			WithTemplate(HeadPodTemplateApplyConfiguration())).
+			WithTemplate(headTemplate)).
 		WithWorkerGroupSpecs(rayv1ac.WorkerGroupSpec().
 			WithReplicas(0).
 			WithMinReplicas(0).
 			WithMaxReplicas(2).
 			WithGroupName("small-group").
 			WithRayStartParams(map[string]string{"num-cpus": "1"}).
-			WithTemplate(WorkerPodTemplateApplyConfiguration()))
+			WithTemplate(workerTemplate))
 
 	rayClusterAC := rayv1ac.RayCluster(clusterName, namespace.Name).
 		WithSpec(Apply(specAC, MountConfigMap[rayv1ac.RayClusterSpecApplyConfiguration](scripts, "/home/ray/test_scripts")))

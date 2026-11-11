@@ -923,7 +923,7 @@ func BuildAutoscalerContainer(autoscalerImage string, gcsAddress string) corev1.
 	//   args: ["ulimit -n 65536; $KUBERAY_GEN_AUTOSCALER_START_CMD"]
 	// This mirrors the KUBERAY_GEN_RAY_START_CMD pattern for Ray head/worker containers.
 	autoscalerStartCmd := "ray kuberay-autoscaler --cluster-name $(RAY_CLUSTER_NAME) --cluster-namespace $(RAY_CLUSTER_NAMESPACE)"
-	// --gcs-address requires Ray > 2.60 (https://github.com/ray-project/ray/pull/65894),
+	// --gcs-address requires Ray >= 2.60.0 (https://github.com/ray-project/ray/pull/65894),
 	// older versions reject the flag and the sidecar fails to start.
 	if gcsAddress != "" {
 		autoscalerStartCmd += " --gcs-address=" + gcsAddress
