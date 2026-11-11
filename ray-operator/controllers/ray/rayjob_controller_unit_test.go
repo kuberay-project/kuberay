@@ -1292,19 +1292,30 @@ func TestConstructRayClusterForRayJob_HeadFailurePolicyAnnotation(t *testing.T) 
 	}
 
 	tests := []struct {
-		name              string
-		headFailurePolicy *rayv1.HeadFailurePolicy
-		expectAnnotation  bool
-		expectedValue     string
+		name                  string
+		headFailurePolicy     *rayv1.HeadFailurePolicy
+		headRestartPolicy     corev1.RestartPolicy
+		expectAnnotation      bool
+		expectedValue         string
+		expectedRestartPolicy corev1.RestartPolicy
 	}{
 		{
-			name:              "propagates Fail annotation",
-			headFailurePolicy: ptr.To(rayv1.HeadFailurePolicyFail),
-			expectAnnotation:  true,
-			expectedValue:     string(rayv1.HeadFailurePolicyFail),
+			name:                  "propagates Fail annotation and forces Never when restartPolicy unset",
+			headFailurePolicy:     ptr.To(rayv1.HeadFailurePolicyFail),
+			expectAnnotation:      true,
+			expectedValue:         string(rayv1.HeadFailurePolicyFail),
+			expectedRestartPolicy: corev1.RestartPolicyNever,
 		},
 		{
-			name:              "propagates Recreate annotation",
+			name:                  "propagates Fail annotation and keeps explicit Never",
+			headFailurePolicy:     ptr.To(rayv1.HeadFailurePolicyFail),
+			headRestartPolicy:     corev1.RestartPolicyNever,
+			expectAnnotation:      true,
+			expectedValue:         string(rayv1.HeadFailurePolicyFail),
+			expectedRestartPolicy: corev1.RestartPolicyNever,
+		},
+		{
+			name:              "propagates Recreate annotation without changing restartPolicy",
 			headFailurePolicy: ptr.To(rayv1.HeadFailurePolicyRecreate),
 			expectAnnotation:  true,
 			expectedValue:     string(rayv1.HeadFailurePolicyRecreate),
@@ -1317,11 +1328,13 @@ func TestConstructRayClusterForRayJob_HeadFailurePolicyAnnotation(t *testing.T) 
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			spec := basicRayClusterSpec.DeepCopy()
+			spec.HeadGroupSpec.Template.Spec.RestartPolicy = tc.headRestartPolicy
 			rayJob := &rayv1.RayJob{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-rayjob", Namespace: "default"},
 				Spec: rayv1.RayJobSpec{
 					HeadFailurePolicy: tc.headFailurePolicy,
-					RayClusterSpec:    basicRayClusterSpec,
+					RayClusterSpec:    spec,
 				},
 			}
 			cluster, err := reconciler.constructRayClusterForRayJob(rayJob, "test-cluster")
@@ -1332,6 +1345,7 @@ func TestConstructRayClusterForRayJob_HeadFailurePolicyAnnotation(t *testing.T) 
 			if tc.expectAnnotation {
 				assert.Equal(t, tc.expectedValue, value)
 			}
+			assert.Equal(t, tc.expectedRestartPolicy, cluster.Spec.HeadGroupSpec.Template.Spec.RestartPolicy)
 		})
 	}
 }

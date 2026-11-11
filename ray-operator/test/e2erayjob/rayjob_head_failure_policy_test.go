@@ -56,20 +56,30 @@ func TestRayJobHeadFailurePolicy(t *testing.T) {
 			Should(WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusValidationFailed)))
 	})
 
-	test.T().Run("Fail with unset head restartPolicy is ValidationFailed", func(_ *testing.T) {
-		// NewRayClusterSpec leaves restartPolicy empty; Kubernetes defaults that to Always.
+	test.T().Run("Fail with unset head restartPolicy forces Never on RayCluster", func(_ *testing.T) {
+		// NewRayClusterSpec leaves restartPolicy empty; the controller should set Never for Fail.
 		rayJobAC := rayv1ac.RayJob("head-fail-restart-unset", namespace.Name).
 			WithSpec(rayv1ac.RayJobSpec().
 				WithHeadFailurePolicy(rayv1.HeadFailurePolicyFail).
 				WithBackoffLimit(0).
 				WithEntrypoint("python -c 'print(1)'").
+				WithShutdownAfterJobFinishes(true).
 				WithRayClusterSpec(NewRayClusterSpec()))
 
 		rayJob, err := test.Client().Ray().RayV1().RayJobs(namespace.Name).Apply(test.Ctx(), rayJobAC, TestApplyOptions)
 		g.Expect(err).NotTo(HaveOccurred())
 
-		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutShort).
-			Should(WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusValidationFailed)))
+		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
+			Should(And(
+				WithTransform(RayJobDeploymentStatus, Not(Equal(rayv1.JobDeploymentStatusValidationFailed))),
+				WithTransform(RayJobClusterName, Not(BeEmpty())),
+			))
+		rayJob, err = GetRayJob(test, rayJob.Namespace, rayJob.Name)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		rayCluster, err := GetRayCluster(test, namespace.Name, rayJob.Status.RayClusterName)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(rayCluster.Spec.HeadGroupSpec.Template.Spec.RestartPolicy).To(Equal(corev1.RestartPolicyNever))
 	})
 
 	test.T().Run("Fail with head restartPolicy Always is ValidationFailed", func(_ *testing.T) {

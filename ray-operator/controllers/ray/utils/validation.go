@@ -717,10 +717,8 @@ func ValidateRayJobSpec(rayJob *rayv1.RayJob) error {
 		}
 		if rayJob.Spec.RayClusterSpec != nil {
 			restartPolicy := rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.RestartPolicy
-			// An unset Pod restartPolicy is defaulted to Always by Kubernetes, so Fail would not
-			// fast-fail. SidecarMode is the exception: the RayJob controller sets Never when it creates the RayCluster.
-			sidecarForcesNever := rayJob.Spec.SubmissionMode == rayv1.SidecarMode && restartPolicy == ""
-			if restartPolicy != corev1.RestartPolicyNever && !sidecarForcesNever {
+			// Unset is allowed: constructRayClusterForRayJob sets Never when Fail is selected.
+			if restartPolicy != "" && restartPolicy != corev1.RestartPolicyNever {
 				return fmt.Errorf("The RayJob spec is invalid: headFailurePolicy Fail requires head Pod restartPolicy to be Never")
 			}
 		}

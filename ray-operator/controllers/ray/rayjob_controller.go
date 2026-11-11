@@ -1062,6 +1062,12 @@ func (r *RayJobReconciler) constructRayClusterForRayJob(rayJobInstance *rayv1.Ra
 		// In SidecarMode, the pod-level RestartPolicy is set to Never.
 		// The submitter container may override this with per-container restart rules when the SidecarSubmitterRestart feature gate is enabled.
 		rayCluster.Spec.HeadGroupSpec.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
+	} else if rayJobInstance.Spec.HeadFailurePolicy != nil &&
+		*rayJobInstance.Spec.HeadFailurePolicy == rayv1.HeadFailurePolicyFail &&
+		rayCluster.Spec.HeadGroupSpec.Template.Spec.RestartPolicy == "" {
+		// Fail needs Never so a crashed head stays failed and RayJob can fast-fail.
+		// Set Never here before Kubernetes defaults an empty restartPolicy to Always.
+		rayCluster.Spec.HeadGroupSpec.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
 	}
 
 	return rayCluster, nil
