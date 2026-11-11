@@ -7,12 +7,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
-// NetworkPolicy rule builders for the e2e tests. Under DenyAll the operator only
-// allows intra-cluster traffic, so anything else (DNS, internet, external
-// ingress) has to be added by hand here. See the network-policy-deny-all sample.
+// NetworkPolicy rule builders for e2e tests.
 
-// DNSEgressRule allows DNS to kube-dns on 53 (UDP+TCP). Ray pods resolve the head
-// by FQDN, so without this the cluster won't come up under DenyAll/DenyAllEgress.
+// DNSEgressRule allows Ray pods to resolve the head through kube-dns.
 func DNSEgressRule() networkingv1.NetworkPolicyEgressRule {
 	udp := corev1.ProtocolUDP
 	tcp := corev1.ProtocolTCP
@@ -39,8 +36,7 @@ func DNSEgressRule() networkingv1.NetworkPolicyEgressRule {
 	}
 }
 
-// AllHostsHTTPSEgressRule allows egress to anywhere on 443, needed when a job
-// pulls its runtimeEnv working_dir or pip packages from the internet.
+// AllHostsHTTPSEgressRule allows HTTPS egress for external dependencies.
 func AllHostsHTTPSEgressRule() networkingv1.NetworkPolicyEgressRule {
 	tcp := corev1.ProtocolTCP
 	httpsPort := intstr.FromInt32(443)
@@ -58,8 +54,7 @@ func AllHostsHTTPSEgressRule() networkingv1.NetworkPolicyEgressRule {
 	}
 }
 
-// ServeIngressRule opens the Serve port to every pod in the namespace so an
-// external curl pod can hit the app. Empty PodSelector = all pods in the namespace.
+// ServeIngressRule allows namespace pods to access the Serve port.
 func ServeIngressRule(servePort int32) networkingv1.NetworkPolicyIngressRule {
 	tcp := corev1.ProtocolTCP
 	port := intstr.FromInt32(servePort)
@@ -75,16 +70,7 @@ func ServeIngressRule(servePort int32) networkingv1.NetworkPolicyIngressRule {
 	}
 }
 
-// OperatorIngressRule lets the kuberay operator reach the given head ports. The
-// RayService reconciler talks to the head directly: it pushes the Serve config
-// and polls app status over the dashboard port (8265), and it probes Serve proxy
-// health over the serving port (8000) by dialing the head pod IP. Both are needed
-// under DenyAll or the head serve label never flips to true and serve endpoints
-// stay empty. The operator runs in a different namespace than the test, so we
-// match it by pod label across all namespaces (empty NamespaceSelector). We match
-// on app.kubernetes.io/component=kuberay-operator because it's the same in both
-// deploy paths; app.kubernetes.io/name differs (kuberay via kustomize vs
-// kuberay-operator via the Helm chart).
+// OperatorIngressRule allows the operator to reach the given head ports.
 func OperatorIngressRule(ports ...int32) networkingv1.NetworkPolicyIngressRule {
 	tcp := corev1.ProtocolTCP
 	npPorts := make([]networkingv1.NetworkPolicyPort, 0, len(ports))
@@ -107,10 +93,7 @@ func OperatorIngressRule(ports ...int32) networkingv1.NetworkPolicyIngressRule {
 	}
 }
 
-// SubmitterIngressRule lets the K8sJobMode submitter pod reach the head dashboard.
-// The operator adds this for RayJob-owned clusters, but with clusterSelector the
-// RayCluster isn't owned by the RayJob, so we add it ourselves matching the
-// submitter's originated-from-cr labels.
+// SubmitterIngressRule allows a RayJob submitter to reach the head dashboard.
 func SubmitterIngressRule(rayJobName string, dashboardPort int32) networkingv1.NetworkPolicyIngressRule {
 	tcp := corev1.ProtocolTCP
 	port := intstr.FromInt32(dashboardPort)

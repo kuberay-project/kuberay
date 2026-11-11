@@ -12,27 +12,20 @@ import (
 	. "github.com/ray-project/kuberay/ray-operator/test/support"
 )
 
-// RayJob without clusterSelector, under NetworkPolicy DenyAll. The operator owns
-// the RayCluster so it adds the submitter ingress rule itself; we add DNS egress
-// and operator dashboard ingress (the reconciler polls job status directly).
-// Kindnet enforces NetworkPolicy on k8s >= 1.32 (CI runs on 1.35), so a wrong
-// policy means the pods can't reach each other and the job never finishes.
+// RayJob with an operator-owned RayCluster under NetworkPolicy DenyAll.
 func TestRayJobWithNetworkPolicy(t *testing.T) {
 	test := With(t)
 	g := NewWithT(t)
 
 	namespace := test.NewTestNamespace()
 
-	// Job scripts.
+	// Job scripts
 	jobsAC := NewConfigMap(namespace.Name, Files(test, "counter.py"))
 	jobs, err := test.Client().Core().CoreV1().ConfigMaps(namespace.Name).Apply(test.Ctx(), jobsAC, TestApplyOptions)
 	g.Expect(err).NotTo(HaveOccurred())
 	LogWithTimestamp(test.T(), "Created ConfigMap %s/%s successfully", jobs.Namespace, jobs.Name)
 
-	// DenyAll: intra-cluster and submitter ingress are handled by the operator.
-	// We add DNS egress, plus operator ingress on the dashboard port because the
-	// RayJob reconciler polls job status (GetJobInfo) by dialing the head
-	// dashboard directly, not through the submitter.
+	// Add DNS egress and operator dashboard ingress.
 	networkPolicy := rayv1ac.NetworkPolicyConfig().
 		WithMode(rayv1.NetworkPolicyDenyAll).
 		WithHead(rayv1ac.NetworkPolicyRules().
@@ -56,7 +49,7 @@ env_vars:
 	g.Expect(err).NotTo(HaveOccurred())
 	LogWithTimestamp(test.T(), "Created RayJob %s/%s successfully", rayJob.Namespace, rayJob.Name)
 
-	// Wait for the operator to spin up the RayCluster.
+	// Wait for the RayCluster.
 	LogWithTimestamp(test.T(), "Waiting for RayJob %s/%s to start its RayCluster", rayJob.Namespace, rayJob.Name)
 	g.Eventually(func(gg Gomega) string {
 		rayJob, err = GetRayJob(test, rayJob.Namespace, rayJob.Name)
@@ -65,7 +58,7 @@ env_vars:
 	}, TestTimeoutShort).ShouldNot(BeEmpty())
 
 	rayClusterName := rayJob.Status.RayClusterName
-	// Both policies should exist before the cluster can become ready.
+	// Verify both policies.
 	g.Eventually(func(gg Gomega) {
 		_, err := test.Client().Core().NetworkingV1().NetworkPolicies(namespace.Name).
 			Get(test.Ctx(), rayClusterName+"-head", metav1.GetOptions{})
@@ -76,7 +69,7 @@ env_vars:
 	}, TestTimeoutShort).Should(Succeed())
 	LogWithTimestamp(test.T(), "Head and worker NetworkPolicies created for RayCluster %s/%s", namespace.Name, rayClusterName)
 
-	// If the policies are right the cluster starts and the job completes.
+	// Wait for the job to complete.
 	LogWithTimestamp(test.T(), "Waiting for RayJob %s/%s to complete", rayJob.Namespace, rayJob.Name)
 	g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutLong).
 		Should(WithTransform(RayJobStatus, Satisfy(rayv1.IsJobTerminal)))
@@ -85,10 +78,7 @@ env_vars:
 		To(WithTransform(RayJobStatus, Equal(rayv1.JobStatusSucceeded)))
 }
 
-// RayJob with clusterSelector pointing at a RayCluster we create ourselves, under
-// NetworkPolicy DenyAll. Since the RayCluster isn't owned by the RayJob, the
-// operator won't add the submitter ingress rule for us, so we add it by hand
-// (matching the submitter pod's labels) plus DNS egress.
+// RayJob using clusterSelector with an externally managed RayCluster under DenyAll.
 func TestRayJobWithClusterSelectorAndNetworkPolicy(t *testing.T) {
 	test := With(t)
 	g := NewWithT(t)
@@ -102,9 +92,7 @@ func TestRayJobWithClusterSelectorAndNetworkPolicy(t *testing.T) {
 
 	rayJobName := "counter"
 
-	// Head needs the submitter ingress rule (dashboard) so the submitter can
-	// reach it, operator ingress on the dashboard (the reconciler polls job
-	// status via GetJobInfo directly), and DNS egress. Workers just need DNS.
+	// Add submitter and operator dashboard ingress plus DNS egress.
 	networkPolicy := rayv1ac.NetworkPolicyConfig().
 		WithMode(rayv1.NetworkPolicyDenyAll).
 		WithHead(rayv1ac.NetworkPolicyRules().
@@ -123,7 +111,7 @@ func TestRayJobWithClusterSelectorAndNetworkPolicy(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	LogWithTimestamp(test.T(), "Created RayCluster %s/%s successfully", rayCluster.Namespace, rayCluster.Name)
 
-	// Sanity check that both policies landed.
+	// Verify both policies.
 	g.Eventually(func(gg Gomega) {
 		_, err := test.Client().Core().NetworkingV1().NetworkPolicies(namespace.Name).
 			Get(test.Ctx(), rayCluster.Name+"-head", metav1.GetOptions{})
@@ -137,7 +125,7 @@ func TestRayJobWithClusterSelectorAndNetworkPolicy(t *testing.T) {
 	g.Eventually(RayCluster(test, rayCluster.Namespace, rayCluster.Name), TestTimeoutLong).
 		Should(WithTransform(RayClusterState, Equal(rayv1.Ready)))
 
-	// RayJob targeting the existing cluster by label.
+	// Target the existing cluster by label.
 	rayJobAC := rayv1ac.RayJob(rayJobName, namespace.Name).
 		WithSpec(rayv1ac.RayJobSpec().
 			WithClusterSelector(map[string]string{utils.RayClusterLabelKey: rayCluster.Name}).
@@ -152,8 +140,7 @@ env_vars:
 	g.Expect(err).NotTo(HaveOccurred())
 	LogWithTimestamp(test.T(), "Created RayJob %s/%s successfully", rayJob.Namespace, rayJob.Name)
 
-	// The submitter has to get through the head policy to reach the dashboard, so
-	// the job succeeding is what proves our ingress rule is correct.
+	// The completed job verifies submitter access to the dashboard.
 	LogWithTimestamp(test.T(), "Waiting for RayJob %s/%s to complete", rayJob.Namespace, rayJob.Name)
 	g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutLong).
 		Should(WithTransform(RayJobStatus, Satisfy(rayv1.IsJobTerminal)))

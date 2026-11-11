@@ -12,16 +12,7 @@ import (
 	. "github.com/ray-project/kuberay/ray-operator/test/support"
 )
 
-// RayService under NetworkPolicy DenyAll. Checks the service comes up and, more
-// importantly, that we can actually hit the Serve app from an external pod. Under
-// DenyAll the operator only allows intra-cluster traffic, so we add DNS egress
-// (FQDN resolution), HTTPS egress (the sample pulls its working_dir from GitHub),
-// Serve-port ingress (so the curl pod can reach 8000), and operator ingress on
-// the dashboard (8265, push Serve config + poll status) and serving (8000, proxy
-// health probe) ports, since the reconciler dials the head directly on both and
-// without them the service never goes Ready. Kindnet enforces NetworkPolicy on
-// k8s >= 1.32 (CI runs on 1.35), so a wrong rule means the service never starts
-// or the curl gets blocked.
+// RayService under NetworkPolicy DenyAll with Serve and operator ingress.
 func TestRayServiceWithNetworkPolicy(t *testing.T) {
 	test := With(t)
 	g := NewWithT(t)
@@ -34,8 +25,7 @@ func TestRayServiceWithNetworkPolicy(t *testing.T) {
 		WithHead(rayv1ac.NetworkPolicyRules().
 			WithIngressRules(
 				ServeIngressRule(utils.DefaultServingPort),
-				// The reconciler hits the head directly on both the dashboard (push
-				// Serve config / poll status) and the serving port (proxy health probe).
+				// Allow the reconciler to reach the dashboard and serving ports.
 				OperatorIngressRule(utils.DefaultDashboardPort, utils.DefaultServingPort),
 			).
 			WithEgressRules(DNSEgressRule(), AllHostsHTTPSEgressRule())).
@@ -71,7 +61,7 @@ func TestRayServiceWithNetworkPolicy(t *testing.T) {
 	rayClusterName := rayService.Status.ActiveServiceStatus.RayClusterName
 	g.Expect(rayClusterName).NotTo(BeEmpty(), "RayCluster name should be populated in status")
 
-	// Sanity check that both policies landed.
+	// Verify both policies.
 	g.Eventually(func(gg Gomega) {
 		_, err := test.Client().Core().NetworkingV1().NetworkPolicies(namespace.Name).
 			Get(test.Ctx(), rayClusterName+"-head", metav1.GetOptions{})
@@ -82,8 +72,7 @@ func TestRayServiceWithNetworkPolicy(t *testing.T) {
 	}, TestTimeoutShort).Should(Succeed())
 	LogWithTimestamp(test.T(), "Head and worker NetworkPolicies created for RayCluster %s/%s", namespace.Name, rayClusterName)
 
-	// Spin up a curl pod outside the cluster and confirm it can actually reach
-	// the Serve app through the ingress rule.
+	// Verify Serve access from another pod.
 	curlPodName := "curl-pod"
 	curlContainerName := "curl-container"
 	LogWithTimestamp(test.T(), "Creating curl pod %s/%s", namespace.Name, curlPodName)
