@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -19,6 +20,14 @@ const (
 	// matching Ray's AUTOSCALER_MAX_FAILURES_DISPLAYED constant.
 	// Ref: https://github.com/ray-project/ray/blob/d99d5d375c9c4e6533c15edb37d93a3ee9066be4/python/ray/autoscaler/_private/constants.py#L73
 	maxFailuresDisplayed = 20
+)
+
+// Placement group bundles show up as extra node resources named
+// "{resource}_group_{bundle_index}_{pg_id}" and "{resource}_group_{pg_id}".
+// Ref: https://github.com/ray-project/ray/blob/d99d5d375c9c4e6533c15edb37d93a3ee9066be4/python/ray/_private/utils.py#L74-L77
+var (
+	rePlacementGroupIndexedResource  = regexp.MustCompile(`^(.+)_group_(\d+)_([0-9a-zA-Z]+)`)
+	rePlacementGroupWildcardResource = regexp.MustCompile(`^(.+)_group_([0-9a-zA-Z]+)`)
 )
 
 // ResourceDemand represents a pending resource request with count
@@ -325,6 +334,43 @@ func resourceKey(resources map[string]float64) string {
 	return strings.Join(parts, ",")
 }
 
+// parsePlacementGroupResource splits a resource name into its base resource name and
+// placement group id. pgName is empty for resources that do not belong to a placement group.
+// countable is false for bundle-indexed resources, which duplicate the wildcard resource
+// of the same placement group and must not be counted twice.
+// Ref: https://github.com/ray-project/ray/blob/d99d5d375c9c4e6533c15edb37d93a3ee9066be4/python/ray/autoscaler/_private/util.py#L565-L593
+func parsePlacementGroupResource(resource string) (name string, pgName string, countable bool) {
+	if m := rePlacementGroupIndexedResource.FindStringSubmatch(resource); m != nil {
+		return m[1], m[3], false
+	}
+	if m := rePlacementGroupWildcardResource.FindStringSubmatch(resource); m != nil {
+		return m[1], m[2], true
+	}
+	return resource, "", true
+}
+
+// placementGroupUsage sums the used and reserved amounts of every placement group
+// wildcard resource by base resource name, e.g. "CPU_group_<id>" counts toward "CPU".
+// Ref: https://github.com/ray-project/ray/blob/d99d5d375c9c4e6533c15edb37d93a3ee9066be4/python/ray/autoscaler/_private/util.py#L617-L631
+func (b *ClusterStatusBuilder) placementGroupUsage() (used map[string]float64, total map[string]float64) {
+	used = make(map[string]float64)
+	total = make(map[string]float64)
+	for key, value := range b.TotalResources {
+		name, pgName, countable := parsePlacementGroupResource(key)
+		if pgName == "" {
+			continue
+		}
+		if _, ok := used[name]; !ok {
+			used[name] = 0
+		}
+		if countable {
+			used[name] += b.UsedResources[key]
+			total[name] += value
+		}
+	}
+	return used, total
+}
+
 func sortedKeys[V any](m map[string]V) []string {
 	return slices.Sorted(maps.Keys(m))
 }
@@ -440,18 +486,36 @@ func (b *ClusterStatusBuilder) FormatStatus() string {
 	if len(b.TotalResources) == 0 {
 		sb.WriteString(" (no resources)\n")
 	} else {
+		pgUsed, pgTotal := b.placementGroupUsage()
 		for _, key := range sortedKeys(b.TotalResources) {
 			// Skip accelerator_type resources, matching Ray's non-verbose behavior.
 			// Ref: https://github.com/ray-project/ray/blob/d99d5d375c9c4e6533c15edb37d93a3ee9066be4/python/ray/autoscaler/_private/util.py#L760
 			if strings.HasPrefix(key, "accelerator_type:") {
 				continue
 			}
+			// Placement group bundle resources are folded into their base resource below,
+			// so they are not listed on their own.
+			if _, pgName, _ := parsePlacementGroupResource(key); pgName != "" {
+				continue
+			}
 			total := b.TotalResources[key]
 			used := b.UsedResources[key]
-			fmt.Fprintf(&sb, " %s/%s %s\n",
+			line := ""
+			if reservedUsed, ok := pgUsed[key]; ok {
+				// Creating a placement group takes its bundles out of the base resource,
+				// so replace the reservation with what the bundles actually use.
+				// Ref: https://github.com/ray-project/ray/blob/d99d5d375c9c4e6533c15edb37d93a3ee9066be4/python/ray/autoscaler/_private/util.py#L641-L651
+				reserved := pgTotal[key]
+				used = used - reserved + reservedUsed
+				line = fmt.Sprintf(" (%s used of %s reserved in placement groups)",
+					formatResourceValue(key, reservedUsed),
+					formatResourceValue(key, reserved))
+			}
+			fmt.Fprintf(&sb, " %s/%s %s%s\n",
 				formatResourceValue(key, used),
 				formatResourceValue(key, total),
-				key)
+				key,
+				line)
 		}
 	}
 
