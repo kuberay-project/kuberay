@@ -186,21 +186,28 @@ func (h *RayLogsHandler) GetContent(prefix string, fileName string) io.Reader {
 	defer cancel()
 
 	bucket := h.StorageClient.Bucket(h.GCSBucket)
-	query := &gstorage.Query{
-		MatchGlob: contentMatchGlob(h.RootDir, prefix, fileName),
+	// Session readers already know the complete object key. Searching with only
+	// MatchGlob can scan the entire bucket, once per file, before finding it.
+	objectPath := strings.TrimPrefix(path.Join(h.RootDir, prefix, fileName), "/")
+	reader, err := bucket.Object(objectPath).NewReader(ctx)
+	if errors.Is(err, gstorage.ErrObjectNotExist) {
+		// Retain the existing search for callers using a legacy partial prefix
+		// or a file stored below the requested directory.
+		query := &gstorage.Query{
+			MatchGlob: contentMatchGlob(h.RootDir, prefix, fileName),
+		}
+		objectIterator := bucket.Objects(ctx, query)
+		fileAttrs, listErr := objectIterator.Next()
+		if errors.Is(listErr, gIterator.Done) {
+			logrus.Errorf("File %s was not found in bucket for prefix %s", fileName, prefix)
+			return nil
+		}
+		if listErr != nil {
+			logrus.Errorf("Failed when searching for file %v", listErr)
+			return nil
+		}
+		reader, err = bucket.Object(fileAttrs.Name).NewReader(ctx)
 	}
-	objectIterator := bucket.Objects(ctx, query)
-	fileAttrs, err := objectIterator.Next()
-	if errors.Is(err, gIterator.Done) {
-		logrus.Errorf("File %s was not found in bucket for prefix %s", fileName, prefix)
-		return nil
-	}
-	if err != nil {
-		logrus.Errorf("Failed when searching for file %v", err)
-		return nil
-	}
-
-	reader, err := h.StorageClient.Bucket(h.GCSBucket).Object(fileAttrs.Name).NewReader(ctx)
 	if err != nil {
 		logrus.Errorf("Failed to create reader for file: %s in prefix: %s", fileName, prefix)
 		return nil
