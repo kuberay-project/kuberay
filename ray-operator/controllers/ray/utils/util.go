@@ -395,8 +395,14 @@ func GenerateIdentifier(clusterName string, nodeType rayv1.RayNodeType) string {
 }
 
 func GetWorkerGroupDesiredReplicas(workerGroupSpec rayv1.WorkerGroupSpec) int32 {
+	return getWorkerGroupDesiredReplicaCount(workerGroupSpec) * workerGroupSpec.NumOfHosts
+}
+
+// getWorkerGroupDesiredReplicaCount returns the number of replicas (not Pods) that the
+// controller keeps for a worker group: Replicas clamped to [MinReplicas, MaxReplicas],
+// or 0 if the group is suspended.
+func getWorkerGroupDesiredReplicaCount(workerGroupSpec rayv1.WorkerGroupSpec) int32 {
 	// Always adhere to min/max replicas constraints.
-	var workerReplicas int32
 	minReplicas := ptr.Deref(workerGroupSpec.MinReplicas, int32(0))
 	maxReplicas := ptr.Deref(workerGroupSpec.MaxReplicas, int32(math.MaxInt32))
 	if workerGroupSpec.Suspend != nil && *workerGroupSpec.Suspend {
@@ -405,13 +411,12 @@ func GetWorkerGroupDesiredReplicas(workerGroupSpec rayv1.WorkerGroupSpec) int32 
 	if workerGroupSpec.Replicas == nil || *workerGroupSpec.Replicas < minReplicas {
 		// Replicas is impossible to be nil as it has a default value assigned in the CRD.
 		// Add this check to make testing easier.
-		workerReplicas = minReplicas
-	} else if *workerGroupSpec.Replicas > maxReplicas {
-		workerReplicas = maxReplicas
-	} else {
-		workerReplicas = *workerGroupSpec.Replicas
+		return minReplicas
 	}
-	return workerReplicas * workerGroupSpec.NumOfHosts
+	if *workerGroupSpec.Replicas > maxReplicas {
+		return maxReplicas
+	}
+	return *workerGroupSpec.Replicas
 }
 
 // CalculateDesiredReplicas calculate desired worker replicas at the cluster level
@@ -493,7 +498,9 @@ func CalculateDesiredResources(cluster *rayv1.RayCluster) corev1.ResourceList {
 			continue
 		}
 		podResource := CalculatePodResource(nodeGroup.Template.Spec)
-		replicas := ptr.Deref(nodeGroup.Replicas, int32(0))
+		// Use the same min/max clamped replica count that the controller uses to create Pods,
+		// so the desired resources match the desired worker Pods.
+		replicas := getWorkerGroupDesiredReplicaCount(nodeGroup)
 		calculatePodResources(&podResource, int64(nodeGroup.NumOfHosts)*int64(replicas))
 		desiredResourcesList = append(desiredResourcesList, podResource)
 	}

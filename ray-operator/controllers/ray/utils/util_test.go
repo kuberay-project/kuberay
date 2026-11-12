@@ -1548,6 +1548,82 @@ func TestCalculateResources(t *testing.T) {
 	}
 }
 
+// CalculateDesiredResources must count the same number of worker Pods as
+// CalculateDesiredReplicas, which clamps Replicas to [MinReplicas, MaxReplicas].
+func TestCalculateDesiredResourcesClampsReplicas(t *testing.T) {
+	tests := []struct {
+		replicas         *int32
+		minReplicas      *int32
+		maxReplicas      *int32
+		name             string
+		expectedCPU      string
+		numOfHosts       int32
+		expectedReplicas int32
+	}{
+		{
+			name:             "replicas above maxReplicas",
+			replicas:         ptr.To[int32](5),
+			minReplicas:      ptr.To[int32](0),
+			maxReplicas:      ptr.To[int32](2),
+			numOfHosts:       1,
+			expectedReplicas: 2,
+			expectedCPU:      "5", // 1 (head) + 2 workers * 2 CPU
+		},
+		{
+			name:             "replicas below minReplicas",
+			replicas:         ptr.To[int32](0),
+			minReplicas:      ptr.To[int32](3),
+			maxReplicas:      ptr.To[int32](5),
+			numOfHosts:       1,
+			expectedReplicas: 3,
+			expectedCPU:      "7", // 1 (head) + 3 workers * 2 CPU
+		},
+		{
+			name:             "nil replicas falls back to minReplicas",
+			replicas:         nil,
+			minReplicas:      ptr.To[int32](1),
+			maxReplicas:      ptr.To[int32](5),
+			numOfHosts:       1,
+			expectedReplicas: 1,
+			expectedCPU:      "3", // 1 (head) + 1 worker * 2 CPU
+		},
+		{
+			name:             "multi-host replicas above maxReplicas",
+			replicas:         ptr.To[int32](4),
+			minReplicas:      ptr.To[int32](1),
+			maxReplicas:      ptr.To[int32](2),
+			numOfHosts:       2,
+			expectedReplicas: 4,
+			expectedCPU:      "9", // 1 (head) + 2 replicas * 2 hosts * 2 CPU
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cluster := &rayv1.RayCluster{
+				Spec: rayv1.RayClusterSpec{
+					HeadGroupSpec: rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{Spec: createPodSpec("1", "100Mi")},
+					},
+					WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+						{
+							NumOfHosts:  tc.numOfHosts,
+							Replicas:    tc.replicas,
+							MinReplicas: tc.minReplicas,
+							MaxReplicas: tc.maxReplicas,
+							Template:    corev1.PodTemplateSpec{Spec: createPodSpec("2", "100Mi")},
+						},
+					},
+				},
+			}
+
+			assert.Equal(t, tc.expectedReplicas, CalculateDesiredReplicas(cluster))
+			desiredResources := CalculateDesiredResources(cluster)
+			assert.Equal(t, tc.expectedCPU, desiredResources.Cpu().String())
+		})
+	}
+}
+
 // helper function to return a Gateway object with GatewayStatus Conditions for testing.
 func makeGatewayWithCondition(accepted bool, programmed bool) *gwv1.Gateway {
 	var conditions []metav1.Condition
