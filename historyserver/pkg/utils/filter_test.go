@@ -33,3 +33,33 @@ func TestApplyTaskFiltersDoesNotMutateInput(t *testing.T) {
 		{TaskID: "c", TaskAttempt: 0},
 	}, sorted)
 }
+
+// TestApplyTaskFiltersMatchesStringsCaseInsensitively mirrors Ray's state API,
+// which lowercases the filter column and compares string values case-insensitively.
+func TestApplyTaskFiltersMatchesStringsCaseInsensitively(t *testing.T) {
+	tasks := []eventtypes.Task{
+		{TaskID: "a", TaskName: "train", State: eventtypes.FINISHED, TaskType: eventtypes.NORMAL_TASK},
+		{TaskID: "b", TaskName: "eval", State: eventtypes.FAILED, TaskType: eventtypes.NORMAL_TASK},
+	}
+
+	tests := []struct {
+		name    string
+		filter  Filter
+		wantIDs []string
+	}{
+		{"lowercase value with equal", Filter{FilterKey: "state", FilterPredicate: PredicateEqual, FilterValue: "finished"}, []string{"a"}},
+		{"mixed case value with not equal", Filter{FilterKey: "state", FilterPredicate: PredicateNotEqual, FilterValue: "Finished"}, []string{"b"}},
+		{"uppercase key", Filter{FilterKey: "TASK_NAME", FilterPredicate: PredicateEqual, FilterValue: "TRAIN"}, []string{"a"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, numFiltered := ApplyTaskFilters(tasks, ListAPIOptions{Limit: DefaultLimit, Filters: []Filter{tc.filter}})
+			ids := make([]string, 0, len(got))
+			for _, task := range got {
+				ids = append(ids, task.TaskID)
+			}
+			assert.Equal(t, tc.wantIDs, ids)
+			assert.Equal(t, len(tc.wantIDs), numFiltered)
+		})
+	}
+}
