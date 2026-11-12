@@ -732,7 +732,7 @@ func TestRaySubmitCmd(t *testing.T) {
 		"1.000000",
 		"--entrypoint-memory",
 		"600",
-		"--entrypoint-resource",
+		"--entrypoint-resources",
 		"{\"fake-resource\":{\"the-fake-resource\"}",
 		"--no-wait",
 		"--headers",

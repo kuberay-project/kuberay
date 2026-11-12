@@ -716,7 +716,7 @@ func (options *SubmitJobOptions) raySubmitCmd() ([]string, error) {
 		raySubmitCmd = append(raySubmitCmd, "--entrypoint-memory", fmt.Sprintf("%d", options.entryPointMemory))
 	}
 	if len(options.entryPointResource) > 0 {
-		raySubmitCmd = append(raySubmitCmd, "--entrypoint-resource", options.entryPointResource)
+		raySubmitCmd = append(raySubmitCmd, "--entrypoint-resources", options.entryPointResource)
 	}
 	if len(options.metadataJson) > 0 {
 		raySubmitCmd = append(raySubmitCmd, "--metadata-json", options.metadataJson)
