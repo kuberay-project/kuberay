@@ -63,3 +63,54 @@ func TestApplyTaskFiltersMatchesStringsCaseInsensitively(t *testing.T) {
 		})
 	}
 }
+
+// GetFilterableFieldValue maps task_name to ActorTaskName for actor tasks,
+// and task_type to the TaskType enum. Both should still match the way Ray
+// compares filter columns and string values case-insensitively.
+func TestApplyTaskFiltersMatchesActorNameAndTypeCaseInsensitively(t *testing.T) {
+	tasks := []eventtypes.Task{
+		{TaskID: "a", TaskName: "train", State: eventtypes.FINISHED, TaskType: eventtypes.NORMAL_TASK},
+		{TaskID: "c", TaskName: "ignored", ActorTaskName: "Worker.forward", State: eventtypes.FINISHED, TaskType: eventtypes.ACTOR_TASK},
+	}
+
+	tests := []struct {
+		name    string
+		filters []Filter
+		wantIDs []string
+	}{
+		{
+			"actor task name uses ActorTaskName",
+			[]Filter{{FilterKey: "task_name", FilterPredicate: PredicateEqual, FilterValue: "worker.forward"}},
+			[]string{"c"},
+		},
+		{
+			"task type mixed case",
+			[]Filter{{FilterKey: "TASK_TYPE", FilterPredicate: PredicateEqual, FilterValue: "actor_task"}},
+			[]string{"c"},
+		},
+		{
+			"type and actor name together",
+			[]Filter{
+				{FilterKey: "Task_Type", FilterPredicate: PredicateEqual, FilterValue: "Actor_Task"},
+				{FilterKey: "TASK_NAME", FilterPredicate: PredicateEqual, FilterValue: "WORKER.FORWARD"},
+			},
+			[]string{"c"},
+		},
+		{
+			"actor task name does not fall back to TaskName",
+			[]Filter{{FilterKey: "task_name", FilterPredicate: PredicateEqual, FilterValue: "ignored"}},
+			[]string{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, numFiltered := ApplyTaskFilters(tasks, ListAPIOptions{Limit: DefaultLimit, Filters: tc.filters})
+			ids := make([]string, 0, len(got))
+			for _, task := range got {
+				ids = append(ids, task.TaskID)
+			}
+			assert.Equal(t, tc.wantIDs, ids)
+			assert.Equal(t, len(tc.wantIDs), numFiltered)
+		})
+	}
+}
