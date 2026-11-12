@@ -303,6 +303,27 @@ class TestUtils(unittest.TestCase):
                 group_name="small-cluster-workers",
             )
 
+    def test_single_character_names(self):
+        for name in ("a", "z"):
+            with self.subTest(name=name):
+                self.assertTrue(self.utils.is_valid_name(name))
+                cluster = self.director.build_small_cluster(name=name)
+                self.assertIsNotNone(cluster)
+                self.assertEqual(cluster["metadata"]["name"], name)
+
+    def test_single_character_worker_group_names(self):
+        for name in ("a", "z"):
+            with self.subTest(name=name):
+                builder = kuberay_cluster_builder.ClusterBuilder()
+                cluster = (
+                    builder.build_meta(name="test-cluster")
+                    .build_head()
+                    .build_worker(group_name=name)
+                    .get_cluster()
+                )
+                self.assertTrue(builder.succeeded)
+                self.assertEqual(cluster["spec"]["workerGroupSpecs"][0]["groupName"], name)
+
     def test_name(self):
         self.assertEqual(self.utils.is_valid_name("name"), True)
         self.assertEqual(self.utils.is_valid_name("name-"), False)
