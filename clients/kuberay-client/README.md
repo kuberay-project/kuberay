@@ -80,25 +80,30 @@ Finally, the `job_api` can be used to submit RayJobs to a pre-existing RayCluste
 
 #### Submitting to Existing Cluster
 
+Replace `ray-cluster-name` with the name of an existing RayCluster in the `default` namespace.
+Change `k8s_namespace` if the cluster is in a different namespace.
+
 ```python
-from kuberay_client import kuberay_job_api, kuberay_cluster_api, constants
+from kuberay_client import kuberay_job_api
+
+job_api = kuberay_job_api.RayjobApi()
 
 job_body = {
     "apiVersion": "ray.io/v1",
     "kind": "RayJob",
-    "metadata": {...},
+    "metadata": {"name": "rayjob-sample"},
     "spec": {
         "clusterSelector": {
             "ray.io/cluster": "ray-cluster-name",
         },
-        "entrypoint": 'python -c training_script.py',
+        "entrypoint": 'python -c "print(1 + 1)"',
         "submissionMode": "K8sJobMode",
     },
 }
 
-kuberay_job_api.submit_job(
+job_api.submit_job(
     job=job_body,
-    k8s_namespace=namespace,
+    k8s_namespace="default",
 )
 ```
 
