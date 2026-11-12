@@ -20,6 +20,7 @@ import (
 
 	"github.com/ray-project/kuberay/historyserver/pkg/collector/types"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage"
+	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/clustermetadata"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 )
@@ -181,18 +182,53 @@ func contentMatchGlob(rootDir string, prefix string, fileName string) string {
 	return strings.TrimPrefix(path.Join(rootDir, "**", prefix+"*", "**", fileName), "/")
 }
 
+// isCanonicalContentPath identifies complete paths from the current collector
+// layout. Partial cluster prefixes and basenames are legacy search arguments,
+// not object keys: probing them can fail IAM checks before an allowed legacy
+// object is discovered.
+func isCanonicalContentPath(prefix, fileName string) bool {
+	parts := strings.Split(prefix, "/")
+	if len(parts) < 4 || parts[0] != clusterlogs.ClusterHistoryDir || path.Clean(prefix) != prefix {
+		return false
+	}
+	switch parts[1] {
+	case utils.RayClusterKind:
+		if len(parts) != 4 {
+			return false
+		}
+	case utils.RayJobKind, utils.RayServiceKind:
+		if len(parts) != 5 {
+			return false
+		}
+	default:
+		return false
+	}
+	for _, part := range parts[2:] {
+		if part == "" || strings.ContainsAny(part, "*?[]{}") {
+			return false
+		}
+	}
+	session, relativePath, found := strings.Cut(fileName, "/")
+	return found && strings.HasPrefix(session, "session_") && relativePath != "" && path.Clean(fileName) == fileName
+}
+
 func (h *RayLogsHandler) GetContent(prefix string, fileName string) io.Reader {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	bucket := h.StorageClient.Bucket(h.GCSBucket)
-	// Session readers already know the complete object key. Searching with only
-	// MatchGlob can scan the entire bucket, once per file, before finding it.
-	objectPath := strings.TrimPrefix(path.Join(h.RootDir, prefix, fileName), "/")
-	reader, err := bucket.Object(objectPath).NewReader(ctx)
-	if errors.Is(err, gstorage.ErrObjectNotExist) {
-		// Retain the existing search for callers using a legacy partial prefix
-		// or a file stored below the requested directory.
+	var reader *gstorage.Reader
+	var err error
+	direct := isCanonicalContentPath(prefix, fileName)
+	if direct {
+		// Canonical session readers know the complete key. A MatchGlob-only
+		// search can scan the entire bucket once per file before finding it.
+		objectPath := strings.TrimPrefix(path.Join(h.RootDir, prefix, fileName), "/")
+		reader, err = bucket.Object(objectPath).NewReader(ctx)
+	}
+	if !direct || errors.Is(err, gstorage.ErrObjectNotExist) {
+		// Legacy search arguments retain their original listing-first behavior.
+		// Canonical keys still fall back when the exact object is absent.
 		query := &gstorage.Query{
 			MatchGlob: contentMatchGlob(h.RootDir, prefix, fileName),
 		}
