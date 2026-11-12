@@ -360,6 +360,10 @@ readinessProbe:
   periodSeconds: 5
   failureThreshold: 5
 
+# -- (bool) Specifies if controller pod should use hostUsers or not. Only available in Kubernetes ≥ 1.33.
+# See <https://kubernetes.io/docs/concepts/workloads/pods/user-namespaces/>
+hostUsers:
+
 # -- Set up `securityContext` to improve Pod security.
 podSecurityContext: {}
 
