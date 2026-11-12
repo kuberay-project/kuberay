@@ -263,9 +263,10 @@ The [`release-test`](../../.agents/skills/release-test/SKILL.md) agent skill aut
 2. It runs each `run` page with the tag, each on its own kind cluster. It runs the commands as
    written, but with the new KubeRay version. It also lists the old KubeRay versions in the docs and
    the doc changes the release's commits need.
-3. Read `release-test/results/<tag>/REPORT.md`. It has a summary with ✅/❌ for each page, the release
-   blockers, the doc problems and the pages a human needs to run. The skill does not edit docs or
-   open issues.
+3. Read `release-test/results/<tag>/REPORT.md`. Each page gets a result: ✅ no findings, ⚠️ only minor
+   findings, or ❌ at least one blocker. The report also lists the release blockers, the broken pages,
+   the minor findings and the pages a human needs to run. `results.csv` in the same folder has one
+   row per page, to paste into a tracking spreadsheet. The skill does not edit docs or open issues.
 
 It needs kind, kubectl, helm, git, Docker and Python 3, and about 4 CPUs per page. It runs three pages
 at once. `release-test/` is a local work folder that git ignores. To run some pages again, use
@@ -345,4 +346,4 @@ Announce the new release in the [kuberay Slack channel](https://ray.slack.com/ar
 
 Update all references to the KubeRay version in the ray.io documentation.
 `release-test/results/<tag>/versions.md` from Step 8 lists every reference to update. `REPORT.md` lists
-the doc problems to fix at the same time.
+the broken pages and the minor findings to fix at the same time.

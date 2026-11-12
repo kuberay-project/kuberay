@@ -250,8 +250,9 @@ The rows are the `manual` rows of plan.md and the pages whose run came back `man
 The `run` rows of plan.md that have no report, for example pages left out of a partial run.
 ```
 
-The Result, Blocker, Minor and Summary of each page come from the front matter of its report. The
-rows of the three findings tables are the Findings rows of the page reports.
+The Result, Blocker and Minor of each page come from the front matter of its report, and the Summary
+is its Verdict. Each row of the three findings tables is one finding of a page report: the Problem is
+its heading and the Proposed fix is its suggested fix.
 
 Also write `RES/results.csv`, for people who track the pages in a spreadsheet. It has one row per
 page that ran, is for a human to run, or is not run:
@@ -263,7 +264,7 @@ https://docs.ray.io/en/master/kuberay/user-guides/gpu.html,Doc,,,Not Tested,,,ne
 ```
 
 `Status` is `No Issue` (✅), `Minor Issue` (⚠️), `Has Issue` (❌) or `Not Tested` (👤 and ⏸️).
-`Screenshot Link` is the path of the page report under `RES`. `Comment` is the `summary` of the page
+`Screenshot Link` is the path of the page report under `RES`. `Comment` is the Verdict of the page
 report, or what a `manual` page needs. People fill in the other columns.
 
 Then tell the user the release blockers, the broken pages, the counts and the paths to
