@@ -38,9 +38,23 @@ var _ = Describe("Pod labelRefs", func() {
 		Expect(k8sClient.Create(ctx, pod)).To(Succeed())
 		DeferCleanup(k8sClient.Delete, ctx, pod)
 
-		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: cluster.Name + "-node", Labels: map[string]string{"topology.kubernetes.io/zone": "us-central1-a"}}}
+		node := &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        cluster.Name + "-node",
+				Labels:      map[string]string{"topology.kubernetes.io/zone": "us-central1-a"},
+				Annotations: map[string]string{"csi.volume.kubernetes.io/nodeid": "node-1"},
+			},
+		}
 		Expect(k8sClient.Create(ctx, node)).To(Succeed())
 		DeferCleanup(k8sClient.Delete, ctx, node)
+
+		Eventually(func(g Gomega) {
+			cachedNode := &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
+			g.Expect(webhookMgr.GetClient().Get(ctx, types.NamespacedName{Name: node.Name}, cachedNode)).To(Succeed())
+			g.Expect(cachedNode.Labels).To(HaveKeyWithValue("topology.kubernetes.io/zone", "us-central1-a"))
+			g.Expect(cachedNode.ManagedFields).To(BeEmpty())
+			g.Expect(cachedNode.Annotations).To(BeEmpty())
+		}).Should(Succeed())
 
 		binding := &corev1.Binding{ObjectMeta: metav1.ObjectMeta{Name: pod.Name, Namespace: "default"}, Target: corev1.ObjectReference{Kind: "Node", Name: node.Name}}
 		Expect(k8sClient.SubResource("binding").Create(ctx, pod, binding)).To(Succeed())
