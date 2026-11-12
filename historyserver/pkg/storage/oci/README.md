@@ -139,8 +139,8 @@ sandbox compartment instead.
 The object layout is the same as for the other backends:
 
 ```text
-<STORAGE_ROOT_DIR>/cluster-metadata/<raycluster|rayjob|rayservice>/<namespace>_<name>/<session>
-<STORAGE_ROOT_DIR>/<namespace>_<name>/<session>/logs/<node-id>/...
+<STORAGE_ROOT_DIR>/cluster-metadata/<raycluster|rayjob|rayservice>/<namespace>_[<owner_name>_]<cluster_name>/<session_name>
+<STORAGE_ROOT_DIR>/cluster-history/<raycluster|rayjob|rayservice>/<namespace>/[<owner_name>/]<cluster_name>/<session_name>/<node_id>/logs/...
 ```
 
 Object Storage is a flat namespace, so the backend does not write directory
