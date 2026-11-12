@@ -172,42 +172,52 @@ ran with 1.8.0-rc.0.
 
 | Result | Pages |
 |---|---|
-| ✅ Pass | 41 |
+| ✅ Pass | 28 |
+| ⚠️ Pass, minor findings | 13 |
 | ❌ Fail | 3 |
 | 👤 For a human to run | 12 |
 | ➖ No commands | 20 |
 | ⏸️ Not run | 0 |
 
 - Release blockers: 1, user-guides/rayservice: the RayService never becomes Ready.
-- Doc problems: 5 in 3 pages.
+- Broken pages: 2.
+- Minor findings: 19 in 14 pages.
 - Old versions: 95 references in 31 files.
 - Doc changes from the release: 2 need updates, 1 needs docs.
 
 ## Results
 
-Each page that ran: ✅ if it has no findings, ❌ if it has at least one.
+Each page that ran: ✅ no findings, ⚠️ only `minor` findings, ❌ at least one `blocker`.
 
-| Page | Result | Findings |
-|---|---|---|
-| [getting-started/rayjob-quick-start](getting-started/rayjob-quick-start/report.md) | ✅ | |
-| [getting-started/raycluster-quick-start](getting-started/raycluster-quick-start/report.md) | ❌ | 1 doc-bug |
-| [user-guides/rayservice](user-guides/rayservice/report.md) | ❌ | 1 product-bug, 1 doc-bug |
+| Page | Result | Blocker | Minor | Summary |
+|---|---|---|---|---|
+| [getting-started/rayjob-quick-start](getting-started/rayjob-quick-start/report.md) | ✅ | | | Both RayJobs succeed. |
+| [getting-started/raycluster-quick-start](getting-started/raycluster-quick-start/report.md) | ⚠️ | | 1 | The RayCluster becomes ready and the job succeeds. The page says 3G of memory, but the chart requests 5Gi. |
+| [user-guides/rayservice](user-guides/rayservice/report.md) | ❌ | 1 | 1 | The RayService never becomes Ready. |
 
 ## Release blockers
 
-`product-bug` findings: bugs in KubeRay at the tag.
+`blocker` findings of type `product-bug`: KubeRay at the tag is wrong.
 
-| Page | Step | Finding |
+| Page | Step | Problem |
 |---|---|---|
-| [user-guides/rayservice](user-guides/rayservice/report.md) | Deploy the RayService | the RayService never becomes Ready: ... |
+| [user-guides/rayservice](user-guides/rayservice/report.md) | Step 3 | the RayService never becomes Ready: ... |
 
-## Doc problems
+## Broken pages
 
-`doc-bug` findings.
+`blocker` findings of type `doc-bug`: the page does not work as written.
 
 | Page | Step | Problem | Proposed fix |
 |---|---|---|---|
-| [getting-started/raycluster-quick-start](getting-started/raycluster-quick-start/report.md) | Deploy a RayCluster | page says 3G, the chart requests 5Gi | 3G → 5Gi |
+| [ecosystem/kueue](ecosystem/kueue/report.md) | Step 2 | Kueue v0.13.4 denies the RayCluster | install Kueue v0.15.2 |
+
+## Minor findings
+
+`minor` findings of type `doc-bug` and `product-bug`.
+
+| Page | Type | Step | Problem | Proposed fix |
+|---|---|---|---|---|
+| [getting-started/raycluster-quick-start](getting-started/raycluster-quick-start/report.md) | doc-bug | Step 3 | the page says 3G of memory, the chart requests 5Gi | "at least 3G" → "at least 5Gi" |
 
 ## Old versions
 
@@ -233,11 +243,28 @@ The rows are the `manual` rows of plan.md and the pages whose run came back `man
 
 ## Open findings
 
-`env` and `flaky` findings: the page and the reason for each.
+`env` and `flaky` findings: the page, the severity and the reason for each.
 
 ## Not run
 
 The `run` rows of plan.md that have no report, for example pages left out of a partial run.
 ```
 
-Then tell the user the release blockers, the counts and the path to `RES/REPORT.md`.
+The Result, Blocker, Minor and Summary of each page come from the front matter of its report. The
+rows of the three findings tables are the Findings rows of the page reports.
+
+Also write `RES/results.csv`, for people who track the pages in a spreadsheet. It has one row per
+page that ran, is for a human to run, or is not run:
+
+```csv
+Name / Link,Type,Assignee,2nd Reviewer,Status,Priority,Screenshot Link,Comment,Follow-up
+https://docs.ray.io/en/master/kuberay/getting-started/raycluster-quick-start.html,Doc,,,Minor Issue,,getting-started/raycluster-quick-start/report.md,"The RayCluster becomes ready and the job succeeds. The page says 3G of memory, but the chart requests 5Gi.",
+https://docs.ray.io/en/master/kuberay/user-guides/gpu.html,Doc,,,Not Tested,,,needs a GPU,
+```
+
+`Status` is `No Issue` (✅), `Minor Issue` (⚠️), `Has Issue` (❌) or `Not Tested` (👤 and ⏸️).
+`Screenshot Link` is the path of the page report under `RES`. `Comment` is the `summary` of the page
+report, or what a `manual` page needs. People fill in the other columns.
+
+Then tell the user the release blockers, the broken pages, the counts and the paths to
+`RES/REPORT.md` and `RES/results.csv`.

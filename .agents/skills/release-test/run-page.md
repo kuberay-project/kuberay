@@ -17,7 +17,7 @@ two statuses:
   anywhere, runs on kind.
 - `none`: the page has no commands to run.
 
-For these two, the report is only the front matter and one line with the reason.
+For these two, the report is only the front matter, with the reason as `summary`.
 
 ## Run the commands as written
 
@@ -59,30 +59,64 @@ something failed.
 
 ## Classify each finding
 
-- `doc-bug`: the page is wrong. The proposed fix is the exact page text before and after.
-- `product-bug`: KubeRay at the tag is wrong: the operator, a chart, a sample or the plugin. This
-  blocks the release, so include the evidence.
+Each finding gets a type and a severity. The type says where the fix goes:
+
+- `doc-bug`: the page is wrong.
+- `product-bug`: KubeRay at the tag is wrong: the operator, a chart, a sample or the plugin.
 - `env`: kind or this machine cannot do it: CPU, memory, image pull limits, kernel features.
 - `flaky`: it passed on the retry.
+
+The severity says what the finding does to a reader who follows the page:
+
+- `blocker`: the reader cannot go on, or does not get the result the page is about. A command or
+  manifest that later steps need fails, or a resource never reaches the state the page says.
+- `minor`: the reader still gets the result. For example: an old Pod name, version or count in the
+  page's output, a wrong name in the text, or a cleanup command that fails.
 
 ## Report
 
 Reply with the report only, in this format:
 
-```markdown
+````markdown
 ---
 page: getting-started/raycluster-quick-start.md
-status: fail
+status: pass
+blocker: 0
+minor: 1
+summary: The RayCluster becomes ready and the job succeeds. The page says 3G of memory, but the chart requests 5Gi.
 ---
+
+## Checks
+
+| # | Step | The page says | Result |
+|---|---|---|---|
+| 1 | Step 2: `helm install kuberay-operator` | the operator Pod is `Running` | ✅ |
+| 2 | Step 3: `helm install raycluster` | 1 head Pod and 1 worker Pod are `Running` | ✅ |
+| 3 | Step 3: "at least 3G of memory" | the head Pod requests 3G | ❌ 1 |
+| 4 | Step 4: `ray job submit` | the job succeeds | ✅ |
 
 ## Findings
 
-### 1. doc-bug: the page says 3G of memory, the chart requests 5Gi
+| # | Severity | Type | Step | Problem | Proposed fix |
+|---|---|---|---|---|---|
+| 1 | minor | doc-bug | Step 3 | the page says 3G of memory, the ray-cluster chart requests 5Gi since #4588 | "at least 3G" → "at least 5Gi" |
 
-- Step: "Deploy a RayCluster custom resource", `kubectl get pods`
-- Output: the lines that show it
-- Cause: the ray-cluster chart's head requests 5Gi since #4588
-- Proposed fix: in `getting-started/raycluster-quick-start.md`, replace `3G` with `5Gi` in "... at least 3G ..."
+Finding 1:
+
+```
+$ kubectl get pod raycluster-kuberay-head-x7k2p -o jsonpath='{.spec.containers[0].resources.requests.memory}'
+5Gi
+```
+
+## Evidence
+
+```
+$ helm ls -n ray-system
+kuberay-operator  ray-system  1  deployed  kuberay-operator-1.8.0-rc.0
+$ kubectl get raycluster
+NAME                 DESIRED WORKERS   AVAILABLE WORKERS   STATUS   AGE
+raycluster-kuberay   1                 1                   ready    95s
+```
 
 ## Rewrites
 
@@ -92,6 +126,19 @@ status: fail
 ## Skipped
 
 - "Option 2: GKE" tab: needs GKE
-```
+````
 
-`status` is `pass`, `fail` (at least one finding), `manual` or `none`.
+Write only these sections, and leave out an empty one. A reader gets the result from the front matter
+and the two tables:
+
+- Front matter: `status` is `pass` (no `blocker` finding), `fail` (at least one), `manual` or `none`.
+  `summary` is one or two sentences: what works with the candidate, then the findings. It becomes
+  the page's row in the release report.
+- Checks: one row for each thing the page says will happen. The result is `✅`, `❌` with the finding
+  number, or `⏸️` when the step did not run because an earlier one failed. Commands that only prepare
+  the next step share its row.
+- Findings: one row per finding and one line per cell. Under the table, each finding gets at most 10
+  lines: the command and the output lines that show the problem. A fix longer than one line goes
+  there too, as the page text before and after.
+- Evidence: at most 10 lines that show the page's main result with the candidate, like the installed
+  chart version and the final state of the page's own resources.
