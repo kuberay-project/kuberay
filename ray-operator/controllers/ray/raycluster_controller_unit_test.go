@@ -5314,3 +5314,89 @@ func TestReconcilePodsKeepsBatchSchedulerReservationWhenRunning(t *testing.T) {
 	require.NoError(t, reconciler.reconcilePods(context.Background(), cluster))
 	assert.False(t, fakeScheduler.cleanupCalled, "a running RayCluster must keep its reserved capacity")
 }
+
+func TestSortPodsByPendingFirst(t *testing.T) {
+	makePod := func(name string, phase corev1.PodPhase) corev1.Pod {
+		return corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Status:     corev1.PodStatus{Phase: phase},
+		}
+	}
+
+	tests := []struct {
+		name     string
+		pods     []corev1.Pod
+		expected []string // expected order of pod names after sort
+	}{
+		{
+			name: "Pending pods sorted before Running pods",
+			pods: []corev1.Pod{
+				makePod("running-1", corev1.PodRunning),
+				makePod("pending-1", corev1.PodPending),
+				makePod("running-2", corev1.PodRunning),
+				makePod("pending-2", corev1.PodPending),
+			},
+			expected: []string{"pending-1", "pending-2", "running-1", "running-2"},
+		},
+		{
+			name: "All Running pods remain in original order",
+			pods: []corev1.Pod{
+				makePod("running-a", corev1.PodRunning),
+				makePod("running-b", corev1.PodRunning),
+			},
+			expected: []string{"running-a", "running-b"},
+		},
+		{
+			name: "All Pending pods remain in original order",
+			pods: []corev1.Pod{
+				makePod("pending-a", corev1.PodPending),
+				makePod("pending-b", corev1.PodPending),
+			},
+			expected: []string{"pending-a", "pending-b"},
+		},
+		{
+			name: "Mixed phases: Pending < Unknown < Running",
+			pods: []corev1.Pod{
+				makePod("running-1", corev1.PodRunning),
+				makePod("unknown-1", corev1.PodUnknown),
+				makePod("pending-1", corev1.PodPending),
+			},
+			expected: []string{"pending-1", "unknown-1", "running-1"},
+		},
+		{
+			name:     "Empty slice",
+			pods:     []corev1.Pod{},
+			expected: []string{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sortPodsByPendingFirst(tc.pods)
+			actual := make([]string, len(tc.pods))
+			for i, p := range tc.pods {
+				actual[i] = p.Name
+			}
+			assert.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestReplicaGroupHasPendingPod(t *testing.T) {
+	makePod := func(name string, phase corev1.PodPhase) corev1.Pod {
+		return corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Status:     corev1.PodStatus{Phase: phase},
+		}
+	}
+
+	assert.True(t, replicaGroupHasPendingPod([]corev1.Pod{
+		makePod("p1", corev1.PodPending),
+		makePod("p2", corev1.PodRunning),
+	}))
+	assert.False(t, replicaGroupHasPendingPod([]corev1.Pod{
+		makePod("p1", corev1.PodRunning),
+		makePod("p2", corev1.PodRunning),
+	}))
+	assert.False(t, replicaGroupHasPendingPod([]corev1.Pod{}))
+}
