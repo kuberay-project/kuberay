@@ -390,37 +390,37 @@ func TestListFiles(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		clusterID string
+		prefix    string
 		directory string
 		expected  []string
 	}{
 		{
 			name:      "list_files",
-			clusterID: "cluster1",
+			prefix:    "cluster1",
 			directory: utils.RAY_SESSIONDIR_LOGDIR_NAME,
 			expected:  []string{"file1.txt", "file2.log", "subdir/"},
 		},
 		{
 			name:      "list_other",
-			clusterID: "cluster1",
+			prefix:    "cluster1",
 			directory: "other",
 			expected:  []string{"file4.txt"},
 		},
 		{
 			name:      "list_nonexistent",
-			clusterID: "cluster1",
+			prefix:    "cluster1",
 			directory: "nonexistent",
 			expected:  []string{},
 		},
 		{
 			name:      "list_cluster2",
-			clusterID: "cluster2",
+			prefix:    "cluster2",
 			directory: utils.RAY_SESSIONDIR_LOGDIR_NAME,
 			expected:  []string{"file5.txt", "subdir2/"},
 		},
 		{
 			name:      "list_empty_subdir_marker_only",
-			clusterID: "cluster2",
+			prefix:    "cluster2",
 			directory: "logs/subdir2",
 			expected:  []string{},
 		},
@@ -428,11 +428,11 @@ func TestListFiles(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			files := handler.ListFiles(tc.clusterID, tc.directory)
+			files := handler.ListFiles(tc.prefix, tc.directory)
 			sort.Strings(files)
 			sort.Strings(tc.expected)
 			if diff := cmp.Diff(tc.expected, files); diff != "" {
-				t.Errorf("ListFiles(%q, %q) returned diff (-want +got):\n%s", tc.clusterID, tc.directory, diff)
+				t.Errorf("ListFiles(%q, %q) returned diff (-want +got):\n%s", tc.prefix, tc.directory, diff)
 			}
 		})
 	}

@@ -191,19 +191,19 @@ func (r *RayLogsHandler) listObjects(ctx context.Context, prefix string, delimit
 
 // ListFiles returns the base names of the files directly under dir plus its
 // subdirectories suffixed with "/". Directory markers are not reported as files.
-func (r *RayLogsHandler) ListFiles(clusterId string, dir string) []string {
+func (r *RayLogsHandler) ListFiles(prefix string, dir string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
 	defer cancel()
 
-	prefix := objectName(r.RootDir, clusterId, dir) + "/"
-	logrus.Debugf("Prepare to list files under %s ...", prefix)
-	objects, prefixes, err := r.listObjects(ctx, prefix, "/")
+	fullPrefix := objectName(r.RootDir, prefix, dir) + "/"
+	logrus.Debugf("Prepare to list files under %s ...", fullPrefix)
+	objects, prefixes, err := r.listObjects(ctx, fullPrefix, "/")
 	if err != nil {
-		logrus.Errorf("Failed to list objects from %s: %v", prefix, err)
+		logrus.Errorf("Failed to list objects from %s: %v", fullPrefix, err)
 		return []string{}
 	}
 	logrus.Infof("[ListFiles]Returned objects in %v. length of Objects: %v, length of Prefixes: %v",
-		prefix, len(objects), len(prefixes))
+		fullPrefix, len(objects), len(prefixes))
 
 	files := make([]string, 0, len(objects)+len(prefixes))
 	for _, name := range objects {
@@ -249,11 +249,11 @@ func (r *RayLogsHandler) List() []utils.ClusterInfo {
 	return clusters
 }
 
-func (r *RayLogsHandler) GetContent(clusterId string, fileName string) io.Reader {
+func (r *RayLogsHandler) GetContent(prefix string, fileName string) io.Reader {
 	ctx, cancel := context.WithTimeout(context.Background(), downloadTimeout)
 	defer cancel()
 
-	fullPath := objectName(r.RootDir, clusterId, fileName)
+	fullPath := objectName(r.RootDir, prefix, fileName)
 	logrus.Infof("Prepare to get object %s ...", fullPath)
 
 	data, err := r.getObject(ctx, fullPath)
