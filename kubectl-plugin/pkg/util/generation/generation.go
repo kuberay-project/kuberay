@@ -260,6 +260,12 @@ func (rayClusterConfig *RayClusterConfig) generateRayClusterSpec() *rayv1ac.RayC
 							WithRequests(workerRequestResources).
 							WithLimits(workerLimitResources)))))
 
+		// Ensure RayStartParams is never nil to avoid generating "rayStartParams: null"
+		// in the serialized output, which the CRD schema rejects.
+		if workerGroupSpecs[i].RayStartParams == nil {
+			workerGroupSpecs[i].RayStartParams = map[string]string{}
+		}
+
 		if workerGroup.NumOfHosts != nil {
 			workerGroupSpecs[i].WithNumOfHosts(*workerGroup.NumOfHosts)
 		}
@@ -286,6 +292,12 @@ func (rayClusterConfig *RayClusterConfig) generateRayClusterSpec() *rayv1ac.RayC
 							corev1ac.ContainerPort().WithContainerPort(8265).WithName("dashboard"),
 							corev1ac.ContainerPort().WithContainerPort(10001).WithName("client")))))).
 		WithWorkerGroupSpecs(workerGroupSpecs...)
+
+	// Ensure RayStartParams is never nil to avoid generating "rayStartParams: null"
+	// in the serialized output, which the CRD schema rejects.
+	if rayClusterSpec.HeadGroupSpec.RayStartParams == nil {
+		rayClusterSpec.HeadGroupSpec.RayStartParams = map[string]string{}
+	}
 
 	if rayClusterConfig.Autoscaler != nil && rayClusterConfig.Autoscaler.Version != "" {
 		rayClusterSpec.WithEnableInTreeAutoscaling(true).
