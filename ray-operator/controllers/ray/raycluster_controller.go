@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -2419,6 +2420,8 @@ func (r *RayClusterReconciler) reconcileAutoscalerRole(ctx context.Context, inst
 
 	role := &rbacv1.Role{}
 	namespacedName := common.RayClusterAutoscalerRoleNamespacedName(instance)
+	// Look the Role up by the same clipped name that it is created with below.
+	namespacedName.Name = utils.CheckName(namespacedName.Name)
 	if err := r.Get(ctx, namespacedName, role); err != nil {
 		if !errors.IsNotFound(err) {
 			return err
@@ -2450,6 +2453,27 @@ func (r *RayClusterReconciler) reconcileAutoscalerRole(ctx context.Context, inst
 		return nil
 	}
 
+	// The Role's rules change across KubeRay versions (e.g. pods/resize for in-place Pod resize, delete on
+	// rayclusters for idle termination). Keep the rules of a Role that this RayCluster owns up to date so
+	// that RayClusters created by an older operator get the permissions the autoscaler now needs.
+	// Roles that are not controlled by this RayCluster are left alone.
+	if !metav1.IsControlledBy(role, instance) {
+		return nil
+	}
+	desiredRole, err := common.BuildRole(instance)
+	if err != nil {
+		return err
+	}
+	if equality.Semantic.DeepEqual(role.Rules, desiredRole.Rules) {
+		return nil
+	}
+	role.Rules = desiredRole.Rules
+	if err := r.Update(ctx, role); err != nil {
+		r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToUpdateRole), string(utils.UpdateAction), "Failed updating rules of role %s/%s, %v", role.Namespace, role.Name, err)
+		return err
+	}
+	logger.Info("Updated rules of the role for Ray Autoscaler", "name", role.Name)
+	r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.UpdatedRole), string(utils.UpdateAction), "Updated rules of role %s/%s", role.Namespace, role.Name)
 	return nil
 }
 
