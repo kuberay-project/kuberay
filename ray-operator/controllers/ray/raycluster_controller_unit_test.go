@@ -1099,64 +1099,70 @@ func TestReconcileHeadService(t *testing.T) {
 }
 
 func TestReconcileHeadlessService(t *testing.T) {
-	setupTest(t)
-
-	// Specify a multi-host worker group
-	testRayCluster.Spec.WorkerGroupSpecs[0].NumOfHosts = 4
-
-	// Mock data
-	cluster := testRayCluster.DeepCopy()
-
-	// Create a new scheme with CRDs, Pod, Service schemes.
-	newScheme := runtime.NewScheme()
-	_ = rayv1.AddToScheme(newScheme)
-	_ = corev1.AddToScheme(newScheme)
-
-	// Initialize a fake client with newScheme and runtimeObjects.
-	runtimeObjects := []runtime.Object{cluster}
-	fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(runtimeObjects...).Build()
-	ctx := context.TODO()
-
-	// Initialize RayCluster reconciler.
-	r := &RayClusterReconciler{
-		Client:                     fakeClient,
-		Recorder:                   &events.FakeRecorder{},
-		Scheme:                     scheme.Scheme,
-		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
+	tests := map[string]struct {
+		numOfHosts    int32
+		enablePodFQDN bool
+		tlsEnabled    bool
+		expectService bool
+	}{
+		"multi-host worker group":         {numOfHosts: 4, expectService: true},
+		"single-host with enablePodFQDN":  {numOfHosts: 1, enablePodFQDN: true, expectService: true},
+		"single-host with mTLS":           {numOfHosts: 1, tlsEnabled: true, expectService: true},
+		"single-host without per-pod DNS": {numOfHosts: 1, expectService: false},
 	}
 
-	headlessServiceSelector := labels.SelectorFromSet(map[string]string{
-		utils.RayClusterHeadlessServiceLabelKey: cluster.Name,
-	})
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			setupTest(t)
+			testRayCluster.Spec.WorkerGroupSpecs[0].NumOfHosts = tc.numOfHosts
+			testRayCluster.Spec.EnablePodFQDN = nil
+			testRayCluster.Spec.TLSOptions = nil
+			if tc.enablePodFQDN {
+				testRayCluster.Spec.EnablePodFQDN = new(true)
+			}
+			if tc.tlsEnabled {
+				testRayCluster.Spec.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+			}
+			cluster := testRayCluster.DeepCopy()
 
-	// Case 1: Headless service does not exist.
-	err := r.reconcileHeadlessService(ctx, cluster)
-	require.NoError(t, err, "Fail to reconcile head service")
+			newScheme := runtime.NewScheme()
+			_ = rayv1.AddToScheme(newScheme)
+			_ = corev1.AddToScheme(newScheme)
+			fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(cluster).Build()
+			ctx := context.TODO()
 
-	// One headless service should be created.
-	serviceList := corev1.ServiceList{}
-	err = fakeClient.List(ctx, &serviceList, &client.ListOptions{
-		LabelSelector: headlessServiceSelector,
-		Namespace:     cluster.Namespace,
-	})
-	expectedName := cluster.Name + utils.DashSymbol + utils.HeadlessServiceSuffix
-	require.NoError(t, err, "Fail to get service list")
-	assert.Len(t, serviceList.Items, 1, "Service list len is wrong")
-	assert.Equal(t, expectedName, serviceList.Items[0].ObjectMeta.Name, "Headless Service name is wrong, expected %s actual %s", expectedName, serviceList.Items[0].ObjectMeta.Name)
-	assert.Equal(t, "None", serviceList.Items[0].Spec.ClusterIP, "Created service is not a headless service, ClusterIP is not None")
+			r := &RayClusterReconciler{
+				Client:                     fakeClient,
+				Recorder:                   &events.FakeRecorder{},
+				Scheme:                     scheme.Scheme,
+				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+			}
+			listOptions := &client.ListOptions{
+				LabelSelector: labels.SelectorFromSet(map[string]string{utils.RayClusterHeadlessServiceLabelKey: cluster.Name}),
+				Namespace:     cluster.Namespace,
+			}
 
-	// Case 2: Headless service already exists, nothing should be done
-	err = r.reconcileHeadlessService(ctx, cluster)
-	require.NoError(t, err, "Fail to reconcile head service")
+			// Case 1: Headless service does not exist.
+			require.NoError(t, r.reconcileHeadlessService(ctx, cluster))
+			serviceList := corev1.ServiceList{}
+			require.NoError(t, fakeClient.List(ctx, &serviceList, listOptions))
+			if !tc.expectService {
+				assert.Empty(t, serviceList.Items)
+				return
+			}
+			expectedName := cluster.Name + utils.DashSymbol + utils.HeadlessServiceSuffix
+			require.Len(t, serviceList.Items, 1)
+			assert.Equal(t, expectedName, serviceList.Items[0].Name)
+			assert.Equal(t, "None", serviceList.Items[0].Spec.ClusterIP, "Created service is not a headless service")
 
-	// The namespace should still have only one headless service.
-	serviceList = corev1.ServiceList{}
-	err = fakeClient.List(ctx, &serviceList, &client.ListOptions{
-		LabelSelector: headlessServiceSelector,
-		Namespace:     cluster.Namespace,
-	})
-	require.NoError(t, err, "Fail to get service list")
-	assert.Len(t, serviceList.Items, 1, "Service list len is wrong")
+			// Case 2: Headless service already exists, nothing should be done.
+			require.NoError(t, r.reconcileHeadlessService(ctx, cluster))
+			serviceList = corev1.ServiceList{}
+			require.NoError(t, fakeClient.List(ctx, &serviceList, listOptions))
+			assert.Len(t, serviceList.Items, 1)
+		})
+	}
 }
 
 func getNotFailedPodItemNum(podList corev1.PodList) int {

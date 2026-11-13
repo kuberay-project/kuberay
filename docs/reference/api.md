@@ -662,6 +662,7 @@ _Appears in:_
 | `historyServerOptions` _[HistoryServerOptions](#historyserveroptions)_ | HistoryServerOptions used for history server related configuration |  |  |
 | `networkPolicy` _[NetworkPolicyConfig](#networkpolicyconfig)_ | NetworkPolicy specifies optional configuration for network isolation.<br />When set, separate NetworkPolicies are created for head and worker pods.<br />The reconciler always permits intra-cluster pod-to-pod traffic.<br />Note: under DenyAll/DenyAllEgress, DNS egress is not added<br />automatically; since Ray pods reach the head via its service FQDN, you must<br />allow DNS egress via Head/Worker EgressRules or the cluster will fail to start. |  |  |
 | `tlsOptions` _[TLSOptions](#tlsoptions)_ | TLSOptions specifies optional TLS encryption settings for the RayCluster.<br />If omitted or Enabled is false, TLS is disabled. When Enabled is true,<br />the operator enables mTLS using cert-manager to provision and manage certificates.<br />Requires the RayClusterMTLS feature gate on the operator. |  |  |
+| `enablePodFQDN` _boolean_ | EnablePodFQDN creates per-pod DNS records (pod hostname/subdomain plus the<br />headless Service) for worker pods without changing how Ray nodes register.<br />Ray keeps using pod IPs. Implied when mTLS is enabled, in which case Ray nodes<br />register with their FQDN instead. |  |  |
 | `headGroupSpec` _[HeadGroupSpec](#headgroupspec)_ | HeadGroupSpec is the spec for the head pod |  |  |
 | `rayVersion` _string_ | RayVersion is used to determine the command for the Kubernetes Job managed by RayJob |  |  |
 | `workerGroupSpecs` _[WorkerGroupSpec](#workergroupspec) array_ | WorkerGroupSpecs are the specs for the worker pods |  |  |
@@ -970,11 +971,11 @@ _Appears in:_
 
 
 
-TLSOptions configures TLS encryption for the RayCluster.
-When TLSOptions is nil or Enabled is nil/false, TLS is disabled.
-When Enabled is true, the operator uses cert-manager to automatically
-provision a full PKI (self-signed CA, head and worker leaf certificates)
-and keeps certificates up to date as pod IPs change during autoscaling.
+TLSOptions configures mTLS for the RayCluster. When enabled, the operator uses
+cert-manager to provision a self-signed CA plus head and worker leaf certificates.
+Ray nodes register with per-pod FQDNs so the worker certificate can use a static
+wildcard DNS SAN that survives autoscaling. This requires autoscaler v2, because
+v1 matches Pods to Ray nodes by IP and never matches an FQDN.
 
 
 

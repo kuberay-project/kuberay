@@ -68,6 +68,12 @@ type RayClusterSpec struct {
 	// Requires the RayClusterMTLS feature gate on the operator.
 	// +optional
 	TLSOptions *TLSOptions `json:"tlsOptions,omitempty"`
+	// EnablePodFQDN creates per-pod DNS records (pod hostname/subdomain plus the
+	// headless Service) for worker pods without changing how Ray nodes register.
+	// Ray keeps using pod IPs. Implied when mTLS is enabled, in which case Ray nodes
+	// register with their FQDN instead.
+	// +optional
+	EnablePodFQDN *bool `json:"enablePodFQDN,omitempty"`
 	// HeadGroupSpec is the spec for the head pod
 	HeadGroupSpec HeadGroupSpec `json:"headGroupSpec"`
 	// RayVersion is used to determine the command for the Kubernetes Job managed by RayJob
@@ -78,11 +84,11 @@ type RayClusterSpec struct {
 	WorkerGroupSpecs []WorkerGroupSpec `json:"workerGroupSpecs,omitempty"`
 }
 
-// TLSOptions configures TLS encryption for the RayCluster.
-// When TLSOptions is nil or Enabled is nil/false, TLS is disabled.
-// When Enabled is true, the operator uses cert-manager to automatically
-// provision a full PKI (self-signed CA, head and worker leaf certificates)
-// and keeps certificates up to date as pod IPs change during autoscaling.
+// TLSOptions configures mTLS for the RayCluster. When enabled, the operator uses
+// cert-manager to provision a self-signed CA plus head and worker leaf certificates.
+// Ray nodes register with per-pod FQDNs so the worker certificate can use a static
+// wildcard DNS SAN that survives autoscaling. This requires autoscaler v2, because
+// v1 matches Pods to Ray nodes by IP and never matches an FQDN.
 type TLSOptions struct {
 	// Enabled controls whether mTLS is active for this RayCluster.
 	// Defaults to false when omitted. Set to true to enable mTLS.
@@ -824,6 +830,8 @@ const (
 // +kubebuilder:printcolumn:name="head pod IP",type="string",JSONPath=".status.head.podIP",priority=1
 // +kubebuilder:printcolumn:name="head service IP",type="string",JSONPath=".status.head.serviceIP",priority=1
 // +genclient
+// +kubebuilder:validation:XValidation:rule="has(self.spec.enablePodFQDN) == has(oldSelf.spec.enablePodFQDN) && (!has(self.spec.enablePodFQDN) || self.spec.enablePodFQDN == oldSelf.spec.enablePodFQDN)",message="spec.enablePodFQDN is immutable; delete and recreate the RayCluster to change it"
+// +kubebuilder:validation:XValidation:rule="has(self.spec.tlsOptions) == has(oldSelf.spec.tlsOptions) && (!has(self.spec.tlsOptions) || self.spec.tlsOptions == oldSelf.spec.tlsOptions)",message="spec.tlsOptions is immutable; delete and recreate the RayCluster to change it"
 type RayCluster struct {
 	// Standard object metadata.
 	metav1.TypeMeta   `json:",inline"`

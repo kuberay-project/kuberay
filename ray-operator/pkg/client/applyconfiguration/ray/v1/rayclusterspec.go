@@ -50,6 +50,11 @@ type RayClusterSpecApplyConfiguration struct {
 	// the operator enables mTLS using cert-manager to provision and manage certificates.
 	// Requires the RayClusterMTLS feature gate on the operator.
 	TLSOptions *TLSOptionsApplyConfiguration `json:"tlsOptions,omitempty"`
+	// EnablePodFQDN creates per-pod DNS records (pod hostname/subdomain plus the
+	// headless Service) for worker pods without changing how Ray nodes register.
+	// Ray keeps using pod IPs. Implied when mTLS is enabled, in which case Ray nodes
+	// register with their FQDN instead.
+	EnablePodFQDN *bool `json:"enablePodFQDN,omitempty"`
 	// HeadGroupSpec is the spec for the head pod
 	HeadGroupSpec *HeadGroupSpecApplyConfiguration `json:"headGroupSpec,omitempty"`
 	// RayVersion is used to determine the command for the Kubernetes Job managed by RayJob
@@ -171,6 +176,14 @@ func (b *RayClusterSpecApplyConfiguration) WithNetworkPolicy(value *NetworkPolic
 // If called multiple times, the TLSOptions field is set to the value of the last call.
 func (b *RayClusterSpecApplyConfiguration) WithTLSOptions(value *TLSOptionsApplyConfiguration) *RayClusterSpecApplyConfiguration {
 	b.TLSOptions = value
+	return b
+}
+
+// WithEnablePodFQDN sets the EnablePodFQDN field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the EnablePodFQDN field is set to the value of the last call.
+func (b *RayClusterSpecApplyConfiguration) WithEnablePodFQDN(value bool) *RayClusterSpecApplyConfiguration {
+	b.EnablePodFQDN = &value
 	return b
 }
 

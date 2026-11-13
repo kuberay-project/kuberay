@@ -837,7 +837,7 @@ func TestBuildAutoscalerContainer(t *testing.T) {
 	const expectedCmd = "ray kuberay-autoscaler --cluster-name $(RAY_CLUSTER_NAME) --cluster-namespace $(RAY_CLUSTER_NAMESPACE)"
 
 	t.Run("KUBERAY_GEN_AUTOSCALER_START_CMD is always injected with the generated command", func(t *testing.T) {
-		container := BuildAutoscalerContainer(autoscalerImage)
+		container := BuildAutoscalerContainer(autoscalerImage, "")
 
 		env := getEnvVar(container, utils.KUBERAY_GEN_AUTOSCALER_START_CMD)
 		require.NotNil(t, env, "KUBERAY_GEN_AUTOSCALER_START_CMD env var should always be present")
@@ -845,7 +845,7 @@ func TestBuildAutoscalerContainer(t *testing.T) {
 	})
 
 	t.Run("Default Args equal KUBERAY_GEN_AUTOSCALER_START_CMD value", func(t *testing.T) {
-		container := BuildAutoscalerContainer(autoscalerImage)
+		container := BuildAutoscalerContainer(autoscalerImage, "")
 
 		require.Len(t, container.Args, 1)
 		assert.Equal(t, expectedCmd, container.Args[0],
@@ -853,7 +853,7 @@ func TestBuildAutoscalerContainer(t *testing.T) {
 	})
 
 	t.Run("AutoscalerOptions.Command override replaces command", func(t *testing.T) {
-		container := BuildAutoscalerContainer(autoscalerImage)
+		container := BuildAutoscalerContainer(autoscalerImage, "")
 		customCMD := []string{"/bin/bash", "-lc", "--"}
 		mergeAutoscalerOverrides(&container, &rayv1.AutoscalerOptions{
 			Command: customCMD,
@@ -869,7 +869,7 @@ func TestBuildAutoscalerContainer(t *testing.T) {
 	})
 
 	t.Run("AutoscalerOptions.Args override replaces Args but not KUBERAY_GEN_AUTOSCALER_START_CMD", func(t *testing.T) {
-		container := BuildAutoscalerContainer(autoscalerImage)
+		container := BuildAutoscalerContainer(autoscalerImage, "")
 		customArgs := []string{"ulimit -n 65536; $KUBERAY_GEN_AUTOSCALER_START_CMD"}
 		mergeAutoscalerOverrides(&container, &rayv1.AutoscalerOptions{
 			Args: customArgs,
@@ -884,8 +884,15 @@ func TestBuildAutoscalerContainer(t *testing.T) {
 		assert.Equal(t, expectedCmd, env.Value)
 	})
 
+	t.Run("gcsAddress is appended as --gcs-address to Args and KUBERAY_GEN_AUTOSCALER_START_CMD", func(t *testing.T) {
+		container := BuildAutoscalerContainer(autoscalerImage, "head-svc.ns.svc.cluster.local:6379")
+		expected := "ray kuberay-autoscaler --cluster-name $(RAY_CLUSTER_NAME) --cluster-namespace $(RAY_CLUSTER_NAMESPACE) --gcs-address=head-svc.ns.svc.cluster.local:6379"
+		assert.Equal(t, []string{expected}, container.Args)
+		assert.Equal(t, expected, getEnvVar(container, utils.KUBERAY_GEN_AUTOSCALER_START_CMD).Value)
+	})
+
 	t.Run("AutoscalerOptions.Env additions do not overwrite KUBERAY_GEN_AUTOSCALER_START_CMD", func(t *testing.T) {
-		container := BuildAutoscalerContainer(autoscalerImage)
+		container := BuildAutoscalerContainer(autoscalerImage, "")
 		mergeAutoscalerOverrides(&container, &rayv1.AutoscalerOptions{
 			Env: []corev1.EnvVar{
 				{Name: "AUTOSCALER_UPDATE_INTERVAL_S", Value: "10"},
@@ -1571,6 +1578,94 @@ func TestDefaultWorkerPodTemplateWithName(t *testing.T) {
 	podTemplateSpec := DefaultWorkerPodTemplate(ctx, *cluster, *worker.DeepCopy(), podName, fqdnRayIP, "6379", "", 0, 0)
 	assert.Empty(t, podTemplateSpec.ObjectMeta.Name)
 	assert.Equal(t, expectedWorker, worker)
+}
+
+func TestDefaultWorkerPodTemplate_PodFQDN(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
+	ctx := context.Background()
+
+	tests := map[string]struct {
+		userNodeIPAddress  string
+		clusterName        string
+		enablePodFQDN      bool
+		tlsEnabled         bool
+		expectPerPodDNS    bool
+		expectNodeIPIsFQDN bool
+	}{
+		"disabled": {},
+		"enablePodFQDN only creates DNS records without touching Ray": {
+			enablePodFQDN:   true,
+			expectPerPodDNS: true,
+		},
+		"mTLS implies per-pod DNS and registers the FQDN": {
+			tlsEnabled:         true,
+			expectPerPodDNS:    true,
+			expectNodeIPIsFQDN: true,
+		},
+		"mTLS keeps user node-ip-address": {
+			tlsEnabled:        true,
+			userNodeIPAddress: "1.2.3.4",
+			expectPerPodDNS:   true,
+		},
+		"long cluster name stays within 63 chars": {
+			enablePodFQDN:   true,
+			clusterName:     strings.Repeat("a", 60),
+			expectPerPodDNS: true,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cluster := instance.DeepCopy()
+			if tc.enablePodFQDN {
+				cluster.Spec.EnablePodFQDN = new(true)
+			}
+			if tc.tlsEnabled {
+				cluster.Spec.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+			}
+			if tc.clusterName != "" {
+				cluster.Name = tc.clusterName
+			}
+			worker := *cluster.Spec.WorkerGroupSpecs[0].DeepCopy()
+			if tc.userNodeIPAddress != "" {
+				worker.RayStartParams["node-ip-address"] = tc.userNodeIPAddress
+			}
+			podName := utils.PodName(fmt.Sprintf("%s-%s", cluster.Name, worker.GroupName), rayv1.WorkerNode, true)
+			fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
+
+			// worker.RayStartParams is a map, so the node-ip-address written by DefaultWorkerPodTemplate is visible here.
+			podTemplateSpec := DefaultWorkerPodTemplate(ctx, *cluster, worker, podName, fqdnRayIP, "6379", "", 0, 0)
+			nodeIPAddress := worker.RayStartParams["node-ip-address"]
+
+			if !tc.expectPerPodDNS {
+				assert.Empty(t, podTemplateSpec.Name)
+				assert.Equal(t, podName, podTemplateSpec.GenerateName)
+				assert.Empty(t, podTemplateSpec.Spec.Hostname)
+				assert.Empty(t, podTemplateSpec.Spec.Subdomain)
+				assert.Empty(t, nodeIPAddress)
+				return
+			}
+
+			// Name is generated by KubeRay and equals the hostname so per-pod DNS matches the pod.
+			assert.Empty(t, podTemplateSpec.GenerateName)
+			assert.True(t, strings.HasPrefix(podTemplateSpec.Name, podName), podTemplateSpec.Name)
+			assert.Len(t, podTemplateSpec.Name, len(podName)+5)
+			assert.LessOrEqual(t, len(podTemplateSpec.Name), 63)
+			assert.Equal(t, podTemplateSpec.Name, podTemplateSpec.Spec.Hostname)
+			subdomain := cluster.Name + utils.DashSymbol + utils.HeadlessServiceSuffix
+			assert.Equal(t, subdomain, podTemplateSpec.Spec.Subdomain)
+
+			switch {
+			case tc.expectNodeIPIsFQDN:
+				expected := fmt.Sprintf("%s.%s.%s.svc.%s", podTemplateSpec.Name, subdomain, cluster.Namespace, utils.GetClusterDomainName())
+				assert.Equal(t, expected, nodeIPAddress)
+			case tc.userNodeIPAddress != "":
+				assert.Equal(t, tc.userNodeIPAddress, nodeIPAddress)
+			default:
+				assert.Empty(t, nodeIPAddress)
+			}
+		})
+	}
 }
 
 func TestDeafultWorkerPodTemplateWithReplicaGrpAndIndex(t *testing.T) {
@@ -2853,6 +2948,12 @@ func TestConfigureTLS_AutoGenerate_HeadPod(t *testing.T) {
 	podName := "test-head"
 	podTemplate := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
 
+	// Local clients must dial the head service FQDN (a DNS SAN), not loopback, which Ray
+	// would rewrite to the pod IP.
+	fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
+	pod := BuildPod(ctx, podTemplate, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), fqdnRayIP, nil, "")
+	checkContainerEnv(t, pod.Spec.Containers[utils.RayContainerIndex], utils.RAY_ADDRESS, fqdnRayIP+":6379")
+
 	// Auto-generate mode mounts the cert-manager head secret.
 	var tlsVolume *corev1.Volume
 	for i := range podTemplate.Spec.Volumes {
@@ -2885,30 +2986,10 @@ func TestConfigureTLS_AutoGenerate_HeadPod(t *testing.T) {
 	assert.Equal(t, utils.RayTLSCertMountPath, tlsMount.MountPath)
 	assert.True(t, tlsMount.ReadOnly)
 
-	// wait-for-tls-ip-san must be the first init container on head pods (auto-generate only).
-	require.NotEmpty(t, podTemplate.Spec.InitContainers, "head pod should have init containers when TLS is enabled")
-	assert.Equal(t, "wait-for-tls-ip-san", podTemplate.Spec.InitContainers[0].Name,
-		"wait-for-tls-ip-san must be the first init container")
-	waitInit := podTemplate.Spec.InitContainers[0]
-	// Must have access to the TLS cert.
-	hasTLSMount := false
-	for _, vm := range waitInit.VolumeMounts {
-		if vm.Name == utils.RayTLSVolumeName {
-			hasTLSMount = true
-			break
-		}
+	// Nothing dials the head by pod IP under mTLS, so no init container waits for an IP SAN.
+	for _, c := range podTemplate.Spec.InitContainers {
+		assert.NotEqual(t, "wait-for-tls-ip-san", c.Name)
 	}
-	assert.True(t, hasTLSMount, "wait-for-tls-ip-san should mount the TLS volume")
-	// Must receive POD_IP from the downward API.
-	hasPodIPEnv := false
-	for _, e := range waitInit.Env {
-		if e.Name == "POD_IP" && e.ValueFrom != nil &&
-			e.ValueFrom.FieldRef != nil && e.ValueFrom.FieldRef.FieldPath == "status.podIP" {
-			hasPodIPEnv = true
-			break
-		}
-	}
-	assert.True(t, hasPodIPEnv, "wait-for-tls-ip-san should receive POD_IP via downward API")
 }
 
 func TestConfigureTLS_AutoGenerate_WorkerPod(t *testing.T) {
@@ -2952,12 +3033,14 @@ func TestConfigureTLS_AutoGenerate_WorkerPod(t *testing.T) {
 	assert.Equal(t, utils.RayTLSCertMountPath, tlsMount.MountPath)
 	assert.True(t, tlsMount.ReadOnly)
 
-	// wait-for-tls-ip-san must be the first init container on worker pods. GCS connects back
-	// to each worker's raylet using the worker's pod IP; if the cert doesn't yet list that IP
-	// the TLS handshake fails and GCS marks the worker dead, causing the RayJob to fail.
-	require.NotEmpty(t, podTemplate.Spec.InitContainers, "worker pod should have init containers")
-	assert.Equal(t, "wait-for-tls-ip-san", podTemplate.Spec.InitContainers[0].Name,
-		"wait-for-tls-ip-san must be the first init container on worker pods")
+	// Workers register with their per-pod FQDN, which the wildcard DNS SAN covers, so they
+	// neither wait for an IP SAN nor need one.
+	for _, c := range podTemplate.Spec.InitContainers {
+		assert.NotEqual(t, "wait-for-tls-ip-san", c.Name, "worker pods should not wait for an IP SAN")
+	}
+	assert.Equal(t, podTemplate.Name, podTemplate.Spec.Hostname)
+	expectedNodeIP := fmt.Sprintf("%s.%s-%s.%s.svc.%s", podTemplate.Name, cluster.Name, utils.HeadlessServiceSuffix, cluster.Namespace, utils.GetClusterDomainName())
+	assert.Equal(t, expectedNodeIP, worker.RayStartParams["node-ip-address"])
 
 	// wait-gcs-ready should exist and have TLS config.
 	var gcsReadyContainer *corev1.Container
@@ -3006,6 +3089,11 @@ func TestConfigureTLS_AutoscalerContainer(t *testing.T) {
 		}
 	}
 	assert.NotNil(t, tlsMount, "autoscaler container should have TLS volume mount")
+
+	// The autoscaler must dial GCS by the head service FQDN so TLS matches the DNS SAN.
+	expectedFlag := "--gcs-address=" + utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace) + ":6379"
+	assert.Contains(t, autoscalerContainer.Args[0], expectedFlag)
+	assert.Contains(t, getEnvVar(*autoscalerContainer, utils.KUBERAY_GEN_AUTOSCALER_START_CMD).Value, expectedFlag)
 }
 
 func TestSetContainerTLSConfig(t *testing.T) {

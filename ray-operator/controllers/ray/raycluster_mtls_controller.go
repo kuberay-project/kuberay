@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -273,25 +272,19 @@ func (r *RayClusterMTLSController) reconcileCAIssuer(ctx context.Context, instan
 }
 
 // reconcileHeadCertificate creates or updates the head node leaf certificate.
-// Only head pod IPs are added as IP SANs — worker IPs are not included, since
-// workers reach the head via the service DNS name (already a DNS SAN). This
-// prevents a worker scale event from triggering a head cert reissue.
+// Every client (workers, the autoscaler sidecar, local ray.init()) reaches the head by its
+// service DNS name, so the cert is static and never tracks the head pod IP.
 func (r *RayClusterMTLSController) reconcileHeadCertificate(ctx context.Context, instance *rayv1.RayCluster) error {
 	certName := utils.GetTLSCertName(instance.Name, rayv1.HeadNode)
 	secretName := utils.GetTLSSecretName(instance.Name, rayv1.HeadNode)
 
-	podIPs, err := r.getPodIPs(ctx, instance, rayv1.HeadNode)
-	if err != nil {
-		return err
-	}
-
 	desiredLabels := tlsResourceLabels(instance.Name, "head-certificate")
-	desiredDNSNames := uniqueStrings([]string{
+	desiredDNSNames := []string{
 		"localhost",
 		utils.GenerateFQDNServiceName(ctx, *instance, instance.Namespace),
-	})
+	}
 	sort.Strings(desiredDNSNames)
-	desiredIPAddresses := normalizeIPs(podIPs)
+	desiredIPAddresses := loopbackIPSANs
 
 	// Known limitation: Ray reads TLS files once at startup and does not hot-reload them.
 	// When cert-manager renews this certificate (updating the Secret), running Ray pods
@@ -313,7 +306,7 @@ func (r *RayClusterMTLSController) reconcileHeadCertificate(ctx context.Context,
 	}
 
 	existing := &certmanagerv1.Certificate{}
-	err = r.Get(ctx, client.ObjectKey{Name: certName, Namespace: instance.Namespace}, existing)
+	err := r.Get(ctx, client.ObjectKey{Name: certName, Namespace: instance.Namespace}, existing)
 	if err != nil {
 		if !errors.IsNotFound(err) {
 			return err
@@ -339,9 +332,9 @@ func (r *RayClusterMTLSController) reconcileHeadCertificate(ctx context.Context,
 			return err
 		}
 		logger := ctrl.LoggerFrom(ctx)
-		logger.Info("Updating head certificate", "certificate", certName, "ipAddresses", desiredIPAddresses)
+		logger.Info("Updating head certificate", "certificate", certName, "dnsNames", desiredDNSNames)
 		r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.MTLSCertificatesUpdated), string(utils.UpdateAction),
-			"Updated head certificate SANs (IPs: %v)", desiredIPAddresses)
+			"Updated head certificate SANs (DNS: %v)", desiredDNSNames)
 		if err := r.Update(ctx, existing); err != nil {
 			return err
 		}
@@ -350,22 +343,19 @@ func (r *RayClusterMTLSController) reconcileHeadCertificate(ctx context.Context,
 }
 
 // reconcileWorkerCertificate creates or updates the worker node leaf certificate.
-// All worker pods share this single certificate. Only worker pod IPs are included
-// in the SANs; the head IP is not needed here since GCS connects to workers by
-// pod IP, not by the head service address.
+// All worker pods share this single certificate. Workers register with their per-pod
+// FQDN, so a wildcard DNS SAN covers every worker and the cert is static across scaling.
 func (r *RayClusterMTLSController) reconcileWorkerCertificate(ctx context.Context, instance *rayv1.RayCluster) error {
 	certName := utils.GetTLSCertName(instance.Name, rayv1.WorkerNode)
 	secretName := utils.GetTLSSecretName(instance.Name, rayv1.WorkerNode)
 
-	podIPs, err := r.getPodIPs(ctx, instance, rayv1.WorkerNode)
-	if err != nil {
-		return err
-	}
-
 	desiredLabels := tlsResourceLabels(instance.Name, "worker-certificate")
-	desiredDNSNames := uniqueStrings([]string{"localhost"})
+	desiredDNSNames := []string{
+		"localhost",
+		fmt.Sprintf("*.%s-%s.%s.svc.%s", instance.Name, utils.HeadlessServiceSuffix, instance.Namespace, utils.GetClusterDomainName()),
+	}
 	sort.Strings(desiredDNSNames)
-	desiredIPAddresses := normalizeIPs(podIPs)
+	desiredIPAddresses := loopbackIPSANs
 
 	// Known limitation: Ray reads TLS files once at startup and does not hot-reload them.
 	// See the equivalent comment in reconcileHeadCertificate for details.
@@ -384,7 +374,7 @@ func (r *RayClusterMTLSController) reconcileWorkerCertificate(ctx context.Contex
 	}
 
 	existing := &certmanagerv1.Certificate{}
-	err = r.Get(ctx, client.ObjectKey{Name: certName, Namespace: instance.Namespace}, existing)
+	err := r.Get(ctx, client.ObjectKey{Name: certName, Namespace: instance.Namespace}, existing)
 	if err != nil {
 		if !errors.IsNotFound(err) {
 			return err
@@ -410,39 +400,14 @@ func (r *RayClusterMTLSController) reconcileWorkerCertificate(ctx context.Contex
 			return err
 		}
 		logger := ctrl.LoggerFrom(ctx)
-		logger.Info("Updating worker certificate", "certificate", certName, "ipAddresses", desiredIPAddresses)
+		logger.Info("Updating worker certificate", "certificate", certName, "dnsNames", desiredDNSNames)
 		r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.MTLSCertificatesUpdated), string(utils.UpdateAction),
-			"Updated worker certificate SANs (IPs: %v)", desiredIPAddresses)
+			"Updated worker certificate SANs (DNS: %v)", desiredDNSNames)
 		if err := r.Update(ctx, existing); err != nil {
 			return err
 		}
 	}
 	return r.ensureSecretOwnedByCertificate(ctx, existing)
-}
-
-// getPodIPs collects pod IPs for the given node type within the RayCluster.
-// Filtering by node type prevents worker IPs from appearing in the head cert
-// (which would trigger a cert reissue on every worker scale event) and vice versa.
-func (r *RayClusterMTLSController) getPodIPs(ctx context.Context, instance *rayv1.RayCluster, nodeType rayv1.RayNodeType) ([]string, error) {
-	pods := &corev1.PodList{}
-	if err := r.List(ctx, pods, client.InNamespace(instance.Namespace),
-		client.MatchingLabels(map[string]string{
-			utils.RayClusterLabelKey:  instance.Name,
-			utils.RayNodeTypeLabelKey: string(nodeType),
-		})); err != nil {
-		return nil, err
-	}
-	var podIPs []string
-	for _, pod := range pods.Items {
-		if !pod.DeletionTimestamp.IsZero() ||
-			pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
-			continue
-		}
-		if pod.Status.PodIP != "" {
-			podIPs = append(podIPs, pod.Status.PodIP)
-		}
-	}
-	return podIPs, nil
 }
 
 // checkTLSCertificatesReady verifies that both head and worker certificates
@@ -560,27 +525,9 @@ func certificateNeedsUpdate(existing, desired *certmanagerv1.CertificateSpec) bo
 		!setsEqual(existing.IPAddresses, desired.IPAddresses)
 }
 
-// normalizeIPs returns a sorted, de-duplicated set of IPs. Always includes 127.0.0.1.
-func normalizeIPs(podIPs []string) []string {
-	s := sets.New(podIPs...)
-	s.Delete("")
-	s.Insert("127.0.0.1")
-	return sets.List(s)
-}
-
-// uniqueStrings returns the input with duplicates removed, preserving order.
-func uniqueStrings(values []string) []string {
-	seen := make(map[string]struct{}, len(values))
-	out := make([]string, 0, len(values))
-	for _, v := range values {
-		if _, ok := seen[v]; ok {
-			continue
-		}
-		seen[v] = struct{}{}
-		out = append(out, v)
-	}
-	return out
-}
+// loopbackIPSANs is the only IP SAN either leaf certificate needs: in-pod clients that dial
+// 127.0.0.1 directly. Everything else reaches Ray nodes by DNS name.
+var loopbackIPSANs = []string{"127.0.0.1"}
 
 // tlsResourceLabels returns standard labels for cert-manager resources owned by a RayCluster.
 func tlsResourceLabels(clusterName, component string) map[string]string {

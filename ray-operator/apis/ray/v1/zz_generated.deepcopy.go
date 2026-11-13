@@ -825,6 +825,11 @@ func (in *RayClusterSpec) DeepCopyInto(out *RayClusterSpec) {
 		*out = new(TLSOptions)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.EnablePodFQDN != nil {
+		in, out := &in.EnablePodFQDN, &out.EnablePodFQDN
+		*out = new(bool)
+		**out = **in
+	}
 	in.HeadGroupSpec.DeepCopyInto(&out.HeadGroupSpec)
 	if in.WorkerGroupSpecs != nil {
 		in, out := &in.WorkerGroupSpecs, &out.WorkerGroupSpecs

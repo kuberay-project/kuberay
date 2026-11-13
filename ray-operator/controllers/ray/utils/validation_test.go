@@ -3986,6 +3986,44 @@ func TestValidateTLSOptions(t *testing.T) {
 			},
 		},
 		{
+			name: "TLS with autoscaling on Ray 2.60.0 - valid",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.EnableInTreeAutoscaling = new(true)
+				s.RayVersion = "2.60.0"
+			},
+		},
+		{
+			name: "TLS with autoscaling on Ray 2.59.0 - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.EnableInTreeAutoscaling = new(true)
+				s.RayVersion = "2.59.0"
+			},
+			expectError: true,
+			errorMsg:    "requires Ray 2.60.0 or later",
+		},
+		{
+			name: "TLS with autoscaling without rayVersion - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.EnableInTreeAutoscaling = new(true)
+			},
+			expectError: true,
+			errorMsg:    "requires rayVersion to be set",
+		},
+		{
+			name: "TLS with autoscaler v1 - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.EnableInTreeAutoscaling = new(true)
+				s.RayVersion = "2.60.0"
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{Version: new(rayv1.AutoscalerVersionV1)}
+			},
+			expectError: true,
+			errorMsg:    "requires autoscaler v2",
+		},
+		{
 			name: "tlsOptions set but enabled is false - valid (disables TLS)",
 			modify: func(s *rayv1.RayClusterSpec) {
 				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(false)}
@@ -4139,6 +4177,50 @@ func TestValidateTLSOptions(t *testing.T) {
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidatePodFQDN(t *testing.T) {
+	workerWith := func(hostname, subdomain string) []rayv1.WorkerGroupSpec {
+		return []rayv1.WorkerGroupSpec{{
+			GroupName: "wg",
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Hostname:   hostname,
+					Subdomain:  subdomain,
+					Containers: []corev1.Container{{Name: "ray-worker", Image: "rayproject/ray:latest"}},
+				},
+			},
+		}}
+	}
+
+	tests := map[string]struct {
+		spec        rayv1.RayClusterSpec
+		expectError bool
+	}{
+		"preset subdomain - error": {
+			spec:        rayv1.RayClusterSpec{EnablePodFQDN: new(true), WorkerGroupSpecs: workerWith("", "my-svc")},
+			expectError: true,
+		},
+		"preset hostname - error": {
+			spec:        rayv1.RayClusterSpec{EnablePodFQDN: new(true), WorkerGroupSpecs: workerWith("fixed", "")},
+			expectError: true,
+		},
+		"preset subdomain with per-pod DNS disabled - valid": {
+			spec: rayv1.RayClusterSpec{WorkerGroupSpecs: workerWith("", "my-svc")},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := validatePodFQDN(&tt.spec)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "cannot set spec.hostname or spec.subdomain")
 			} else {
 				require.NoError(t, err)
 			}

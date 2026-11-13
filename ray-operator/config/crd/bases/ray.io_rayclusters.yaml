@@ -345,6 +345,8 @@ spec:
                 type: object
               enableInTreeAutoscaling:
                 type: boolean
+              enablePodFQDN:
+                type: boolean
               gcsFaultToleranceOptions:
                 properties:
                   activePassiveHeadOptions:
@@ -9708,6 +9710,15 @@ spec:
                 type: object
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: spec.enablePodFQDN is immutable; delete and recreate the RayCluster
+            to change it
+          rule: has(self.spec.enablePodFQDN) == has(oldSelf.spec.enablePodFQDN) &&
+            (!has(self.spec.enablePodFQDN) || self.spec.enablePodFQDN == oldSelf.spec.enablePodFQDN)
+        - message: spec.tlsOptions is immutable; delete and recreate the RayCluster
+            to change it
+          rule: has(self.spec.tlsOptions) == has(oldSelf.spec.tlsOptions) && (!has(self.spec.tlsOptions)
+            || self.spec.tlsOptions == oldSelf.spec.tlsOptions)
     served: true
     storage: true
     subresources:

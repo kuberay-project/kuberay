@@ -1,0 +1,53 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-pod-fqdn
+spec:
+  # enablePodFQDN gives each worker pod a resolvable per-pod DNS name (immutable field):
+  #   <pod-name>.<cluster-name>-headless.<namespace>.svc.<cluster-domain>
+  # The pod name equals the hostname. Ray keeps registering with pod IPs.
+  enablePodFQDN: true
+  enableInTreeAutoscaling: true
+  rayVersion: "2.52.0"
+  headGroupSpec:
+    rayStartParams:
+      # Prevent Ray actors/tasks from being scheduled on the head pod, so worker
+      # scale-up/down is easy to observe.
+      num-cpus: "0"
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          ports:
+          - containerPort: 6379
+            name: gcs
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          resources:
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+  workerGroupSpecs:
+  - replicas: 1
+    minReplicas: 0
+    maxReplicas: 5
+    groupName: small-group
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "500m"
+              memory: "1Gi"

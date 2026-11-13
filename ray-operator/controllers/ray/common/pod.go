@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/version"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -262,6 +263,11 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 	mergedLabels := mergeLabels(headSpec.Template.ObjectMeta.Labels, headSpec.Labels)
 	podTemplate.Labels = labelPod(rayv1.HeadNode, instance.Name, utils.RayNodeHeadGroupLabelValue, mergedLabels)
 
+	// Under mTLS the head registers with its service DNS name so workers match its DNS SAN.
+	if _, ok := headSpec.RayStartParams["node-ip-address"]; !ok && utils.IsTLSEnabled(&instance.Spec) {
+		headSpec.RayStartParams["node-ip-address"] = utils.GenerateFQDNServiceName(ctx, instance, instance.Namespace)
+	}
+
 	headSpec.RayStartParams = setMissingRayStartParams(ctx, headSpec.RayStartParams, rayv1.HeadNode, headPort, "")
 
 	initTemplateAnnotations(instance, &podTemplate)
@@ -276,8 +282,14 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 		podTemplate.Spec.ServiceAccountName = utils.CheckName(utils.GetHeadGroupServiceAccountName(&instance))
 		// Use the same image as Ray head container by default.
 		autoscalerImage := podTemplate.Spec.Containers[utils.RayContainerIndex].Image
+		// Under mTLS the autoscaler must dial GCS by the head service DNS name so the TLS
+		// handshake matches the head certificate's DNS SAN; by default it would use the pod IP.
+		gcsAddress := ""
+		if utils.IsTLSEnabled(&instance.Spec) {
+			gcsAddress = fmt.Sprintf("%s:%s", utils.GenerateFQDNServiceName(ctx, instance, instance.Namespace), headPort)
+		}
 		// inject autoscaler container into head pod
-		autoscalerContainer := BuildAutoscalerContainer(autoscalerImage)
+		autoscalerContainer := BuildAutoscalerContainer(autoscalerImage, gcsAddress)
 
 		// Configure RAY_AUTH_TOKEN and RAY_AUTH_MODE if auth is enabled.
 		if utils.IsAuthEnabled(&instance.Spec) {
@@ -287,13 +299,6 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 		// Configure mTLS env vars and volume mount for the autoscaler sidecar.
 		// validateTLSOptions rejects forbidden TLS env vars in autoscalerOptions.env,
 		// preventing the user from overriding these via the merge below.
-		//
-		// GCS address alignment: the autoscaler co-located in the head pod reaches GCS
-		// via localhost (127.0.0.1) or the head pod IP. Both are always present in the
-		// head certificate SANs — 127.0.0.1 is added unconditionally, and the pod IP
-		// SAN is guaranteed by the wait-for-tls-ip-san init container (injected by
-		// configureTLS below) before any containers, including this sidecar, start.
-		// No additional RAY_ADDRESS injection is required.
 		if utils.IsTLSEnabled(&instance.Spec) {
 			SetContainerTLSConfig(&autoscalerContainer)
 		}
@@ -494,76 +499,6 @@ func configureTLS(podTemplate *corev1.PodTemplateSpec, instance rayv1.RayCluster
 		}
 		SetContainerTLSConfig(&podTemplate.Spec.InitContainers[i])
 	}
-
-	// Prepend an init container that waits until cert-manager has added the pod's IP to the
-	// certificate as an IP SAN. Required for both head and worker pods:
-	//   - Head: ensures the cert has the pod IP before GCS starts, so the autoscaler sidecar
-	//     and connecting workers are not hit by a TLS SAN mismatch on first connection.
-	//   - Worker: GCS (on the head) connects back to each worker's raylet using the worker's
-	//     pod IP. If the worker cert does not yet list that IP the TLS handshake fails, GCS
-	//     marks the worker dead, and the RayJob fails. Relying on KubeRay pod recreation is
-	//     not sufficient because the RayJob itself fails before a retry can succeed.
-	certPath := utils.RayTLSCertMountPath + "/tls.crt"
-	waitScript := fmt.Sprintf(`CERT="%s"
-if [ -z "${POD_IP}" ]; then
-  POD_IP=$(hostname -i 2>/dev/null | awk '{print $1}')
-fi
-if ! command -v openssl >/dev/null 2>&1; then
-  echo "openssl not found; cannot verify IP SAN" >&2
-  exit 1
-fi
-echo "Waiting for TLS cert to include IP SAN for ${POD_IP}..."
-while true; do
-  if openssl x509 -in "${CERT}" -noout -text 2>/dev/null | grep -qE "IP Address:${POD_IP}([^0-9.]|$)"; then
-    echo "TLS cert now includes IP SAN for ${POD_IP}"
-    exit 0
-  fi
-  echo "IP SAN for ${POD_IP} not yet in cert, retrying in 5s..."
-  sleep 5
-done`, certPath)
-
-	waitInitContainer := corev1.Container{
-		Name:            "wait-for-tls-ip-san",
-		Image:           podTemplate.Spec.Containers[utils.RayContainerIndex].Image,
-		ImagePullPolicy: podTemplate.Spec.Containers[utils.RayContainerIndex].ImagePullPolicy,
-		Command:         []string{"sh", "-c"},
-		Args:            []string{waitScript},
-		SecurityContext: podTemplate.Spec.Containers[utils.RayContainerIndex].SecurityContext.DeepCopy(),
-		Env: []corev1.EnvVar{
-			{
-				Name: "POD_IP",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						FieldPath: "status.podIP",
-					},
-				},
-			},
-		},
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      utils.RayTLSVolumeName,
-				MountPath: utils.RayTLSCertMountPath,
-				ReadOnly:  true,
-			},
-		},
-		Resources: corev1.ResourceRequirements{
-			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("50m"),
-				corev1.ResourceMemory: resource.MustParse("64Mi"),
-			},
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("50m"),
-				corev1.ResourceMemory: resource.MustParse("64Mi"),
-			},
-		},
-	}
-	// Prepend so it runs before wait-gcs-ready; skip if already present.
-	for i := range podTemplate.Spec.InitContainers {
-		if podTemplate.Spec.InitContainers[i].Name == "wait-for-tls-ip-san" {
-			return
-		}
-	}
-	podTemplate.Spec.InitContainers = append([]corev1.Container{waitInitContainer}, podTemplate.Spec.InitContainers...)
 }
 
 // SetContainerTLSConfig adds TLS environment variables and volume mount to a container.
@@ -623,6 +558,9 @@ func getEnableProbesInjection() bool {
 // DefaultWorkerPodTemplate sets the config values
 func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, workerSpec rayv1.WorkerGroupSpec, podName string, fqdnRayIP string, headPort string, replicaGrpName string, replicaIndex int, numHostIndex int) corev1.PodTemplateSpec {
 	podTemplate := workerSpec.Template
+	// If the replica of workers is more than 1, `ObjectMeta.Name` may cause name conflict errors.
+	// Hence, we set `ObjectMeta.Name` to an empty string, and use GenerateName to prevent name conflicts.
+	podTemplate.ObjectMeta.Name = ""
 	podTemplate.GenerateName = podName
 	// Pods created by RayCluster should be restricted to the namespace of the RayCluster.
 	// This ensures privilege of KubeRay users are contained within the namespace of the RayCluster.
@@ -685,9 +623,6 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 		}
 		podTemplate.Spec.InitContainers = append(podTemplate.Spec.InitContainers, initContainer)
 	}
-	// If the replica of workers is more than 1, `ObjectMeta.Name` may cause name conflict errors.
-	// Hence, we set `ObjectMeta.Name` to an empty string, and use GenerateName to prevent name conflicts.
-	podTemplate.ObjectMeta.Name = ""
 
 	// Update rayStartParams with top-level Resources for worker group.
 	updateRayStartParamsResources(ctx, workerSpec.RayStartParams, workerSpec.Resources)
@@ -709,6 +644,24 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 			podTemplate.Labels[utils.RayHostIndexKey] = strconv.Itoa(numHostIndex)
 		}
 	}
+	// Set hostname and subdomain to get a per-Pod FQDN. validatePodFQDN rejects templates
+	// that set their own hostname or subdomain.
+	if utils.IsPodFQDNEnabled(&instance.Spec) {
+		// We want to make the Hostname the same as the Pod name for easier debugging. Therefore we need
+		// to generate the suffix here instead of using GenerateName. A name collision will fail with
+		// AlreadyExists in createWorkerPod, and the next reconcile retries with a new suffix.
+		podTemplate.Name = podName + rand.String(5) // podName ends with "-", <= 63 chars total
+		podTemplate.GenerateName = ""
+		podTemplate.Spec.Hostname = podTemplate.Name
+		podTemplate.Spec.Subdomain = instance.Name + utils.DashSymbol + utils.HeadlessServiceSuffix
+
+		// Under mTLS the worker registers with its FQDN so the head can match the wildcard DNS SAN.
+		if _, ok := workerSpec.RayStartParams["node-ip-address"]; !ok && utils.IsTLSEnabled(&instance.Spec) {
+			workerSpec.RayStartParams["node-ip-address"] = fmt.Sprintf("%s.%s.%s.svc.%s",
+				podTemplate.Name, podTemplate.Spec.Subdomain, instance.Namespace, utils.GetClusterDomainName())
+		}
+	}
+
 	workerSpec.RayStartParams = setMissingRayStartParams(ctx, workerSpec.RayStartParams, rayv1.WorkerNode, headPort, fqdnRayIP)
 
 	initTemplateAnnotations(instance, &podTemplate)
@@ -961,14 +914,20 @@ func BuildPod(ctx context.Context, podTemplateSpec corev1.PodTemplateSpec, rayNo
 	return pod
 }
 
-// BuildAutoscalerContainer builds a Ray autoscaler container which can be appended to the head pod.
-func BuildAutoscalerContainer(autoscalerImage string) corev1.Container {
+// BuildAutoscalerContainer builds the Ray autoscaler sidecar. A non-empty gcsAddress is passed as
+// --gcs-address so the autoscaler dials GCS there instead of the head pod IP.
+func BuildAutoscalerContainer(autoscalerImage string, gcsAddress string) corev1.Container {
 	// autoscalerStartCmd is the command KubeRay generates to start the autoscaler process.
 	// It is stored in the KUBERAY_GEN_AUTOSCALER_START_CMD environment variable so that users
 	// who override Args via AutoscalerOptions can still reference the generated command, e.g.:
 	//   args: ["ulimit -n 65536; $KUBERAY_GEN_AUTOSCALER_START_CMD"]
 	// This mirrors the KUBERAY_GEN_RAY_START_CMD pattern for Ray head/worker containers.
 	autoscalerStartCmd := "ray kuberay-autoscaler --cluster-name $(RAY_CLUSTER_NAME) --cluster-namespace $(RAY_CLUSTER_NAMESPACE)"
+	// --gcs-address requires Ray >= 2.60.0 (https://github.com/ray-project/ray/pull/65894),
+	// older versions reject the flag and the sidecar fails to start.
+	if gcsAddress != "" {
+		autoscalerStartCmd += " --gcs-address=" + gcsAddress
+	}
 
 	container := corev1.Container{
 		Name:            AutoscalerContainerName,
@@ -1267,9 +1226,12 @@ func setContainerEnvVars(pod *corev1.Pod, rayNodeType rayv1.RayNodeType, fqdnRay
 		}
 	}
 
-	// case 1: head   => Use LOCAL_HOST
+	// case 1: head   => Use LOCAL_HOST. Under TLS use fqdnRayIP instead.
 	// case 2: worker => Use fqdnRayIP (fully qualified domain name)
 	ip := utils.LOCAL_HOST
+	if utils.EnvVarExists(utils.RAY_USE_TLS, container.Env) {
+		ip = fqdnRayIP
+	}
 	if rayNodeType == rayv1.WorkerNode {
 		ip = fqdnRayIP
 		container.Env = append(container.Env,

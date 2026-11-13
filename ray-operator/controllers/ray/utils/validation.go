@@ -350,6 +350,9 @@ func ValidateRayClusterSpec(spec *rayv1.RayClusterSpec, annotations map[string]s
 	if spec.TLSOptions != nil && !features.Enabled(features.RayClusterMTLS) {
 		return fmt.Errorf("spec.tlsOptions requires the RayClusterMTLS feature gate to be enabled")
 	}
+	if err := validatePodFQDN(spec); err != nil {
+		return err
+	}
 	return validateTLSOptions(spec)
 }
 
@@ -491,11 +494,46 @@ func validateNetworkPolicy(spec *rayv1.RayClusterSpec) error {
 	return nil
 }
 
+// validatePodFQDN rejects user-set pod DNS identity when the operator manages per-pod FQDNs
+// (enablePodFQDN or using mTLS).
+func validatePodFQDN(spec *rayv1.RayClusterSpec) error {
+	if !IsPodFQDNEnabled(spec) {
+		return nil
+	}
+	for i := range spec.WorkerGroupSpecs {
+		worker := &spec.WorkerGroupSpecs[i]
+		if worker.Template.Spec.Hostname != "" || worker.Template.Spec.Subdomain != "" {
+			return fmt.Errorf("cannot set spec.hostname or spec.subdomain in worker group %q when enablePodFQDN or tlsOptions is set "+
+				"- the operator manages per-pod DNS names", worker.GroupName)
+		}
+	}
+	return nil
+}
+
 // validateTLSOptions checks that the TLS config is internally consistent.
 // It prevents users from setting TLS environment variables or volume mounts manually when TLS is enabled.
 func validateTLSOptions(spec *rayv1.RayClusterSpec) error {
 	if !IsTLSEnabled(spec) {
 		return nil
+	}
+
+	// Under mTLS the autoscaler sidecar dials GCS with --gcs-address, which older
+	// `ray kuberay-autoscaler` rejects (https://github.com/ray-project/ray/pull/65894), and
+	// autoscaler v1 matches pods to Ray nodes by IP, which never matches an FQDN.
+	if IsAutoscalingEnabled(spec) {
+		if spec.RayVersion == "" {
+			return fmt.Errorf("tlsOptions with enableInTreeAutoscaling requires rayVersion to be set; Ray 2.60.0 or later is required")
+		}
+		rayVersion, err := version.ParseGeneric(spec.RayVersion)
+		if err != nil {
+			return fmt.Errorf("tlsOptions with enableInTreeAutoscaling: rayVersion format is invalid: %s, %w", spec.RayVersion, err)
+		}
+		if !rayVersion.AtLeast(version.MustParseGeneric("2.60.0")) {
+			return fmt.Errorf("tlsOptions with enableInTreeAutoscaling requires Ray 2.60.0 or later, got %s", spec.RayVersion)
+		}
+		if IsAutoscalingV1Enabled(spec) {
+			return fmt.Errorf("tlsOptions requires autoscaler v2; autoscalerOptions.version v1 matches pods by IP, which does not work with per-pod DNS names")
+		}
 	}
 
 	// Prevent conflict: user should not set any operator-managed TLS env vars when TLS is enabled.

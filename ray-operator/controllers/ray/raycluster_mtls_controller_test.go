@@ -301,7 +301,9 @@ func TestMTLSController_ReconcileIssuer(t *testing.T) {
 	}
 }
 
-func TestMTLSController_AutoGenerate_UpdatesIPAddresses(t *testing.T) {
+// TestMTLSController_CertsDoNotTrackPodIPs verifies that neither certificate picks up pod IPs:
+// every client reaches the head by its service FQDN and workers by their per-pod FQDN.
+func TestMTLSController_CertsDoNotTrackPodIPs(t *testing.T) {
 	cluster := newMTLSTestCluster("test-cluster")
 	cluster.Spec.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
 
@@ -328,20 +330,16 @@ func TestMTLSController_AutoGenerate_UpdatesIPAddresses(t *testing.T) {
 	_, err = r.Reconcile(ctx, req)
 	require.NoError(t, err)
 
-	// Verify head certificate includes the head pod IP only.
 	headCert := &certmanagerv1.Certificate{}
 	err = r.Get(ctx, types.NamespacedName{
 		Name:      utils.GetTLSCertName(cluster.Name, rayv1.HeadNode),
 		Namespace: "default",
 	}, headCert)
 	require.NoError(t, err)
-	assert.Contains(t, headCert.Spec.IPAddresses, "10.244.0.5")
-	assert.Contains(t, headCert.Spec.IPAddresses, "127.0.0.1")
+	assert.Equal(t, []string{"127.0.0.1"}, headCert.Spec.IPAddresses,
+		"head cert is static and must not track the head pod IP")
 
-	// Simulate scale-up: add a worker pod.
-	// A finalizer is added so that a subsequent Delete call sets DeletionTimestamp
-	// without immediately removing the pod from the API server, letting us test
-	// the terminating-pod filter in the SAN reconciliation.
+	// Simulate scale-up: add a worker pod. Neither certificate should pick up its IP.
 	workerPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-cluster-worker-0",
@@ -350,7 +348,6 @@ func TestMTLSController_AutoGenerate_UpdatesIPAddresses(t *testing.T) {
 				utils.RayClusterLabelKey:  cluster.Name,
 				utils.RayNodeTypeLabelKey: string(rayv1.WorkerNode),
 			},
-			Finalizers: []string{"test/hold"},
 		},
 		Status: corev1.PodStatus{PodIP: "10.244.0.6"},
 	}
@@ -364,9 +361,7 @@ func TestMTLSController_AutoGenerate_UpdatesIPAddresses(t *testing.T) {
 		Namespace: "default",
 	}, headCert)
 	require.NoError(t, err)
-	assert.Contains(t, headCert.Spec.IPAddresses, "10.244.0.5")
-	assert.NotContains(t, headCert.Spec.IPAddresses, "10.244.0.6",
-		"head cert should not include worker pod IPs")
+	assert.Equal(t, []string{"127.0.0.1"}, headCert.Spec.IPAddresses)
 
 	workerCert := &certmanagerv1.Certificate{}
 	err = r.Get(ctx, types.NamespacedName{
@@ -374,24 +369,8 @@ func TestMTLSController_AutoGenerate_UpdatesIPAddresses(t *testing.T) {
 		Namespace: "default",
 	}, workerCert)
 	require.NoError(t, err)
-	assert.Contains(t, workerCert.Spec.IPAddresses, "10.244.0.6",
-		"worker cert should be updated with the new worker pod IP after scale-up")
-
-	// Simulate scale-down: deleting the pod while the finalizer is still present causes
-	// envtest to set DeletionTimestamp without removing the pod from the store, so we
-	// can verify that terminating pods are excluded from certificate SANs.
-	require.NoError(t, r.Delete(ctx, workerPod))
-
-	_, err = r.Reconcile(ctx, req)
-	require.NoError(t, err)
-
-	err = r.Get(ctx, types.NamespacedName{
-		Name:      utils.GetTLSCertName(cluster.Name, rayv1.WorkerNode),
-		Namespace: "default",
-	}, workerCert)
-	require.NoError(t, err)
-	assert.NotContains(t, workerCert.Spec.IPAddresses, "10.244.0.6",
-		"worker cert should not include IP of a terminating pod after scale-down")
+	assert.Equal(t, []string{"127.0.0.1"}, workerCert.Spec.IPAddresses,
+		"worker cert is static and must not track worker pod IPs")
 }
 
 func TestMTLSController_Disabled_IsNoOp(t *testing.T) {
@@ -418,11 +397,10 @@ func TestMTLSController_Disabled_IsNoOp(t *testing.T) {
 	require.NoError(t, err, "resources should not be deleted when mTLS is simply disabled")
 }
 
-// TestMTLSController_WorkerCertHasLocalhostOnly verifies that worker certificates
-// use only "localhost" as a DNS SAN. Worker-to-head communication goes via the head
-// pod IP (covered by IP SANs), and worker pods don't serve DNS-addressable endpoints
-// that require wildcard headless-service entries.
-func TestMTLSController_WorkerCertHasLocalhostOnly(t *testing.T) {
+// TestMTLSController_WorkerCertUsesWildcardDNS verifies that the worker certificate covers
+// every worker via a wildcard DNS SAN for the headless Service and carries no pod IPs, so it
+// never changes during autoscaling.
+func TestMTLSController_WorkerCertUsesWildcardDNS(t *testing.T) {
 	cluster := newMTLSTestCluster("wc-cluster")
 	cluster.Spec.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
 
@@ -444,16 +422,9 @@ func TestMTLSController_WorkerCertHasLocalhostOnly(t *testing.T) {
 	}, workerCert)
 	require.NoError(t, err)
 
-	assert.Contains(t, workerCert.Spec.DNSNames, "localhost")
-	workerSvcName := fmt.Sprintf("%s-%s", cluster.Name, utils.HeadlessServiceSuffix)
-	assert.NotContains(t, workerCert.Spec.DNSNames, workerSvcName,
-		"GCS connects to workers via pod IP (IP SANs), not via headless service DNS")
-	assert.NotContains(t, workerCert.Spec.DNSNames,
-		fmt.Sprintf("*.%s.%s.svc", workerSvcName, cluster.Namespace),
-		"wildcard headless-service DNS SANs are not needed")
-	assert.NotContains(t, workerCert.Spec.DNSNames,
-		fmt.Sprintf("*.%s.%s.svc.cluster.local", workerSvcName, cluster.Namespace),
-		"wildcard headless-service DNS SANs are not needed")
+	wildcard := fmt.Sprintf("*.%s-%s.%s.svc.%s", cluster.Name, utils.HeadlessServiceSuffix, cluster.Namespace, utils.GetClusterDomainName())
+	assert.ElementsMatch(t, []string{"localhost", wildcard}, workerCert.Spec.DNSNames)
+	assert.Equal(t, []string{"127.0.0.1"}, workerCert.Spec.IPAddresses)
 }
 
 func TestMTLSController_CertReadinessBlocksReconciliation(t *testing.T) {

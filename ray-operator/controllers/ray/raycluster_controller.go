@@ -10,7 +10,6 @@ import (
 	"os"
 	"reflect"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -916,18 +915,20 @@ func (r *RayClusterReconciler) reconcileServeService(ctx context.Context, instan
 	return err
 }
 
-// Return nil only when the headless service for multi-host worker groups is successfully created or already exists.
+// Return nil only when the headless worker service is successfully created or already exists,
+// or when the cluster needs no headless service.
 func (r *RayClusterReconciler) reconcileHeadlessService(ctx context.Context, instance *rayv1.RayCluster) error {
-	// Check if there are worker groups with NumOfHosts > 1 in the cluster
-	isMultiHost := false
+	// The headless service is needed for multi-host worker groups, and whenever podFQDN
+	// is enabled (every worker needs a per-pod DNS record under it).
+	needHeadlessService := utils.IsPodFQDNEnabled(&instance.Spec)
 	for _, workerGroup := range instance.Spec.WorkerGroupSpecs {
 		if workerGroup.NumOfHosts > 1 {
-			isMultiHost = true
+			needHeadlessService = true
 			break
 		}
 	}
 
-	if isMultiHost {
+	if needHeadlessService {
 		services := corev1.ServiceList{}
 		options := common.RayClusterHeadlessServiceListOptions(instance)
 
@@ -1930,14 +1931,6 @@ func (r *RayClusterReconciler) buildRedisCleanupJob(ctx context.Context, instanc
 
 	// Only keep the Ray container in the Redis cleanup Job.
 	pod.Spec.Containers = []corev1.Container{pod.Spec.Containers[utils.RayContainerIndex]}
-
-	// Remove the wait-for-tls-ip-san init container if present. The cleanup pod's IP is
-	// never added to the head certificate SANs (the mTLS controller only tracks running
-	// Ray pods), so the init container would block for the full timeout and then fail,
-	// preventing Redis cleanup from running at all.
-	pod.Spec.InitContainers = slices.DeleteFunc(pod.Spec.InitContainers, func(c corev1.Container) bool {
-		return c.Name == "wait-for-tls-ip-san"
-	})
 
 	pod.Spec.Containers[utils.RayContainerIndex].Command = utils.GetContainerCommand([]string{})
 	pod.Spec.Containers[utils.RayContainerIndex].Args = []string{
