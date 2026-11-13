@@ -9,7 +9,7 @@ This step creates a local Kubernetes cluster using [Kind](https://kind.sigs.k8s.
 If you already have a Kubernetes cluster, you can skip this step.
 
 ```sh
-kind create cluster --image=kindest/node:v1.29.0
+kind create cluster --image=kindest/node:v1.35.0
 ```
 
 ## Step 2: Install KubeRay operator and APIServer

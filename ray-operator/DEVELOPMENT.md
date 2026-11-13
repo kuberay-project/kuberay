@@ -62,7 +62,7 @@ make clean
 
 ```bash
 # Step 1: Create a Kind cluster
-kind create cluster --image=kindest/node:v1.29.0
+kind create cluster --image=kindest/node:v1.35.0
 
 # Step 2: Modify KubeRay source code
 # For example, add a log by adding setupLog.Info("Hello KubeRay") in the function `main` in `main.go`.
@@ -106,7 +106,7 @@ There are configuable variables in the script, the defaults are shown below:
 ```bash
 IMAGE_TAG="kuberay-dev"
 KIND_CLUSTER_NAME="kuberay-dev"
-KIND_NODE_IMAGE="kindest/node:v1.29.0"
+KIND_NODE_IMAGE="kindest/node:v1.35.0"
 ```
 
 Additionally, you can run the script with a `-l` or `--logs` to stream the logs of the ray operator to the terminal after installation.
@@ -124,7 +124,8 @@ cd ..
 
 ```bash
 # Step 1: Create a Kind cluster
-kind create cluster --image=kindest/node:v1.29.0
+kind create cluster --image=kindest/node:v1.35.0
+
 
 # Step 2: Install CRDs
 make -C ray-operator install
