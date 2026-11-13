@@ -1,0 +1,51 @@
+# RayCluster for a member Kubernetes cluster in a multi-cluster Ray cluster.
+# The workers join the Ray head of a RayCluster in another (primary) Kubernetes cluster
+# instead of the head in this RayCluster. This sample pairs with ray-cluster.sample.yaml
+# deployed in the primary cluster.
+# Requires Pod-to-Pod connectivity by Pod IP and DNS resolution of the primary head
+# service across clusters, for example with Submariner.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-member
+spec:
+  rayVersion: "2.52.0" # must match the Ray version of the primary RayCluster
+  headGroupSpec:
+    # KubeRay always creates a head Pod. No worker connects to this one, so set
+    # `num-cpus: "0"` to keep it from advertising CPUs it never uses.
+    rayStartParams:
+      num-cpus: "0"
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+  workerGroupSpecs:
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 5
+    # Use a group name that differs from the worker groups of the primary RayCluster,
+    # so that "ray status" and "ray list nodes" show which nodes are in a member cluster.
+    groupName: member-group
+    rayStartParams:
+      # Address of the primary Ray head: <head service>.<namespace>.svc.clusterset.local:<GCS port>.
+      address: raycluster-kuberay-head-svc.default.svc.clusterset.local:6379
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"
