@@ -1293,6 +1293,11 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			if !enableInTreeAutoscaling || enableRandomPodDelete {
 				// diff < 0 means that we need to delete some Pods to meet the desired number of replicas.
 				randomlyRemovedWorkers := -diff
+
+				// Sort Pods so that Pending Pods are deleted before Running Pods to
+				// minimize disruption to active Ray workers during scale-down.
+				sortPodsByPendingFirst(runningPods.Items)
+
 				logger.Info("reconcilePods", "Number workers to delete randomly", randomlyRemovedWorkers, "Worker group", worker.GroupName)
 				for i := range randomlyRemovedWorkers {
 					randomPodToDelete := runningPods.Items[i]
@@ -1334,6 +1339,46 @@ func (r *RayClusterReconciler) deletePods(ctx context.Context, instance *rayv1.R
 			"Deleted worker Pod %s/%s for group %s: %s", pod.Namespace, pod.Name, groupName, reason)
 	}
 	return nil
+}
+
+// podPhaseOrder returns a sort priority for Pod phases. Lower values are
+// deleted first during scale-down so that Pending Pods (which are not yet
+// running Ray workers) are removed before Running ones.
+func podPhaseOrder(phase corev1.PodPhase) int {
+	switch phase {
+	case corev1.PodPending:
+		return 0
+	case corev1.PodUnknown:
+		return 1
+	case corev1.PodRunning:
+		return 2
+	case corev1.PodSucceeded:
+		return 3
+	case corev1.PodFailed:
+		return 4
+	default:
+		return 5
+	}
+}
+
+// sortPodsByPendingFirst sorts a slice of Pods in-place so that Pending Pods
+// appear before Running Pods. This ensures scale-down deletes Pods that are not
+// yet actively serving before disrupting running Ray workers.
+func sortPodsByPendingFirst(pods []corev1.Pod) {
+	slices.SortStableFunc(pods, func(a, b corev1.Pod) int {
+		return podPhaseOrder(a.Status.Phase) - podPhaseOrder(b.Status.Phase)
+	})
+}
+
+// replicaGroupHasPendingPod returns true if any Pod in the replica group is in
+// Pending phase.
+func replicaGroupHasPendingPod(pods []corev1.Pod) bool {
+	for i := range pods {
+		if pods[i].Status.Phase == corev1.PodPending {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileMultiHostWorkerGroup handles reconciliation and Pod deletion for worker groups with NumOfHosts > 1 when
@@ -1489,9 +1534,27 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 		if !enableInTreeAutoscaling || enableRandomPodDelete {
 			replicasToRemove := -replicasToCreate
 			logger.Info("Scaling down multi-host group by randomly deleting replica groups", "group", worker.GroupName, "groupsToRemove", replicasToRemove)
-			replicasDeleted := 0
-			// Iterate over validReplicaGroups which contains the IDs of replica groups with NumOfHosts running Pods.
+
+			// Sort replica groups so that groups containing Pending Pods are
+			// deleted before groups with all Running Pods, minimizing disruption.
+			sortedReplicaIDs := make([]string, 0, len(validReplicaGroups))
 			for replicaID := range validReplicaGroups {
+				sortedReplicaIDs = append(sortedReplicaIDs, replicaID)
+			}
+			slices.SortFunc(sortedReplicaIDs, func(a, b string) int {
+				aHasPending := replicaGroupHasPendingPod(replicaMap[a])
+				bHasPending := replicaGroupHasPendingPod(replicaMap[b])
+				if aHasPending && !bHasPending {
+					return -1
+				}
+				if !aHasPending && bHasPending {
+					return 1
+				}
+				return 0
+			})
+
+			replicasDeleted := 0
+			for _, replicaID := range sortedReplicaIDs {
 				if replicasDeleted >= replicasToRemove {
 					break
 				}
