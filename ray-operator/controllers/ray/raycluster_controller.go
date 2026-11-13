@@ -1293,6 +1293,9 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			if !enableInTreeAutoscaling || enableRandomPodDelete {
 				// diff < 0 means that we need to delete some Pods to meet the desired number of replicas.
 				randomlyRemovedWorkers := -diff
+				// Prefer deleting Pending and not-Ready Pods over running, Ready ones to
+				// avoid disrupting Pods that are already running workloads.
+				sortPodsForDeletion(runningPods.Items)
 				logger.Info("reconcilePods", "Number workers to delete randomly", randomlyRemovedWorkers, "Worker group", worker.GroupName)
 				for i := range randomlyRemovedWorkers {
 					randomPodToDelete := runningPods.Items[i]
@@ -1489,9 +1492,16 @@ func (r *RayClusterReconciler) reconcileMultiHostWorkerGroup(ctx context.Context
 		if !enableInTreeAutoscaling || enableRandomPodDelete {
 			replicasToRemove := -replicasToCreate
 			logger.Info("Scaling down multi-host group by randomly deleting replica groups", "group", worker.GroupName, "groupsToRemove", replicasToRemove)
+			// Iterate over validReplicaGroups which contains the IDs of replica groups with NumOfHosts running Pods,
+			// preferring groups that contain Pending or not-Ready Pods over groups whose Pods are all running and Ready.
+			sortedGroups := slices.SortedFunc(maps.Keys(validReplicaGroups), func(a, b string) int {
+				if pa, pb := groupDeletionPriority(replicaMap[a]), groupDeletionPriority(replicaMap[b]); pa != pb {
+					return pa - pb
+				}
+				return strings.Compare(a, b)
+			})
 			replicasDeleted := 0
-			// Iterate over validReplicaGroups which contains the IDs of replica groups with NumOfHosts running Pods.
-			for replicaID := range validReplicaGroups {
+			for _, replicaID := range sortedGroups {
 				if replicasDeleted >= replicasToRemove {
 					break
 				}
@@ -1553,6 +1563,48 @@ func (r *RayClusterReconciler) shouldRecreatePodsForUpgrade(ctx context.Context,
 		}
 	}
 	return false
+}
+
+// podDeletionPriority returns the priority of a Pod for deletion during scale-down.
+// Pods with lower priority values are deleted first: Pending Pods, which are not yet
+// running any workload, are preferred over running Pods, and running Pods that are
+// not Ready are preferred over Ready ones, to minimize disruption to running workloads.
+// Failed and Succeeded Pods are not considered here because they have already been
+// removed by shouldDeletePod before the scale-down selection happens.
+func podDeletionPriority(pod corev1.Pod) int {
+	switch {
+	case pod.Status.Phase == corev1.PodPending:
+		return 0
+	case utils.IsRunningAndReady(&pod):
+		return 2
+	default:
+		// Running but not Ready, or any other phase (e.g. Unknown).
+		return 1
+	}
+}
+
+// sortPodsForDeletion sorts Pods in place by deletion priority (see podDeletionPriority),
+// breaking ties by Pod name to keep the selection deterministic.
+func sortPodsForDeletion(pods []corev1.Pod) {
+	slices.SortStableFunc(pods, func(a, b corev1.Pod) int {
+		if pa, pb := podDeletionPriority(a), podDeletionPriority(b); pa != pb {
+			return pa - pb
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+}
+
+// groupDeletionPriority returns the deletion priority of a multi-host replica group,
+// defined as the minimum podDeletionPriority among its Pods: a group containing any
+// Pending or not-Ready Pod is reclaimed before groups whose Pods are all running and Ready.
+func groupDeletionPriority(pods []corev1.Pod) int {
+	priority := 2 // the highest value returned by podDeletionPriority
+	for _, pod := range pods {
+		if p := podDeletionPriority(pod); p < priority {
+			priority = p
+		}
+	}
+	return priority
 }
 
 // shouldDeletePod returns whether the Pod should be deleted and the reason
