@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/emicklei/go-restful/v3"
 
@@ -200,7 +201,7 @@ func filterTasks(tasks []eventtypes.Task, filter Filter) []eventtypes.Task {
 	for _, task := range tasks {
 		predicateFunc := PredicateMap[filter.FilterPredicate]
 
-		fieldValue := task.GetFilterableFieldValue(filter.FilterKey)
+		fieldValue := task.GetFilterableFieldValue(strings.ToLower(filter.FilterKey))
 		if predicateFunc(fieldValue, filter.FilterValue) {
 			filteredTasks = append(filteredTasks, task)
 		}
@@ -213,9 +214,11 @@ func filterTasks(tasks []eventtypes.Task, filter Filter) []eventtypes.Task {
 // The following functions are for compatibility for other endpoints other than tasks.
 type PredicateFunc func(fieldValue, filterValue string) bool
 
+// String values are compared case-insensitively, matching Ray's state API.
+// Ref: https://github.com/ray-project/ray/blob/c55def829e284369e85ccf6fb1dc2a1590ab9d3c/python/ray/dashboard/state_api_utils.py#L198-L265.
 var PredicateMap = map[PredicateType]PredicateFunc{
-	PredicateEqual:    func(field, value string) bool { return field == value },
-	PredicateNotEqual: func(field, value string) bool { return field != value },
+	PredicateEqual:    func(field, value string) bool { return strings.EqualFold(field, value) },
+	PredicateNotEqual: func(field, value string) bool { return !strings.EqualFold(field, value) },
 }
 
 func ApplyFilter[T any](items []T, filterKey, filterPredicate, filterValue string, fieldGetter func(T, string) string) []T {
