@@ -664,9 +664,7 @@ const (
 	// Idle timeout should exceeds the durantion of Ready + job submit + ray.init() for the driver case.
 	idleTimeoutSeconds      int32 = 30
 	gcsFTIdleTimeoutSeconds int32 = 90
-	// TODO(justinyeh1995): change it to rayproject/ray:2.60.0 once released (includes
-	// https://github.com/ray-project/ray/pull/65763)
-	idleTerminationRayImage = "rayproject/ray:nightly.260926.5b14d6"
+	idleTerminationRayImage       = "rayproject/ray:2.60.0"
 )
 
 func TestRayClusterIdleTerminationSuspendPolicy(t *testing.T) {
