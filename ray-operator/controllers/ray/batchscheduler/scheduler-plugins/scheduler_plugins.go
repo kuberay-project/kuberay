@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -88,6 +89,14 @@ func (k *KubeScheduler) DoBatchSchedulingOnSubmission(ctx context.Context, objec
 				return nil
 			}
 			return fmt.Errorf("failed to create PodGroup: %w", err)
+		}
+	}
+	desiredPodGroup := createPodGroup(app)
+	if podGroup.Spec.MinMember != desiredPodGroup.Spec.MinMember ||
+		!apiequality.Semantic.DeepEqual(podGroup.Spec.MinResources, desiredPodGroup.Spec.MinResources) {
+		podGroup.Spec = desiredPodGroup.Spec
+		if err := k.cli.Update(ctx, podGroup); err != nil {
+			return fmt.Errorf("failed to update PodGroup: %w", err)
 		}
 	}
 	return nil
