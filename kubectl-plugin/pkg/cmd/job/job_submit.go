@@ -53,7 +53,7 @@ type SubmitJobOptions struct {
 	verify                   string
 	cluster                  string
 	runtimeEnvJson           string
-	entryPointResource       string
+	entryPointResources      string
 	metadataJson             string
 	logStyle                 string
 	submissionID             string
@@ -160,7 +160,7 @@ func NewJobSubmitCommand(cmdFactory cmdutil.Factory, streams genericclioptions.I
 	cmd.Flags().StringVar(&options.headers, "headers", "", "Used to pass headers through http/s to Ray Cluster. Must be JSON formatting")
 	cmd.Flags().StringVar(&options.runtimeEnvJson, "runtime-env-json", "", "JSON-serialized runtime_env dictionary. Precedence over Ray job CR.")
 	cmd.Flags().StringVar(&options.verify, "verify", "", "Boolean indication to verify the server's TLS certificate or a path to a file or directory of trusted certificates.")
-	cmd.Flags().StringVar(&options.entryPointResource, "entrypoint-resources", "", "JSON-serialized dictionary mapping resource name to resource quantity")
+	cmd.Flags().StringVar(&options.entryPointResources, "entrypoint-resources", "", "JSON-serialized dictionary mapping resource name to resource quantity")
 	cmd.Flags().StringVar(&options.metadataJson, "metadata-json", "", "JSON-serialized dictionary of metadata to attach to the job.")
 	cmd.Flags().StringVar(&options.logStyle, "log-style", "", "Specific to 'ray job submit'. Options are 'auto | record | pretty'")
 	cmd.Flags().StringVar(&options.logColor, "log-color", "", "Specific to 'ray job submit'. Options are 'auto | false | true'")
@@ -715,8 +715,8 @@ func (options *SubmitJobOptions) raySubmitCmd() ([]string, error) {
 	if options.entryPointMemory > 0 {
 		raySubmitCmd = append(raySubmitCmd, "--entrypoint-memory", fmt.Sprintf("%d", options.entryPointMemory))
 	}
-	if len(options.entryPointResource) > 0 {
-		raySubmitCmd = append(raySubmitCmd, "--entrypoint-resources", options.entryPointResource)
+	if len(options.entryPointResources) > 0 {
+		raySubmitCmd = append(raySubmitCmd, "--entrypoint-resources", options.entryPointResources)
 	}
 	if len(options.metadataJson) > 0 {
 		raySubmitCmd = append(raySubmitCmd, "--metadata-json", options.metadataJson)

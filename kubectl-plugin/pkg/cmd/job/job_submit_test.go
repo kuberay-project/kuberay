@@ -704,7 +704,7 @@ func TestRaySubmitCmd(t *testing.T) {
 	fakeSubmitJobOptions.entryPointCPU = 2.0
 	fakeSubmitJobOptions.entryPointGPU = 1.0
 	fakeSubmitJobOptions.entryPointMemory = 600
-	fakeSubmitJobOptions.entryPointResource = "{\"fake-resource\":{\"the-fake-resource\"}"
+	fakeSubmitJobOptions.entryPointResources = "{\"fake-resource\":{\"the-fake-resource\"}"
 	fakeSubmitJobOptions.noWait = true
 	fakeSubmitJobOptions.headers = "{\"requestHeaders\": {\"header\": \"header\"}}"
 	fakeSubmitJobOptions.verify = "True"
