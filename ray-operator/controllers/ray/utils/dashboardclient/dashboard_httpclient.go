@@ -136,6 +136,11 @@ func (r *RayDashboardClient) GetServeDetails(ctx context.Context) (*utiltypes.Se
 }
 
 func (r *RayDashboardClient) ConvertServeDetailsToApplicationStatuses(serveDetails *utiltypes.ServeDetails) (map[string]*utiltypes.ServeApplicationStatus, error) {
+	return ConvertServeDetailsToApplicationStatuses(serveDetails)
+}
+
+// ConvertServeDetailsToApplicationStatuses converts the serve details returned by GetServeDetails into application statuses.
+func ConvertServeDetailsToApplicationStatuses(serveDetails *utiltypes.ServeDetails) (map[string]*utiltypes.ServeApplicationStatus, error) {
 	detailsJson, err := json.Marshal(serveDetails.Applications)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal serve details: %v", serveDetails.Applications)
