@@ -5,8 +5,43 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
 )
+
+func TestSubmissionRoundtrip(t *testing.T) {
+	rows, rowErrors, err := types.ParseJobDetailsList([]byte(`[
+		{"submission_id":"synthetic-driverless","status":"FAILED","job_id":null,"driver_info":null,"driver_exit_code":null,"start_time":null,"end_time":null,"runtime_env":{"synthetic":"discard"}},
+		{"submission_id":"synthetic-started","status":"SUCCEEDED","job_id":"01000000","driver_info":{"id":"01000000","node_ip_address":"192.0.2.1","pid":"1"},"driver_exit_code":0,"start_time":100,"end_time":200,"metadata":{"synthetic":"value"}}
+	]`))
+	require.NoError(t, err)
+	require.Empty(t, rowErrors)
+	original := SessionSnapshot{SessionKey: "synthetic", Jobs: map[string]types.Job{"01000000": {JobID: "01000000"}}, Submissions: map[string]types.JobDetails{}}
+	for _, row := range rows {
+		original.Submissions[*row.SubmissionID] = row
+	}
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "discard")
+	var decoded SessionSnapshot
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	require.Equal(t, original, decoded)
+	require.Len(t, decoded.Jobs, 1)
+	require.NotContains(t, decoded.Jobs, "synthetic-driverless")
+	for _, row := range decoded.Submissions {
+		require.Nil(t, row.RuntimeEnv)
+	}
+}
+
+func TestLegacySnapshotOmitsSubmissions(t *testing.T) {
+	encoded, err := json.Marshal(SessionSnapshot{Jobs: map[string]types.Job{"01000000": {JobID: "01000000"}}})
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "submissions")
+	var decoded SessionSnapshot
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+	require.Nil(t, decoded.Submissions)
+}
 
 // TestEmptyRoundtrip verifies that an empty SessionSnapshot marshals and
 // unmarshals back to an equal struct.
