@@ -1215,12 +1215,10 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 				runningPods.Items = append(runningPods.Items, pod)
 			}
 		}
-		// A replica can contain multiple hosts, so we need to calculate this based on the number of hosts per replica.
-		// If the user doesn't install the CRD with `NumOfHosts`, the zero value of `NumOfHosts`, which is 0, will be used.
-		// Hence, all workers will be deleted. Here, we set `NumOfHosts` to max(1, `NumOfHosts`) to avoid this situation.
-		if worker.NumOfHosts <= 0 {
-			worker.NumOfHosts = 1
-		}
+		// A replica can contain multiple hosts, so the Pod count is based on the number of hosts per replica.
+		// numExpectedWorkerPods above already treats a `NumOfHosts` of 0 (CRD without the field, or set
+		// explicitly) as 1; apply the same clamp to the spec used for the Pods created below.
+		worker.NumOfHosts = utils.GetNumOfHosts(worker)
 		diff := numExpectedWorkerPods - len(runningPods.Items)
 
 		logger.Info("reconcilePods", "workerReplicas", numExpectedWorkerPods, "NumOfHosts", worker.NumOfHosts, "runningPods", len(runningPods.Items), "diff", diff)

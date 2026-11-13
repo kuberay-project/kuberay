@@ -3307,6 +3307,65 @@ func TestReconcile_NumOfHosts(t *testing.T) {
 	}
 }
 
+// A worker group whose `NumOfHosts` is 0 must be treated as `NumOfHosts` 1. The field is 0 when the
+// RayCluster is stored by a CRD without it (operator upgraded without the CRD) or set to 0 explicitly.
+// Multiplying the desired replicas by 0 would make the controller delete every worker Pod of the group
+// and never create new ones.
+func TestReconcile_NumOfHostsZero_TreatedAsOne(t *testing.T) {
+	tests := []struct {
+		name           string
+		initialPods    func() []runtime.Object
+		replicas       int32
+		wantWorkerPods int
+	}{
+		{
+			name:           "existing worker Pods are kept",
+			initialPods:    func() []runtime.Object { return testPods },
+			replicas:       5,
+			wantWorkerPods: 5,
+		},
+		{
+			name:           "missing worker Pods are created",
+			initialPods:    func() []runtime.Object { return testPods[:1] }, // head Pod only
+			replicas:       2,
+			wantWorkerPods: 2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setupTest(t)
+			ctx := context.Background()
+
+			// Disable autoscaling so that the random Pod deletion is enabled, and clear `WorkersToDelete`.
+			testRayCluster.Spec.EnableInTreeAutoscaling = nil
+			testRayCluster.Spec.WorkerGroupSpecs[0].ScaleStrategy.WorkersToDelete = []string{}
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(tc.replicas)
+			testRayCluster.Spec.WorkerGroupSpecs[0].NumOfHosts = 0
+
+			fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(tc.initialPods()...).Build()
+			testRayClusterReconciler := &RayClusterReconciler{
+				Client:                     fakeClient,
+				Recorder:                   &events.FakeRecorder{},
+				Scheme:                     scheme.Scheme,
+				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+			}
+
+			err := testRayClusterReconciler.reconcilePods(ctx, testRayCluster)
+			require.NoError(t, err, "Fail to reconcile Pods")
+
+			podList := corev1.PodList{}
+			err = fakeClient.List(ctx, &podList, &client.ListOptions{
+				LabelSelector: workerSelector,
+				Namespace:     namespaceStr,
+			})
+			require.NoError(t, err, "Fail to get pod list after reconcile")
+			assert.Len(t, podList.Items, tc.wantWorkerPods,
+				"Number of worker pods is wrong after reconcile expect %d actual %d", tc.wantWorkerPods, len(podList.Items))
+		})
+	}
+}
+
 func TestSumGPUs(t *testing.T) {
 	nvidiaGPUResourceName := corev1.ResourceName("nvidia.com/gpu")
 	nvidiaMIG1g10gbResourceName := corev1.ResourceName("nvidia.com/mig-1g.10gb")

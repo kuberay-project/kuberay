@@ -1276,7 +1276,10 @@ var _ = Context("Inside the default namespace", func() {
 		})
 
 		It("Check the number of worker Pods", func() {
-			numWorkerPods := 3 * int(numOfHosts)
+			// A `numOfHosts` of 0 counts as 1, so the group must still get `replicas` (3) worker Pods.
+			// The previous expectation of 3 * numOfHosts == 0 Pods was met by the empty list before the
+			// controller had created anything, so it could not detect the Pods being deleted.
+			numWorkerPods := 3
 			Eventually(
 				listResourceFunc(ctx, &workerPods, workerFilters...),
 				time.Second*3, time.Millisecond*500).Should(Equal(numWorkerPods), fmt.Sprintf("workerGroup %v", workerPods.Items))
