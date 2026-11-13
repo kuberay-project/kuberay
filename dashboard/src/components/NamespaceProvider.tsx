@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { fetchRuntimeConfig } from "@/utils/constants";
 
+type SetNamespace = (namespace: string) => void;
+
 const NamespaceContext = React.createContext<string>("");
+const SetNamespaceContext = React.createContext<SetNamespace>(() => {});
 
 interface NamespaceProviderProps {
   children: React.ReactNode;
@@ -41,7 +44,9 @@ const NamespaceProvider: React.FC<NamespaceProviderProps> = ({ children }) => {
 
   return (
     <NamespaceContext.Provider value={namespace}>
-      {children}
+      <SetNamespaceContext.Provider value={setNamespace}>
+        {children}
+      </SetNamespaceContext.Provider>
     </NamespaceContext.Provider>
   );
 };
@@ -52,4 +57,8 @@ const useNamespace = () => {
   return context;
 };
 
-export { NamespaceProvider, useNamespace, NamespaceContext };
+const useSetNamespace = () => {
+  return React.useContext(SetNamespaceContext);
+};
+
+export { NamespaceProvider, useNamespace, useSetNamespace, NamespaceContext };
