@@ -70,6 +70,15 @@ func (r *RayLogsHandler) WriteFile(file string, reader io.ReadSeeker) error {
 	return nil
 }
 
+// isDirectoryPlaceholder reports whether a blob name denotes a directory rather
+// than a file. Other tools (and the s3 and aliyunoss collectors) write these
+// trailing-slash marker blobs; a listing whose prefix is that directory returns
+// the marker as an item. It must not reach the callers as a file, since they
+// tell files from subdirectories by the trailing slash and path.Base drops it.
+func isDirectoryPlaceholder(name string) bool {
+	return strings.HasSuffix(name, "/")
+}
+
 func (r *RayLogsHandler) listBlobs(prefix string, delimiter string, onlyBase bool) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
 	defer cancel()
@@ -95,6 +104,9 @@ func (r *RayLogsHandler) listBlobs(prefix string, delimiter string, onlyBase boo
 				prefixWithSlash, len(resp.Segment.BlobItems), len(resp.Segment.BlobPrefixes))
 
 			for _, blob := range resp.Segment.BlobItems {
+				if isDirectoryPlaceholder(*blob.Name) {
+					continue
+				}
 				objName := *blob.Name
 				if onlyBase {
 					objName = path.Base(*blob.Name)
@@ -128,6 +140,9 @@ func (r *RayLogsHandler) listBlobs(prefix string, delimiter string, onlyBase boo
 				prefixWithSlash, len(resp.Segment.BlobItems))
 
 			for _, blob := range resp.Segment.BlobItems {
+				if isDirectoryPlaceholder(*blob.Name) {
+					continue
+				}
 				objName := *blob.Name
 				if onlyBase {
 					objName = path.Base(*blob.Name)
