@@ -14,13 +14,15 @@ nodes:
     kind: ClusterConfiguration
     apiServer:
       extraArgs:
-        feature-gates: "GenericWorkload=true"
+        # GenericWorkload serves the Workload/PodGroup APIs; PodGroupPreemptionPolicy
+        # lets the apiserver persist the gated PodGroup/Workload preemptionPolicy field.
+        feature-gates: "GenericWorkload=true,PodGroupPreemptionPolicy=true"
         runtime-config: "scheduling.k8s.io/v1beta1=true,scheduling.k8s.io/v1alpha3=true"
       certSANs:
         - "docker"
     controllerManager:
       extraArgs:
-        feature-gates: "GenericWorkload=true"
+        feature-gates: "GenericWorkload=true,PodGroupPreemptionPolicy=true"
     scheduler:
       extraArgs:
-        feature-gates: "GenericWorkload=true"
+        feature-gates: "GenericWorkload=true,PodGroupPreemptionPolicy=true"
