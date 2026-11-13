@@ -11,9 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
 var (
@@ -768,6 +770,67 @@ func TestUserSpecifiedServeServiceAppProtocolPreserved(t *testing.T) {
 	// gRPC port preserves user-specified appProtocol
 	require.NotNil(t, portsByName["serve-grpc"].AppProtocol)
 	assert.Equal(t, "kubernetes.io/h2c", *portsByName["serve-grpc"].AppProtocol)
+}
+
+// During an incremental upgrade the custom ServeService branch is skipped because each
+// per-cluster Service needs a unique name, so AppProtocol must still be carried onto the
+// auto-detected serving ports. Otherwise the Gateway treats gRPC traffic as HTTP/1.1.
+func TestServeServiceIncrementalUpgradePreservesAppProtocol(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayServiceIncrementalUpgrade, true)
+
+	cluster := rayv1.RayCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "raycluster-incremental-grpc",
+			Namespace: "default",
+		},
+		Spec: rayv1.RayClusterSpec{
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name: "ray-head",
+								Ports: []corev1.ContainerPort{
+									{ContainerPort: 8000, Name: utils.ServingPortName},
+									{ContainerPort: 9000, Name: "serve-grpc"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	h2c := "kubernetes.io/h2c"
+	testRayService := serviceInstance.DeepCopy()
+	testRayService.Spec.UpgradeStrategy = &rayv1.RayServiceUpgradeStrategy{
+		Type: ptr.To(rayv1.RayServiceNewClusterWithIncrementalUpgrade),
+	}
+	testRayService.Spec.ServeService = &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "custom-serve-service"},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{Name: utils.ServingPortName, Port: 8000},
+				{Name: "serve-grpc", Port: 9000, AppProtocol: &h2c},
+			},
+		},
+	}
+
+	svc, err := BuildServeServiceForRayService(context.Background(), *testRayService, cluster)
+	require.NoError(t, err)
+
+	// The per-cluster Service keeps its generated name, not the custom ServeService name.
+	assert.Equal(t, utils.GenerateServeServiceName(cluster.Name), svc.Name)
+
+	portsByName := map[string]corev1.ServicePort{}
+	for _, port := range svc.Spec.Ports {
+		portsByName[port.Name] = port
+	}
+
+	require.NotNil(t, portsByName["serve-grpc"].AppProtocol)
+	assert.Equal(t, "kubernetes.io/h2c", *portsByName["serve-grpc"].AppProtocol)
+	assert.Nil(t, portsByName[utils.ServingPortName].AppProtocol)
 }
 
 func TestUserSpecifiedServeServiceFallbackPreservesAppProtocol(t *testing.T) {
