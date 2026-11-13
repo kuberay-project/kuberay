@@ -317,7 +317,7 @@ func TestGetSnapshot_PutThenGet(t *testing.T) {
 
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{})
 	stored := testSnapshot(key)
-	require.NoError(t, sl.putSnapshot(key, stored, utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(key, stored, utils.ClusterInfo{}, false, false))
 
 	got, ok := sl.GetSnapshot(key)
 	if !ok {
@@ -335,7 +335,7 @@ func TestGetSnapshot_SharesDecodedCopyWhileHeld(t *testing.T) {
 	key := testClusterSessionKey()
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{})
 	stored := testSnapshot(key)
-	require.NoError(t, sl.putSnapshot(key, stored, utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(key, stored, utils.ClusterInfo{}, false, false))
 
 	want, ok := sl.GetSnapshot(key)
 	if !ok {
@@ -379,8 +379,8 @@ func TestGetSnapshot_PutOverwrites(t *testing.T) {
 	fresh.Tasks = []eventtypes.Task{{TaskID: "fresh-task"}}
 
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{})
-	require.NoError(t, sl.putSnapshot(key, stale, utils.ClusterInfo{}, false))
-	require.NoError(t, sl.putSnapshot(key, fresh, utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(key, stale, utils.ClusterInfo{}, false, false))
+	require.NoError(t, sl.putSnapshot(key, fresh, utils.ClusterInfo{}, false, false))
 
 	got, ok := sl.GetSnapshot(key)
 	if !ok {
@@ -397,14 +397,14 @@ func TestGetSnapshot_ConcurrentReadsAreThreadSafe(t *testing.T) {
 	key := testClusterSessionKey()
 
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{})
-	require.NoError(t, sl.putSnapshot(key, richSnapshot(key), utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(key, richSnapshot(key), utils.ClusterInfo{}, false, false))
 
 	const goroutines = 50
 	var wg sync.WaitGroup
 
 	for range goroutines {
 		wg.Go(func() {
-			if err := sl.putSnapshot(key, richSnapshot(key), utils.ClusterInfo{}, false); err != nil {
+			if err := sl.putSnapshot(key, richSnapshot(key), utils.ClusterInfo{}, false, false); err != nil {
 				t.Errorf("putSnapshot: %v", err)
 			}
 		})
@@ -434,7 +434,7 @@ func TestSnapshotConsumers_DoNotMutateSharedSnapshot(t *testing.T) {
 	stored := richSnapshot(key)
 	// Store tasks out of order so an in-place sort would actually move elements.
 	slices.Reverse(stored.Tasks)
-	require.NoError(t, sl.putSnapshot(key, stored, utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(key, stored, utils.ClusterInfo{}, false, false))
 	snap, ok := sl.GetSnapshot(key)
 	if !ok {
 		t.Fatal("GetSnapshot: ok=false")
@@ -477,10 +477,10 @@ func TestGetSnapshot_LRUEviction(t *testing.T) {
 	k3 := testClusterSessionKeyFor("session_2026-04-22_12-00-00_000000_1")
 
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheSize: 2})
-	require.NoError(t, sl.putSnapshot(k1, testSnapshot(k1), utils.ClusterInfo{}, false))
-	require.NoError(t, sl.putSnapshot(k2, testSnapshot(k2), utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(k1, testSnapshot(k1), utils.ClusterInfo{}, false, false))
+	require.NoError(t, sl.putSnapshot(k2, testSnapshot(k2), utils.ClusterInfo{}, false, false))
 	// Third session evicts the first (LRU).
-	require.NoError(t, sl.putSnapshot(k3, testSnapshot(k3), utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(k3, testSnapshot(k3), utils.ClusterInfo{}, false, false))
 
 	requireSnapshotCached(t, sl, k1, false)
 	requireSnapshotCached(t, sl, k2, true)
@@ -494,7 +494,7 @@ func TestGetSnapshot_TTLExpiry(t *testing.T) {
 
 	const ttl = 30 * time.Millisecond
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheTTL: ttl})
-	require.NoError(t, sl.putSnapshot(key, testSnapshot(key), utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(key, testSnapshot(key), utils.ClusterInfo{}, false, false))
 
 	requireSnapshotCached(t, sl, key, true)
 
@@ -509,7 +509,7 @@ func TestGetSnapshot_SlidingTTLRenewal(t *testing.T) {
 
 	const ttl = 30 * time.Millisecond
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheTTL: ttl})
-	require.NoError(t, sl.putSnapshot(key, testSnapshot(key), utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(key, testSnapshot(key), utils.ClusterInfo{}, false, false))
 
 	deadline := time.Now().Add(100 * time.Millisecond)
 	for time.Now().Before(deadline) {
@@ -534,8 +534,8 @@ func TestCache_ByteBudgetEviction(t *testing.T) {
 	maxBytes := len(enc1) + 1
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheSize: 1000, maxBytes: maxBytes})
 
-	require.NoError(t, sl.putSnapshot(olderKey, s1, utils.ClusterInfo{}, false))
-	require.NoError(t, sl.putSnapshot(newerKey, richSnapshot(newerKey), utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(olderKey, s1, utils.ClusterInfo{}, false, false))
+	require.NoError(t, sl.putSnapshot(newerKey, richSnapshot(newerKey), utils.ClusterInfo{}, false, false))
 
 	requireSnapshotCached(t, sl, olderKey, false)
 	requireSnapshotCached(t, sl, newerKey, true)
@@ -549,7 +549,7 @@ func TestCache_ByteBudgetEviction(t *testing.T) {
 func TestCache_ByteBudgetKeepsOversizedSoleEntry(t *testing.T) {
 	key := testClusterSessionKey()
 	sl := newTestLoader(t, &fakeProcessor{}, loaderTestConfig{cacheSize: 1000, maxBytes: 1})
-	require.NoError(t, sl.putSnapshot(key, richSnapshot(key), utils.ClusterInfo{}, false))
+	require.NoError(t, sl.putSnapshot(key, richSnapshot(key), utils.ClusterInfo{}, false, false))
 
 	requireSnapshotCached(t, sl, key, true)
 	if entries, total := sl.cache.Len(), sl.totalBytes(); entries != 1 || total <= sl.maxBytes {
@@ -681,8 +681,9 @@ func TestRevalidate_ReloadsAfterSecondDeadSighting(t *testing.T) {
 
 // TestReload_KeepsRevalidationUntilBackgroundReload verifies that a manual Reload
 // issued right after the RayCluster CR is deleted, while the collector may still
-// be uploading, does not end revalidation. Revalidate still reloads once more
-// after two NotFound sightings and only then marks the entry final.
+// be uploading, does not end revalidation. The reload counts as the first NotFound
+// sighting, so Revalidate reloads once more after the next one and only then
+// marks the entry final.
 func TestReload_KeepsRevalidationUntilBackgroundReload(t *testing.T) {
 	var reloads atomic.Int32
 	sl, fp := newRunningBuiltLoader(t, func(context.Context) (SessionStatus, *eventserver.SessionSnapshot, error) {
@@ -697,12 +698,11 @@ func TestReload_KeepsRevalidationUntilBackgroundReload(t *testing.T) {
 	snap, _ := sl.GetSnapshot(key)
 	require.Equal(t, "reload-1", snap.SessionKey)
 
-	// Two NotFound sightings still trigger the background reload.
-	expireLivenessThrottle(t, sl)
-	sl.Revalidate(key)
+	// The manual reload was the first sighting, so one more NotFound reloads.
 	expireLivenessThrottle(t, sl)
 	sl.Revalidate(key)
 	sl.Wait()
+	require.Equal(t, int32(2), reloads.Load())
 
 	snap, _ = sl.GetSnapshot(key)
 	require.Equal(t, "reload-2", snap.SessionKey)

@@ -307,12 +307,16 @@ func (s *SessionLoader) doLoadSession(ctx context.Context, info utils.ClusterInf
 		// be gone while the collector is still uploading, and only Revalidate knows
 		// when enough time has passed to call the snapshot final.
 		needsRevalidation := status == SessionStatusProcessedRunning
+		seenDead := false
 		if old, ok := s.cache.Peek(clusterSessionKey); ok && force {
 			old.livenessMu.Lock()
 			needsRevalidation = needsRevalidation || old.needsRevalidation
 			old.livenessMu.Unlock()
+			// ProcessSession just saw the CR gone, so this counts as the first
+			// sighting and Revalidate reloads after one more interval instead of two.
+			seenDead = needsRevalidation && status == SessionStatusProcessed
 		}
-		if err := s.putSnapshot(clusterSessionKey, snap, info, needsRevalidation); err != nil {
+		if err := s.putSnapshot(clusterSessionKey, snap, info, needsRevalidation, seenDead); err != nil {
 			return false, err
 		}
 		return false, nil
@@ -331,7 +335,7 @@ func (s *SessionLoader) doLoadSession(ctx context.Context, info utils.ClusterInf
 //
 // Use JSON, not gob since snapshots have map[string]any CustomFields and gob requires
 // registering concrete types and fails to round-trip the arbitrary nested values reliably.
-func (s *SessionLoader) putSnapshot(clusterSessionKey string, snap *eventserver.SessionSnapshot, info utils.ClusterInfo, needsRevalidation bool) error {
+func (s *SessionLoader) putSnapshot(clusterSessionKey string, snap *eventserver.SessionSnapshot, info utils.ClusterInfo, needsRevalidation, seenDead bool) error {
 	encoded, err := json.Marshal(snap)
 	if err != nil {
 		logrus.Errorf("Failed to encode snapshot for session %q: %v", clusterSessionKey, err)
@@ -343,6 +347,7 @@ func (s *SessionLoader) putSnapshot(clusterSessionKey string, snap *eventserver.
 		decoded:           weak.Make(snap),
 		info:              info,
 		needsRevalidation: needsRevalidation,
+		seenDead:          seenDead,
 		// ProcessSession just checked liveness, so the first Revalidate waits a full interval.
 		lastLivenessCheck: time.Now(),
 	}

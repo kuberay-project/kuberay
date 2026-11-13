@@ -29,7 +29,7 @@ func newJobLookupHandler(t *testing.T, jobs map[string]eventtypes.Job) *ServerHa
 	require.NoError(t, loader.putSnapshot(jobLookupSessionKey, &eventserver.SessionSnapshot{
 		SessionKey: jobLookupSessionKey,
 		Jobs:       jobs,
-	}, utils.ClusterInfo{}, false))
+	}, utils.ClusterInfo{}, false, false))
 	return &ServerHandler{sessionLoader: loader}
 }
 
