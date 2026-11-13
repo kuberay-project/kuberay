@@ -194,6 +194,10 @@ var autoscalerContainer = corev1.Container{
 			Name:  utils.KUBERAY_GEN_AUTOSCALER_START_CMD,
 			Value: "ray kuberay-autoscaler --cluster-name $(RAY_CLUSTER_NAME) --cluster-namespace $(RAY_CLUSTER_NAMESPACE)",
 		},
+		{
+			Name:  utils.RAY_AUTH_MODE_ENV_VAR,
+			Value: string(rayv1.AuthModeDisabled),
+		},
 	},
 	Command: []string{
 		"/bin/bash",
@@ -951,6 +955,40 @@ func TestBuildPod_WithPlasmaDirectory(t *testing.T) {
 			assert.Equal(t, tc.expectSharedMemory, checkIfVolumeExists(&pod, SharedMemoryVolumeName))
 		})
 	}
+}
+
+func TestBuildPod_AuthDisabledOptsOutExplicitly(t *testing.T) {
+	// Ray 2.61+ defaults to token auth, so a cluster without authOptions.mode=token must get
+	// RAY_AUTH_MODE=disabled on the Ray container and the wait-gcs-ready init container.
+	ctx := context.Background()
+	for name, authOptions := range map[string]*rayv1.AuthOptions{
+		"nil":      nil,
+		"disabled": {Mode: rayv1.AuthModeDisabled},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cluster := instance.DeepCopy()
+			cluster.Spec.AuthOptions = authOptions
+			fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
+			worker := cluster.Spec.WorkerGroupSpecs[0]
+			podTemplateSpec := DefaultWorkerPodTemplate(ctx, *cluster, *worker.DeepCopy(), "pod", fqdnRayIP, "6379", "", 0, 0)
+
+			checkContainerEnv(t, podTemplateSpec.Spec.Containers[utils.RayContainerIndex], utils.RAY_AUTH_MODE_ENV_VAR, string(rayv1.AuthModeDisabled))
+			checkContainerEnv(t, podTemplateSpec.Spec.InitContainers[len(podTemplateSpec.Spec.InitContainers)-1], utils.RAY_AUTH_MODE_ENV_VAR, string(rayv1.AuthModeDisabled))
+			for _, env := range podTemplateSpec.Spec.Containers[utils.RayContainerIndex].Env {
+				assert.NotEqual(t, utils.RAY_AUTH_TOKEN_ENV_VAR, env.Name)
+				assert.NotEqual(t, utils.RAY_ENABLE_K8S_TOKEN_AUTH_ENV_VAR, env.Name)
+			}
+		})
+	}
+}
+
+// TestSetContainerTokenAuthEnvVars_KeepsUserProvidedAuthMode ensures the user's token auth config
+// will not be overridden by the operator.
+func TestSetContainerTokenAuthEnvVars_KeepsUserProvidedAuthMode(t *testing.T) {
+	container := corev1.Container{Env: []corev1.EnvVar{{Name: utils.RAY_AUTH_MODE_ENV_VAR, Value: "token"}}}
+	SetContainerTokenAuthEnvVars("cluster", &container, nil)
+	// user defined RAY_AUTH_MODE_ENV_VAR is kept
+	assert.Equal(t, []corev1.EnvVar{{Name: utils.RAY_AUTH_MODE_ENV_VAR, Value: "token"}}, container.Env)
 }
 
 func TestBuildPod_WithEnableK8sTokenAuth(t *testing.T) {
@@ -1753,7 +1791,7 @@ func TestDefaultInitContainer(t *testing.T) {
 	// with the Ray head using TLS authentication. Currently, we simply copied all environment variables from
 	// Ray container to the init container. This may be changed in the future.
 	healthCheckContainer := podTemplateSpec.Spec.InitContainers[numInitContainers-1]
-	rayContainer := worker.Template.Spec.Containers[utils.RayContainerIndex]
+	rayContainer := podTemplateSpec.Spec.Containers[utils.RayContainerIndex]
 
 	assert.NotEmpty(t, rayContainer.Env, "The test only makes sense if the Ray container has environment variables.")
 	assert.Len(t, healthCheckContainer.Env, len(rayContainer.Env))
