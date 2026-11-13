@@ -241,6 +241,12 @@ func (options *SubmitJobOptions) Validate(cmd *cobra.Command) error {
 
 	// Take care of case where there is a filename input
 	if options.fileName != "" {
+		// Run only honors --dry-run for a generated RayJob. With --filename it would
+		// create the RayJob and submit the job, so reject the combination up front.
+		if options.dryRun {
+			return fmt.Errorf("--dry-run is not supported with --filename")
+		}
+
 		info, err := os.Stat(options.fileName)
 		if os.IsNotExist(err) {
 			return fmt.Errorf("Ray Job file does not exist. Failed with: %w", err)
