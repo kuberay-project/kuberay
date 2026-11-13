@@ -58,7 +58,7 @@ type WorkerGroup struct {
 	EphemeralStorage *string           `yaml:"ephemeral-storage,omitempty"`
 	RayStartParams   map[string]string `yaml:"ray-start-params,omitempty"`
 	NodeSelectors    map[string]string `yaml:"node-selectors,omitempty"`
-	Replicas         int32             `yaml:"replicas"`
+	Replicas         *int32            `yaml:"replicas,omitempty"`
 }
 
 type AutoscalerVersion string
@@ -235,12 +235,7 @@ func (rayClusterConfig *RayClusterConfig) generateRayClusterSpec() *rayv1ac.RayC
 	workerGroupSpecs := make([]*rayv1ac.WorkerGroupSpecApplyConfiguration, len(rayClusterConfig.WorkerGroups))
 	for i, workerGroup := range rayClusterConfig.WorkerGroups {
 		if workerGroup.Name == nil || *workerGroup.Name == "" {
-			name := "default-group"
-			// For backwards compatibility, if no name is specified, use "default-group"
-			if i != 0 {
-				name = fmt.Sprintf("default-group-%d", i)
-			}
-			workerGroup.Name = new(name)
+			workerGroup.Name = new(defaultWorkerGroupName(i))
 		}
 
 		workerRequestResources := generateRequestResources(workerGroup.CPU, workerGroup.Memory, workerGroup.EphemeralStorage, workerGroup.GPU, workerGroup.TPU)
@@ -249,7 +244,7 @@ func (rayClusterConfig *RayClusterConfig) generateRayClusterSpec() *rayv1ac.RayC
 		workerGroupSpecs[i] = rayv1ac.WorkerGroupSpec().
 			WithRayStartParams(workerGroup.RayStartParams).
 			WithGroupName(*workerGroup.Name).
-			WithReplicas(workerGroup.Replicas).
+			WithReplicas(ptr.Deref(workerGroup.Replicas, util.DefaultWorkerReplicas)).
 			WithTemplate(corev1ac.PodTemplateSpec().
 				WithSpec(corev1ac.PodSpec().
 					WithNodeSelector(workerGroup.NodeSelectors).
@@ -413,24 +408,61 @@ func ConvertRayJobApplyConfigToYaml(rayJobac *rayv1ac.RayJobApplyConfiguration) 
 	return string(podByte), nil
 }
 
-// newRayClusterConfigWithDefaults returns a new RayClusterConfig object with default values
-func newRayClusterConfigWithDefaults() *RayClusterConfig {
-	return &RayClusterConfig{
-		RayVersion: ptr.To(util.RayVersion),
-		Image:      new(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
-		Head: &Head{
-			CPU:    ptr.To(util.DefaultHeadCPU),
-			Memory: ptr.To(util.DefaultHeadMemory),
-		},
-		WorkerGroups: []WorkerGroup{
-			{
-				Name:     new("default-group"),
-				Replicas: util.DefaultWorkerReplicas,
-				CPU:      ptr.To(util.DefaultWorkerCPU),
-				Memory:   ptr.To(util.DefaultWorkerMemory),
-			},
-		},
+// applyDefaults fills in the fields the user did not set. It must run after unmarshalling, not by
+// unmarshalling on top of a pre-populated object: yaml.v2 rebuilds slices from scratch, so any
+// default seeded into WorkerGroups is discarded as soon as the file mentions "worker-groups".
+func applyDefaults(config *RayClusterConfig) {
+	if config.RayVersion == nil || *config.RayVersion == "" {
+		config.RayVersion = ptr.To(util.RayVersion)
 	}
+
+	// The image follows the Ray version, so this must come after the Ray version default
+	if config.Image == nil || *config.Image == "" {
+		config.Image = new(fmt.Sprintf("rayproject/ray:%s", *config.RayVersion))
+	}
+
+	if config.Head == nil {
+		config.Head = &Head{}
+	}
+	if config.Head.CPU == nil || *config.Head.CPU == "" {
+		config.Head.CPU = ptr.To(util.DefaultHeadCPU)
+	}
+	if config.Head.Memory == nil || *config.Head.Memory == "" {
+		config.Head.Memory = ptr.To(util.DefaultHeadMemory)
+	}
+
+	// A nil list means the user did not mention worker groups at all. An explicitly empty list is a
+	// head-only cluster, which is valid, so it must not be replaced with a default group.
+	if config.WorkerGroups == nil {
+		config.WorkerGroups = []WorkerGroup{{}}
+	}
+	for i := range config.WorkerGroups {
+		workerGroup := &config.WorkerGroups[i]
+		if workerGroup.Name == nil || *workerGroup.Name == "" {
+			workerGroup.Name = new(defaultWorkerGroupName(i))
+		}
+		if workerGroup.Replicas == nil {
+			workerGroup.Replicas = ptr.To(util.DefaultWorkerReplicas)
+		}
+		if workerGroup.NumOfHosts == nil {
+			workerGroup.NumOfHosts = ptr.To(int32(util.DefaultNumOfHosts))
+		}
+		if workerGroup.CPU == nil || *workerGroup.CPU == "" {
+			workerGroup.CPU = ptr.To(util.DefaultWorkerCPU)
+		}
+		if workerGroup.Memory == nil || *workerGroup.Memory == "" {
+			workerGroup.Memory = ptr.To(util.DefaultWorkerMemory)
+		}
+	}
+}
+
+// defaultWorkerGroupName returns the name given to the worker group at index i when the user did not name it
+func defaultWorkerGroupName(i int) string {
+	// For backwards compatibility, the first group is named "default-group"
+	if i == 0 {
+		return "default-group"
+	}
+	return fmt.Sprintf("default-group-%d", i)
 }
 
 // ParseConfigFile parses the YAML configuration file into a RayClusterConfig object
@@ -444,10 +476,11 @@ func ParseConfigFile(filePath string) (*RayClusterConfig, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	config := newRayClusterConfigWithDefaults()
-	if err := yaml.UnmarshalStrict(data, &config); err != nil {
+	config := &RayClusterConfig{}
+	if err := yaml.UnmarshalStrict(data, config); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
+	applyDefaults(config)
 
 	return config, nil
 }

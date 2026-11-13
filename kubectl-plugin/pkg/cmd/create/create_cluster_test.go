@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -247,9 +248,11 @@ func TestRayClusterCreateClusterRun(t *testing.T) {
 	namespace := "namespace-1"
 	clusterName := "cluster-1"
 	cmdFactory := cmdutil.NewFactory(genericclioptions.NewConfigFlags(true))
+	testStreams, _, _, _ := genericclioptions.NewTestIOStreams()
 
 	options := CreateClusterOptions{
 		cmdFactory:   cmdFactory,
+		ioStreams:    &testStreams,
 		clusterName:  clusterName,
 		labels:       map[string]string{"app": "ray", "env": "dev"},
 		annotations:  map[string]string{"ttl-hours": "24", "owner": "chthulu"},
@@ -280,6 +283,119 @@ func TestRayClusterCreateClusterRun(t *testing.T) {
 		err := options.Run(context.Background(), k8sClients)
 		require.Error(t, err)
 	})
+}
+
+// A config file must produce the same RayCluster as the equivalent command-line flags. Anything the
+// file leaves out gets the documented default rather than the zero value.
+// See https://github.com/ray-project/kuberay/issues/5165.
+func TestRayCreateClusterConfigFileMatchesFlags(t *testing.T) {
+	kubeConfig, err := createTempKubeConfigFile(t, "")
+	require.NoError(t, err)
+	testStreams, _, _, _ := genericclioptions.NewTestIOStreams()
+	cmdFactory := cmdutil.NewFactory(&genericclioptions.ConfigFlags{KubeConfig: &kubeConfig})
+
+	configFile := filepath.Join(t.TempDir(), "cluster.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("ray-version: 2.56.0\nworker-groups:\n  - cpu: 3\n"), 0o600))
+
+	rayClusterConfig, err := generation.ParseConfigFile(configFile)
+	require.NoError(t, err)
+
+	k8sClients := client.NewClientForTesting(kubefake.NewClientset(), clienttesting.NewRayClientset())
+
+	fromFile := NewCreateClusterOptions(cmdFactory, testStreams)
+	fromFile.clusterName = "cluster-1"
+	fromFile.dryRun = true
+	fromFile.rayClusterConfig = rayClusterConfig
+	require.NoError(t, fromFile.Run(context.Background(), k8sClients))
+
+	// The same values passed as flags, with every other flag left at its cobra default
+	fromFlags := NewCreateClusterOptions(cmdFactory, testStreams)
+	fromFlags.clusterName = "cluster-1"
+	fromFlags.dryRun = true
+	fromFlags.namespace = "default"
+	fromFlags.rayVersion = "2.56.0"
+	fromFlags.image = "rayproject/ray:2.56.0"
+	fromFlags.headCPU = util.DefaultHeadCPU
+	fromFlags.headMemory = util.DefaultHeadMemory
+	fromFlags.headGPU = util.DefaultHeadGPU
+	fromFlags.headEphemeralStorage = util.DefaultHeadEphemeralStorage
+	fromFlags.headRayStartParams = make(map[string]string)
+	fromFlags.headNodeSelectors = make(map[string]string)
+	fromFlags.workerReplicas = util.DefaultWorkerReplicas
+	fromFlags.numOfHosts = util.DefaultNumOfHosts
+	fromFlags.workerCPU = "3"
+	fromFlags.workerMemory = util.DefaultWorkerMemory
+	fromFlags.workerGPU = util.DefaultWorkerGPU
+	fromFlags.workerTPU = util.DefaultWorkerTPU
+	fromFlags.workerEphemeralStorage = util.DefaultWorkerEphemeralStorage
+	fromFlags.workerRayStartParams = make(map[string]string)
+	fromFlags.workerNodeSelectors = make(map[string]string)
+	require.NoError(t, fromFlags.Run(context.Background(), k8sClients))
+
+	require.Equal(t,
+		fromFlags.rayClusterConfig.GenerateRayClusterApplyConfig().Spec,
+		fromFile.rayClusterConfig.GenerateRayClusterApplyConfig().Spec,
+	)
+}
+
+func TestRayCreateClusterWarnsOnZeroWorkerReplicas(t *testing.T) {
+	kubeConfig, err := createTempKubeConfigFile(t, "")
+	require.NoError(t, err)
+	cmdFactory := cmdutil.NewFactory(&genericclioptions.ConfigFlags{KubeConfig: &kubeConfig})
+
+	tests := map[string]struct {
+		config           string
+		expectedWarnings []string
+	}{
+		"should warn when a worker group is explicitly set to 0 replicas": {
+			config:           "worker-groups:\n  - cpu: 3\n    replicas: 0\n",
+			expectedWarnings: []string{`Warning: worker group "default-group" has 0 replicas and will start with no worker pods.`},
+		},
+		"should warn only about the empty group when another group has replicas": {
+			config: "worker-groups:\n  - name: cpu-workers\n    replicas: 3\n  - name: gpu-workers\n    replicas: 0\n",
+			expectedWarnings: []string{
+				`Warning: worker group "gpu-workers" has 0 replicas and will start with no worker pods.`,
+			},
+		},
+		"should not warn when the replicas are defaulted": {
+			config: "worker-groups:\n  - cpu: 3\n",
+		},
+		"should not warn when the autoscaler can scale the group up": {
+			config: "autoscaler:\n  version: v2\nworker-groups:\n  - cpu: 3\n    replicas: 0\n",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			configFile := filepath.Join(t.TempDir(), "cluster.yaml")
+			require.NoError(t, os.WriteFile(configFile, []byte(tc.config), 0o600))
+
+			rayClusterConfig, err := generation.ParseConfigFile(configFile)
+			require.NoError(t, err)
+
+			testStreams, _, _, errOut := genericclioptions.NewTestIOStreams()
+			options := NewCreateClusterOptions(cmdFactory, testStreams)
+			options.clusterName = "cluster-1"
+			options.dryRun = true
+			options.rayClusterConfig = rayClusterConfig
+
+			k8sClients := client.NewClientForTesting(kubefake.NewClientset(), clienttesting.NewRayClientset())
+
+			// 0 replicas is a valid configuration, so the command still succeeds
+			require.NoError(t, options.Run(context.Background(), k8sClients))
+
+			if len(tc.expectedWarnings) == 0 {
+				require.Empty(t, errOut.String())
+				return
+			}
+			for _, warning := range tc.expectedWarnings {
+				require.Contains(t, errOut.String(), warning)
+			}
+			// The warning is about the group, not the cluster: a group with replicas cannot be
+			// warned about, and the cluster as a whole may still get worker pods.
+			require.Len(t, strings.Split(strings.TrimSpace(errOut.String()), "\n"), len(tc.expectedWarnings))
+		})
+	}
 }
 
 func TestNewCreateClusterCommand(t *testing.T) {
