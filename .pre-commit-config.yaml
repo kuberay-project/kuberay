@@ -3,7 +3,7 @@
 exclude: _generated.go$|\.svg$|^third_party/|^proto/swagger/|^apiserver/pkg/swagger/datafile.go$|^docs/reference/api.md$|^config/grafana/|^dashboard/\.yarn/releases/yarn-.*\.cjs$
 
 default_language_version:
-  golang: 1.26.0
+  golang: 1.27.0
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -47,7 +47,7 @@ repos:
         always_run: true
         pass_filenames: false
         additional_dependencies:
-          - github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
+          - github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
       - id: generate-crd-schema
         name: generate CRD schemas for use of kubeconform
         entry: ./scripts/generate-crd-schema.sh
