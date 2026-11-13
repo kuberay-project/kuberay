@@ -1096,12 +1096,7 @@ func validateWorkerGroupIdleTimeout(workerGroup rayv1.WorkerGroupSpec, spec *ray
 	}
 
 	// WorkerGroupSpec.idleTimeoutSeconds only allowed on autoscaler v2
-	if IsAutoscalingV2Enabled(spec) {
-		return nil
-	}
-
-	envVar, exists := EnvVarByName(RAY_ENABLE_AUTOSCALER_V2, spec.HeadGroupSpec.Template.Spec.Containers[RayContainerIndex].Env)
-	if exists && (envVar.Value == "1" || envVar.Value == "true") {
+	if isAutoscalingV2EnabledBySpecOrEnv(spec) {
 		return nil
 	}
 
@@ -1208,12 +1203,7 @@ func validateWorkerGroupPriority(workerGroup rayv1.WorkerGroupSpec, spec *rayv1.
 		return fmt.Errorf("worker group %s: priority is set, but minimum Ray version is 2.56.0, got %s", workerGroup.GroupName, spec.RayVersion)
 	}
 
-	if IsAutoscalingV2Enabled(spec) {
-		return nil
-	}
-
-	envVar, exists := EnvVarByName(RAY_ENABLE_AUTOSCALER_V2, spec.HeadGroupSpec.Template.Spec.Containers[RayContainerIndex].Env)
-	if exists && (envVar.Value == "1" || envVar.Value == "true") {
+	if isAutoscalingV2EnabledBySpecOrEnv(spec) {
 		return nil
 	}
 
