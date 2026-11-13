@@ -328,6 +328,61 @@ env_vars:
 		LogWithTimestamp(test.T(), "Deleted RayJob %s/%s successfully", rayJob.Namespace, rayJob.Name)
 	})
 
+	test.T().Run("RayJob in HTTPMode fails when the head Pod is deleted while the job is running", func(_ *testing.T) {
+		rayJobAC := rayv1ac.RayJob("delete-head-after-submit-http-mode", namespace.Name).
+			WithSpec(rayv1ac.RayJobSpec().
+				WithSubmissionMode(rayv1.HTTPMode).
+				WithRayClusterSpec(NewRayClusterSpec()).
+				WithEntrypoint("python -c \"import time; time.sleep(60)\"").
+				// BackoffLimit=0 is the default, but it is set explicitly because this test
+				// asserts that the RayJob stays Failed instead of being retried.
+				WithBackoffLimit(0).
+				WithShutdownAfterJobFinishes(true))
+
+		rayJob, err := test.Client().Ray().RayV1().RayJobs(namespace.Name).Apply(test.Ctx(), rayJobAC, TestApplyOptions)
+		g.Expect(err).NotTo(HaveOccurred())
+		LogWithTimestamp(test.T(), "Created RayJob %s/%s successfully", rayJob.Namespace, rayJob.Name)
+
+		// Wait until the RayJob's job status transitions to Running
+		LogWithTimestamp(test.T(), "Waiting for RayJob %s/%s to be 'Running'", rayJob.Namespace, rayJob.Name)
+		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
+			Should(WithTransform(RayJobStatus, Equal(rayv1.JobStatusRunning)))
+
+		// Fetch RayCluster and delete the head Pod
+		rayJob, err = GetRayJob(test, rayJob.Namespace, rayJob.Name)
+		g.Expect(err).NotTo(HaveOccurred())
+		rayCluster, err := GetRayCluster(test, rayJob.Namespace, rayJob.Status.RayClusterName)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(rayCluster.Labels[utils.RayJobSubmissionModeLabelKey]).To(Equal(string(rayv1.HTTPMode)))
+		headPod, err := GetHeadPod(test, rayCluster)
+		g.Expect(err).NotTo(HaveOccurred())
+		LogWithTimestamp(test.T(), "Deleting head Pod %s/%s for RayCluster %s", headPod.Namespace, headPod.Name, rayCluster.Name)
+		err = test.Client().Core().CoreV1().Pods(headPod.Namespace).Delete(test.Ctx(), headPod.Name, metav1.DeleteOptions{})
+		g.Expect(err).NotTo(HaveOccurred())
+
+		// Head pod should be recreated for non-sidecar modes. The recreated head has an empty
+		// job registry, so the job the RayJob already observed no longer exists on the cluster.
+		g.Eventually(func() (*corev1.Pod, error) {
+			return GetHeadPod(test, rayCluster)
+		}, TestTimeoutMedium, 2*time.Second).ShouldNot(BeNil())
+
+		// The RayJob must be marked as Failed instead of being resubmitted to the recreated head,
+		// so that spec.backoffLimit governs retries as it does in the other submission modes.
+		// Unlike the K8sJobMode case above, the reason is asserted exactly: HTTPMode has no
+		// submitter Job, so SubmissionFailed and the submitter grace period cannot apply, and the
+		// job status check timeout is only reached after RAYJOB_STATUS_CHECK_TIMEOUT_SECONDS,
+		// which is longer than this assertion window.
+		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
+			Should(WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusFailed)))
+		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
+			Should(WithTransform(RayJobReason, Equal(rayv1.AppFailed)))
+
+		// Cleanup
+		err = test.Client().Ray().RayV1().RayJobs(namespace.Name).Delete(test.Ctx(), rayJob.Name, metav1.DeleteOptions{})
+		g.Expect(err).NotTo(HaveOccurred())
+		LogWithTimestamp(test.T(), "Deleted RayJob %s/%s successfully", rayJob.Namespace, rayJob.Name)
+	})
+
 	test.T().Run("RayJob should be created, but not updated when managed externally", func(_ *testing.T) {
 		// RayJob
 		rayJobAC := rayv1ac.RayJob("managed-externally", namespace.Name).

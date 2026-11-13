@@ -1309,7 +1309,11 @@ func clearJobStatusCheckFailureTimer(rayJob *rayv1.RayJob) bool {
 	return true
 }
 
-// reconcileHTTPModeJobNotFound handles GetJobInfo 404 in HTTP mode by resubmitting the job.
+// reconcileHTTPModeJobNotFound handles GetJobInfo 404 in HTTPMode. If the job has not been
+// observed on the cluster yet, this performs the initial submission. If the job was already
+// observed, the 404 means the cluster lost the job state (e.g. the head Pod was recreated),
+// so the RayJob transitions to Failed and retries are governed by spec.backoffLimit, consistent
+// with the other submission modes.
 // Returns whether status should be persisted.
 func reconcileHTTPModeJobNotFound(
 	ctx context.Context,
@@ -1317,6 +1321,16 @@ func reconcileHTTPModeJobNotFound(
 	rayDashboardClient dashboardclient.RayDashboardClientInterface,
 ) bool {
 	logger := ctrl.LoggerFrom(ctx)
+
+	if rayJob.Status.JobStatus != rayv1.JobStatusNew {
+		logger.Info("The Ray job was previously submitted but no longer exists in the RayCluster. Marking the RayJob as Failed.",
+			"JobId", rayJob.Status.JobId, "JobStatus", rayJob.Status.JobStatus)
+		rayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusFailed
+		rayJob.Status.Reason = rayv1.AppFailed
+		rayJob.Status.Message = "The Ray job was previously submitted but no longer exists in the RayCluster, possibly because the head Pod was recreated."
+		return true
+	}
+
 	logger.Info("The Ray job was not found. Submit a Ray job via an HTTP request.", "JobId", rayJob.Status.JobId)
 
 	if _, submitErr := rayDashboardClient.SubmitJob(ctx, rayJob); submitErr != nil {

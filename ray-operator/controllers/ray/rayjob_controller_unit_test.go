@@ -1132,6 +1132,69 @@ func TestCheckJobStatusCheckTimeoutAndUpdateStatusIfNeeded(t *testing.T) {
 	assert.Contains(t, rayJob.Status.Message, "exceeded timeout of 1s")
 }
 
+// TestReconcileHTTPModeJobNotFound covers the two meanings of a GetJobInfo 404 in HTTPMode
+// (https://github.com/ray-project/kuberay/issues/4824). If the job was never observed on the
+// cluster, the 404 simply means the job has not been submitted yet, so the initial submission
+// must proceed. If the job was already observed, the 404 means the cluster lost the job state
+// (e.g. the head Pod was recreated), so the RayJob must transition to Failed and let
+// spec.backoffLimit govern retries (consistent with K8sJobMode) instead of being silently
+// resubmitted to the new head.
+func TestReconcileHTTPModeJobNotFound(t *testing.T) {
+	tests := []struct {
+		name                        string
+		jobStatus                   rayv1.JobStatus
+		expectedJobDeploymentStatus rayv1.JobDeploymentStatus
+		expectedReason              rayv1.JobFailedReason
+		expectedSubmitCalls         int
+	}{
+		{
+			name:                        "job not observed yet, initial submission proceeds",
+			jobStatus:                   rayv1.JobStatusNew,
+			expectedJobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
+			expectedSubmitCalls:         1,
+		},
+		{
+			name:                        "previously observed job disappeared, mark Failed instead of resubmitting",
+			jobStatus:                   rayv1.JobStatusRunning,
+			expectedJobDeploymentStatus: rayv1.JobDeploymentStatusFailed,
+			expectedReason:              rayv1.AppFailed,
+			expectedSubmitCalls:         0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			rayJob := &rayv1.RayJob{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-rayjob", Namespace: "default"},
+				Spec: rayv1.RayJobSpec{
+					SubmissionMode: rayv1.HTTPMode,
+					BackoffLimit:   ptr.To[int32](0),
+				},
+				Status: rayv1.RayJobStatus{
+					JobId:               "test-rayjob-abcde",
+					JobStatus:           tc.jobStatus,
+					JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
+				},
+			}
+
+			fakeDashboardClient := &utils.FakeRayDashboardClient{}
+			submitCalls := 0
+			submitJobMock := func(_ context.Context, _ *rayv1.RayJob) (string, error) { //nolint:unparam // This is a mock function so the signature cannot change
+				submitCalls++
+				return rayJob.Status.JobId, nil
+			}
+			fakeDashboardClient.SubmitJobMock.Store(&submitJobMock)
+
+			reconcileHTTPModeJobNotFound(ctx, rayJob, fakeDashboardClient)
+
+			assert.Equal(t, tc.expectedSubmitCalls, submitCalls)
+			assert.Equal(t, tc.expectedJobDeploymentStatus, rayJob.Status.JobDeploymentStatus)
+			assert.Equal(t, tc.expectedReason, rayJob.Status.Reason)
+		})
+	}
+}
+
 // TestBatchSchedulerCleanupCalledWhenRayJobSuspending verifies that batch scheduler resources are
 // cleaned up when a RayJob is suspended/retrying. Unlike the terminal (Complete/Failed) path, the
 // suspend path must requeue on cleanup failure rather than swallow the error, otherwise the PodGroup

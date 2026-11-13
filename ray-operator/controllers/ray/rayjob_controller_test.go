@@ -3970,7 +3970,7 @@ var _ = Context("RayJob with different submission modes", func() {
 				transitionRayJobToRunning(ctx, rayJob, rayCluster, namespace)
 			})
 
-			It("Clears JobStatusCheckFailureStartTime after successful HTTP resubmit", func() {
+			It("Clears JobStatusCheckFailureStartTime after successful HTTP submit when the job has not been observed yet", func() {
 				getJobInfo := func(_ context.Context, _ string) (*utiltypes.RayJobInfo, error) {
 					return nil, apierrors.NewBadRequest("job not found")
 				}
@@ -3980,7 +3980,7 @@ var _ = Context("RayJob with different submission modes", func() {
 				Expect(k8sClient.Get(ctx, client.ObjectKey{Name: rayJob.Name, Namespace: namespace}, rayJob)).Should(Succeed())
 				recentTime := metav1.NewTime(time.Now().Add(-30 * time.Second))
 				rayJob.Status.JobStatusCheckFailureStartTime = &recentTime
-				rayJob.Status.JobStatus = rayv1.JobStatusRunning
+				rayJob.Status.JobStatus = rayv1.JobStatusNew
 				Expect(k8sClient.Status().Update(ctx, rayJob)).Should(Succeed())
 
 				Eventually(func() (*metav1.Time, error) {
@@ -3993,6 +3993,23 @@ var _ = Context("RayJob with different submission modes", func() {
 				Consistently(
 					getRayJobDeploymentStatus(ctx, rayJob),
 					time.Second*3, time.Millisecond*500).Should(Equal(rayv1.JobDeploymentStatusRunning))
+			})
+
+			It("Marks the RayJob as Failed when a previously observed job no longer exists", func() {
+				getJobInfo := func(_ context.Context, _ string) (*utiltypes.RayJobInfo, error) {
+					return nil, apierrors.NewBadRequest("job not found")
+				}
+				fakeRayDashboardClient.GetJobInfoMock.Store(&getJobInfo)
+				defer fakeRayDashboardClient.GetJobInfoMock.Store(nil)
+
+				Expect(k8sClient.Get(ctx, client.ObjectKey{Name: rayJob.Name, Namespace: namespace}, rayJob)).Should(Succeed())
+				rayJob.Status.JobStatus = rayv1.JobStatusRunning
+				Expect(k8sClient.Status().Update(ctx, rayJob)).Should(Succeed())
+
+				Eventually(
+					getRayJobDeploymentStatus(ctx, rayJob),
+					time.Second*10, time.Millisecond*500).Should(Equal(rayv1.JobDeploymentStatusFailed))
+				Expect(rayJob.Status.Reason).To(Equal(rayv1.AppFailed))
 			})
 		})
 	})
