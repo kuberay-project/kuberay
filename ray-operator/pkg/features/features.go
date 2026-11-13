@@ -120,6 +120,15 @@ const (
 	// Enables delivery of Kubernetes Node labels to Ray node labels (workerGroupSpecs[].labelRefs).
 	// Requires ENABLE_WEBHOOKS=true and Ray 2.45.0 or later.
 	NodeLabelDelivery featuregate.Feature = "NodeLabelDelivery"
+
+	// owner: @oberkem
+	// rep: N/A
+	// beta: v1.8
+	//
+	// Passes --num-gpus=0 to `ray start` when the Ray container requests no GPU or other device,
+	// so Ray does not auto-detect and schedule onto GPUs that Kubernetes did not assign to the Pod.
+	// Disable it to restore Ray's GPU auto-detection for such containers.
+	DefaultNumGPUsZero featuregate.Feature = "DefaultNumGPUsZero"
 )
 
 func init() {
@@ -141,6 +150,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	GCSFaultToleranceActivePassiveHead: {Default: false, PreRelease: featuregate.Alpha},
 	RayNodeEventForwarder:              {Default: false, PreRelease: featuregate.Alpha},
 	NodeLabelDelivery:                  {Default: false, PreRelease: featuregate.Alpha},
+	DefaultNumGPUsZero:                 {Default: true, PreRelease: featuregate.Beta},
 }
 
 // SetFeatureGateDuringTest is a helper method to override feature gates in tests.
