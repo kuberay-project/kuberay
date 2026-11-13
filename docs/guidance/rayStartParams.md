@@ -5,9 +5,13 @@ This document outlines the default settings for `rayStartParams` in KubeRay.
 
 ## Options Exclusive to the Head Pod
 
-- `--dashboard-host`: Host for the dashboard server, either `localhost` (127.0.0.1) or `0.0.0.0`.
-The latter setting exposes the Ray dashboard outside the Ray cluster, which is required when [ingress](https://github.com/ray-project/kuberay/blob/master/docs/guidance/ingress.md) is utilized for Ray cluster access.
-The default value for both Ray and KubeRay 0.5.0 is `localhost`. Please note that this will change for versions of KubeRay later than 0.5.0, where the default setting will be `0.0.0.0`.
+- `--dashboard-host`: Host for the dashboard server. By default, KubeRay binds all interfaces in the head Service's
+  primary IP family, using `0.0.0.0` for IPv4 or `::` for IPv6. Users can override this with a specific address or `localhost`
+  (`127.0.0.1` / `::1`).
+  Binding all interfaces exposes the dashboard outside the Ray Pod, which is
+  required when [ingress](https://github.com/ray-project/kuberay/blob/master/docs/guidance/ingress.md) is used.
+  The Ray dashboard provides read and write access to the RayCluster; restrict access with authentication and network controls.
+  Ray versions before 2.56.0 don't fully support IPv6. Use Ray 2.56.0 or later for IPv6-only RayClusters.
 
 - `--no-monitor` (Modification is not recommended):
   - Ray autoscaler supports various node providers such as AWS, GCP, Azure, and Kubernetes. However, the default autoscaler is not compatible with Kubernetes. Therefore, when [KubeRay autoscaling](https://github.com/ray-project/kuberay/blob/master/docs/guidance/autoscaler.md) is enabled (i.e. `EnableInTreeAutoscaling` is true), KubeRay disables the monitor process via setting `--no-monitor` to true and injects a sidecar container for KubeRay autoscaler. See [PR #13505](https://github.com/ray-project/ray/pull/13505) for more details.
