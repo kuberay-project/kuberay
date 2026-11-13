@@ -235,6 +235,7 @@ func FetchCurrentNodeID() (string, error) {
 	endpoint := fmt.Sprintf("%s%s/api/v0/nodes?limit=10000", scheme, strings.TrimRight(addr, "/"))
 	client := &http.Client{Timeout: 1 * time.Second}
 
+	//nolint:gosec // G704: the URL comes from FQ_RAY_IP, which the deployment sets to the head Service address.
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", err
@@ -243,7 +244,7 @@ func FetchCurrentNodeID() (string, error) {
 		return "", fmt.Errorf("failed to authenticate request to %s: %w", endpoint, err)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: same URL as above.
 	if err != nil {
 		return "", err
 	}

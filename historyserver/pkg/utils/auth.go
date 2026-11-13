@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	RayTokenMountPath                 = "/var/run/secrets/ray.io/serviceaccount"
-	RAY_ENABLE_K8S_TOKEN_AUTH_ENV_VAR = "RAY_ENABLE_K8S_TOKEN_AUTH"
-	RAY_AUTH_TOKEN_ENV_VAR            = "RAY_AUTH_TOKEN"
+	RayTokenMountPath                 = "/var/run/secrets/ray.io/serviceaccount" //nolint:gosec // G101: mount path, not a credential
+	RAY_ENABLE_K8S_TOKEN_AUTH_ENV_VAR = "RAY_ENABLE_K8S_TOKEN_AUTH"              //nolint:gosec // G101: env var name, not a credential
+	RAY_AUTH_TOKEN_ENV_VAR            = "RAY_AUTH_TOKEN"                         //nolint:gosec // G101: env var name, not a credential
 	RAY_AUTH_MODE_ENV_VAR             = "RAY_AUTH_MODE"
 
 	RAY_AUTH_TOKEN_SECRET_KEY = "auth_token"
