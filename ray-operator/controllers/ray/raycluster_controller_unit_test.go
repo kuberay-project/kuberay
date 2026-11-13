@@ -5314,3 +5314,718 @@ func TestReconcilePodsKeepsBatchSchedulerReservationWhenRunning(t *testing.T) {
 	require.NoError(t, reconciler.reconcilePods(context.Background(), cluster))
 	assert.False(t, fakeScheduler.cleanupCalled, "a running RayCluster must keep its reserved capacity")
 }
+
+func TestReconcileMultiHostWorkerGroup_BackfillDeleteAndScaleDown(t *testing.T) {
+	setupTest(t)
+	features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, true)
+
+	ctx := context.Background()
+	cluster := testRayCluster.DeepCopy()
+	cluster.Spec.EnableInTreeAutoscaling = new(false)
+	cluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](1)
+	cluster.Spec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](0)
+	cluster.Spec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](10)
+	cluster.Spec.WorkerGroupSpecs[0].NumOfHosts = 4
+	cluster.Spec.WorkerGroupSpecs[0].ScaleStrategy.WorkersToDelete = nil
+	workerSpec := &cluster.Spec.WorkerGroupSpecs[0]
+
+	// 1. Simulate a transient API error on the 3rd pod (hostIndex=2) during initial slice creation.
+	createCalls := 0
+	failOnThirdCreate := true
+	fakeClient := clientFake.NewClientBuilder().
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if _, ok := obj.(*corev1.Pod); ok {
+					createCalls++
+					if failOnThirdCreate && createCalls == 3 {
+						return errors.New("simulated webhook timeout on hostIndex=2")
+					}
+				}
+				return c.Create(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	r := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   &events.FakeRecorder{},
+		Scheme:                     scheme.Scheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}
+
+	err := r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil)
+	require.ErrorContains(t, err, "simulated webhook timeout on hostIndex=2")
+
+	// Only 2 pods (hostIndex 0 and 1) should exist in etcd, belonging to an in-progress replica group.
+	podList := corev1.PodList{}
+	require.NoError(t, fakeClient.List(ctx, &podList, client.InNamespace(cluster.Namespace)))
+	require.Len(t, podList.Items, 2)
+	initialReplicaName := podList.Items[0].Labels[utils.RayWorkerReplicaNameKey]
+	require.NotEmpty(t, initialReplicaName)
+
+	// 2. Clear the transient error and reconcile again: the controller must backfill hostIndex 2 and 3
+	// into the SAME replica group without deleting hostIndex 0 and 1.
+	failOnThirdCreate = false
+	err = r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, podList.Items)
+	require.NoError(t, err)
+
+	require.NoError(t, fakeClient.List(ctx, &podList, client.InNamespace(cluster.Namespace)))
+	require.Len(t, podList.Items, 4)
+	hostIndices := make(map[string]bool)
+	for _, p := range podList.Items {
+		assert.Equal(t, initialReplicaName, p.Labels[utils.RayWorkerReplicaNameKey], "backfill should preserve the in-progress replica group")
+		assert.Equal(t, "0", p.Labels[utils.RayWorkerReplicaIndexKey])
+		hostIndices[p.Labels[utils.RayHostIndexKey]] = true
+		assert.True(t, strings.HasSuffix(p.Name, "-"+p.Labels[utils.RayHostIndexKey]), "deterministic pod name %s should end with -%s", p.Name, p.Labels[utils.RayHostIndexKey])
+	}
+	assert.Equal(t, map[string]bool{"0": true, "1": true, "2": true, "3": true}, hostIndices)
+
+	// 3. Scale up from 1 to 3 replicas, then scale down to 1 replica: highest replica indices (2 and 1)
+	// must be deleted first, preserving replica index 0.
+	workerSpec.Replicas = ptr.To[int32](3)
+	require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, podList.Items))
+	require.NoError(t, fakeClient.List(ctx, &podList, client.InNamespace(cluster.Namespace)))
+	require.Len(t, podList.Items, 12)
+
+	workerSpec.Replicas = ptr.To[int32](1)
+	require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, podList.Items))
+	require.NoError(t, fakeClient.List(ctx, &podList, client.InNamespace(cluster.Namespace)))
+	require.Len(t, podList.Items, 4)
+	for _, p := range podList.Items {
+		assert.Equal(t, "0", p.Labels[utils.RayWorkerReplicaIndexKey], "descending scale-down must preserve replicaIndex 0")
+		assert.Equal(t, initialReplicaName, p.Labels[utils.RayWorkerReplicaNameKey])
+	}
+
+	// 4. Delete 1 pod from the completed slice: Step 2 must atomically delete the remaining 3 pods and return nil.
+	require.NoError(t, fakeClient.Delete(ctx, &podList.Items[0]))
+	require.NoError(t, fakeClient.List(ctx, &podList, client.InNamespace(cluster.Namespace)))
+	require.Len(t, podList.Items, 3)
+
+	require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, podList.Items))
+	require.NoError(t, fakeClient.List(ctx, &podList, client.InNamespace(cluster.Namespace)))
+	assert.Empty(t, podList.Items, "all remaining pods of the broken slice must be deleted")
+
+	// 5. Recreate the 4-host slice, then mark 1 pod as terminating (DeletionTimestamp != nil via finalizer):
+	// Step 3 must atomically delete the 3 other pods of the group and return nil without creating a replacement in the same reconcile.
+	require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+	require.NoError(t, fakeClient.List(ctx, &podList, client.InNamespace(cluster.Namespace)))
+	require.Len(t, podList.Items, 4)
+
+	terminatingPod := podList.Items[0].DeepCopy()
+	terminatingPod.Finalizers = []string{"test.ray.io/keep-terminating"}
+	require.NoError(t, fakeClient.Update(ctx, terminatingPod))
+	require.NoError(t, fakeClient.Delete(ctx, terminatingPod))
+	require.NoError(t, fakeClient.List(ctx, &podList, client.InNamespace(cluster.Namespace)))
+	require.Len(t, podList.Items, 4)
+	assert.False(t, podList.Items[0].DeletionTimestamp.IsZero())
+
+	require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, podList.Items))
+	require.NoError(t, fakeClient.List(ctx, &podList, client.InNamespace(cluster.Namespace)))
+	// Only the 1 pod with the finalizer remains (still terminating); the other 3 were deleted and no replacement was created yet.
+	assert.Len(t, podList.Items, 1)
+	assert.Equal(t, terminatingPod.Name, podList.Items[0].Name)
+
+	// 6. While the remaining pod is still terminating in etcd, the replica slot stays occupied so no
+	// replacement group is created on top of terminating pods. Once the finalizer is cleared and the pod is removed
+	// from etcd, the next reconcile creates the replacement group with replicaIndex 0.
+	require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, podList.Items))
+	require.NoError(t, fakeClient.List(ctx, &podList, client.InNamespace(cluster.Namespace)))
+	require.Len(t, podList.Items, 1, "terminating group must hold its replica slot until all pods leave etcd")
+
+	unfinalized := podList.Items[0].DeepCopy()
+	unfinalized.Finalizers = nil
+	require.NoError(t, fakeClient.Update(ctx, unfinalized))
+	require.NoError(t, fakeClient.List(ctx, &podList, client.InNamespace(cluster.Namespace)))
+	require.Empty(t, podList.Items)
+
+	require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+	require.NoError(t, fakeClient.List(ctx, &podList, client.InNamespace(cluster.Namespace)))
+	require.Len(t, podList.Items, 4)
+	for _, p := range podList.Items {
+		assert.True(t, p.DeletionTimestamp.IsZero())
+		assert.Equal(t, "0", p.Labels[utils.RayWorkerReplicaIndexKey])
+		assert.NotEqual(t, terminatingPod.Labels[utils.RayWorkerReplicaNameKey], p.Labels[utils.RayWorkerReplicaNameKey], "the replacement group must get a new replica name")
+	}
+}
+
+// newMultiHostTestCluster returns a RayCluster with a single 4-host worker group of 1 replica and no autoscaling.
+func newMultiHostTestCluster() (*rayv1.RayCluster, *rayv1.WorkerGroupSpec) {
+	cluster := testRayCluster.DeepCopy()
+	cluster.Spec.EnableInTreeAutoscaling = new(false)
+	cluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](1)
+	cluster.Spec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](0)
+	cluster.Spec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](10)
+	cluster.Spec.WorkerGroupSpecs[0].NumOfHosts = 4
+	cluster.Spec.WorkerGroupSpecs[0].ScaleStrategy.WorkersToDelete = nil
+	return cluster, &cluster.Spec.WorkerGroupSpecs[0]
+}
+
+// newMultiHostTestReconciler returns a reconciler over a fake client whose pod Create calls can be intercepted.
+func newMultiHostTestReconciler(createFunc func(ctx context.Context, c client.WithWatch, pod *corev1.Pod, opts ...client.CreateOption) error) (*RayClusterReconciler, client.WithWatch) {
+	fakeClient := clientFake.NewClientBuilder().
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if pod, ok := obj.(*corev1.Pod); ok && createFunc != nil {
+					return createFunc(ctx, c, pod, opts...)
+				}
+				return c.Create(ctx, obj, opts...)
+			},
+		}).
+		Build()
+	return &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   &events.FakeRecorder{},
+		Scheme:                     scheme.Scheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}, fakeClient
+}
+
+func listMultiHostTestPods(ctx context.Context, t *testing.T, c client.Client, namespace string) []corev1.Pod {
+	podList := corev1.PodList{}
+	require.NoError(t, c.List(ctx, &podList, client.InNamespace(namespace)))
+	return podList.Items
+}
+
+// terminateMultiHostTestPods marks the pods as terminating without removing them, like a stuck finalizer does.
+func terminateMultiHostTestPods(ctx context.Context, t *testing.T, c client.Client, pods []corev1.Pod) {
+	for i := range pods {
+		pod := &corev1.Pod{}
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(&pods[i]), pod))
+		pod.Finalizers = []string{"test.ray.io/keep-terminating"}
+		require.NoError(t, c.Update(ctx, pod))
+		require.NoError(t, c.Delete(ctx, pod))
+	}
+}
+
+func TestReconcileMultiHostWorkerGroup_RestartWipesPartialGroupOnce(t *testing.T) {
+	setupTest(t)
+	features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, true)
+	ctx := context.Background()
+	cluster, workerSpec := newMultiHostTestCluster()
+
+	createCalls := 0
+	r, fakeClient := newMultiHostTestReconciler(func(ctx context.Context, c client.WithWatch, pod *corev1.Pod, opts ...client.CreateOption) error {
+		createCalls++
+		if createCalls == 3 {
+			return errors.New("simulated API error on hostIndex=2")
+		}
+		return c.Create(ctx, pod, opts...)
+	})
+	require.Error(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+	require.Len(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace), 2)
+
+	// A restarted operator does not remember the in-progress group: it is wiped once, then recreated in full.
+	restarted := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   &events.FakeRecorder{},
+		Scheme:                     scheme.Scheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+	}
+	require.NoError(t, restarted.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)))
+	require.Empty(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace))
+
+	require.NoError(t, restarted.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+	assert.Len(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace), 4)
+}
+
+func TestReconcileMultiHostWorkerGroup_AlreadyExistsOnRetry(t *testing.T) {
+	setupTest(t)
+	features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, true)
+	ctx := context.Background()
+	cluster, workerSpec := newMultiHostTestCluster()
+
+	// The 3rd Create persists the pod but reports a failure, as a timed-out API call does.
+	createCalls := 0
+	r, fakeClient := newMultiHostTestReconciler(func(ctx context.Context, c client.WithWatch, pod *corev1.Pod, opts ...client.CreateOption) error {
+		createCalls++
+		if err := c.Create(ctx, pod, opts...); err != nil {
+			return err
+		}
+		if createCalls == 3 {
+			return errors.New("simulated timeout after the pod was persisted")
+		}
+		return nil
+	})
+	require.ErrorContains(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil), "simulated timeout")
+	require.Len(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace), 3)
+
+	// The backfill retries hostIndex=2, gets AlreadyExists for our own pod and continues with hostIndex=3.
+	require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)))
+	pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+	require.Len(t, pods, 4)
+	for _, p := range pods {
+		assert.Equal(t, pods[0].Labels[utils.RayWorkerReplicaNameKey], p.Labels[utils.RayWorkerReplicaNameKey])
+	}
+}
+
+func TestCreateWorkerPodWithIndex_AlreadyExistsOwnership(t *testing.T) {
+	setupTest(t)
+	features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, true)
+	ctx := context.Background()
+	cluster, workerSpec := newMultiHostTestCluster()
+	r, fakeClient := newMultiHostTestReconciler(nil)
+
+	replicaName := utils.GenerateRayWorkerReplicaGroupName(workerSpec.GroupName)
+	require.NoError(t, r.createWorkerPodWithIndex(ctx, *cluster, *workerSpec.DeepCopy(), replicaName, 0, 1))
+	pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+	require.Len(t, pods, 1)
+	podName := pods[0].Name
+	setLabel := func(t *testing.T, key, value string) {
+		pod := &corev1.Pod{}
+		require.NoError(t, fakeClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: podName}, pod))
+		pod.Labels[key] = value
+		require.NoError(t, fakeClient.Update(ctx, pod))
+	}
+
+	t.Run("our own live pod is accepted", func(t *testing.T) {
+		require.NoError(t, r.createWorkerPodWithIndex(ctx, *cluster, *workerSpec.DeepCopy(), replicaName, 0, 1))
+		assert.Len(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace), 1)
+	})
+
+	t.Run("a pod of another replica group with the same name is an error", func(t *testing.T) {
+		setLabel(t, utils.RayWorkerReplicaNameKey, workerSpec.GroupName+"-other")
+		err := r.createWorkerPodWithIndex(ctx, *cluster, *workerSpec.DeepCopy(), replicaName, 0, 1)
+		require.ErrorContains(t, err, podName+" exists but is terminating, not yet in cache, or belongs to another replica group")
+		assert.True(t, k8serrors.IsAlreadyExists(err), "the API error must stay unwrappable")
+		setLabel(t, utils.RayWorkerReplicaNameKey, replicaName)
+	})
+
+	t.Run("a pod of another cluster with the same truncated prefix and replica suffix is an error", func(t *testing.T) {
+		setLabel(t, utils.RayClusterLabelKey, cluster.Name+"-other")
+		require.ErrorContains(t, r.createWorkerPodWithIndex(ctx, *cluster, *workerSpec.DeepCopy(), replicaName, 0, 1), "belongs to another replica group")
+		setLabel(t, utils.RayClusterLabelKey, cluster.Name)
+	})
+
+	t.Run("a pod controlled by another RayCluster UID is an error", func(t *testing.T) {
+		clusterWithUID := cluster.DeepCopy()
+		clusterWithUID.UID = "new-cluster-uid"
+		require.ErrorContains(t, r.createWorkerPodWithIndex(ctx, *clusterWithUID, *workerSpec.DeepCopy(), replicaName, 0, 1), "belongs to another replica group")
+	})
+
+	t.Run("a pod in another host slot with the same name is an error", func(t *testing.T) {
+		setLabel(t, utils.RayHostIndexKey, "3")
+		require.ErrorContains(t, r.createWorkerPodWithIndex(ctx, *cluster, *workerSpec.DeepCopy(), replicaName, 0, 1), "belongs to another replica group")
+		setLabel(t, utils.RayHostIndexKey, "1")
+	})
+
+	t.Run("a pod with a mismatched replica index is an error", func(t *testing.T) {
+		setLabel(t, utils.RayWorkerReplicaIndexKey, "7")
+		require.ErrorContains(t, r.createWorkerPodWithIndex(ctx, *cluster, *workerSpec.DeepCopy(), replicaName, 0, 1), "belongs to another replica group")
+		setLabel(t, utils.RayWorkerReplicaIndexKey, "0")
+	})
+
+	t.Run("a failed pod with the same name is an error", func(t *testing.T) {
+		pod := &corev1.Pod{}
+		require.NoError(t, fakeClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: podName}, pod))
+		pod.Status.Phase = corev1.PodFailed
+		require.NoError(t, fakeClient.Status().Update(ctx, pod))
+		require.ErrorContains(t, r.createWorkerPodWithIndex(ctx, *cluster, *workerSpec.DeepCopy(), replicaName, 0, 1), "belongs to another replica group")
+		pod.Status.Phase = corev1.PodRunning
+		require.NoError(t, fakeClient.Status().Update(ctx, pod))
+	})
+
+	t.Run("a terminating pod with the same name is an error", func(t *testing.T) {
+		terminateMultiHostTestPods(ctx, t, fakeClient, pods)
+		require.ErrorContains(t, r.createWorkerPodWithIndex(ctx, *cluster, *workerSpec.DeepCopy(), replicaName, 0, 1), "is terminating")
+	})
+}
+
+func clearMultiHostTestPodFinalizers(ctx context.Context, t *testing.T, c client.Client, pods []corev1.Pod) {
+	for i := range pods {
+		pod := &corev1.Pod{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(&pods[i]), pod); err != nil {
+			continue
+		}
+		pod.Finalizers = nil
+		require.NoError(t, c.Update(ctx, pod))
+	}
+}
+
+func TestReconcileMultiHostWorkerGroup_TerminatingGroupIsReplaced(t *testing.T) {
+	setupTest(t)
+	features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, true)
+	ctx := context.Background()
+
+	t.Run("all pods terminating holds slot until finalizers clear", func(t *testing.T) {
+		cluster, workerSpec := newMultiHostTestCluster()
+		r, fakeClient := newMultiHostTestReconciler(nil)
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+		pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 4)
+		oldReplicaName := pods[0].Labels[utils.RayWorkerReplicaNameKey]
+		terminateMultiHostTestPods(ctx, t, fakeClient, pods)
+
+		// While pods are terminating in etcd, no new Delete is issued and the replica slot stays occupied.
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)))
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 4)
+
+		clearMultiHostTestPodFinalizers(ctx, t, fakeClient, pods)
+		require.Empty(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace))
+
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 4)
+		for _, p := range pods {
+			assert.True(t, p.DeletionTimestamp.IsZero())
+			assert.Equal(t, "0", p.Labels[utils.RayWorkerReplicaIndexKey])
+			assert.NotEqual(t, oldReplicaName, p.Labels[utils.RayWorkerReplicaNameKey])
+		}
+	})
+
+	t.Run("partly gone group with the rest terminating holds slot until finalizers clear", func(t *testing.T) {
+		cluster, workerSpec := newMultiHostTestCluster()
+		r, fakeClient := newMultiHostTestReconciler(nil)
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+		pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 4)
+		oldReplicaName := pods[0].Labels[utils.RayWorkerReplicaNameKey]
+		require.NoError(t, fakeClient.Delete(ctx, &pods[0]))
+		require.NoError(t, fakeClient.Delete(ctx, &pods[1]))
+		terminateMultiHostTestPods(ctx, t, fakeClient, pods[2:])
+		require.Len(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace), 2)
+
+		// Step 2 sees an incomplete group whose remaining pods are terminating: slot remains occupied until they leave etcd.
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)))
+		require.Len(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace), 2)
+
+		clearMultiHostTestPodFinalizers(ctx, t, fakeClient, pods[2:])
+		require.Empty(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace))
+
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 4)
+		for _, p := range pods {
+			assert.True(t, p.DeletionTimestamp.IsZero())
+			assert.Equal(t, "0", p.Labels[utils.RayWorkerReplicaIndexKey])
+			assert.NotEqual(t, oldReplicaName, p.Labels[utils.RayWorkerReplicaNameKey])
+		}
+	})
+
+	t.Run("autoscaler WorkersToDelete naming a pod with finalizers", func(t *testing.T) {
+		cluster, workerSpec := newMultiHostTestCluster()
+		r, fakeClient := newMultiHostTestReconciler(nil)
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+		pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 4)
+		for i := range pods {
+			pods[i].Finalizers = []string{"test.ray.io/keep-terminating"}
+			require.NoError(t, fakeClient.Update(ctx, &pods[i]))
+		}
+		workerSpec.ScaleStrategy.WorkersToDelete = []string{pods[0].Name}
+
+		// The first pass deletes the whole group on behalf of the autoscaler; the finalizers keep the pods terminating.
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)))
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 4)
+		for _, p := range pods {
+			require.False(t, p.DeletionTimestamp.IsZero())
+		}
+
+		// While terminating pods remain in etcd, later passes do not re-delete or create a duplicate slice on top of them.
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)))
+		require.Len(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace), 4)
+
+		clearMultiHostTestPodFinalizers(ctx, t, fakeClient, pods)
+		workerSpec.ScaleStrategy.WorkersToDelete = nil
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)))
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 4)
+		for _, p := range pods {
+			assert.True(t, p.DeletionTimestamp.IsZero())
+		}
+	})
+}
+
+func TestReconcileMultiHostWorkerGroup_SurplusInProgressGroupWithAutoscaling(t *testing.T) {
+	setupTest(t)
+	features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, true)
+	ctx := context.Background()
+	cluster, workerSpec := newMultiHostTestCluster()
+
+	createCalls, failOn := 0, 0
+	r, fakeClient := newMultiHostTestReconciler(func(ctx context.Context, c client.WithWatch, pod *corev1.Pod, opts ...client.CreateOption) error {
+		createCalls++
+		if createCalls == failOn {
+			return errors.New("simulated API error")
+		}
+		return c.Create(ctx, pod, opts...)
+	})
+	// Replica group A is complete, replica group B fails after 2 of 4 pods.
+	require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+	workerSpec.Replicas = ptr.To[int32](2)
+	failOn = createCalls + 3
+	require.Error(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)))
+	require.Len(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace), 6)
+
+	// The autoscaler lowers the desired replicas again: the in-progress group is deleted even though random pod
+	// deletion is disabled with in-tree autoscaling, since the autoscaler never asked for it.
+	cluster.Spec.EnableInTreeAutoscaling = new(true)
+	workerSpec.Replicas = ptr.To[int32](1)
+	require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)))
+	pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+	require.Len(t, pods, 4)
+	for _, p := range pods {
+		assert.Equal(t, pods[0].Labels[utils.RayWorkerReplicaNameKey], p.Labels[utils.RayWorkerReplicaNameKey], "the complete group must be kept")
+	}
+}
+
+func TestReconcileMultiHostWorkerGroup_InProgressExternalLossAndParallelMultiSliceProgress(t *testing.T) {
+	setupTest(t)
+	features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, true)
+	ctx := context.Background()
+
+	t.Run("external deletion of a created pod during backfill triggers atomic teardown instead of backfill", func(t *testing.T) {
+		cluster, workerSpec := newMultiHostTestCluster()
+		createCalls := 0
+		failThird := true
+		r, fakeClient := newMultiHostTestReconciler(func(ctx context.Context, c client.WithWatch, pod *corev1.Pod, opts ...client.CreateOption) error {
+			createCalls++
+			if failThird && createCalls == 3 {
+				return errors.New("simulated quota error on hostIndex=2")
+			}
+			return c.Create(ctx, pod, opts...)
+		})
+
+		require.ErrorContains(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil), "simulated quota error")
+		pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 2)
+		oldReplicaName := pods[0].Labels[utils.RayWorkerReplicaNameKey]
+
+		// Externally delete hostIndex=0 while the slice is paused at 2/4 waiting on quota.
+		for i := range pods {
+			if pods[i].Labels[utils.RayHostIndexKey] == "0" {
+				require.NoError(t, fakeClient.Delete(ctx, &pods[i]))
+				break
+			}
+		}
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 1)
+
+		// Step 2 must detect that a previously created host (hostIndex=0) vanished externally and tear down
+		// the surviving sibling (hostIndex=1) instead of backfilling a new hostIndex=0 alongside it.
+		failThird = false
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, pods))
+		assert.Empty(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace))
+
+		// Next reconcile recreates a clean 4-host group under a new replica name.
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 4)
+		assert.NotEqual(t, oldReplicaName, pods[0].Labels[utils.RayWorkerReplicaNameKey])
+	})
+
+	t.Run("simultaneous incomplete group in Step 2 and unhealthy group in Step 3 are torn down in one pass", func(t *testing.T) {
+		cluster, workerSpec := newMultiHostTestCluster()
+		workerSpec.Replicas = ptr.To[int32](2)
+		r, fakeClient := newMultiHostTestReconciler(nil)
+
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+		pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 8)
+
+		var group0Pod, group1Pod *corev1.Pod
+		for i := range pods {
+			if pods[i].Labels[utils.RayWorkerReplicaIndexKey] == "0" && group0Pod == nil {
+				group0Pod = &pods[i]
+			}
+			if pods[i].Labels[utils.RayWorkerReplicaIndexKey] == "1" && group1Pod == nil {
+				group1Pod = &pods[i]
+			}
+		}
+		require.NotNil(t, group0Pod)
+		require.NotNil(t, group1Pod)
+
+		// Group 0 loses a pod externally (incomplete -> Step 2), while Group 1 has a PodFailed (unhealthy -> Step 3).
+		require.NoError(t, fakeClient.Delete(ctx, group0Pod))
+		group1Pod.Status.Phase = corev1.PodFailed
+		require.NoError(t, fakeClient.Status().Update(ctx, group1Pod))
+
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 7)
+
+		// A single reconcile must tear down both Group 0 (Step 2) and Group 1 (Step 3).
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, pods))
+		assert.Empty(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace))
+	})
+
+	t.Run("multi-slice scale-up continues across slices on transient mid-slice error and converges in 2 reconciles", func(t *testing.T) {
+		cluster, workerSpec := newMultiHostTestCluster()
+		workerSpec.Replicas = ptr.To[int32](4)
+
+		failedSlices := make(map[string]bool)
+		r, fakeClient := newMultiHostTestReconciler(func(ctx context.Context, c client.WithWatch, pod *corev1.Pod, opts ...client.CreateOption) error {
+			rep := pod.Labels[utils.RayWorkerReplicaNameKey]
+			if pod.Labels[utils.RayHostIndexKey] == "2" && !failedSlices[rep] {
+				failedSlices[rep] = true
+				return errors.New("simulated transient timeout on hostIndex=2 of " + rep)
+			}
+			return c.Create(ctx, pod, opts...)
+		})
+
+		// Reconcile 1 creates hostIndex 0 and 1 across all 4 slices (8 pods total).
+		require.Error(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+		pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 8)
+
+		// Reconcile 2 backfills hostIndex 2 and 3 across all 4 slices (16 pods total).
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, pods))
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		assert.Len(t, pods, 16)
+	})
+
+	t.Run("duplicate hostIndex label in a 4-pod group is detected and torn down in Step 2", func(t *testing.T) {
+		cluster, workerSpec := newMultiHostTestCluster()
+		r, fakeClient := newMultiHostTestReconciler(nil)
+
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+		pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 4)
+
+		// Corrupt one pod's hostIndex to duplicate "0".
+		for i := range pods {
+			if pods[i].Labels[utils.RayHostIndexKey] == "3" {
+				pods[i].Labels[utils.RayHostIndexKey] = "0"
+				require.NoError(t, fakeClient.Update(ctx, &pods[i]))
+				break
+			}
+		}
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, pods))
+		assert.Empty(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace))
+	})
+
+	t.Run("timed-out create persisted in etcd and later deleted externally during backfill triggers teardown", func(t *testing.T) {
+		cluster, workerSpec := newMultiHostTestCluster()
+		createCalls := 0
+		r, fakeClient := newMultiHostTestReconciler(func(ctx context.Context, c client.WithWatch, pod *corev1.Pod, opts ...client.CreateOption) error {
+			createCalls++
+			switch createCalls {
+			case 3:
+				// Persist hostIndex=2 in etcd, then return a simulated client timeout.
+				if err := c.Create(ctx, pod, opts...); err != nil {
+					return err
+				}
+				return errors.New("simulated client timeout after persisting hostIndex=2")
+			case 4:
+				// Fail hostIndex=3 on the next reconcile so the group remains in backfill.
+				return errors.New("simulated quota error on hostIndex=3")
+			default:
+				return c.Create(ctx, pod, opts...)
+			}
+		})
+
+		// Reconcile 1 creates hostIndex 0, 1, and persists hostIndex 2 before timing out.
+		require.ErrorContains(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil), "simulated client timeout")
+		pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 3)
+
+		// Reconcile 2 sees hostIndex 0, 1, 2 in the cache (syncing hostIndex=2's UID into createdHosts) and fails on hostIndex 3.
+		require.ErrorContains(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, pods), "simulated quota error on hostIndex=3")
+
+		// Externally delete hostIndex=2 before Reconcile 3 runs.
+		for i := range pods {
+			if pods[i].Labels[utils.RayHostIndexKey] == "2" {
+				require.NoError(t, fakeClient.Delete(ctx, &pods[i]))
+				break
+			}
+		}
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 2)
+
+		// Reconcile 3 must detect that hostIndex=2 was externally deleted and tear down the remaining pods.
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, pods))
+		assert.Empty(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace))
+	})
+
+	t.Run("worker pod missing RayWorkerReplicaNameKey is cleaned up in Step 2", func(t *testing.T) {
+		cluster, workerSpec := newMultiHostTestCluster()
+		r, fakeClient := newMultiHostTestReconciler(nil)
+
+		orphan := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "orphan-worker-without-replica-name",
+				Namespace: cluster.Namespace,
+				Labels: map[string]string{
+					utils.RayClusterLabelKey:   cluster.Name,
+					utils.RayNodeGroupLabelKey: workerSpec.GroupName,
+					utils.RayNodeTypeLabelKey:  string(rayv1.WorkerNode),
+				},
+			},
+		}
+		require.NoError(t, fakeClient.Create(ctx, orphan))
+		pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 1)
+
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, pods))
+		assert.Empty(t, listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace))
+	})
+
+	t.Run("reconcilePods prunes tracked slices when worker group is removed or resized to single-host", func(t *testing.T) {
+		cluster, workerSpec := newMultiHostTestCluster()
+		createCalls := 0
+		r, _ := newMultiHostTestReconciler(func(ctx context.Context, c client.WithWatch, pod *corev1.Pod, opts ...client.CreateOption) error {
+			createCalls++
+			if createCalls == 3 {
+				return errors.New("simulated error on hostIndex=2")
+			}
+			return c.Create(ctx, pod, opts...)
+		})
+
+		require.Error(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+		require.Len(t, r.incompleteMultiHostReplicas, 1)
+
+		// Resizing NumOfHosts to 1 prunes the multi-host backfill entry.
+		workerSpec.NumOfHosts = 1
+		workerSpec.Replicas = ptr.To[int32](0)
+		require.NoError(t, r.reconcilePods(ctx, cluster))
+		assert.Empty(t, r.incompleteMultiHostReplicas)
+
+		// Removing the worker group also prunes any tracked multi-host entry.
+		workerSpec.NumOfHosts = 4
+		workerSpec.Replicas = ptr.To[int32](1)
+		createCalls = 0
+		require.Error(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil))
+		require.Len(t, r.incompleteMultiHostReplicas, 1)
+
+		cluster.Spec.WorkerGroupSpecs = nil
+		require.NoError(t, r.reconcilePods(ctx, cluster))
+		assert.Empty(t, r.incompleteMultiHostReplicas)
+	})
+
+	t.Run("failed backfill holds replica slot and index until completed without starting surplus slices", func(t *testing.T) {
+		cluster, workerSpec := newMultiHostTestCluster()
+		workerSpec.Replicas = ptr.To[int32](2)
+
+		failHost3Once := true
+		failFirstSliceHost2Once := true
+		r, fakeClient := newMultiHostTestReconciler(func(ctx context.Context, c client.WithWatch, pod *corev1.Pod, opts ...client.CreateOption) error {
+			if pod.Labels[utils.RayWorkerReplicaIndexKey] == "0" && pod.Labels[utils.RayHostIndexKey] == "2" && failFirstSliceHost2Once {
+				failFirstSliceHost2Once = false
+				return errors.New("simulated transient error on slice 0 hostIndex=2")
+			}
+			if pod.Labels[utils.RayWorkerReplicaIndexKey] == "0" && pod.Labels[utils.RayHostIndexKey] == "3" && failHost3Once {
+				failHost3Once = false
+				return errors.New("simulated transient error during backfill on slice 0 hostIndex=3")
+			}
+			return c.Create(ctx, pod, opts...)
+		})
+
+		// Reconcile 1: slice 0 creates hosts 0..1 then fails on host 2; slice 1 creates hosts 0..3 cleanly.
+		require.ErrorContains(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, nil), "hostIndex=2")
+		pods := listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 6)
+
+		// Reconcile 2: slice 0 backfills host 2, then fails on host 3; its slot stays occupied (no 3rd slice created) and it remains tracked.
+		require.ErrorContains(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, pods), "hostIndex=3")
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 7)
+		require.Len(t, r.incompleteMultiHostReplicas, 1)
+
+		// Reconcile 3: slice 0 backfills host 3 and completes both slices (8 pods total, indices 0 and 1).
+		require.NoError(t, r.reconcileMultiHostWorkerGroup(ctx, cluster, workerSpec, pods))
+		pods = listMultiHostTestPods(ctx, t, fakeClient, cluster.Namespace)
+		require.Len(t, pods, 8)
+		assert.Empty(t, r.incompleteMultiHostReplicas)
+	})
+}

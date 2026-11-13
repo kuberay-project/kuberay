@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -2583,6 +2586,61 @@ func TestNodeLabelKey(t *testing.T) {
 	for _, bad := range []string{"", "metadata.labels", "metadata.labels[\"zone\"]", "metadata.annotations['zone']", "spec.providerID"} {
 		_, err := NodeLabelKey(bad)
 		require.ErrorContains(t, err, "only metadata.labels['<key>'] is supported", bad)
+	}
+}
+
+func TestFormatMultiHostWorkerPodName(t *testing.T) {
+	assert.Equal(t, "my-cluster-tpu-group-worker-x9k2m-3", FormatMultiHostWorkerPodName("my-cluster", "tpu-group", "tpu-group-x9k2m", 3))
+	assert.Equal(t, "my-cluster-tpu-group-worker-", MultiHostWorkerPodNamePrefix("my-cluster", "tpu-group"))
+
+	dns1123Label := regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+	tests := []struct {
+		clusterName string
+		groupName   string
+	}{
+		{clusterName: "my-cluster", groupName: "tpu-group"},
+		{clusterName: "llama3-70b-serve-raycluster-x7k2p", groupName: "tpu-v6e-256-workers"},
+		{clusterName: strings.Repeat("a", 40), groupName: strings.Repeat("b", 20)},
+		{clusterName: "RayService-Upper-Case-Cluster-Name-raycluster-abcde", groupName: "Workers"},
+		// the 45th character of cluster+"-"+group is a dash
+		{clusterName: strings.Repeat("c", 44), groupName: strings.Repeat("d", 20)},
+		{clusterName: "my-cluster", groupName: "grp-"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.clusterName+"/"+tc.groupName, func(t *testing.T) {
+			prefix := MultiHostWorkerPodNamePrefix(tc.clusterName, tc.groupName)
+			assert.LessOrEqual(t, len(prefix), 53)
+			assert.True(t, strings.HasSuffix(prefix, "-worker-"), prefix)
+			assert.NotContains(t, prefix, "--")
+			for _, hostIndex := range []int{0, 9, 10, 99, 100, 999, 1000, 9999} {
+				got := FormatMultiHostWorkerPodName(tc.clusterName, tc.groupName, tc.groupName+"-x9k2m", hostIndex)
+				other := FormatMultiHostWorkerPodName(tc.clusterName, tc.groupName, tc.groupName+"-x9abc", hostIndex)
+				assert.LessOrEqual(t, len(got), 63, got)
+				assert.Regexp(t, dns1123Label, got)
+				assert.True(t, strings.HasPrefix(got, prefix), "%s should start with %s", got, prefix)
+				assert.True(t, strings.HasSuffix(got, "x9k2m-"+strconv.Itoa(hostIndex)), got)
+				assert.NotEqual(t, got, other, "the replica suffix must never be shortened")
+			}
+		})
+	}
+
+	// Non-standard replica group names, large host indices, and dash-only inputs must still produce valid <= 63-char DNS-1123 labels.
+	edgeCases := []struct {
+		clusterName    string
+		groupName      string
+		replicaGrpName string
+		hostIndex      int
+	}{
+		{clusterName: strings.Repeat("a", 40), groupName: strings.Repeat("b", 20), replicaGrpName: "custom-long-replica-group-x9k2m", hostIndex: 7},
+		{clusterName: strings.Repeat("a", 40), groupName: strings.Repeat("b", 20), replicaGrpName: "custom-x9k2m", hostIndex: 12345},
+		{clusterName: "---", groupName: "---", replicaGrpName: "---", hostIndex: 0},
+		{clusterName: "---", groupName: "---", replicaGrpName: strings.Repeat("x", 60), hostIndex: 99},
+	}
+	for _, tc := range edgeCases {
+		got := FormatMultiHostWorkerPodName(tc.clusterName, tc.groupName, tc.replicaGrpName, tc.hostIndex)
+		assert.LessOrEqual(t, len(got), 63, got)
+		assert.Regexp(t, dns1123Label, got)
+		assert.NotContains(t, got, "--")
 	}
 }
 

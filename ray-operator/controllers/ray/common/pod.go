@@ -707,6 +707,11 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 			// These labels are specific to multi-host group setup and reconciliation.
 			podTemplate.Labels[utils.RayWorkerReplicaNameKey] = replicaGrpName
 			podTemplate.Labels[utils.RayHostIndexKey] = strconv.Itoa(numHostIndex)
+			if replicaGrpName != "" {
+				// Deterministic names make the creation of a replica group idempotent across reconciles.
+				podTemplate.ObjectMeta.Name = utils.FormatMultiHostWorkerPodName(instance.Name, workerSpec.GroupName, replicaGrpName, numHostIndex)
+				podTemplate.GenerateName = ""
+			}
 		}
 	}
 	workerSpec.RayStartParams = setMissingRayStartParams(ctx, workerSpec.RayStartParams, rayv1.WorkerNode, headPort, fqdnRayIP)

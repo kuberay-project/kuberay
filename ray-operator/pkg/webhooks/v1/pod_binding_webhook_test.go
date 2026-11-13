@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -96,8 +97,16 @@ func TestPodBindingWebhookHandle(t *testing.T) {
 	collidingPod := newWorkerPod("gpu")
 	collidingPod.Name = "prod-ray-gpu-worker-abcde"
 	collidingPod.Labels[utils.RayClusterLabelKey] = "prod-ray"
+	// multi-host groups with a long cluster+group name use MultiHostWorkerPodNamePrefix (45 chars), which is shorter than PodName (50 chars)
+	longMultiHostCluster := &rayv1.RayCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: strings.Repeat("a", 40), Namespace: "default"},
+		Spec:       rayv1.RayClusterSpec{WorkerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "tpu-v6e-256", NumOfHosts: 4, LabelRefs: []rayv1.LabelRef{nodeLabelRef("topology.kubernetes.io/zone", "")}}}},
+	}
+	multiHostPod := newWorkerPod("tpu-v6e-256")
+	multiHostPod.Name = utils.FormatMultiHostWorkerPodName(longMultiHostCluster.Name, "tpu-v6e-256", "tpu-v6e-256-x9k2m", 0)
+	multiHostPod.Labels[utils.RayClusterLabelKey] = longMultiHostCluster.Name
 	c := fake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(newLabelRefsCluster(), prod, prodRay, topoPod, plainPod, otherPod, collidingPod, zoneNode, bareNode).Build()
+		WithObjects(newLabelRefsCluster(), prod, prodRay, longMultiHostCluster, topoPod, plainPod, otherPod, collidingPod, multiHostPod, zoneNode, bareNode).Build()
 	apiReader := &countingReader{Reader: c}
 
 	newHandler := func(allowed ...string) (*PodBindingWebhook, *events.FakeRecorder) {
@@ -171,6 +180,14 @@ func TestPodBindingWebhookHandle(t *testing.T) {
 
 		withheld(t, handler.Handle(ctx, newBindingRequest(t, newBinding(topoPod.Name, "node-uncached-bare"), false)), recorder, `node lacks label "topology.kubernetes.io/zone"`)
 		assert.Equal(t, 1, fallbackReader.gets, "uncached unlabeled node must only hit APIReader once")
+	})
+
+	t.Run("delivers the mapped labels to a deterministically named multi-host worker pod", func(t *testing.T) {
+		handler, recorder := newHandler("topology.kubernetes.io/zone")
+		resp := handler.Handle(ctx, newBindingRequest(t, newBinding(multiHostPod.Name, "node-a"), false))
+		require.True(t, resp.Allowed, resp.Result)
+		assert.Equal(t, map[string]string{"topology.kubernetes.io/zone": "us-central1-a"}, deliveredLabels(t, resp))
+		assert.Empty(t, drainEvents(recorder))
 	})
 
 	t.Run("resolves the group from the pod labels when name prefixes collide", func(t *testing.T) {
