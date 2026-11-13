@@ -125,6 +125,10 @@ message RayJobSubmitter{
   string cpu = 2;
   // Optional memory for the submitter - default "1Gi"
   string memory = 3;
+  // Optional. Annotations for the submitter pod
+  map<string, string> annotations = 4;
+  // Optional. Labels for the submitter pod (e.g. sidecar.istio.io/inject)
+  map<string, string> labels = 5;
 }
 
 // RayJob definition
