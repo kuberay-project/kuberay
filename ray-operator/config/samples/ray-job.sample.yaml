@@ -52,13 +52,6 @@ spec:
           containers:
           - name: ray-head
             image: rayproject/ray:2.52.0
-            ports:
-            - containerPort: 6379
-              name: gcs-server
-            - containerPort: 8265 # Ray dashboard
-              name: dashboard
-            - containerPort: 10001
-              name: client
             resources:
               limits:
                 cpu: "1"

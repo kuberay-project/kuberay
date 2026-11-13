@@ -24,13 +24,6 @@ spec:
             requests:
               cpu: "1"
               memory: "2Gi"
-          ports:
-          - containerPort: 6379
-            name: gcs-server
-          - containerPort: 8265 # Ray dashboard
-            name: dashboard
-          - containerPort: 10001
-            name: client
           # `command` and `args` will become a part of `spec.containers.0.args` in the head Pod.
           command: ["echo 123"]
           args: ["456"]

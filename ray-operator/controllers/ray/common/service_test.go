@@ -142,8 +142,7 @@ func TestBuildServiceForHeadPod(t *testing.T) {
 	assert.Equal(t, corev1.ClusterIPNone, svc.Spec.ClusterIP)
 }
 
-// Test that default ports are applied when none are specified. The metrics
-// port is always added if not explicitly set.
+// Test that default ports are applied for each missing named port.
 func TestBuildServiceForHeadPodDefaultPorts(t *testing.T) {
 	type testCase struct {
 		name         string
@@ -166,9 +165,12 @@ func TestBuildServiceForHeadPodDefaultPorts(t *testing.T) {
 				},
 			},
 			expectResult: map[string]int32{
-				"random": 1234,
-				// metrics port will always be there
-				utils.MetricsPortName: utils.DefaultMetricsPort,
+				"random":                1234,
+				utils.ClientPortName:    utils.DefaultClientPort,
+				utils.GcsServerPortName: utils.DefaultGcsServerPort,
+				utils.DashboardPortName: utils.DefaultDashboardPort,
+				utils.MetricsPortName:   utils.DefaultMetricsPort,
+				utils.ServingPortName:   utils.DefaultServingPort,
 			},
 		},
 	}
@@ -246,16 +248,16 @@ func TestGetPortsFromCluster(t *testing.T) {
 	}
 }
 
-func TestGetServicePortsWithMetricsPort(t *testing.T) {
+func TestGetServicePorts(t *testing.T) {
 	testCases := []struct {
+		expectResult map[string]int32
 		name         string
 		ports        []corev1.ContainerPort
-		expectResult int32
 	}{
 		{
 			name:         "No ports are specified by the user.",
 			ports:        []corev1.ContainerPort{},
-			expectResult: int32(utils.DefaultMetricsPort),
+			expectResult: getDefaultPorts(),
 		},
 		{
 			name: "Only a random port is specified by the user.",
@@ -265,17 +267,46 @@ func TestGetServicePortsWithMetricsPort(t *testing.T) {
 					ContainerPort: 1234,
 				},
 			},
-			expectResult: int32(utils.DefaultMetricsPort),
+			expectResult: map[string]int32{
+				"random":                1234,
+				utils.ClientPortName:    utils.DefaultClientPort,
+				utils.GcsServerPortName: utils.DefaultGcsServerPort,
+				utils.DashboardPortName: utils.DefaultDashboardPort,
+				utils.MetricsPortName:   utils.DefaultMetricsPort,
+				utils.ServingPortName:   utils.DefaultServingPort,
+			},
 		},
 		{
-			name: "A custom port is specified by the user.",
+			name: "A custom metrics port is specified by the user.",
 			ports: []corev1.ContainerPort{
 				{
 					Name:          utils.MetricsPortName,
 					ContainerPort: int32(utils.DefaultMetricsPort) + 1,
 				},
 			},
-			expectResult: int32(utils.DefaultMetricsPort) + 1,
+			expectResult: map[string]int32{
+				utils.ClientPortName:    utils.DefaultClientPort,
+				utils.GcsServerPortName: utils.DefaultGcsServerPort,
+				utils.DashboardPortName: utils.DefaultDashboardPort,
+				utils.MetricsPortName:   int32(utils.DefaultMetricsPort) + 1,
+				utils.ServingPortName:   utils.DefaultServingPort,
+			},
+		},
+		{
+			name: "Do not assign duplicate default ports.",
+			ports: []corev1.ContainerPort{
+				{
+					Name:          "random",
+					ContainerPort: utils.DefaultMetricsPort,
+				},
+			},
+			expectResult: map[string]int32{
+				"random":                utils.DefaultMetricsPort,
+				utils.ClientPortName:    utils.DefaultClientPort,
+				utils.GcsServerPortName: utils.DefaultGcsServerPort,
+				utils.DashboardPortName: utils.DefaultDashboardPort,
+				utils.ServingPortName:   utils.DefaultServingPort,
+			},
 		},
 	}
 	for _, testCase := range testCases {
@@ -283,9 +314,32 @@ func TestGetServicePortsWithMetricsPort(t *testing.T) {
 			cluster := instanceWithWrongSvc.DeepCopy()
 			cluster.Spec.HeadGroupSpec.Template.Spec.Containers[0].Ports = testCase.ports
 			ports := getServicePorts(*cluster)
-			assert.Equal(t, testCase.expectResult, ports[utils.MetricsPortName])
+			assert.Equal(t, testCase.expectResult, ports)
 		})
 	}
+}
+
+func TestGetSkippedDefaultPortNames(t *testing.T) {
+	defaultPorts := getDefaultPorts()
+
+	t.Run("skip default name when default number is occupied by another name", func(t *testing.T) {
+		userPorts := map[string]int32{
+			"random": utils.DefaultMetricsPort,
+		}
+		skipped := getSkippedDefaultPortNames(userPorts, defaultPorts)
+
+		require.Contains(t, skipped, utils.MetricsPortName)
+		assert.Equal(t, "random", skipped[utils.MetricsPortName])
+	})
+
+	t.Run("do not skip when default name is explicitly defined", func(t *testing.T) {
+		userPorts := map[string]int32{
+			utils.MetricsPortName: utils.DefaultMetricsPort + 1,
+		}
+		skipped := getSkippedDefaultPortNames(userPorts, defaultPorts)
+
+		require.NotContains(t, skipped, utils.MetricsPortName)
+	})
 }
 
 func TestUserSpecifiedHeadService(t *testing.T) {
@@ -414,18 +468,37 @@ func TestUserSpecifiedHeadService(t *testing.T) {
 	}
 	t.Logf("head service: %s", string(headServiceJSON))
 
-	// Test merged ports
-	for _, p := range userPorts {
-		found := false
-		for _, hp := range headService.Spec.Ports {
-			if p.Name == hp.Name && p.Port == hp.Port {
-				found = true
-				break
-			}
+	// "userPort" should be preserved.
+	foundUserPort := false
+	for _, hp := range headService.Spec.Ports {
+		if hp.Name == userPort.Name && hp.Port == userPort.Port {
+			foundUserPort = true
+			break
 		}
-		if !found {
-			t.Errorf("User port not found: %v", p)
+	}
+	assert.True(t, foundUserPort, "Expected user-defined non-overlapping port to be preserved")
+
+	// Overlapping user "client" port should be ignored and default should be used.
+	for _, hp := range headService.Spec.Ports {
+		assert.NotEqual(t, userPortOverride, hp, "Expected overlapping user client port to be ignored")
+	}
+	foundDefaultClientPort := false
+	for _, hp := range headService.Spec.Ports {
+		if hp.Name == utils.ClientPortName && hp.Port == utils.DefaultClientPort {
+			foundDefaultClientPort = true
+			break
 		}
+	}
+	assert.True(t, foundDefaultClientPort, "Expected default client port to be present")
+
+	// Ensure there are no duplicate port names.
+	seenNames := map[string]bool{}
+	for _, hp := range headService.Spec.Ports {
+		if hp.Name == "" {
+			continue
+		}
+		assert.False(t, seenNames[hp.Name], "Unexpected duplicate service port name: %s", hp.Name)
+		seenNames[hp.Name] = true
 	}
 
 	validateServiceTypeForUserSpecifiedService(headService, userType, t)
@@ -508,6 +581,7 @@ func TestBuildServeServiceForRayCluster(t *testing.T) {
 
 func TestBuildServeServiceForRayService_WithoutServePort(t *testing.T) {
 	// Create a RayCluster without a port with the name "serve" in the Ray head container.
+	// The serve service should still be created with the default serve port.
 	cluster := rayv1.RayCluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "raycluster-sample",
@@ -531,8 +605,11 @@ func TestBuildServeServiceForRayService_WithoutServePort(t *testing.T) {
 		},
 	}
 	svc, err := BuildServeServiceForRayService(context.Background(), *serviceInstance, cluster)
-	require.Error(t, err)
-	assert.Nil(t, svc)
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+	require.Len(t, svc.Spec.Ports, 1)
+	assert.Equal(t, utils.ServingPortName, svc.Spec.Ports[0].Name)
+	assert.Equal(t, int32(utils.DefaultServingPort), svc.Spec.Ports[0].Port)
 }
 
 func TestUserSpecifiedServeService(t *testing.T) {
@@ -587,15 +664,72 @@ func TestUserSpecifiedServeService(t *testing.T) {
 		t.Errorf("Serve Service selector key %s value didn't match expected value : expected value=%s, actual value=%s", utils.RayClusterServingServiceLabelKey, utils.EnableRayClusterServingServiceTrue, svc.Spec.Selector[utils.RayClusterServingServiceLabelKey])
 	}
 
-	// When user specifies a port with the same name as an auto-detected port,
-	// the user's definition takes precedence (preserving fields like AppProtocol).
+	// When the head container explicitly defines the "serve" port, it remains authoritative.
 	assert.Len(t, svc.Spec.Ports, 1)
 	assert.Equal(t, utils.ServingPortName, svc.Spec.Ports[0].Name)
-	assert.Equal(t, int32(12345), svc.Spec.Ports[0].Port)
+	assert.Equal(t, int32(utils.DefaultServingPort), svc.Spec.Ports[0].Port)
 
 	validateServiceTypeForUserSpecifiedService(svc, userType, t)
 	validateLabelsForUserSpecifiedService(svc, userLabels, t)
 	validateNameAndNamespaceForUserSpecifiedService(svc, testRayServiceWithServeService.ObjectMeta.Namespace, userName, t)
+}
+
+func TestUserSpecifiedServeServiceWithoutHeadServePort(t *testing.T) {
+	testRayServiceWithServeService := serviceInstance.DeepCopy()
+
+	clusterWithoutServePort := instanceWithWrongSvc.DeepCopy()
+	clusterWithoutServePort.Spec.HeadGroupSpec.Template.Spec.Containers[0].Ports = []corev1.ContainerPort{
+		{ContainerPort: 6379, Name: utils.GcsServerPortName},
+	}
+
+	customServePort := int32(18080)
+	testRayServiceWithServeService.Spec.ServeService = &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "custom-serve-service",
+			Namespace: "ignored-namespace",
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{Name: utils.ServingPortName, Port: customServePort},
+				{Name: utils.ClientPortName, Port: 19999},
+			},
+		},
+	}
+
+	svc, err := BuildServeServiceForRayService(context.Background(), *testRayServiceWithServeService, *clusterWithoutServePort)
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+	require.Len(t, svc.Spec.Ports, 1)
+	assert.Equal(t, utils.ServingPortName, svc.Spec.Ports[0].Name)
+	assert.Equal(t, customServePort, svc.Spec.Ports[0].Port)
+}
+
+func TestUserSpecifiedServeServiceWithoutAnyServePort(t *testing.T) {
+	testRayServiceWithServeService := serviceInstance.DeepCopy()
+
+	clusterWithoutServePort := instanceWithWrongSvc.DeepCopy()
+	clusterWithoutServePort.Spec.HeadGroupSpec.Template.Spec.Containers[0].Ports = []corev1.ContainerPort{
+		{ContainerPort: 6379, Name: utils.GcsServerPortName},
+	}
+
+	testRayServiceWithServeService.Spec.ServeService = &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "custom-serve-service-no-serve-port",
+			Namespace: "ignored-namespace",
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{Name: utils.ClientPortName, Port: 19999},
+			},
+		},
+	}
+
+	svc, err := BuildServeServiceForRayService(context.Background(), *testRayServiceWithServeService, *clusterWithoutServePort)
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+	require.Len(t, svc.Spec.Ports, 1)
+	assert.Equal(t, utils.ServingPortName, svc.Spec.Ports[0].Name)
+	assert.Equal(t, int32(utils.DefaultServingPort), svc.Spec.Ports[0].Port)
 }
 
 func TestBuildServeServiceWithGrpcPort(t *testing.T) {
@@ -702,12 +836,11 @@ func TestUserSpecifiedServeServiceWithGrpcPort(t *testing.T) {
 	}
 
 	// instanceWithWrongSvc has serve:8000 in its container ports.
-	// The custom ServeService also specifies serve-grpc:9000, but since
-	// auto-detected ports (serve:8000) are non-empty, only those are used.
+	// The explicit head "serve" port remains authoritative, so only that port is used.
 	svc, err := BuildServeServiceForRayService(context.Background(), *testRayServiceWithServeService, *instanceWithWrongSvc)
 	require.NoError(t, err)
 
-	// Only the auto-detected serve port from the container spec is included
+	// Only the explicit head "serve" port from the container spec is included.
 	assert.Len(t, svc.Spec.Ports, 1)
 	assert.Equal(t, utils.ServingPortName, svc.Spec.Ports[0].Name)
 	assert.Equal(t, int32(8000), svc.Spec.Ports[0].Port)
@@ -771,7 +904,8 @@ func TestUserSpecifiedServeServiceAppProtocolPreserved(t *testing.T) {
 }
 
 func TestUserSpecifiedServeServiceFallbackPreservesAppProtocol(t *testing.T) {
-	// Cluster with NO serve ports in container spec
+	// Cluster with no explicit serving ports in the container spec.
+	// The operator falls back to the default "serve" port.
 	cluster := rayv1.RayCluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "raycluster-no-serve",
@@ -812,14 +946,10 @@ func TestUserSpecifiedServeServiceFallbackPreservesAppProtocol(t *testing.T) {
 	svc, err := BuildServeServiceForRayService(context.Background(), *testRayService, cluster)
 	require.NoError(t, err)
 
-	// All user-provided ports are kept as-is when no ports are auto-detected
-	assert.Len(t, svc.Spec.Ports, 2)
-	assert.Equal(t, "serve-grpc", svc.Spec.Ports[0].Name)
-	assert.Equal(t, int32(9000), svc.Spec.Ports[0].Port)
-	require.NotNil(t, svc.Spec.Ports[0].AppProtocol)
-	assert.Equal(t, "kubernetes.io/h2c", *svc.Spec.Ports[0].AppProtocol)
-	assert.Equal(t, "not-a-serve-port", svc.Spec.Ports[1].Name)
-	assert.Equal(t, int32(1234), svc.Spec.Ports[1].Port)
+	require.Len(t, svc.Spec.Ports, 1)
+	assert.Equal(t, utils.ServingPortName, svc.Spec.Ports[0].Name)
+	assert.Equal(t, int32(utils.DefaultServingPort), svc.Spec.Ports[0].Port)
+	assert.Nil(t, svc.Spec.Ports[0].AppProtocol)
 }
 
 func TestIsServingPort(t *testing.T) {

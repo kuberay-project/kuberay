@@ -35,7 +35,7 @@ spec:
             value: http://frontend:9090
           ports:
           - containerPort: 6379
-            name: gcs
+            name: gcs-server
           - containerPort: 8265
             name: dashboard
           - containerPort: 10001
