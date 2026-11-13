@@ -430,28 +430,13 @@ func (options *ClusterLogOptions) downloadRayLogFiles(ctx context.Context, exec 
 				return fmt.Errorf("Error creating directory: %w", err)
 			}
 		case tar.TypeReg:
-			// Check for overflow: G115
+			// Check for overflow: G115, skip files with an invalid mode
 			if header.Mode < 0 || header.Mode > math.MaxUint32 {
 				fmt.Fprintf(options.ioStreams.Out, "file mode out side of acceptable value %d skipping file\n", header.Mode)
+				break
 			}
-			// Create file and write contents
-			outFile, err := os.OpenFile(localFilePath, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode)) //nolint:gosec // overflow is guarded by bounds check above
-			if err != nil {
-				return fmt.Errorf("Error creating file: %w", err)
-			}
-			defer outFile.Close()
-			// This is to limit the copy size for a decompression bomb, currently set arbitrarily
-			for {
-				n, err := io.CopyN(outFile, tarReader, 1000000)
-				if err != nil {
-					if errors.Is(err, io.EOF) {
-						break
-					}
-					return fmt.Errorf("failed while writing to file: %w", err)
-				}
-				if n == 0 {
-					break
-				}
+			if err := writeTarFile(localFilePath, os.FileMode(header.Mode), tarReader); err != nil {
+				return err
 			}
 		default:
 			fmt.Printf("Ignoring unsupported file type: %b", header.Typeflag)
@@ -463,6 +448,30 @@ func (options *ClusterLogOptions) downloadRayLogFiles(ctx context.Context, exec 
 		}
 	}
 
+	return nil
+}
+
+// writeTarFile copies the current tar entry into a file at localFilePath. It is a separate function
+// so the file is closed as soon as the entry is written, instead of when the extraction loop ends.
+func writeTarFile(localFilePath string, mode os.FileMode, tarReader io.Reader) error {
+	outFile, err := os.OpenFile(localFilePath, os.O_CREATE|os.O_RDWR, mode)
+	if err != nil {
+		return fmt.Errorf("Error creating file: %w", err)
+	}
+	defer outFile.Close()
+	// This is to limit the copy size for a decompression bomb, currently set arbitrarily
+	for {
+		n, err := io.CopyN(outFile, tarReader, 1000000)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return fmt.Errorf("failed while writing to file: %w", err)
+		}
+		if n == 0 {
+			break
+		}
+	}
 	return nil
 }
 
