@@ -131,8 +131,11 @@ func MoveSessionLogsToPrevLogs(sessionDir, nodeID string) error {
 
 	oldLogsDir := filepath.Join(sessionDir, "logs")
 	if _, err := os.Stat(oldLogsDir); err != nil {
-		// No logs directory, nothing to move
-		return nil
+		if os.IsNotExist(err) {
+			// No logs directory, nothing to move
+			return nil
+		}
+		return err
 	}
 
 	dest := filepath.Join(GetTmpRayRoot(), "prev-logs", sessionName, nodeID)
