@@ -156,7 +156,7 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 		// update the JobDeploymentStatus to ValidationFailed if there's validation error.
 		if err = r.updateRayJobStatus(ctx, originalRayJobInstance, rayJobInstance); err != nil {
 			logger.Info("Failed to update RayJob status", "error", err)
-			return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
+			return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, utils.IgnoreConflict(err)
 		}
 		return ctrl.Result{}, nil
 	}
@@ -462,7 +462,7 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 	// code between `checkBackoffLimitAndUpdateStatusIfNeeded` and the following code.
 	if err = r.updateRayJobStatus(ctx, originalRayJobInstance, rayJobInstance); err != nil {
 		logger.Info("Failed to update RayJob status", "error", err)
-		return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
+		return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, utils.IgnoreConflict(err)
 	}
 	emitRayJobMetrics(r.options.RayJobMetricsManager, rayJobInstance.Name, rayJobInstance.Namespace, rayJobInstance.UID, originalRayJobInstance.Status, rayJobInstance.Status)
 	return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, nil

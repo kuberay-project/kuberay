@@ -165,17 +165,19 @@ func (r *RayServiceReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 
 		if updateErr := r.Status().Update(ctx, rayServiceInstance); updateErr != nil {
 			logger.Info("Failed to update RayService status", "error", updateErr)
-			return ctrl.Result{RequeueAfter: ServiceDefaultRequeueDuration}, updateErr
+			return ctrl.Result{RequeueAfter: ServiceDefaultRequeueDuration}, utils.IgnoreConflict(updateErr)
 		}
 		return ctrl.Result{}, nil
 	}
 
 	result, err := r.handleSuspend(ctx, rayServiceInstance)
 	if updateErr := r.updateStatusIfChanged(ctx, originalRayServiceInstance, rayServiceInstance); updateErr != nil && err == nil {
-		err = updateErr
+		logger.Info("Failed to update RayService status", "error", updateErr)
 		if (result == ctrl.Result{}) {
 			result = ctrl.Result{RequeueAfter: ServiceDefaultRequeueDuration}
 		}
+		// Stop here on any error, including a Conflict: the rest of Reconcile must not run on a stale object.
+		return result, utils.IgnoreConflict(updateErr)
 	}
 	if err != nil || suspendIsOperative(rayServiceInstance) {
 		return result, err
@@ -324,7 +326,8 @@ func (r *RayServiceReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 	if utils.InconsistentRayServiceStatuses(originalRayServiceInstance.Status, rayServiceInstance.Status) {
 		rayServiceInstance.Status.LastUpdateTime = &metav1.Time{Time: time.Now()}
 		if errStatus := r.Status().Update(ctx, rayServiceInstance); errStatus != nil {
-			return ctrl.Result{RequeueAfter: ServiceDefaultRequeueDuration}, errStatus
+			logger.Info("Failed to update RayService status", "error", errStatus)
+			return ctrl.Result{RequeueAfter: ServiceDefaultRequeueDuration}, utils.IgnoreConflict(errStatus)
 		}
 	}
 	return ctrl.Result{RequeueAfter: ServiceDefaultRequeueDuration}, nil

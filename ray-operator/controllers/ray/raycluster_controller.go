@@ -416,7 +416,8 @@ func (r *RayClusterReconciler) rayClusterReconcile(ctx context.Context, instance
 	} else if calculateErr != nil {
 		err = calculateErr
 	} else {
-		err = updateErr
+		// On a Conflict, `inconsistent` is still true, so the reconcile is requeued below without an error.
+		err = utils.IgnoreConflict(updateErr)
 	}
 	// If the custom resource's status is updated, requeue the reconcile key.
 	// Without this behavior, atomic operations such as the suspend operation would need to wait for `RAYCLUSTER_DEFAULT_REQUEUE_SECONDS` to delete Pods
