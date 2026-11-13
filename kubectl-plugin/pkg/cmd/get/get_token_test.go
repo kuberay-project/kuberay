@@ -15,6 +15,7 @@ import (
 	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util/client"
 	clienttesting "github.com/ray-project/kuberay/kubectl-plugin/pkg/util/client/testing"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 )
 
 // Tests the Run() step of the command and ensure that the output is as expected.
@@ -43,7 +44,7 @@ func TestTokenGetRun(t *testing.T) {
 			Namespace: "test",
 		},
 		Data: map[string][]byte{
-			"auth_token": []byte("token"),
+			utils.RAY_AUTH_TOKEN_SECRET_KEY: []byte("token"),
 		},
 	}
 
@@ -61,5 +62,5 @@ func TestTokenGetRun(t *testing.T) {
 	err = fakeTokenGetOptions.Run(t.Context(), k8sClients)
 	require.NoError(t, err)
 
-	assert.Equal(t, secret.Data["auth_token"], resBuf.Bytes())
+	assert.Equal(t, secret.Data[utils.RAY_AUTH_TOKEN_SECRET_KEY], resBuf.Bytes())
 }
