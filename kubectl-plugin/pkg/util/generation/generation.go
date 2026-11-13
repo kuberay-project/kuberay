@@ -452,8 +452,9 @@ func ParseConfigFile(filePath string) (*RayClusterConfig, error) {
 	return config, nil
 }
 
-// ValidateConfig validates the RayClusterConfig object
-func ValidateConfig(config *RayClusterConfig) error {
+// ValidateConfig validates the RayClusterConfig object. If skipTPUValidation is true,
+// TPU accelerator/topology/num-of-hosts checks are skipped.
+func ValidateConfig(config *RayClusterConfig, skipTPUValidation bool) error {
 	// Validate head resource quantities
 	resourceFields := map[string]*string{
 		"cpu":               config.Head.CPU,
@@ -490,8 +491,10 @@ func ValidateConfig(config *RayClusterConfig) error {
 			}
 		}
 
-		if err := util.ValidateTPU(workerGroup.TPU, workerGroup.NumOfHosts, workerGroup.NodeSelectors); err != nil {
-			return fmt.Errorf("%w", err)
+		if !skipTPUValidation {
+			if err := util.ValidateTPU(workerGroup.TPU, workerGroup.NumOfHosts, workerGroup.NodeSelectors); err != nil {
+				return fmt.Errorf("%w", err)
+			}
 		}
 	}
 
