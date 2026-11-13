@@ -298,4 +298,18 @@ var _ = Describe("RayFrameworkGenerator", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(errors.Is(err, context.DeadlineExceeded)).To(BeTrue())
 	})
+
+	It("Test delete job returns error on 500", func() {
+		httpmock.Activate()
+		defer httpmock.DeactivateAndReset()
+		httpmock.RegisterResponder(http.MethodDelete, rayDashboardClient.dashboardURL+JobPath+"delete-job-2",
+			func(_ *http.Request) (*http.Response, error) {
+				return httpmock.NewStringResponse(500, "Internal Server Error"), nil
+			})
+
+		err := rayDashboardClient.DeleteJob(context.TODO(), "delete-job-2")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("DeleteJob fail"))
+		Expect(err.Error()).To(ContainSubstring("500"))
+	})
 })
