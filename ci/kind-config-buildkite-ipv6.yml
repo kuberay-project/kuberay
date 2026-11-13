@@ -2,6 +2,7 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 networking:
   ipFamily: ipv6
+  dnsSearch: []
   apiServerAddress: "0.0.0.0"
   # Ensure stable port so the API server remains reachable from the CI container.
   apiServerPort: 6443

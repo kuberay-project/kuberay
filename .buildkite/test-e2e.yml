@@ -26,7 +26,6 @@
   commands:
     - source .buildkite/setup-env.sh
     - kind create cluster --wait 900s --config ./ci/kind-config-buildkite-ipv6.yml
-    - docker exec kind-control-plane sh -c 'grep -v "^search " /etc/resolv.conf > /tmp/resolv.conf && cat /tmp/resolv.conf > /etc/resolv.conf'
     - kubectl config set clusters.kind-kind.server https://docker:6443
     - pushd ray-operator
     - make certmanager

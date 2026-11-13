@@ -1121,8 +1121,9 @@ func GetRayDashboardClientFunc(ctx context.Context, mgr manager.Manager, useKube
 }
 
 // GetServiceIPFamily returns the primary IP family of a Service. It prefers spec.ipFamilies,
-// which the API server populates on creation, and falls back to the family of spec.clusterIP.
-// IPv4 is returned when neither is available (for example a headless Service with no ipFamilies).
+// which the API server populates on creation (headless Services included), and falls back to
+// the family of spec.clusterIP. IPv4 is returned when neither is available, which only happens
+// for a Service that has not been defaulted by the API server.
 func GetServiceIPFamily(svc *corev1.Service) corev1.IPFamily {
 	if len(svc.Spec.IPFamilies) > 0 {
 		return svc.Spec.IPFamilies[0]
