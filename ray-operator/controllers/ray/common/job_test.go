@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -83,12 +85,12 @@ func TestBuildJobSubmitCommandWithK8sJobMode(t *testing.T) {
 		"!", "ray", "job", "status", "--address", "http://127.0.0.1:8265", "testJobId", ">/dev/null", "2>&1",
 		";", "then",
 		"ray", "job", "submit", "--address", "http://127.0.0.1:8265", "--no-wait",
-		"--runtime-env-json", strconv.Quote(`{"test":"test"}`),
-		"--metadata-json", strconv.Quote(`{"testKey":"testValue"}`),
+		"--runtime-env-json", `'{"test":"test"}'`,
+		"--metadata-json", `'{"testKey":"testValue"}'`,
 		"--submission-id", "testJobId",
 		"--entrypoint-num-cpus", "1.000000",
 		"--entrypoint-num-gpus", "0.500000",
-		"--entrypoint-resources", strconv.Quote(`{"Custom_1": 1, "Custom_2": 5.5}`),
+		"--entrypoint-resources", `'{"Custom_1": 1, "Custom_2": 5.5}'`,
 		"--",
 		"echo no quote 'single quote' \"double quote\"",
 		";", "fi", ";",
@@ -122,12 +124,12 @@ func TestBuildJobSubmitCommandWithSidecarMode(t *testing.T) {
 		">/dev/null", "2>&1", ";",
 		"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at http://127.0.0.1:8265 ..."), ";", "sleep", "2", ";", "done", ";",
 		"ray", "job", "submit", "--address", "http://127.0.0.1:8265",
-		"--runtime-env-json", strconv.Quote(`{"test":"test"}`),
-		"--metadata-json", strconv.Quote(`{"testKey":"testValue"}`),
+		"--runtime-env-json", `'{"test":"test"}'`,
+		"--metadata-json", `'{"testKey":"testValue"}'`,
 		"--submission-id", "testJobId",
 		"--entrypoint-num-cpus", "1.000000",
 		"--entrypoint-num-gpus", "0.500000",
-		"--entrypoint-resources", strconv.Quote(`{"Custom_1": 1, "Custom_2": 5.5}`),
+		"--entrypoint-resources", `'{"Custom_1": 1, "Custom_2": 5.5}'`,
 		"--",
 		"echo no quote 'single quote' \"double quote\"",
 		";",
@@ -294,12 +296,12 @@ func TestBuildJobSubmitCommandWithSidecarModeAndFeatureGate(t *testing.T) {
 		"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at http://127.0.0.1:8265 ..."), ";", "sleep", "2", ";", "done", ";",
 		"if", "!", "ray", "job", "status", "--address", "http://127.0.0.1:8265", "testJobId", ">/dev/null", "2>&1", ";", "then",
 		"ray", "job", "submit", "--address", "http://127.0.0.1:8265", "--no-wait",
-		"--runtime-env-json", strconv.Quote(`{"test":"test"}`),
-		"--metadata-json", strconv.Quote(`{"testKey":"testValue"}`),
+		"--runtime-env-json", `'{"test":"test"}'`,
+		"--metadata-json", `'{"testKey":"testValue"}'`,
 		"--submission-id", "testJobId",
 		"--entrypoint-num-cpus", "1.000000",
 		"--entrypoint-num-gpus", "0.500000",
-		"--entrypoint-resources", strconv.Quote(`{"Custom_1": 1, "Custom_2": 5.5}`),
+		"--entrypoint-resources", `'{"Custom_1": 1, "Custom_2": 5.5}'`,
 		"--",
 		"echo no quote 'single quote' \"double quote\"",
 		";", "fi", ";",
@@ -339,8 +341,8 @@ pip: ["python-multipart==0.0.6"]
 		"!", "ray", "job", "status", "--address", "http://127.0.0.1:8265", "testJobId", ">/dev/null", "2>&1",
 		";", "then",
 		"ray", "job", "submit", "--address", "http://127.0.0.1:8265", "--no-wait",
-		"--runtime-env-json", strconv.Quote(`{"working_dir":"https://github.com/ray-project/serve_config_examples/archive/b393e77bbd6aba0881e3d94c05f968f05a387b96.zip","pip":["python-multipart==0.0.6"]}`),
-		"--metadata-json", strconv.Quote(`{"testKey":"testValue"}`),
+		"--runtime-env-json", `'{"working_dir":"https://github.com/ray-project/serve_config_examples/archive/b393e77bbd6aba0881e3d94c05f968f05a387b96.zip","pip":["python-multipart==0.0.6"]}'`,
+		"--metadata-json", `'{"testKey":"testValue"}'`,
 		"--submission-id", "testJobId",
 		"--",
 		"echo no quote 'single quote' \"double quote\"",
@@ -359,14 +361,12 @@ pip: ["python-multipart==0.0.6"]
 		if expected[i] == "--runtime-env-json" {
 			// Decode the JSON string from the next element.
 			var expectedMap, actualMap map[string]any
+			// The value is single-quoted for bash and contains no single quotes, so trimming them yields the JSON.
 			//nolint:gosec // G602: test invariant guarantees "--runtime-env-json" is followed by a value.
-			unquoteExpected, err1 := strconv.Unquote(expected[i+1])
-			require.NoError(t, err1)
-
-			unquotedCommand, err2 := strconv.Unquote(command[i+1])
-			require.NoError(t, err2)
-			err1 = json.Unmarshal([]byte(unquoteExpected), &expectedMap)
-			err2 = json.Unmarshal([]byte(unquotedCommand), &actualMap)
+			unquoteExpected := strings.Trim(expected[i+1], "'")
+			unquotedCommand := strings.Trim(command[i+1], "'")
+			err1 := json.Unmarshal([]byte(unquoteExpected), &expectedMap)
+			err2 := json.Unmarshal([]byte(unquotedCommand), &actualMap)
 
 			// If there's an error decoding either JSON string, it's an error in the test.
 			require.NoError(t, err1)
@@ -410,8 +410,7 @@ func TestBuildJobSubmitCommandWithClusterSelector(t *testing.T) {
 		if arg == "--metadata-json" {
 			hasMetadataFlag = true
 			require.Greater(t, len(command), i+1)
-			unquoted, err := strconv.Unquote(command[i+1])
-			require.NoError(t, err)
+			unquoted := strings.Trim(command[i+1], "'")
 			var metadata map[string]string
 			require.NoError(t, json.Unmarshal([]byte(unquoted), &metadata))
 			assert.Equal(t, "tenant1", metadata["tenant"])
@@ -492,8 +491,7 @@ func TestBuildJobSubmitCommandWithUnsetRayVersion(t *testing.T) {
 		if arg == "--metadata-json" {
 			hasMetadataFlag = true
 			require.Greater(t, len(command), i+1)
-			unquoted, err := strconv.Unquote(command[i+1])
-			require.NoError(t, err)
+			unquoted := strings.Trim(command[i+1], "'")
 			var metadata map[string]string
 			require.NoError(t, json.Unmarshal([]byte(unquoted), &metadata))
 			assert.Equal(t, "testValue", metadata["testKey"])
@@ -524,4 +522,37 @@ func TestGetSubmitterTemplate(t *testing.T) {
 	}
 	template := GetSubmitterTemplate(&rayJob.Spec, &rayCluster.Spec)
 	assert.Equal(t, template.Spec.Containers[0].Image, rayCluster.Spec.HeadGroupSpec.Template.Spec.Containers[utils.RayContainerIndex].Image)
+}
+
+func TestBuildJobSubmitCommandJSONArgsSurviveShellParsing(t *testing.T) {
+	// The submitter runs the generated command via `/bin/bash -c`, so JSON flag values must reach
+	// `ray job submit` byte-for-byte. Ray runtime_env env_vars support `${VAR}` references that are
+	// expanded on the Ray worker, so the submitter shell must not expand them.
+	rayJob := rayJobTemplate()
+	rayJob.Spec.RuntimeEnvYAML = `env_vars: {LD_LIBRARY_PATH: "${LD_LIBRARY_PATH}:/opt/lib", PASSWORD: "p$ss` + "`id`" + `'q"}`
+	rayJob.Spec.Metadata = map[string]string{"owner": "$USER"}
+	rayJob.Spec.EntrypointResources = `{"$HOME": 1}`
+	rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers = []corev1.Container{{}}
+
+	expected := map[string]string{
+		"--runtime-env-json":     `{"env_vars":{"LD_LIBRARY_PATH":"${LD_LIBRARY_PATH}:/opt/lib","PASSWORD":"p$ss` + "`id`" + `'q"}}`,
+		"--metadata-json":        `{"owner":"$USER"}`,
+		"--entrypoint-resources": `{"$HOME": 1}`,
+	}
+
+	for _, mode := range []rayv1.JobSubmissionMode{rayv1.K8sJobMode, rayv1.SidecarMode} {
+		command, err := BuildJobSubmitCommand(rayJob, mode)
+		require.NoError(t, err)
+		for flag, want := range expected {
+			idx := slices.Index(command, flag)
+			require.GreaterOrEqual(t, idx, 0, "%s missing in %s mode", flag, mode)
+			require.Less(t, idx+1, len(command))
+			//nolint:gosec // G204: intentionally shell-parse the generated argument the same way the submitter does.
+			cmd := exec.CommandContext(t.Context(), "/bin/bash", "-c", "printf %s "+command[idx+1])
+			cmd.Env = []string{"LD_LIBRARY_PATH=/submitter/lib", "USER=submitter", "HOME=/home/submitter"}
+			out, err := cmd.Output()
+			require.NoError(t, err)
+			assert.Equal(t, want, string(out), "%s value changed by shell parsing in %s mode", flag, mode)
+		}
+	}
 }
