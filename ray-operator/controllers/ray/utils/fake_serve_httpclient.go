@@ -41,6 +41,10 @@ func (r *FakeRayDashboardClient) SetMultiApplicationStatuses(statuses map[string
 	r.multiAppStatuses = statuses
 }
 
+func (r *FakeRayDashboardClient) IsNodeAlive(_ context.Context, nodeID string) (bool, error) {
+	return nodeID != "", nil
+}
+
 func (r *FakeRayDashboardClient) GetJobInfo(ctx context.Context, jobId string) (*utiltypes.RayJobInfo, error) {
 	if mock := r.GetJobInfoMock.Load(); mock != nil {
 		return (*mock)(ctx, jobId)
