@@ -1,0 +1,56 @@
+{{- /* Aggregate ClusterRoles for KubeRay CRDs to integrate with default Kubernetes roles. */ -}}
+{{- /* This file follows the pattern from prometheus-community/helm-charts. */ -}}
+{{- /* Ref: https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/templates/prometheus-operator/aggregate-clusterroles.yaml */ -}}
+{{- if and .Values.rbacEnable (not .Values.singleNamespaceInstall) .Values.createAggregateClusterRoles }}
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kuberay-operator.fullname" . }}-aggregate-view
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+    {{- include "kuberay-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ray.io
+  resources:
+  - rayclusters
+  - rayclusters/status
+  - raycronjobs
+  - raycronjobs/status
+  - rayjobs
+  - rayjobs/status
+  - rayservices
+  - rayservices/status
+  verbs:
+  - get
+  - list
+  - watch
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kuberay-operator.fullname" . }}-aggregate-edit
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    {{- include "kuberay-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ray.io
+  resources:
+  - rayclusters
+  - raycronjobs
+  - rayjobs
+  - rayservices
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+  - deletecollection
+{{- end }}
