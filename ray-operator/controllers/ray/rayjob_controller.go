@@ -31,6 +31,7 @@ import (
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/metrics"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils/dashboardclient"
+	utiltypes "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils/types"
 	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
@@ -290,10 +291,6 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 				return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
 			}
 
-			if checkSubmitterFinishedTimeoutAndUpdateStatusIfNeeded(ctx, rayJobInstance, finishedAt) {
-				break
-			}
-
 			if shouldUpdate {
 				break
 			}
@@ -334,6 +331,10 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 
 		// Reset JobStatusCheckFailureStartTime when the job status check succeeds.
 		rayJobInstance.Status.JobStatusCheckFailureStartTime = nil
+
+		if r.checkSubmitterFinishedTimeoutAndUpdateStatusIfNeeded(ctx, rayJobInstance, rayDashboardClient, jobInfo, finishedAt) {
+			break
+		}
 
 		// If the JobStatus is in a terminal status, such as SUCCEEDED, FAILED, or STOPPED, it is impossible for the Ray job
 		// to transition to any other. Additionally, RayJob does not currently support retries. Hence, we can mark the RayJob
@@ -1066,6 +1067,16 @@ func updateStatusToSuspendingIfNeeded(ctx context.Context, rayJob *rayv1.RayJob)
 	return true
 }
 
+// rayJobIsRunning reports whether the Ray job has been observed running.
+//
+// A submitter that dies while the job is running proves the submission itself succeeded, so failing
+// the RayJob with SubmissionFailed would be doubly wrong: it discards a job that is still going
+// (#2314) and reports a submission failure that did not happen. Leave those to the submitter-finished
+// timeout, which decides on live cluster state once the grace period elapses.
+func rayJobIsRunning(rayJob *rayv1.RayJob) bool {
+	return rayJob.Status.JobStatus == rayv1.JobStatusRunning
+}
+
 func (r *RayJobReconciler) checkSubmitterAndUpdateStatusIfNeeded(ctx context.Context, rayJob *rayv1.RayJob) (shouldUpdate bool, finishedAt *time.Time, err error) {
 	logger := ctrl.LoggerFrom(ctx)
 	shouldUpdate = false
@@ -1104,6 +1115,7 @@ func (r *RayJobReconciler) checkSubmitterAndUpdateStatusIfNeeded(ctx context.Con
 		// so a terminated container is transient — not a permanent failure.
 		if !features.Enabled(features.SidecarSubmitterRestart) {
 			shouldUpdate, submitterContainerStatus = checkSidecarContainerStatus(headPod)
+			shouldUpdate = shouldUpdate && !rayJobIsRunning(rayJob)
 			if shouldUpdate {
 				logger.Info("The submitter sidecar container has failed. Attempting to transition the status to `Failed`.",
 					"Submitter sidecar container", submitterContainerStatus.Name, "Reason", submitterContainerStatus.State.Terminated.Reason, "Message", submitterContainerStatus.State.Terminated.Message)
@@ -1125,6 +1137,7 @@ func (r *RayJobReconciler) checkSubmitterAndUpdateStatusIfNeeded(ctx context.Con
 				submitterBackoffLimit = *rayJob.Spec.SubmitterConfig.BackoffLimit
 			}
 			shouldUpdate, submitterContainerStatus = checkIsRestartCountExceeded(headPod, submitterBackoffLimit)
+			shouldUpdate = shouldUpdate && !rayJobIsRunning(rayJob)
 			if shouldUpdate {
 				logger.Info("The submitter sidecar container has exceeded the max restart count. Attempting to transition the status to `Failed`.",
 					"Submitter sidecar container", submitterContainerStatus.Name,
@@ -1156,6 +1169,7 @@ func (r *RayJobReconciler) checkSubmitterAndUpdateStatusIfNeeded(ctx context.Con
 		}
 
 		shouldUpdate, condition = checkK8sJobStatus(job)
+		shouldUpdate = shouldUpdate && !rayJobIsRunning(rayJob)
 		if shouldUpdate {
 			logger.Info("The submitter Kubernetes Job has failed. Attempting to transition the status to `Failed`.",
 				"Submitter K8s Job", job.Name, "Reason", condition.Reason, "Message", condition.Message)
@@ -1267,7 +1281,20 @@ func checkPreRunningDeadlineAndUpdateStatusIfNeeded(ctx context.Context, rayJob 
 	return true
 }
 
-func checkSubmitterFinishedTimeoutAndUpdateStatusIfNeeded(ctx context.Context, rayJob *rayv1.RayJob, finishedAt *time.Time) bool {
+// rayJobDriverIsAlive reports whether the Ray node running this job's driver is still up.
+//
+// An active job status is only current while the node reporting it is alive. Once that node is
+// gone the dashboard keeps returning whatever the status last was — the frozen state #4091 added
+// the submitter grace period for. Asking the cluster which nodes are alive settles both cases
+// directly, without inferring anything from Pod lifecycles or from when the submitter exited.
+func rayJobDriverIsAlive(ctx context.Context, dashboardClient dashboardclient.RayDashboardClientInterface, jobInfo *utiltypes.RayJobInfo) (bool, error) {
+	if jobInfo == nil || jobInfo.DriverNodeID == "" {
+		return false, nil
+	}
+	return dashboardClient.IsNodeAlive(ctx, jobInfo.DriverNodeID)
+}
+
+func (r *RayJobReconciler) checkSubmitterFinishedTimeoutAndUpdateStatusIfNeeded(ctx context.Context, rayJob *rayv1.RayJob, dashboardClient dashboardclient.RayDashboardClientInterface, jobInfo *utiltypes.RayJobInfo, finishedAt *time.Time) bool {
 	logger := ctrl.LoggerFrom(ctx)
 
 	// Check if timeout is configured and submitter has finished
@@ -1278,6 +1305,39 @@ func checkSubmitterFinishedTimeoutAndUpdateStatusIfNeeded(ctx context.Context, r
 	// Check if timeout has been exceeded
 	if time.Now().Before(finishedAt.Add(DefaultSubmitterFinishedTimeout)) {
 		return false
+	}
+
+	// The freshly polled status wins over the CR's copy: if the job has already reached a terminal
+	// state, the normal handling below marks the RayJob Complete or Failed and the timeout must not
+	// overwrite that.
+	jobStatus := rayJob.Status.JobStatus
+	if jobInfo != nil && jobInfo.JobStatus != "" {
+		jobStatus = jobInfo.JobStatus
+	}
+	if rayv1.IsJobTerminal(jobStatus) {
+		return false
+	}
+
+	// The submitter exiting is not evidence about the Ray job: `ray job logs --follow` returns 0
+	// whenever the log WebSocket closes with a non-abnormal code, so a submitter can finish under a
+	// perfectly healthy job. Trust a RUNNING status while the driver's node is still alive.
+	//
+	// Only RUNNING: Ray assigns driver_node_id when it schedules the job's supervisor, so a PENDING
+	// job has none and there is nothing to check it against. Those keep the existing behavior.
+	if jobStatus == rayv1.JobStatusRunning {
+		alive, err := rayJobDriverIsAlive(ctx, dashboardClient, jobInfo)
+		if err != nil {
+			// Inconclusive is not dead. Leave the job alone and let a later reconcile decide, rather
+			// than failing it on a dashboard blip or returning early and skipping the status update.
+			logger.Error(err, "Failed to check whether the Ray job's driver node is alive; leaving the RayJob running",
+				"DriverNodeID", jobInfo.DriverNodeID)
+			return false
+		}
+		if alive {
+			logger.Info("The RayJob submitter finished but the Ray job is still active on a live node; not transitioning to terminal.",
+				"SubmitterFinishedTime", finishedAt, "JobStatus", jobStatus, "DriverNodeID", jobInfo.DriverNodeID)
+			return false
+		}
 	}
 
 	logger.Info("The RayJob has passed the submitterFinishedTimeoutSeconds. Transition the status to terminal.",
