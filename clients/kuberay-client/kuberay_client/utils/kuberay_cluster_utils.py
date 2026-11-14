@@ -1,5 +1,5 @@
 """
-Set of helper methods to manage rayclusters. Requires Python 3.6 and higher
+Set of helper methods to manage rayclusters. Requires Python 3.9 and higher.
 """
 
 import logging
@@ -13,20 +13,16 @@ log = logging.getLogger(__name__)
 if logging.getLevelName(log.level) == "NOTSET":
     logging.basicConfig(format="%(asctime)s %(message)s", level=constants.LOGLEVEL)
 
-"""
-ClusterUtils contains methods to facilitate modifying/populating the config of a raycluster
-"""
-
 
 class ClusterUtils:
     """
-    ClusterUtils - Utility class for populating cluster information
+    ClusterUtils - Utility class for populating cluster information.
 
     Methods:
-    - populate_meta(cluster: dict, name: str, k8s_namespace: str, labels: dict, ray_version: str) -> dict:
-    - populate_ray_head(cluster: dict, ray_image: str,service_type: str, cpu_requests: str, memory_requests: str, cpu_limits: str, memory_limits: str, ray_start_params: dict) -> Tuple[dict, bool]:
-    - populate_worker_group(cluster: dict, group_name: str, ray_image: str, ray_command: Any, init_image: str, cpu_requests: str, memory_requests: str, cpu_limits: str, memory_limits: str, replicas: int, min_replicas: int, max_replicas: int, ray_start_params: dict) -> Tuple[dict, bool]:
-    - update_worker_group_replicas(cluster: dict, group_name: str, max_replicas: int, min_replicas: int, replicas: int) -> Tuple[dict, bool]:
+    - populate_meta(cluster: dict, name: str, k8s_namespace: str, labels: dict, ray_version: str) -> dict
+    - populate_ray_head(...) -> Tuple[dict, bool]
+    - populate_worker_group(...) -> Tuple[dict, bool]
+    - update_worker_group_replicas(...) -> Tuple[dict, bool]
     """
 
     def populate_meta(
@@ -49,7 +45,6 @@ class ClusterUtils:
         Returns:
             dict: The updated cluster dictionary with metadata and ray version populated.
         """
-
         assert self.is_valid_name(name)
 
         cluster["apiVersion"] = "{group}/{version}".format(
@@ -75,7 +70,8 @@ class ClusterUtils:
         memory_limits: str,
         ray_start_params: dict,
     ) -> Tuple[dict, bool]:
-        """Populate the ray head specs of the cluster
+        """Populate the ray head specs of the cluster.
+
         Parameters:
         - cluster (dict): The dictionary representation of the cluster.
         - ray_image (str): The name of the ray image to use for the head node.
@@ -87,14 +83,14 @@ class ClusterUtils:
         - ray_start_params (dict): The parameters for starting the Ray cluster.
 
         Returns:
-        - Tuple (dict, bool): The updated cluster, and a boolean indicating whether the update was successful.
+        - Tuple (dict, bool): The updated cluster, and a boolean indicating success.
         """
         # validate arguments
         try:
             arguments = locals()
             for k, v in arguments.items():
                 assert v
-        except AssertionError as e:
+        except AssertionError:
             log.error(
                 "error creating ray head, the parameters are not fully defined. {} = {}".format(
                     k, v
@@ -112,7 +108,7 @@ class ClusterUtils:
                 )
                 cluster["spec"]["headGroupSpec"] = []
         else:
-            log.error("error creating ray head, the spec and/or metadata is not define")
+            log.error("error creating ray head, the spec and/or metadata is not defined")
             return cluster, False
 
         # populate headGroupSpec
@@ -179,7 +175,6 @@ class ClusterUtils:
         """Populate the worker group specification in the cluster dictionary.
 
         Parameters:
-        - cluster (dict): Dictionary representing the cluster spec.
         - group_name (str): The name of the worker group.
         - ray_image (str): The image to use for the Ray worker containers.
         - ray_command (Any): The command to run in the Ray worker containers.
@@ -194,8 +189,7 @@ class ClusterUtils:
         - ray_start_params (dict): The parameters to pass to the Ray worker start command.
 
         Returns:
-        - Tuple[dict, bool]: A tuple of the cluster specification and a boolean indicating
-            whether the worker group was successfully populated.
+        - Tuple[dict, bool]: A tuple of the worker group dict and a boolean indicating success.
         """
         # validate arguments
         try:
@@ -203,7 +197,7 @@ class ClusterUtils:
             for k, v in arguments.items():
                 if k != "min_replicas" and k != "ray_start_params":
                     assert v
-        except AssertionError as e:
+        except AssertionError:
             log.error(
                 "error populating worker group, the parameters are not fully defined. {} = {}".format(
                     k, v
@@ -279,7 +273,7 @@ class ClusterUtils:
             for k, v in arguments.items():
                 if k != "min_replicas":
                     assert v
-        except AssertionError as e:
+        except AssertionError:
             log.error(
                 "error updating worker group, the parameters are not fully defined. {} = {}".format(
                     k, v
@@ -292,7 +286,6 @@ class ClusterUtils:
 
         for i in range(len(cluster["spec"]["workerGroupSpecs"])):
             if cluster["spec"]["workerGroupSpecs"][i]["groupName"] == group_name:
-
                 cluster["spec"]["workerGroupSpecs"][i]["maxReplicas"] = max_replicas
                 cluster["spec"]["workerGroupSpecs"][i]["minReplicas"] = min_replicas
                 cluster["spec"]["workerGroupSpecs"][i]["replicas"] = replicas
@@ -328,7 +321,7 @@ class ClusterUtils:
             for k, v in arguments.items():
                 if k != "min_replicas":
                     assert v
-        except AssertionError as e:
+        except AssertionError:
             log.error(
                 "error updating worker group, the parameters are not fully defined. {} = {}".format(
                     k, v
@@ -401,7 +394,7 @@ class ClusterUtils:
             arguments = locals()
             for k, v in arguments.items():
                 assert v
-        except AssertionError as e:
+        except AssertionError:
             log.error(
                 f"error duplicating worker group, the parameters are not fully defined. {k} = {v}"
             )
@@ -431,7 +424,7 @@ class ClusterUtils:
 
         Parameters:
         - cluster (dict): The cluster definition.
-        - group_name (str): The name of the worker group to be duplicated.
+        - group_name (str): The name of the worker group to be deleted.
 
         Returns:
         Tuple[dict, bool]: A tuple containing the updated cluster definition and a boolean indicating the success of the operation.
@@ -440,7 +433,7 @@ class ClusterUtils:
             arguments = locals()
             for k, v in arguments.items():
                 assert v
-        except AssertionError as e:
+        except AssertionError:
             log.error(
                 f"error creating ray head, the parameters are not fully defined. {k} = {v}"
             )
@@ -468,7 +461,7 @@ class ClusterUtils:
 
     def is_valid_label(self, name: str) -> bool:
         msg = "The label name must be 63 characters or less, begin and end with an alphanumeric character, and contain only dashes, underscores, dots, and alphanumerics."
-        if len(name) > 63 or  not bool(re.match("^[a-z0-9]([-._]*[a-z0-9])+$", name)):
+        if len(name) > 63 or not bool(re.match("^[a-z0-9]([-._]*[a-z0-9])+$", name)):
             log.error(msg)
             return False
         return True

@@ -155,3 +155,38 @@ jobs:
       - name: Check rbac configuration
         run: |
           pytest -s scripts/rbac_test.py
+
+  # Check consistency between CRD YAML and generated Python Pydantic models.
+  # Uses a single consolidated generator that normalizes CRD schemas into
+  # named definitions, producing stable class names instead of positional ones.
+  python-models-consistency:
+    needs: ray-operator-verify-crd-rbac
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install generation dependencies
+        run: pip install -r scripts/requirements-python-models.txt
+
+      - name: Regenerate Python models from CRD
+        run: python scripts/generate_python_models.py
+
+      - name: Check for uncommitted changes
+        run: |
+          if ! git diff --exit-code clients/kuberay-client/kuberay_client/models/_generated/; then
+            echo "::error::Generated Python models are out of date. Run 'python scripts/generate_python_models.py' and commit the result."
+            exit 1
+          fi
+
+      - name: Verify builders work with generated models
+        working-directory: ./clients/kuberay-client
+        run: |
+          pip install -e . pytest
+          pytest -q kuberay_client_test/test_utils.py kuberay_client_test/test_director.py
