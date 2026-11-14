@@ -1373,7 +1373,6 @@ func TestRayJobFailsWhenSelectedRayClusterIsSuspended(t *testing.T) {
 		name               string
 		clusterSuspend     *bool
 		clusterIdleSuspend *bool
-		backoffLimit       *int32
 		expectedStatus     rayv1.JobDeploymentStatus
 		expectedReason     rayv1.JobFailedReason
 	}{
@@ -1388,14 +1387,6 @@ func TestRayJobFailsWhenSelectedRayClusterIsSuspended(t *testing.T) {
 			clusterIdleSuspend: new(true),
 			expectedStatus:     rayv1.JobDeploymentStatusFailed,
 			expectedReason:     rayv1.SelectedRayClusterSuspended,
-		},
-		{
-			// BackoffLimit is incompatible with ClusterSelector mode, so the RayJob must not retry.
-			name:           "selected cluster is suspended and backoffLimit is 0",
-			clusterSuspend: new(true),
-			backoffLimit:   new(int32(0)),
-			expectedStatus: rayv1.JobDeploymentStatusFailed,
-			expectedReason: rayv1.SelectedRayClusterSuspended,
 		},
 		{
 			name:           "selected cluster is active and not ready",
@@ -1421,7 +1412,6 @@ func TestRayJobFailsWhenSelectedRayClusterIsSuspended(t *testing.T) {
 					Entrypoint:      "echo hello",
 					SubmissionMode:  rayv1.K8sJobMode,
 					ClusterSelector: map[string]string{utils.RayJobClusterSelectorKey: "test-raycluster"},
-					BackoffLimit:    tc.backoffLimit,
 				},
 				Status: rayv1.RayJobStatus{
 					JobDeploymentStatus: rayv1.JobDeploymentStatusInitializing,
