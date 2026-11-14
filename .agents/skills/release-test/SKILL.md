@@ -123,10 +123,14 @@ follows its pages: `run` when at least one of them is `run`, and `manual` otherw
 - `manual`: the sample asks for a GPU or a TPU (`nvidia.com/gpu`, `google.com/tpu`), or it needs a
   cloud cluster, a cloud bucket, gVisor or real credentials. It is also `manual` when it needs
   something installed first, like a scheduler or a Gateway controller, and its comments do not give
-  the commands. Find the candidates with
-  `git grep -l -i -E 'nvidia\.com/gpu|google\.com/tpu|gke|gcsfuse|gs://|s3://|bucket|gvisor|hf_token|scheduler|yunikorn|volcano|kueue|gateway' TAG -- ray-operator/config/samples`,
-  then decide from the lines around each match. A Ray resource like `num-gpus: "2"` asks for no real
-  GPU, and a comment that names a cloud as one example does not need that cloud.
+  the commands. Find the candidates with this, then decide from the lines around each match:
+
+  ```sh
+  git grep -l -i -E 'nvidia\.com/gpu|google\.com/tpu|gke|gcsfuse|gs://|s3://|bucket|gvisor|hf_token|scheduler|yunikorn|volcano|kueue|gateway' TAG -- ray-operator/config/samples
+  ```
+
+  A Ray resource like `num-gpus: "2"` asks for no real GPU, and a comment that names a cloud as one
+  example does not need that cloud.
 - `run`: all other samples.
 
 ```markdown
@@ -402,6 +406,7 @@ each run saw.
 
 Also write `RES/results.csv`, for people who track the release in a spreadsheet. It has one row per
 page and per sample of plan.md, except the ➖ ones: the `none` rows and the runs that came back `none`.
+It also has one row for each of the `kuberay-operator`, `ray-cluster` and `kuberay-apiserver` charts.
 
 ```csv
 Name / Link,Type,Assignee,2nd Reviewer,Status,Priority,Screenshot Link,Comment,Follow-up
@@ -409,15 +414,16 @@ https://docs.ray.io/en/master/kuberay/getting-started/raycluster-quick-start.htm
 https://docs.ray.io/en/master/kuberay/user-guides/gpu.html,Doc,,,Not Tested,,,needs a GPU,
 https://github.com/kuberay-project/kuberay/blob/v1.8.0-rc.0/ray-operator/config/samples/ray-job.sidecar-mode.yaml,Sample YAML,,,No Issue,,samples/ray-job.sidecar-mode/report.md,The RayJob succeeds.,
 https://github.com/kuberay-project/kuberay/blob/v1.8.0-rc.0/ray-operator/config/samples/ray-cluster.tpu-v4-singlehost.yaml,Sample YAML,,,Not Tested,,,needs a TPU,
-https://github.com/kuberay-project/kuberay/blob/v1.8.0-rc.0/ray-operator/config/samples/ray-job.sample.yaml,Sample YAML,,,No Issue,,getting-started/rayjob-quick-start/report.md,Runs with getting-started/rayjob-quick-start.,
+https://github.com/kuberay-project/kuberay/blob/v1.8.0-rc.0/ray-operator/config/samples/ray-job.sample.yaml,Sample YAML,,,No Issue,,getting-started/rayjob-quick-start/report.md,"Runs with getting-started/rayjob-quick-start, user-guides/dashboard.",
 https://github.com/kuberay-project/kuberay/blob/v1.8.0-rc.0/ray-operator/config/samples/ray-service.llm-serve.yaml,Sample YAML,,,Not Tested,,,needs GPUs and a Hugging Face token. Runs with examples/rayserve-llm-example.,
+kuberay-operator,Helm Chart,,,No Issue,,getting-started/raycluster-quick-start/report.md,"Installed by getting-started/raycluster-quick-start, getting-started/rayjob-quick-start.",
 ```
 
-`Type` is `Doc` for a page and `Sample YAML` for a sample. `Status` is a value that the tracking sheet
-accepts: `No Issue` (✅), `Has Issue` (⚠️, ❌ and 🔁) or `Not Tested` (👤 and ⏸️). `Screenshot Link` is
-the path of the report under `RES`. `Comment` is the Summary of the Results row, what a `manual` row
-needs, or `Not run.` for a ⏸️ row. The `Comment` of a ⚠️ row starts with `Minor:`. People fill in the
-other columns.
+`Type` is `Doc` for a page, `Sample YAML` for a sample and `Helm Chart` for a chart. `Status` is a
+value that the tracking sheet accepts: `No Issue` (✅), `Has Issue` (⚠️, ❌ and 🔁) or `Not Tested` (👤
+and ⏸️). `Screenshot Link` is the path of the report under `RES`. `Comment` is the Summary of the
+Results row, what a `manual` row needs, or `Not run.` for a ⏸️ row. The `Comment` of a ⚠️ row starts
+with `Minor:`. People fill in the other columns.
 
 A sample that a page runs has no report of its own. Its row comes from the reports of the pages that
 run it:
@@ -431,6 +437,17 @@ run it:
 
 `Screenshot Link` is the report of that page, and the `Comment` ends with `Runs with <page>.`, which
 names every page that runs the sample.
+
+A chart has no report of its own either. Its row comes from the reports of the pages that install it.
+`git -C RAY grep -l -E 'helm (install|upgrade).*kuberay/<chart>' -- doc/source/kuberay` lists them:
+
+- `Has Issue`: a report has a `product-bug` finding about the chart. The `Comment` is the heading of
+  that finding.
+- `No Issue`: a page installed the chart and its next step worked, and no report has such a finding.
+- `Not Tested`: no page that ran got that far.
+
+`Name / Link` is the chart name, `Screenshot Link` is the report of one of those pages, and the
+`Comment` ends with `Installed by <page>.`, which names every page that ran and installed the chart.
 
 Then tell the user the release blockers, the broken pages, the broken samples, the unstable pages
 and samples, the counts and the paths to `RES/REPORT.md` and `RES/results.csv`.

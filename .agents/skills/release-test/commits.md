@@ -45,8 +45,9 @@ saves it.
    Skip `references/api.md`: a ray bot updates it from the release tag.
 4. Every sample the docs pin to a KubeRay version must exist at the tag. For each link or ref that
    pins a sample path to a version (`kuberay/vX/`, `blob/vX/`, `tree/vX/`, `refs/tags/vX/`, `ref=vX`,
-   `targetRevision` with `path`), run `git cat-file -e TAG:<path>`. If the file is missing, add a `needs update` row. If the sample
-   moved, get the new path from `git diff -M --name-status vOLD TAG -- ray-operator/config/samples`.
+   `targetRevision` with `path`), run `git cat-file -e TAG:<path>`. If the file is missing, add a
+   `needs update` row. If the sample moved, get the new path from
+   `git diff -M --name-status vOLD TAG -- ray-operator/config/samples`.
 5. Reply with `commits.md` only, in this format. The rows are made up: they show the format, not the
    result of a run.
 

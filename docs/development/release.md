@@ -273,7 +273,7 @@ The [`release-test`](../../.agents/skills/release-test/SKILL.md) agent skill aut
    findings, and the pages and samples a human needs to run. A new feature that no page covers is
    listed with the result of its sample, or as not tested when it has no sample or the sample did not
    run. `results.csv` in the same folder has one row per page and sample that has something to run,
-   to import into a tracking spreadsheet. The skill does not edit docs or open issues.
+   and one per Helm chart, to import into a tracking spreadsheet. The skill does not edit docs or open issues.
 
 It needs kind, kubectl, helm, git, Docker and Python 3, and about 4 CPUs per run. It runs up to
 three pages or samples at once. Don't start two runs for the same tag at the same time. `release-test/` is a local work folder that git ignores. To run some again, use
