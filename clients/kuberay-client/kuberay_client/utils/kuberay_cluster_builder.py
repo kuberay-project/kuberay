@@ -7,8 +7,8 @@ import logging
 import math
 from typing import Any
 from abc import ABCMeta, abstractmethod
-from python_client.utils import kuberay_cluster_utils
-from python_client import constants
+from kuberay_client.utils import kuberay_cluster_utils
+from kuberay_client import constants
 
 
 log = logging.getLogger(__name__)

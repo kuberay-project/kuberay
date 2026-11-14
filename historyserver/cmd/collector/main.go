@@ -190,12 +190,12 @@ func main() {
 		}
 	}
 
-	rotatedLogScanInterval := utils.DefaultRotatedLogScanInterval
-	if v := os.Getenv("RAY_COLLECTOR_ROTATED_LOG_SCAN_INTERVAL"); v != "" {
+	logUploadInterval := utils.DefaultLogUploadInterval
+	if v := os.Getenv("RAY_COLLECTOR_LOG_UPLOAD_INTERVAL"); v != "" {
 		if parsed, err := time.ParseDuration(v); err == nil && parsed > 0 {
-			rotatedLogScanInterval = parsed
+			logUploadInterval = parsed
 		} else {
-			logrus.Warnf("Invalid RAY_COLLECTOR_ROTATED_LOG_SCAN_INTERVAL=%s, using default %s", v, rotatedLogScanInterval)
+			logrus.Warnf("Invalid RAY_COLLECTOR_LOG_UPLOAD_INTERVAL=%s, using default %s", v, logUploadInterval)
 		}
 	}
 
@@ -260,7 +260,7 @@ func main() {
 		AdditionalEndpoints:  additionalEndpoints,
 		EndpointPollInterval: endpointPollInterval,
 
-		RotatedLogScanInterval: rotatedLogScanInterval,
+		LogUploadInterval: logUploadInterval,
 
 		EventDataDir:            eventDataDir,
 		EventRotationInterval:   eventRotationInterval,

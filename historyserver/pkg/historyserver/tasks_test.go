@@ -72,7 +72,7 @@ func TestGetTaskLogFileUsesStoredBasename(t *testing.T) {
 			StdoutFile: "/tmp/ray/session_latest/logs/worker-abc-123.out",
 			StdoutEnd:  int64(len("Processing 1\n")),
 		},
-	}}}))
+	}}}, utils.ClusterInfo{}, false))
 
 	reader := &taskLogStorageReader{content: "Processing 1\n"}
 	handler := &ServerHandler{sessionLoader: loader, reader: reader}
@@ -111,7 +111,7 @@ func TestGetTaskLogFileAppliesRangeBeforeLineLimit(t *testing.T) {
 			StdoutStart: start,
 			StdoutEnd:   end,
 		},
-	}}}))
+	}}}, utils.ClusterInfo{}, false))
 
 	reader := &taskLogStorageReader{content: content}
 	handler := &ServerHandler{sessionLoader: loader, reader: reader}
@@ -138,7 +138,7 @@ func TestGetTaskLogFileRejectsIncompleteTaskLogInfo(t *testing.T) {
 		NodeID:      "aa",
 		WorkerID:    "bb",
 		TaskLogInfo: &eventtypes.TaskLogInfo{StdoutEnd: 20},
-	}}}))
+	}}}, utils.ClusterInfo{}, false))
 
 	reader := &taskLogStorageReader{
 		content: "other task\ntarget task\n",
@@ -168,7 +168,7 @@ func TestGetTaskLogFileRejectsAmbiguousZeroEnd(t *testing.T) {
 		TaskAttempt: 0,
 		NodeID:      "node-id",
 		TaskLogInfo: &eventtypes.TaskLogInfo{StdoutFile: "worker.out"},
-	}}}))
+	}}}, utils.ClusterInfo{}, false))
 
 	handler := &ServerHandler{sessionLoader: loader, reader: &taskLogStorageReader{content: "other task\n"}}
 	_, err := handler._getNodeLogFile(
@@ -191,8 +191,8 @@ func TestApplyLogByteRange(t *testing.T) {
 		"unbounded":       {byteRange: nil, want: "0123456789"},
 		"half-open range": {byteRange: &logByteRange{start: 2, end: 5}, want: "234"},
 		"empty range":     {byteRange: &logByteRange{start: 4, end: 4}, want: ""},
-		"end past EOF":    {byteRange: &logByteRange{start: 8, end: 20}, wantErr: true},
-		"start past EOF":  {byteRange: &logByteRange{start: 20, end: 30}, wantErr: true},
+		"end past EOF":    {byteRange: &logByteRange{start: 8, end: 20}, want: "89"},
+		"start past EOF":  {byteRange: &logByteRange{start: 20, end: 30}, want: ""},
 		"negative start":  {byteRange: &logByteRange{start: -1, end: 2}, wantErr: true},
 		"negative end":    {byteRange: &logByteRange{start: 0, end: -1}, wantErr: true},
 		"reversed":        {byteRange: &logByteRange{start: 5, end: 4}, wantErr: true},

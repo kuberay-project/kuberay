@@ -1074,7 +1074,7 @@ func ValidateRayCronJobSpec(rayCronJob *rayv1.RayCronJob) error {
 
 	// Validate the ray job spec
 	rayJob := &rayv1.RayJob{
-		Spec: rayCronJob.Spec.JobTemplate,
+		Spec: rayCronJob.Spec.JobTemplate.Spec,
 	}
 
 	if err := ValidateRayJobSpec(rayJob); err != nil {

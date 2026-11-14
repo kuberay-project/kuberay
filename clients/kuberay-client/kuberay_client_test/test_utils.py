@@ -1,6 +1,6 @@
 import unittest
 import copy
-from python_client.utils import kuberay_cluster_utils, kuberay_cluster_builder
+from kuberay_client.utils import kuberay_cluster_utils, kuberay_cluster_builder
 
 
 test_cluster_body: dict = {

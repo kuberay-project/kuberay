@@ -6,7 +6,7 @@ import logging
 import copy
 import re
 from typing import Any, Tuple
-from python_client import constants
+from kuberay_client import constants
 
 
 log = logging.getLogger(__name__)

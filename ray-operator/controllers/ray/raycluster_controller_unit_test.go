@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/common"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/expectations"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/metrics/mocks"
@@ -2996,6 +2997,77 @@ func TestEvents_RedisCleanup(t *testing.T) {
 	}
 }
 
+func Test_BuildRedisCleanupJob_PodAntiAffinity(t *testing.T) {
+	setupTest(t)
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = batchv1.AddToScheme(newScheme)
+
+	// Keeps the head Pod on a node pool that can reach Redis. The cleanup Job needs this too.
+	nodeAffinity := &corev1.NodeAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+				MatchExpressions: []corev1.NodeSelectorRequirement{{
+					Key:      "pool",
+					Operator: corev1.NodeSelectorOpIn,
+					Values:   []string{"redis-access"},
+				}},
+			}},
+		},
+	}
+	// One head Pod per node. GKE Autopilot rejects Pods with pod anti-affinity that
+	// request less than 500m CPU, and the cleanup Job requests 200m (#4721).
+	podAntiAffinity := &corev1.PodAntiAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+			LabelSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{utils.RayNodeTypeLabelKey: string(rayv1.HeadNode)},
+			},
+			TopologyKey: "kubernetes.io/hostname",
+		}},
+	}
+
+	tests := []struct {
+		headAffinity *corev1.Affinity
+		name         string
+	}{
+		{
+			name:         "No affinity",
+			headAffinity: nil,
+		},
+		{
+			name:         "Pod anti-affinity only",
+			headAffinity: &corev1.Affinity{PodAntiAffinity: podAntiAffinity},
+		},
+		{
+			name:         "Node affinity and pod anti-affinity",
+			headAffinity: &corev1.Affinity{NodeAffinity: nodeAffinity, PodAntiAffinity: podAntiAffinity},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cluster := testRayCluster.DeepCopy()
+			cluster.Spec.HeadGroupSpec.Template.Spec.Affinity = tc.headAffinity.DeepCopy()
+			original := cluster.DeepCopy()
+
+			r := &RayClusterReconciler{Scheme: newScheme}
+			job := r.buildRedisCleanupJob(context.Background(), *cluster)
+
+			jobAffinity := job.Spec.Template.Spec.Affinity
+			if tc.headAffinity == nil {
+				assert.Nil(t, jobAffinity)
+			} else {
+				require.NotNil(t, jobAffinity)
+				assert.Nil(t, jobAffinity.PodAntiAffinity, "the Redis cleanup Job must not inherit the head Pod's pod anti-affinity")
+				assert.Equal(t, tc.headAffinity.NodeAffinity, jobAffinity.NodeAffinity, "the Redis cleanup Job must keep the head Pod's node affinity")
+			}
+
+			// The Job is built from a copy of the head template; building it must not modify the RayCluster.
+			assert.Equal(t, original.Spec.HeadGroupSpec.Template.Spec.Affinity, cluster.Spec.HeadGroupSpec.Template.Spec.Affinity)
+		})
+	}
+}
+
 func Test_RedisCleanup(t *testing.T) {
 	setupTest(t)
 	newScheme := runtime.NewScheme()
@@ -5136,4 +5208,304 @@ func TestReconcile_TLSAutoGenerate_RejectsWithoutCertManager(t *testing.T) {
 		}
 	}
 	assert.True(t, foundEvent, "expected a warning event about cert-manager")
+}
+
+func TestShouldDeleteWorkerPod_MissingNodeLabelsSelfHealing(t *testing.T) {
+	setupTest(t)
+	features.SetFeatureGateDuringTest(t, features.NodeLabelDelivery, true)
+	ctx := context.Background()
+
+	cluster := testRayCluster.DeepCopy()
+	workerSpec := &cluster.Spec.WorkerGroupSpecs[0]
+	workerSpec.LabelRefs = []rayv1.LabelRef{{
+		Name: "tpu-coords",
+		ValueFrom: rayv1.LabelRefSource{
+			NodeRef: rayv1.NodeFieldRef{FieldPath: "metadata.labels['cloud.google.com/gke-tpu-node-slice-coordinates']"},
+		},
+	}}
+
+	readyNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "tpu-node-ready",
+			Labels: map[string]string{"cloud.google.com/gke-tpu-node-slice-coordinates": "0,0,0"},
+		},
+	}
+	unlabeledNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "tpu-node-unlabeled",
+			Labels: map[string]string{},
+		},
+	}
+
+	require.NoError(t, corev1.AddToScheme(scheme.Scheme))
+	fakeClient := clientFake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(readyNode, unlabeledNode).Build()
+	r := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   events.NewFakeRecorder(10),
+		Scheme:                     scheme.Scheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+		options: RayClusterReconcilerOptions{
+			AllowedNodeLabels: []string{"cloud.google.com/gke-tpu-node-slice-coordinates"},
+		},
+	}
+
+	pod := r.buildWorkerPod(ctx, *cluster, *workerSpec, "", 0, 0)
+	pod.Spec.Containers[utils.RayContainerIndex].Env = append(pod.Spec.Containers[utils.RayContainerIndex].Env, corev1.EnvVar{
+		Name: utils.RAY_NODE_LABELS_JSON,
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "metadata.annotations['" + utils.RayNodeLabelsAnnotationKey + "']",
+			},
+		},
+	})
+	pod.Name = "worker-0"
+	pod.Status.Phase = corev1.PodRunning
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name: pod.Spec.Containers[utils.RayContainerIndex].Name,
+		LastTerminationState: corev1.ContainerState{
+			Terminated: &corev1.ContainerStateTerminated{ExitCode: 1},
+		},
+		RestartCount: 1,
+	}}
+
+	// Case 1: Bound node lacks the requested label (or is not yet found in cache) -> do not delete the pod yet.
+	pod.Spec.NodeName = unlabeledNode.Name
+	shouldDel, reason := r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "node lacks label")
+
+	pod.Spec.NodeName = "missing-node"
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "could not be read")
+
+	// Case 2: Bound node carries all requested and allowed labels -> self-heal by deleting the pod so it can be recreated.
+	pod.Spec.NodeName = readyNode.Name
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.True(t, shouldDel)
+	assert.Contains(t, reason, utils.RayNodeLabelsAnnotationKey)
+
+	// Case 3: Label is not in AllowedNodeLabels ([]string{} or nil) -> do not delete the pod (avoid infinite delete/recreate loop).
+	r.options.AllowedNodeLabels = []string{}
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "not in the operator's allowedNodeLabels")
+	r.options.AllowedNodeLabels = nil
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "not in the operator's allowedNodeLabels")
+	r.options.AllowedNodeLabels = []string{"cloud.google.com/gke-tpu-node-slice-coordinates"}
+
+	// Case 4: Pod already carries ray.io/node-labels -> preserve standard RestartPolicy: Always behavior.
+	annotatedPod := pod.DeepCopy()
+	annotatedPod.Annotations = map[string]string{utils.RayNodeLabelsAnnotationKey: `{"tpu-coords":"0,0,0"}`}
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *annotatedPod, workerSpec)
+	assert.False(t, shouldDel)
+
+	// Case 5: Ray container has not terminated yet (even if a sidecar at ContainerStatuses[0] terminated) -> do not delete.
+	startingPod := pod.DeepCopy()
+	startingPod.Status.ContainerStatuses = []corev1.ContainerStatus{
+		{
+			Name:  "sidecar",
+			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}},
+		},
+		{
+			Name:  pod.Spec.Containers[utils.RayContainerIndex].Name,
+			State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+		},
+	}
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *startingPod, workerSpec)
+	assert.False(t, shouldDel)
+
+	// Case 6: RestartPolicy: Never / PodFailed (or PodRunning with a live sidecar and terminated Ray container)
+	// always preserves existing shouldDeletePod deletion behavior, even if the bound node lacks the label or the
+	// label is not in AllowedNodeLabels.
+	neverPod := pod.DeepCopy()
+	neverPod.Spec.RestartPolicy = corev1.RestartPolicyNever
+	neverPod.Status.Phase = corev1.PodFailed
+	neverPod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:  pod.Spec.Containers[utils.RayContainerIndex].Name,
+		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}},
+	}}
+	neverPod.Spec.NodeName = unlabeledNode.Name
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
+	assert.True(t, shouldDel)
+
+	neverRunningWithSidecar := neverPod.DeepCopy()
+	neverRunningWithSidecar.Status.Phase = corev1.PodRunning
+	neverRunningWithSidecar.Status.ContainerStatuses = []corev1.ContainerStatus{
+		{
+			Name:  pod.Spec.Containers[utils.RayContainerIndex].Name,
+			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}},
+		},
+		{
+			Name:  "sidecar",
+			State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+		},
+	}
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverRunningWithSidecar, workerSpec)
+	assert.True(t, shouldDel)
+
+	r.options.AllowedNodeLabels = nil
+	neverPod.Spec.NodeName = readyNode.Name
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
+	assert.True(t, shouldDel)
+	r.options.AllowedNodeLabels = []string{"cloud.google.com/gke-tpu-node-slice-coordinates"}
+
+	neverPod.Spec.NodeName = "deleted-node"
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
+	assert.True(t, shouldDel)
+
+	// Case 7: Worker group with static template.spec.nodeName skips self-healing (since pods/binding does not run).
+	pinnedWorkerSpec := workerSpec.DeepCopy()
+	pinnedWorkerSpec.Template.Spec.NodeName = readyNode.Name
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, pod, pinnedWorkerSpec)
+	assert.False(t, shouldDel)
+}
+
+// TestReconcilePodsCleansUpBatchSchedulerOnSuspend is a regression test for
+// https://github.com/ray-project/kuberay/issues/5183: every suspend early-return in reconcilePods
+// must release the batch scheduler reservation.
+func TestReconcilePodsCleansUpBatchSchedulerOnSuspend(t *testing.T) {
+	setupTest(t)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+
+	trueCondition := func(condType rayv1.RayClusterConditionType) []metav1.Condition {
+		return []metav1.Condition{{
+			Type:               string(condType),
+			Status:             metav1.ConditionTrue,
+			Reason:             string(condType),
+			LastTransitionTime: metav1.Now(),
+		}}
+	}
+
+	tests := []struct {
+		name                string
+		cleanupErr          error
+		conditions          []metav1.Condition
+		pods                []runtime.Object
+		statusConditions    bool
+		suspend             bool
+		expectCleanupCalled bool
+		expectErr           bool
+	}{
+		{
+			name:                "suspending releases the reserved capacity",
+			statusConditions:    true,
+			suspend:             true,
+			conditions:          trueCondition(rayv1.RayClusterSuspending),
+			expectCleanupCalled: true,
+		},
+		{
+			// Terminating Pods still hold node capacity; releasing now would over-admit the queue.
+			name:                "suspending keeps the reservation while Pods are still around",
+			statusConditions:    true,
+			suspend:             true,
+			conditions:          trueCondition(rayv1.RayClusterSuspending),
+			pods:                testPods,
+			expectCleanupCalled: false,
+		},
+		{
+			// A cluster suspended before this operator started never goes through the Suspending branch.
+			name:                "already suspended releases the reserved capacity",
+			statusConditions:    true,
+			suspend:             true,
+			conditions:          trueCondition(rayv1.RayClusterSuspended),
+			expectCleanupCalled: true,
+		},
+		{
+			name:                "suspended with the status condition gate disabled",
+			statusConditions:    false,
+			suspend:             true,
+			expectCleanupCalled: true,
+		},
+		{
+			name:                "a failure is surfaced so the reconcile is requeued",
+			statusConditions:    true,
+			suspend:             true,
+			conditions:          trueCondition(rayv1.RayClusterSuspended),
+			cleanupErr:          errors.New("failed to update PodGroup"),
+			expectCleanupCalled: true,
+			expectErr:           true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.RayClusterStatusConditions, tc.statusConditions)
+
+			cluster := testRayCluster.DeepCopy()
+			cluster.Spec.Suspend = new(tc.suspend)
+			cluster.Status.Conditions = tc.conditions
+
+			runtimeObjects := []runtime.Object{cluster}
+			for _, pod := range tc.pods {
+				runtimeObjects = append(runtimeObjects, pod.DeepCopyObject())
+			}
+			fakeClient := clientFake.NewClientBuilder().
+				WithScheme(newScheme).
+				WithRuntimeObjects(runtimeObjects...).
+				Build()
+
+			fakeScheduler := &fakeBatchScheduler{cleanupDidUpdate: true, cleanupErr: tc.cleanupErr}
+			reconciler := &RayClusterReconciler{
+				Client:                     fakeClient,
+				Recorder:                   events.NewFakeRecorder(100),
+				Scheme:                     newScheme,
+				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+				options: RayClusterReconcilerOptions{
+					BatchSchedulerManager: batchscheduler.NewSchedulerManagerForTest(fakeScheduler),
+				},
+			}
+
+			err := reconciler.reconcilePods(context.Background(), cluster)
+			if tc.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			assert.Equal(t, tc.expectCleanupCalled, fakeScheduler.cleanupCalled)
+			if tc.expectCleanupCalled {
+				require.NotNil(t, fakeScheduler.cleanupObject)
+				assert.Equal(t, cluster.Name, fakeScheduler.cleanupObject.GetName())
+				assert.Equal(t, cluster.Namespace, fakeScheduler.cleanupObject.GetNamespace())
+			}
+		})
+	}
+}
+
+// TestReconcilePodsKeepsBatchSchedulerReservationWhenRunning checks that a running RayCluster keeps
+// its batch scheduler reservation.
+func TestReconcilePodsKeepsBatchSchedulerReservationWhenRunning(t *testing.T) {
+	setupTest(t)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+
+	cluster := testRayCluster.DeepCopy()
+	cluster.Spec.Suspend = new(false)
+
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(newScheme).
+		WithRuntimeObjects(cluster).
+		Build()
+
+	fakeScheduler := &fakeBatchScheduler{cleanupDidUpdate: true}
+	reconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   events.NewFakeRecorder(100),
+		Scheme:                     newScheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+		options: RayClusterReconcilerOptions{
+			BatchSchedulerManager: batchscheduler.NewSchedulerManagerForTest(fakeScheduler),
+		},
+	}
+
+	require.NoError(t, reconciler.reconcilePods(context.Background(), cluster))
+	assert.False(t, fakeScheduler.cleanupCalled, "a running RayCluster must keep its reserved capacity")
 }
