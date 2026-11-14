@@ -38,7 +38,14 @@ column says if the change goes under Deviations in the report:
 | a command that affects more than your run (`killall kubectl`, `pkill`) | the same command, only for the processes you started | no |
 | `pip install` | the same command in a virtualenv under `OUT/work/` | no |
 | a step that sends the reader to another page, like installing the operator | that page's commands for that step, on the cluster you already have | yes |
-| a choice of tabs, platforms or methods | the first one that works on Linux and kind | yes: the ones you did not run |
+| a choice of tabs, platforms or methods | each one that works on Linux and kind, see below | yes: the ones you did not run, and why |
+
+A reader may take any choice that the page gives, so each one that works on Linux and kind must
+work. Follow the page to its end with the first one. Then run each other one on a new cluster: delete
+the cluster, create it again as before, and run the page from its start up to the end of that choice
+and the step that checks its result. A choice that fails is a finding, and its severity is for a
+reader who takes that choice. When a step sends you to another page, take the first choice of that
+page: the run of that page tests the others.
 
 You may add read-only commands at any time: `kubectl get`, `describe`, `logs`, `wait`, or a `curl`
 that checks something. Use them to wait for what the page waits for, to compare output, and to find
@@ -63,7 +70,9 @@ something failed.
 Each finding gets a type and a severity. The type says where the fix goes:
 
 - `doc-bug`: the page is wrong.
-- `product-bug`: KubeRay at the tag is wrong: the operator, a chart, a sample or the plugin.
+- `sample-bug`: a sample in `ray-operator/config/samples/` at the tag is wrong: the YAML or its
+  comments.
+- `product-bug`: KubeRay at the tag is wrong: the operator, a chart or the plugin.
 - `env`: kind or this machine cannot do it: CPU, memory, image pull limits, kernel features.
 - `flaky`: it passed on the retry.
 
@@ -148,7 +157,9 @@ and the table:
   (`git -C RAY rev-parse --short=10 HEAD`), the kind version and node image, the operator image and
   chart, and the charts, samples and Ray image the page uses.
 - What was verified: one row for each thing the page says will happen, with its step. Commands that
-  only prepare the next step share its row. The result is one of:
+  only prepare the next step share its row. A row for a step that uses a sample from
+  `ray-operator/config/samples/` names the sample file: the release report takes the result of the
+  sample from this row. The result is one of:
   - `✅`, and if it helps a few words of proof, like a state, a count or a time
   - `⚠️ finding N` for a `minor` finding, or `❌ finding N` for a `blocker` finding, and nothing else:
     the finding has the details
@@ -159,5 +170,5 @@ and the table:
   it: the step and the cause in one or two sentences, at most 10 lines of the command and output that
   show it, and the suggested fix in one line. A fix longer than one line is the page text before and
   after. Write `None.` when there are no findings.
-- Repro: the shortest commands that show the findings on a new kind cluster. Leave it out when there
-  are no findings.
+- Repro: the shortest commands that show the result on a new kind cluster: each finding, or the main
+  result when there are no findings.

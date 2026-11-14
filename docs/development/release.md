@@ -257,20 +257,27 @@ See [helm-chart.md](./helm-chart.md) for the end-to-end workflow. Below are step
 The [`release-test`](../../.agents/skills/release-test/SKILL.md) agent skill automates this step. Run
 `/release-test <tag>` in a coding agent, like Claude Code, at the repository root:
 
-1. It writes `release-test/results/<tag>/plan.md`. The plan marks every KubeRay page on docs.ray.io as
-   `run`, `manual` (needs a GPU, a TPU, a cloud cluster or credentials) or `none` (no commands). Then
-   it stops. Check the plan, edit it if needed, and confirm.
-2. It runs each `run` page with the tag, each on its own kind cluster. It runs the commands as
-   written, but with the new KubeRay version. It also lists the old KubeRay versions in the docs and
-   the doc changes the release's commits need.
-3. Read `release-test/results/<tag>/REPORT.md`. Each page gets a result: ✅ no findings, ⚠️ only minor
-   findings, or ❌ at least one blocker. The report also lists the release blockers, the broken pages,
-   the minor findings and the pages a human needs to run. `results.csv` in the same folder has one
-   row per page, to paste into a tracking spreadsheet. The skill does not edit docs or open issues.
+1. It writes `release-test/results/<tag>/plan.md`. The plan marks every KubeRay page on docs.ray.io
+   and every sample in `ray-operator/config/samples/` as `run`, `manual` (needs a GPU, a TPU, a cloud
+   cluster or credentials) or `none` (nothing to run). A sample that a page uses in a command runs
+   with that page, and the other samples run on their own. Then it stops. Check the plan, edit it if
+   needed, and confirm.
+2. It runs each `run` page, and each `run` sample that no page runs, with the tag, each on its own
+   kind cluster. It runs a page's commands as written, but with the new KubeRay version. It applies a
+   sample and waits until its RayCluster, RayJob, RayService or RayCronJob works. A page or sample
+   that fails runs one more time on a new cluster. It also lists the old KubeRay versions in the docs
+   and the doc changes the release's commits need.
+3. Read `release-test/results/<tag>/REPORT.md`. Each page and sample gets a result: ✅ no findings,
+   ⚠️ only minor findings, ❌ at least one blocker in both runs, or 🔁 a blocker in the first run
+   only. The report also lists the release blockers, the broken pages, the broken samples, the minor
+   findings, and the pages and samples a human needs to run. A new feature that no page covers is
+   listed with the result of its sample, or as not tested when it has no sample or the sample did not
+   run. `results.csv` in the same folder has one row per page and sample, to import into a tracking
+   spreadsheet. The skill does not edit docs or open issues.
 
-It needs kind, kubectl, helm, git, Docker and Python 3, and about 4 CPUs per page. It runs three pages
-at once. `release-test/` is a local work folder that git ignores. To run some pages again, use
-`/release-test <tag> <page>...`. The manual steps below are still the fallback.
+It needs kind, kubectl, helm, git, Docker and Python 3, and about 4 CPUs per run. It runs three pages
+or samples at once. `release-test/` is a local work folder that git ignores. To run some again, use
+`/release-test <tag> <page>... samples/<sample>...`. The manual steps below are still the fallback.
 
 Perform basic validation to ensure the released artifacts work together.
 

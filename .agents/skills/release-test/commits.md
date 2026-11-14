@@ -30,7 +30,10 @@ saves it.
      change: the current page text and the new text. Add a version note when readers on an older
      KubeRay still need the old way.
    - `already right`: the docs follow KubeRay master, so some changes are already in the docs.
-   - `needs docs`: a new feature or field that no page covers.
+   - `needs docs`: a new feature or field that no page covers. Name the sample that shows it:
+     `git grep -l '<field or value>' TAG -- ray-operator/config/samples`. The release report shows how
+     that sample did in the run. Write `none` when the tag has no sample for it: then nothing tests
+     the change, and the release report lists it as not tested.
 
    Skip `references/api.md`: a ray bot updates it from the release tag.
 4. Every sample the docs pin to a KubeRay version must exist at the tag. For each link or ref that
@@ -44,11 +47,14 @@ saves it.
 
    81 PRs. Readers can notice 6: 3 need updates, 2 need docs, 1 already right.
 
-   | PR | Change for readers | Pages | Status | Proposed change |
-   |---|---|---|---|---|
-   | abc1234 [Helm] Rename the ServiceMonitor selector value (#5101) | `metrics.serviceMonitor.selector` is now `additionalLabels` | ecosystem/prometheus-grafana.md:64 | needs update | `--set metrics.serviceMonitor.selector.release=prometheus` → `--set metrics.serviceMonitor.additionalLabels.release=prometheus`, with a note for v1.6.x and earlier |
-   | def5678 [Feature] Suspend RayCronJob (#5202) | new field `spec.suspend` on RayCronJob | | needs docs | |
-   | 0a1b2c3 [Sample] Pin the auth samples' Ray image (#5154) | the sample images change; no page shows them | user-guides/auth.md | already right | |
+   | PR | Change for readers | Pages | Status | Sample | Proposed change |
+   |---|---|---|---|---|---|
+   | abc1234 [Helm] Rename the ServiceMonitor selector value (#5101) | `metrics.serviceMonitor.selector` is now `additionalLabels` | ecosystem/prometheus-grafana.md:64 | needs update | | `--set metrics.serviceMonitor.selector.release=prometheus` → `--set metrics.serviceMonitor.additionalLabels.release=prometheus`, with a note for v1.6.x and earlier |
+   | 9f8e7d6 [Feature] Terminate idle RayClusters (#5303) | new field `idleTerminationOptions` on RayCluster | | needs docs | `ray-cluster.autoscaler-v2-terminate-idle-cluster.yaml` | |
+   | def5678 [Feature] Suspend RayCronJob (#5202) | new field `spec.suspend` on RayCronJob | | needs docs | none | |
+   | 0a1b2c3 [Sample] Pin the auth samples' Ray image (#5154) | the sample images change; no page shows them | user-guides/auth.md | already right | | |
    ```
+
+   Only `needs docs` rows fill in Sample.
 
 This is done when every PR in the range is either a row or one of the PRs readers cannot notice.
