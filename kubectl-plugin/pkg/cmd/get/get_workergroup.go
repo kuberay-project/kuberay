@@ -240,7 +240,7 @@ func getWorkerGroupDetails(ctx context.Context, enrichedWorkerGroupSpecs []enric
 			namespace:       ewgs.namespace,
 			name:            ewgs.spec.GroupName,
 			readyReplicas:   readyWorkerReplicas,
-			desiredReplicas: *ewgs.spec.Replicas,
+			desiredReplicas: *ewgs.spec.Replicas * numOfHosts(ewgs.spec),
 			totalCPU:        *workerGroupResources.Cpu(),
 			totalGPU:        workerGroupResources[corev1.ResourceName(util.ResourceNvidiaGPU)],
 			totalTPU:        workerGroupResources[corev1.ResourceName(util.ResourceGoogleTPU)],
@@ -321,6 +321,15 @@ func printWorkerGroups(workerGroups []workerGroup, allNamespaces bool, output io
 	return resultTablePrinter.PrintObj(resTable, output)
 }
 
+// numOfHosts returns the number of Pods the operator creates per replica of the worker group.
+// The CRD defaults NumOfHosts to 1, so treat an unset value as 1.
+func numOfHosts(workerGroupSpec rayv1.WorkerGroupSpec) int32 {
+	if workerGroupSpec.NumOfHosts < 1 {
+		return 1
+	}
+	return workerGroupSpec.NumOfHosts
+}
+
 // calculateDesiredResourcesForWorkerGroup calculates the desired resources for a worker group
 func calculateDesiredResourcesForWorkerGroup(workerGroupSpec rayv1.WorkerGroupSpec) corev1.ResourceList {
 	if workerGroupSpec.Suspend != nil && *workerGroupSpec.Suspend {
@@ -334,7 +343,7 @@ func calculateDesiredResourcesForWorkerGroup(workerGroupSpec rayv1.WorkerGroupSp
 		for name, quantity := range podResource {
 			totalResource[name] = quantity.DeepCopy()
 			quantity := totalResource[name]
-			(&quantity).Mul(int64(*workerGroupSpec.Replicas))
+			(&quantity).Mul(int64(*workerGroupSpec.Replicas) * int64(numOfHosts(workerGroupSpec)))
 			// Mul() doesn't recalculate the "s" field. Call String() to do it.
 			_ = quantity.String()
 			totalResource[name] = quantity
