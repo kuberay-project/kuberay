@@ -678,6 +678,47 @@ func TestValidateRayClusterSpecEmptyContainers(t *testing.T) {
 	}
 }
 
+func TestValidateRayClusterSpecWorkerGroupNameLabelValue(t *testing.T) {
+	headGroupSpec := rayv1.HeadGroupSpec{Template: podTemplateSpec(nil, nil)}
+	workerGroupWithName := func(groupName string) rayv1.WorkerGroupSpec {
+		return rayv1.WorkerGroupSpec{
+			GroupName:   groupName,
+			Template:    podTemplateSpec(nil, nil),
+			MinReplicas: new(int32(0)),
+			MaxReplicas: new(int32(5)),
+		}
+	}
+
+	tests := []struct {
+		name        string
+		groupName   string
+		expectError bool
+	}{
+		{name: "valid lowercase group name", groupName: "small-group"},
+		// Uppercase is a valid label value; it must stay allowed so this does not become the
+		// breaking DNS1123 change that would reject existing clusters.
+		{name: "valid mixed-case group name", groupName: "MyGroup"},
+		{name: "invalid group name with a space", groupName: "small group", expectError: true},
+		{name: "invalid group name with a slash", groupName: "team/group", expectError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := rayv1.RayClusterSpec{
+				HeadGroupSpec:    headGroupSpec,
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{workerGroupWithName(tt.groupName)},
+			}
+			err := ValidateRayClusterSpec(&spec, nil)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), RayNodeGroupLabelKey)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidateRayClusterSpecSuspendingWorkerGroup(t *testing.T) {
 	headGroupSpec := rayv1.HeadGroupSpec{
 		Template: podTemplateSpec(nil, nil),
