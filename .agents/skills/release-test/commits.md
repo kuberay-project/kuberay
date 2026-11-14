@@ -6,23 +6,30 @@ saves it.
 
 1. List the commits: `git log --no-merges --format='%h %s' vOLD..TAG`. From here on, work per PR, not
    per commit: a patch release puts several cherry-picked PRs into one commit, and the commit message
-   lists them.
+   lists them. `vOLD` is on a release branch, so the range can have PRs that `vOLD` already has as
+   cherry-picks. Leave out each PR whose number is in `git log --format=%B TAG..vOLD`.
 2. For each PR, decide if a docs reader can notice it. Read its diff (`git show --stat`, then the
    important parts) when it changes:
-   - `ray-operator/apis/`: CRD fields added, removed or renamed, defaults, validation
+   - `ray-operator/apis/ray/`: CRD fields added, removed or renamed, defaults, validation
    - `helm-chart/`: values renamed or removed, new defaults, what a template creates
    - `ray-operator/pkg/features/`: feature gates added, promoted or removed
-   - `ray-operator/main.go`, `ray-operator/controllers/ray/utils/constant.go`: operator flags and
+   - `ray-operator/main.go`, `ray-operator/apis/config/`,
+     `ray-operator/controllers/ray/utils/constant.go`: operator flags, configuration fields and
      environment variables
+   - `ray-operator/pkg/webhooks/`: what the operator's webhooks reject or change
    - `kubectl-plugin/`: commands and flags
    - `ray-operator/config/samples/`: samples the docs use that changed, moved or were removed
+   - `ray-operator/config/`, other folders: the CRDs and the kustomize install
    - `ray-operator/controllers/`: behavior a page describes, like states, conditions, events, and what
      the operator creates or deletes
-   - `historyserver/`, `apiserver/`, `dashboard/`: only if `git -C RAY grep` finds a page about it
+   - `historyserver/`, `apiserver/`, `dashboard/`, `config/`, `clients/`: only if `git -C RAY grep`
+     finds a page about it
 
-   Readers cannot notice tests, CI, refactoring, the release's own version bump, or this repository's
-   own docs.
-3. For each change readers can notice, find the pages about it with
+   Readers cannot notice tests, CI, refactoring, dependency bumps, the release's own version bump,
+   this repository's own docs, or a bug fix that leaves every page right.
+3. Write one row per change. A PR can make two changes, like a new field and a field that is no
+   longer required. A change can take several PRs: list them all in its row. For each change readers
+   can notice, find the pages about it with
    `git -C RAY grep -n -I -i '<field, value, flag or sample>' -- 'doc/source/kuberay/*.md'`, and give
    it one status:
    - `needs update`: the change makes a page wrong, for example a renamed Helm value, a removed field,
@@ -37,22 +44,24 @@ saves it.
 
    Skip `references/api.md`: a ray bot updates it from the release tag.
 4. Every sample the docs pin to a KubeRay version must exist at the tag. For each link or ref that
-   pins a sample path to a version (`kuberay/vX/`, `blob/vX/`, `tree/vX/`, `refs/tags/vX/`, `ref=vX`),
-   run `git cat-file -e TAG:<path>`. If the file is missing, add a `needs update` row. If the sample
+   pins a sample path to a version (`kuberay/vX/`, `blob/vX/`, `tree/vX/`, `refs/tags/vX/`, `ref=vX`,
+   `targetRevision` with `path`), run `git cat-file -e TAG:<path>`. If the file is missing, add a `needs update` row. If the sample
    moved, get the new path from `git diff -M --name-status vOLD TAG -- ray-operator/config/samples`.
-5. Reply with `commits.md` only, in this format:
+5. Reply with `commits.md` only, in this format. The rows are made up: they show the format, not the
+   result of a run.
 
    ```markdown
    # Commits v1.7.0..v1.8.0-rc.0
 
-   81 PRs. Readers can notice 6: 3 need updates, 2 need docs, 1 already right.
+   89 PRs. Readers can notice 5: 1 needs an update, 3 need docs, 1 already right.
 
    | PR | Change for readers | Pages | Status | Sample | Proposed change |
    |---|---|---|---|---|---|
-   | abc1234 [Helm] Rename the ServiceMonitor selector value (#5101) | `metrics.serviceMonitor.selector` is now `additionalLabels` | ecosystem/prometheus-grafana.md:64 | needs update | | `--set metrics.serviceMonitor.selector.release=prometheus` → `--set metrics.serviceMonitor.additionalLabels.release=prometheus`, with a note for v1.6.x and earlier |
-   | 9f8e7d6 [Feature] Terminate idle RayClusters (#5303) | new field `idleTerminationOptions` on RayCluster | | needs docs | `ray-cluster.autoscaler-v2-terminate-idle-cluster.yaml` | |
-   | def5678 [Feature] Suspend RayCronJob (#5202) | new field `spec.suspend` on RayCronJob | | needs docs | none | |
-   | 0a1b2c3 [Sample] Pin the auth samples' Ray image (#5154) | the sample images change; no page shows them | user-guides/auth.md | already right | | |
+   | f72fa098 Feat/remove restart policy never if autoscaler v2 (#4816) | with autoscaler V2 and `rayVersion` 2.56.0 or newer, KubeRay no longer sets `restartPolicy: Never` | user-guides/configuring-autoscaling.md:261 | needs update | | "KubeRay automatically sets `restartPolicy: Never` on worker pods if Autoscaler V2 is enabled." → "... if Autoscaler V2 is enabled and `rayVersion` is older than 2.56.0.", with a note for KubeRay v1.7 and earlier |
+   | d4e4ca16 [ray-operator] Add spec.idleSuspend and spec.idleTerminationOptions for v1 RayCluster CRD (#5210) | new fields `idleSuspend` and `idleTerminationOptions` on RayCluster | | needs docs | `ray-cluster.autoscaler-v2-terminate-idle-cluster.yaml` | |
+   | 38449c9c [Feature][History Server] Make the collector image configurable on the operator (#5207) | new Helm value `collectorImage` and operator flag `--collector-image` | | needs docs | `ray-cluster.historyserver.yaml` | |
+   | 8586d3a2 feat: add ScaleGate field to ScaleStrategy for fast fallback on quota exceeded (#5094) | new field `scaleGate` in a worker group's `scaleStrategy` | | needs docs | none | |
+   | eb636000 Forward Kubernetes Node infrastructure events to Ray custom resources (#4978) | new feature gate `RayNodeEventForwarder` and Helm values `nodeEventForwarder.*` | user-guides/k8s-events.md:229 | already right | | |
    ```
 
    Only `needs docs` rows fill in Sample.

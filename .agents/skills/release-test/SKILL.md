@@ -24,9 +24,13 @@ root of this repository.
 | `NEW` | `1.8.0` | the release version: `TAG` without `v` and `-rc.N` |
 | `OLD` | `1.7.0` | the KubeRay version the docs install now (step 1) |
 | `RAY` | `release-test/.cache/ray` | the ray docs, checked out at ray master |
-| `RES` | `release-test/results/v1.8.0-rc.0` | the results folder. Each page has its own folder `RES/<page>/`, where `<page>` is the page path under `doc/source/kuberay/` without the extension. Each sample has `RES/samples/<sample>/`, where `<sample>` is its path under `ray-operator/config/samples/` without the extension |
+| `RES` | `release-test/results/v1.8.0-rc.0` | the results folder. Each page has its own folder `RES/<page>/`, where `<page>` is the page path under `doc/source/kuberay/` without the extension. Each sample has `RES/samples/<sample>/`, where `<sample>` is its path under `ray-operator/config/samples/` without `.yaml`, like `ray-cronjob-timezone.sample` |
 
-If a step's file already exists in `RES`, skip that step.
+If `versions.md` or `commits.md` already exists in `RES`, skip its step. Steps 2 and 5 say what they
+do with earlier results. Step 6 always runs, so the report includes the new runs.
+
+The formats below are filled in with made-up results. Their pages, samples, PRs, counts and findings
+are examples of the format, not results of a run.
 
 ## 1. Set up
 
@@ -44,9 +48,12 @@ If a step's file already exists in `RES`, skip that step.
    ```sh
    test -d RAY || git clone --filter=blob:none --no-checkout https://github.com/ray-project/ray RAY
    git -C RAY fetch origin master
-   git -C RAY sparse-checkout set --no-cone /doc/source/kuberay/ /python/ray/autoscaler/kuberay/init-config.sh /release/k8s_tests/run_gcs_ft_on_k8s.py
+   git -C RAY sparse-checkout set --no-cone /doc/source/kuberay/ /python/ray/autoscaler/kuberay/init-config.sh
    git -C RAY switch --detach origin/master
    ```
+
+   When `RES/plan.md` exists, switch to the ray commit that its first line names instead of
+   `origin/master`, so that all the results in `RES` come from one version of the docs.
 
 4. Find `OLD`. It is the most common version in this list. Charts of other tools show up only once or
    twice:
@@ -57,14 +64,15 @@ If a step's file already exists in `RES`, skip that step.
 
 5. Delete the kind clusters that an interrupted run left in `RES`. Each run deletes its own cluster at
    the end, and a run that stops early does not. A kubeconfig in a `work/` folder still opens its
-   cluster only when that cluster is a leftover of this `RES`, so this never deletes a cluster of
-   another session:
+   cluster only when that cluster was made by a run in this `RES`. So never run two release tests on
+   the same `RES` at once: this would delete the clusters of the other one.
 
    ```sh
-   find RES -path '*/work/kubeconfig' | while read -r k; do
+   find RES -path '*/work/kubeconfig' 2>/dev/null | while read -r k; do
      for c in $(grep -o 'kind-rt-[0-9]*' "$k" | sort -u); do
-       kubectl --kubeconfig "$k" --context "$c" --request-timeout=5s get nodes >/dev/null 2>&1 \
-         && KUBECONFIG="$k" kind delete cluster --name "${c#kind-}"
+       if kubectl --kubeconfig "$k" --context "$c" --request-timeout=5s get nodes >/dev/null 2>&1; then
+         KUBECONFIG="$k" kind delete cluster --name "${c#kind-}"
+       fi
      done
    done
    ```
@@ -84,7 +92,7 @@ decide each page from grep results, not by reading the whole page:
   GPU section is enough to make the whole page `manual`. A page is also `manual` when its main steps
   need a cloud cluster (GKE, EKS, AKS, ACK), gVisor, or real credentials and paid services, like a
   Hugging Face token or a cloud bucket. Find the candidates with
-  `grep -l -i -E 'gpu|google\.com/tpu|gcloud |eksctl|az aks|aliyun|gvisor|hf_token|gsutil|aws s3'`,
+  `grep -l -i -E 'gpu|(^|[^a-z])tpu|gcloud |eksctl|az aks|aliyun|gvisor|hf_token|gsutil|aws s3|bucket'`,
   then decide from the page headings (`grep -n '^#'`) and the lines around each match
   (`grep -n -C3`). A page that only names a cloud as one place to run, or uses a cloud in an optional
   section, is `run`.
@@ -113,8 +121,10 @@ follows its pages: `run` when at least one of them is `run`, and `manual` otherw
 
 - `none`: the file has no RayCluster, RayJob, RayService or RayCronJob. It only helps another sample.
 - `manual`: the sample asks for a GPU or a TPU (`nvidia.com/gpu`, `google.com/tpu`), or it needs a
-  cloud cluster, a cloud bucket, gVisor or real credentials. Find the candidates with
-  `git grep -l -i -E 'nvidia\.com/gpu|google\.com/tpu|gke|gcsfuse|gs://|s3://|gvisor|hf_token' TAG -- ray-operator/config/samples`,
+  cloud cluster, a cloud bucket, gVisor or real credentials. It is also `manual` when it needs
+  something installed first, like a scheduler or a Gateway controller, and its comments do not give
+  the commands. Find the candidates with
+  `git grep -l -i -E 'nvidia\.com/gpu|google\.com/tpu|gke|gcsfuse|gs://|s3://|bucket|gvisor|hf_token|scheduler|yunikorn|volcano|kueue|gateway' TAG -- ray-operator/config/samples`,
   then decide from the lines around each match. A Ray resource like `num-gpus: "2"` asks for no real
   GPU, and a comment that names a cloud as one example does not need that cloud.
 - `run`: all other samples.
@@ -122,7 +132,7 @@ follows its pages: `run` when at least one of them is `run`, and `manual` otherw
 ```markdown
 # Plan for v1.8.0-rc.0
 
-ray master 45c4123857. Pages: 52 run, 14 manual, 11 none. Samples that a page runs: 35 run, 19 manual.
+ray master 45c4123857. Pages: 47 run, 25 manual, 5 none. Samples that a page runs: 35 run, 19 manual.
 Samples that no page runs: 27 run, 14 manual, 4 none.
 
 | Page | Plan | Why |
@@ -151,27 +161,26 @@ Samples that no page runs: 27 run, 14 manual, 4 none.
 Show the user the counts and the `manual` and `none` rows of the first and the third table. The second
 table follows from the first. Then stop and wait until they confirm the plan or edit `RES/plan.md`. If
 `RES/plan.md` exists from an earlier run, ask if it is still good. When pages or samples are given as
-arguments, skip the plan.
+arguments, do not ask: use `RES/plan.md`, or write it without asking when it does not exist.
 
 After the plan is confirmed, steps 3, 4 and 5 do not depend on each other. Start the step 4 subagent
 and the step 5 runs at the same time.
 
 ## 3. Record old versions
 
-In `RAY/doc/source/kuberay/`, `init-config.sh` and `run_gcs_ft_on_k8s.py`, find every KubeRay version
-that is older than `NEW` and tells the reader what to install or use:
+In `RAY/doc/source/kuberay/` and `init-config.sh`, find every KubeRay version that is older than
+`NEW` and tells the reader what to install or use:
 
 - `--version` of the `kuberay/kuberay-operator`, `kuberay/ray-cluster` and `kuberay/kuberay-apiserver`
   charts
-- links and refs to samples: `kuberay/vX/` and `refs/tags/vX/` in raw.githubusercontent.com and
-  `/blob/` URLs, `?ref=vX`, `targetRevision`, image tags like `kuberay/operator:vX`,
-  `releases/download/vX/`
+- links and refs to samples: `kuberay/vX/` and `refs/tags/vX/` in raw.githubusercontent.com,
+  `blob/vX/` and `tree/vX/` URLs, release branches like `kuberay/release-1.4/`, `?ref=vX`,
+  `targetRevision`, image tags like `kuberay/operator:vX`, `releases/download/vX/`
 - text that names the version the page uses, like "This guide uses KubeRay vX"
 
 Versions used in other ways are not old: minimum versions and history ("requires KubeRay 1.6.0 or
-newer", "Starting with KubeRay 1.6.0", deprecation notes), the version the upgrade guide upgrades
-from, `references/api.md` (a ray bot updates it from the release tag), and versions of Ray and other
-tools.
+newer", "Starting with KubeRay 1.6.0", deprecation notes), `references/api.md` (a ray bot updates it
+from the release tag), and versions of Ray and other tools.
 
 Write `RES/versions.md`:
 
@@ -192,14 +201,18 @@ The docs install 1.7.0. The release is 1.8.0. 95 references in 31 files are olde
 
 ## Pin candidates
 
-`kuberay/master/` links whose file exists at the tag (`git cat-file -e TAG:<path>`):
+Links to a file at KubeRay master that exists at the tag:
 
-- examples/rayjob-agent-sandbox.md:42 `ray-operator/config/samples/...`
+- examples/rayjob-agent-sandbox.md:144 `ray-operator/config/samples/agent-sandbox/sandbox.yaml`
 ```
 
 Kept lists the lines that have `OLD` but use it in another way. These are the lines a version bump
 could change by mistake. This step is done when every match of `git -C RAY grep -n -F OLD` in those
 files is a row in one of the two tables.
+
+Pin candidates lists every link to a file at KubeRay master, in any form (`kuberay/master/`,
+`refs/heads/master/`, `blob/master/`, `tree/master/`), whose file exists at the tag
+(`git cat-file -e TAG:<path>`). A human can pin these links to the release.
 
 ## 4. Read the release's commits
 
@@ -212,14 +225,17 @@ reply as `RES/commits.md`.
 Run the `run` pages of `RES/plan.md` and the `run` samples that no page runs, when they do not have a
 report yet. A sample that a page runs has no run of its own. The report of a page is
 `RES/<page>/report.md`, and the report of a sample is `RES/samples/<sample>/report.md`. Pages and
-samples given as arguments always run again, even when they have a report.
+samples given as arguments always run again, even when they have a report. Before one runs again,
+delete its `work/` folder and its folder in `RES/rerun`, so that the new run starts clean.
 
 Each page and each sample runs in its own subagent. A page follows
 `.agents/skills/release-test/run-page.md`, and a sample follows
-`.agents/skills/release-test/run-sample.md`. Give the subagent the page or the sample, `TAG`, `NEW`,
-`RAY`, `RES` and a kind cluster name `rt-<n>` that no running subagent uses and that
-`kind get clusters` does not list. A cheaper model is enough. Each run creates its own kind cluster,
-so run at most 3 at once, and at most the CPU count from `docker info` divided by 4.
+`.agents/skills/release-test/run-sample.md`. Give a page subagent the page, `TAG`, `OLD`, `RAY` and
+`RES`, and a sample subagent the sample, `TAG` and `RES`. Give `RAY` and `RES` as absolute paths:
+the subagent runs its commands in its own work folder. Give each one a kind cluster name `rt-<n>`
+that no running subagent uses and that `kind get clusters` does not list. A cheaper model is enough.
+Each run creates its own kind cluster, so run at most 3 at once, and at most the CPU count from
+`docker info` divided by 4.
 
 Each subagent replies with its report. Save it as the `report.md` above. The `status` in its front
 matter is `pass` or `fail`. It is `manual` or `none` when the page or the sample turns out different
@@ -228,8 +244,7 @@ from the plan.
 A run can fail for a reason that does not repeat on a new cluster. So run each page and sample whose
 report is `fail` one more time, in a new subagent. Give it `RES/rerun` as its `RES`, so that it
 starts with an empty work folder, and save its reply as the rerun report: `RES/rerun/<page>/report.md`
-or `RES/rerun/samples/<sample>/report.md`. The first report stays as it is. When a page or a sample
-given as an argument runs again, delete its old rerun report first.
+or `RES/rerun/samples/<sample>/report.md`. The first report stays as it is.
 
 A subagent that stops early, on an error or a timeout, leaves its kind cluster behind. When no
 subagent is running any more, run the cleanup of step 1 again.
@@ -247,28 +262,28 @@ this format. Leave out empty sections:
 
 ## Summary
 
-ray master 45c4123857, 2026-11-02. The docs install 1.7.0 (the latest release is 1.7.1). The pages
+ray master 45c4123857, 2026-11-02. The docs install 1.7.0 (the latest release is 1.7.2). The pages
 and the samples ran with 1.8.0-rc.0. The Samples column counts the 45 samples that no page runs. The
 other 54 run with a page.
 
 | Result | Pages | Samples |
 |---|---|---|
-| ✅ Pass | 28 | 24 |
+| ✅ Pass | 31 | 24 |
 | ⚠️ Pass, minor findings | 13 | 1 |
 | ❌ Fail | 3 | 1 |
 | 🔁 Unstable | 0 | 1 |
-| 👤 For a human to run | 12 | 14 |
-| ➖ Nothing to run | 20 | 4 |
+| 👤 For a human to run | 25 | 14 |
+| ➖ Nothing to run | 5 | 4 |
 | ⏸️ Not run | 0 | 0 |
 
 - Release blockers: 1, user-guides/rayservice: the RayService never becomes Ready.
 - Broken pages: 2.
-- Broken samples: 1, samples/ray-cluster.embedded-gcs-ft: the head never starts.
+- Broken samples: 1, samples/ray-cluster.overwrite-command: `kubectl apply` rejects the RayCluster.
 - Unstable: 1, samples/ray-cronjob-timezone.sample: the head Pod was `OOMKilled` in the first run, and
   the rerun passed.
 - Minor findings: 20 in 14 pages and 1 sample.
 - Old versions: 95 references in 31 files.
-- Doc changes from the release: 2 need updates.
+- Doc changes from the release: 1 needs an update.
 - New features without a page: 3, 2 of them not tested.
 
 ## Results
@@ -280,10 +295,10 @@ the samples.
 | Page or sample | Result | Blocker | Minor | Summary |
 |---|---|---|---|---|
 | [getting-started/rayjob-quick-start](getting-started/rayjob-quick-start/report.md) | ✅ | | | Both RayJobs succeed. |
-| [getting-started/raycluster-quick-start](getting-started/raycluster-quick-start/report.md) | ⚠️ | | 1 | The RayCluster becomes ready and the job succeeds. The page says 3G of memory, but the chart requests 5Gi. |
+| [getting-started/raycluster-quick-start](getting-started/raycluster-quick-start/report.md) | ⚠️ | | 1 | The RayCluster becomes ready and the job succeeds. The page's outputs show 3G of memory, but the chart now gives 6Gi. |
 | [user-guides/rayservice](user-guides/rayservice/report.md) | ❌ | 1 | 1 | The RayService never becomes Ready. |
 | [samples/ray-job.sidecar-mode](samples/ray-job.sidecar-mode/report.md) | ✅ | | | The RayJob succeeds. |
-| [samples/ray-cluster.embedded-gcs-ft](samples/ray-cluster.embedded-gcs-ft/report.md) | ❌ | 1 | | The head never starts: the sample's Ray image has no RocksDB backend. |
+| [samples/ray-cluster.overwrite-command](samples/ray-cluster.overwrite-command/report.md) | ❌ | 1 | | `kubectl apply` rejects the RayCluster: `rayStartParams.block` is a boolean, not a string. |
 | [samples/ray-cronjob-timezone.sample](samples/ray-cronjob-timezone.sample/report.md) | 🔁 | | | First run: the head Pod was `OOMKilled` and the RayJob never started. Rerun: the RayJob succeeds. |
 
 ## Release blockers
@@ -308,7 +323,7 @@ the samples.
 
 | Page or sample | Step | Problem | Proposed fix |
 |---|---|---|---|
-| [samples/ray-cluster.embedded-gcs-ft](samples/ray-cluster.embedded-gcs-ft/report.md) | RayCluster | the head never starts: `rayproject/ray:2.52.0` has no RocksDB backend | `rayproject/ray:2.52.0` → `rayproject/ray:2.57.0` |
+| [samples/ray-cluster.overwrite-command](samples/ray-cluster.overwrite-command/report.md) | RayCluster | `kubectl apply` rejects the RayCluster: `rayStartParams.block` is a boolean, not a string | `block: true` → `block: "true"` |
 
 ## Minor findings
 
@@ -316,13 +331,14 @@ the samples.
 
 | Page or sample | Type | Step | Problem | Proposed fix |
 |---|---|---|---|---|
-| [getting-started/raycluster-quick-start](getting-started/raycluster-quick-start/report.md) | doc-bug | Step 3 | the page says 3G of memory, the chart requests 5Gi | "at least 3G" → "at least 5Gi" |
+| [getting-started/raycluster-quick-start](getting-started/raycluster-quick-start/report.md) | doc-bug | Steps 3 and 4 | the page shows 3G of memory, the chart gives 6Gi | `3G` → `6Gi` in Step 3, and `'memory': 3000000000.0` → `6442450944.0` in Step 4 |
 
 ## Old versions
 
 95 references in 31 files use a KubeRay version older than 1.8.0. [versions.md](versions.md) lists
 them all. Older than 1.7.0: user-guides/observability.md:51 (1.2.2),
-troubleshooting/troubleshooting.md:126 (1.6.0).
+troubleshooting/troubleshooting.md:126 (1.6.0). It also lists 44 links to files at KubeRay master that
+can be pinned to the release.
 
 ## Doc changes from the release
 
@@ -337,9 +353,9 @@ human to run, has nothing to run or did not run.
 
 | PR | Change for readers | Sample | Tested |
 |---|---|---|---|
-| 9f8e7d6 [Feature] Terminate idle RayClusters (#5303) | new field `idleTerminationOptions` on RayCluster | ray-cluster.autoscaler-v2-terminate-idle-cluster.yaml | [✅](samples/ray-cluster.autoscaler-v2-terminate-idle-cluster/report.md) |
-| 7a6b5c4 [RayService] Attach incremental upgrade to an existing Gateway (#5288) | new field `gatewayRef` on RayService | ray-service.incremental-upgrade-gateway-ref.yaml | not tested: for a human to run, needs a Gateway controller |
-| def5678 [Feature] Suspend RayCronJob (#5202) | new field `spec.suspend` on RayCronJob | none | not tested: no sample |
+| d4e4ca16 [ray-operator] Add spec.idleSuspend and spec.idleTerminationOptions for v1 RayCluster CRD (#5210) | new fields `idleSuspend` and `idleTerminationOptions` on RayCluster | ray-cluster.autoscaler-v2-terminate-idle-cluster.yaml | [⚠️](samples/ray-cluster.autoscaler-v2-terminate-idle-cluster/report.md) |
+| 38449c9c [Feature][History Server] Make the collector image configurable on the operator (#5207) | new Helm value `collectorImage` and operator flag `--collector-image` | ray-cluster.historyserver.yaml | not tested: for a human to run, needs a GCS bucket |
+| 8586d3a2 feat: add ScaleGate field to ScaleStrategy for fast fallback on quota exceeded (#5094) | new field `scaleGate` in a worker group's `scaleStrategy` | none | not tested: no sample |
 
 ## For a human to run
 
@@ -368,22 +384,28 @@ The `run` pages of plan.md and the `run` samples that no page runs, when they ha
 example pages left out of a partial run.
 ```
 
-The Result, Blocker and Minor of each page and sample come from the front matter of its report, and
-the Summary is its Verdict. Each row of the four findings tables is one finding of a report: the
-Problem is its heading and the Proposed fix is its suggested fix.
+The first line of the Summary names the ray commit of `plan.md`, the day of the report, `OLD`, and
+the newest KubeRay tag without `-rc`. The Result, Blocker and Minor of each page and sample come from
+the front matter of its report, and the Summary is its Verdict without the leading `Pass`, `Pass, N
+minor findings` or `Fail, N blockers`. Each row of the four findings tables is one finding of a
+report: the Problem is its heading and the Proposed fix is its suggested fix. The Minor findings line
+of the Summary counts the rows of the Minor findings table.
 
 A `fail` report has a rerun report (step 5). A `blocker` finding stands when the rerun report has it
-too: the same step and the same cause. Then the result is ❌. When no `blocker` finding stands, the
-result is 🔁: the rerun passed, or it failed for another cause. The `blocker` findings of both runs
-then go to Open findings, and not to the three `blocker` tables. The Blocker column counts only the
-findings that stand, and the Summary says what each run saw.
+too: the same step and the same cause. Then the result is ❌. When the two runs give it different
+types, use the one that is not `env` or `flaky`. A `blocker` that stands as `env` or `flaky` goes to
+Open findings. When no `blocker` finding stands, the result is 🔁: the rerun passed, or it failed for
+another cause. The `blocker` findings of both runs then go to Open findings, and not to the three
+`blocker` tables. For a page or sample with a rerun, the Blocker column counts the findings that
+stand, the Minor column counts the `minor` findings of both runs once each, and the Summary says what
+each run saw.
 
 Also write `RES/results.csv`, for people who track the release in a spreadsheet. It has one row per
-page and per sample of plan.md, except the `none` rows:
+page and per sample of plan.md, except the ➖ ones: the `none` rows and the runs that came back `none`.
 
 ```csv
 Name / Link,Type,Assignee,2nd Reviewer,Status,Priority,Screenshot Link,Comment,Follow-up
-https://docs.ray.io/en/master/kuberay/getting-started/raycluster-quick-start.html,Doc,,,Has Issue,,getting-started/raycluster-quick-start/report.md,"Minor: The RayCluster becomes ready and the job succeeds. The page says 3G of memory, but the chart requests 5Gi.",
+https://docs.ray.io/en/master/kuberay/getting-started/raycluster-quick-start.html,Doc,,,Has Issue,,getting-started/raycluster-quick-start/report.md,"Minor: The RayCluster becomes ready and the job succeeds. The page's outputs show 3G of memory, but the chart now gives 6Gi.",
 https://docs.ray.io/en/master/kuberay/user-guides/gpu.html,Doc,,,Not Tested,,,needs a GPU,
 https://github.com/kuberay-project/kuberay/blob/v1.8.0-rc.0/ray-operator/config/samples/ray-job.sidecar-mode.yaml,Sample YAML,,,No Issue,,samples/ray-job.sidecar-mode/report.md,The RayJob succeeds.,
 https://github.com/kuberay-project/kuberay/blob/v1.8.0-rc.0/ray-operator/config/samples/ray-cluster.tpu-v4-singlehost.yaml,Sample YAML,,,Not Tested,,,needs a TPU,
@@ -393,8 +415,9 @@ https://github.com/kuberay-project/kuberay/blob/v1.8.0-rc.0/ray-operator/config/
 
 `Type` is `Doc` for a page and `Sample YAML` for a sample. `Status` is a value that the tracking sheet
 accepts: `No Issue` (✅), `Has Issue` (⚠️, ❌ and 🔁) or `Not Tested` (👤 and ⏸️). `Screenshot Link` is
-the path of the report under `RES`. `Comment` is the Summary of the Results row, or what a `manual` row
-needs. The `Comment` of a ⚠️ row starts with `Minor:`. People fill in the other columns.
+the path of the report under `RES`. `Comment` is the Summary of the Results row, what a `manual` row
+needs, or `Not run.` for a ⏸️ row. The `Comment` of a ⚠️ row starts with `Minor:`. People fill in the
+other columns.
 
 A sample that a page runs has no report of its own. Its row comes from the reports of the pages that
 run it:
@@ -406,7 +429,8 @@ run it:
 - `Not Tested`: no page reached those steps, or the sample is `manual` in plan.md. The `Comment` is
   the reason.
 
-`Screenshot Link` is the report of that page, and the `Comment` ends with `Runs with <page>.`
+`Screenshot Link` is the report of that page, and the `Comment` ends with `Runs with <page>.`, which
+names every page that runs the sample.
 
 Then tell the user the release blockers, the broken pages, the broken samples, the unstable pages
 and samples, the counts and the paths to `RES/REPORT.md` and `RES/results.csv`.

@@ -4,22 +4,16 @@ You get a sample (its path under `ray-operator/config/samples/`), `TAG`, `RES` (
 skill) and a kind cluster name `CLUSTER`. You run in the KubeRay repository. No docs page runs this
 sample, so its comments are the only instructions. Check that it works with the release candidate,
 and reply with a report of what you found. The main agent saves it as `OUT/report.md`. `OUT` is
-`RES/samples/` plus the sample path without the extension, like `RES/samples/ray-job.sidecar-mode/`.
+`RES/samples/` plus the sample path without `.yaml`, like `RES/samples/ray-cronjob-timezone.sample/`.
 Put the files your commands create in `OUT/work/`.
 
 ## Read
 
 Get the sample from the tag and read it:
 `git show TAG:ray-operator/config/samples/<sample> > OUT/work/<file name>`. Before you run anything,
-check for two statuses:
-
-- `manual`: the sample asks for a GPU or a TPU (`nvidia.com/gpu`, `google.com/tpu`), or it needs a
-  cloud cluster, a cloud bucket, gVisor or real credentials. It is also `manual` when it needs
-  something installed first, like a scheduler or a Gateway controller, and its comments do not give
-  the commands.
-- `none`: the file has no RayCluster, RayJob, RayService or RayCronJob.
-
-For these two, the report is only the front matter and the Verdict, which gives the reason.
+check if the sample is `manual` or `none`, as step 2 of `.agents/skills/release-test/SKILL.md`
+defines them for samples. For these two, the report is only the front matter and the Verdict, which
+gives the reason.
 
 ## Run
 
@@ -39,7 +33,9 @@ that file, so every cluster you use is your own.
    A sample can need a feature gate that is off by default: RayCronJob does, and so do some fields.
    `git show TAG:ray-operator/pkg/features/features.go` lists every gate, what it enables and its
    default. Turn the gate on in the same `helm install`:
-   `--set "featureGates[0].name=<gate>" --set "featureGates[0].enabled=true"`.
+   `--set "featureGates[0].name=<gate>" --set "featureGates[0].enabled=true"`. This replaces the
+   chart's list of gates, so also set each gate that the chart's `values.yaml` turns on and that
+   `features.go` turns off by default.
 3. Run the commands that the sample's comments give, in order and as written.
 4. Apply the sample: `kubectl apply -f <file name>`. A RayCronJob waits for its schedule, so apply it
    with `schedule: "* * * * *"`. It then creates a RayJob every minute. When the first RayJob exists,
@@ -57,7 +53,9 @@ that file, so every cluster you use is your own.
 7. Check the `RESTARTS` column of `kubectl get pods`. A container of the sample that restarted is a
    finding, even when the resource works in the end. Get the reason, like `OOMKilled`, from
    `kubectl get pod <pod> -o jsonpath='{.status.containerStatuses[*].lastState.terminated.reason}'`.
-8. Delete the sample: `kubectl delete -f <file name> --timeout=5m` returns without an error.
+8. Delete the sample: `kubectl delete -f <file name> --ignore-not-found --timeout=5m` returns without
+   an error. A resource that the sample deletes by itself, like a RayJob with a deletion rule, is
+   already gone, and that is not a finding.
 9. Always run `kind delete cluster --name CLUSTER` at the end, even if something failed.
 
 You may add read-only commands at any time: `kubectl get`, `describe`, `logs`, `wait`. Use them to
@@ -77,13 +75,14 @@ Classify each finding and write the report as "Classify each finding" and "Repor
 - A wrong sample or a wrong comment is `sample-bug`. A wrong operator or chart is `product-bug`. No
   page is involved, so no finding is `doc-bug`.
 - The front matter has `sample:` where a page report has `page:`.
-- Environment: the first line is the sample's URL at the tag. The node image is the part before `@`
-  in the output of `docker inspect -f '{{.Config.Image}}' CLUSTER-control-plane`.
+- Environment: the first line is the sample's URL at the tag.
 - What was verified: one row for the apply, one for each Ray resource, one for each result from the
   comments, one for the restarts, and one for the delete. A result that a deviation makes impossible
   to check gets `⏭️` and the reason.
 - Deviations: only a feature gate you turned on, a RayCronJob schedule you changed, and a value you
   chose. Write `None.` when there are none.
+
+The values in this example are made up: they show the format, not the result of a run.
 
 ````markdown
 ---
