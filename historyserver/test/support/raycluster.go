@@ -1,6 +1,7 @@
 package support
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -14,7 +15,8 @@ import (
 )
 
 const (
-	RayClusterManifestPath = "../testdata/raycluster.yaml"
+	RayClusterManifestPath               = "../testdata/raycluster.yaml"
+	rayClusterKubernetesAuthManifestPath = "../../config/raycluster-kubernetes-auth.yaml"
 
 	// RayVersionForTokenAuth is the minimum rayVersion the operator accepts for token auth.
 	RayVersionForTokenAuth = "2.52.0"
@@ -55,6 +57,58 @@ func ApplyRayClusterWithCollectorTokenAuth(test Test, g *WithT, namespace *corev
 	})
 }
 
+// ApplyRayClusterWithCollectorKubernetesTokenAuth deploys the Kubernetes token auth sample
+// with namespace-isolated RBAC resources.
+func ApplyRayClusterWithCollectorKubernetesTokenAuth(test Test, g *WithT, namespace *corev1.Namespace) *rayv1.RayCluster {
+	resources := deserializeKubernetesTokenAuthYAML(test, rayClusterKubernetesAuthManifestPath)
+	namespaceName := namespace.Name
+
+	resources.rayCluster.Namespace = namespaceName
+	resources.serviceAccount.Namespace = namespaceName
+	resources.roleBinding.Namespace = namespaceName
+
+	resources.authenticatorClusterRole.Name = fmt.Sprintf("%s-%s", resources.authenticatorClusterRole.Name, namespaceName)
+	resources.writerClusterRole.Name = fmt.Sprintf("%s-%s", resources.writerClusterRole.Name, namespaceName)
+	resources.clusterRoleBinding.Name = fmt.Sprintf("%s-%s", resources.clusterRoleBinding.Name, namespaceName)
+	resources.clusterRoleBinding.RoleRef.Name = resources.authenticatorClusterRole.Name
+	resources.roleBinding.RoleRef.Name = resources.writerClusterRole.Name
+
+	for i := range resources.clusterRoleBinding.Subjects {
+		resources.clusterRoleBinding.Subjects[i].Namespace = namespaceName
+	}
+	for i := range resources.roleBinding.Subjects {
+		resources.roleBinding.Subjects[i].Namespace = namespaceName
+	}
+
+	coreClient := test.Client().Core()
+	test.T().Cleanup(func() {
+		_ = coreClient.RbacV1().ClusterRoleBindings().Delete(
+			context.Background(), resources.clusterRoleBinding.Name, metav1.DeleteOptions{})
+		_ = coreClient.RbacV1().ClusterRoles().Delete(
+			context.Background(), resources.authenticatorClusterRole.Name, metav1.DeleteOptions{})
+		_ = coreClient.RbacV1().ClusterRoles().Delete(
+			context.Background(), resources.writerClusterRole.Name, metav1.DeleteOptions{})
+	})
+
+	_, err := coreClient.CoreV1().ServiceAccounts(namespaceName).
+		Create(test.Ctx(), resources.serviceAccount, metav1.CreateOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	_, err = coreClient.RbacV1().ClusterRoles().
+		Create(test.Ctx(), resources.authenticatorClusterRole, metav1.CreateOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	_, err = coreClient.RbacV1().ClusterRoles().
+		Create(test.Ctx(), resources.writerClusterRole, metav1.CreateOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	_, err = coreClient.RbacV1().ClusterRoleBindings().
+		Create(test.Ctx(), resources.clusterRoleBinding, metav1.CreateOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	_, err = coreClient.RbacV1().RoleBindings(namespaceName).
+		Create(test.Ctx(), resources.roleBinding, metav1.CreateOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+
+	return createRayClusterAndWait(test, g, namespace, resources.rayCluster)
+}
+
 func applyRayClusterWithCollector(test Test, g *WithT, namespace *corev1.Namespace, mutate func(*rayv1.RayCluster)) *rayv1.RayCluster {
 	rayClusterFromYaml := DeserializeRayClusterYAML(test, RayClusterManifestPath)
 	rayClusterFromYaml.Namespace = namespace.Name
@@ -69,6 +123,10 @@ func applyRayClusterWithCollector(test Test, g *WithT, namespace *corev1.Namespa
 		injectCollectorRayClusterNamespaceAndEnvVar(rayClusterFromYaml.Spec.WorkerGroupSpecs[wg].Template.Spec.Containers, rayClusterFromYaml.Name, namespace.Name)
 	}
 
+	return createRayClusterAndWait(test, g, namespace, rayClusterFromYaml)
+}
+
+func createRayClusterAndWait(test Test, g *WithT, namespace *corev1.Namespace, rayClusterFromYaml *rayv1.RayCluster) *rayv1.RayCluster {
 	rayCluster, err := test.Client().Ray().RayV1().
 		RayClusters(namespace.Name).
 		Create(test.Ctx(), rayClusterFromYaml, metav1.CreateOptions{})
