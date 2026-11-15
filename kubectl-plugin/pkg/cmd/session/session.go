@@ -30,6 +30,7 @@ type SessionOptions struct {
 	cmdFactory     cmdutil.Factory
 	ioStreams      *genericiooptions.IOStreams
 	currentContext string
+	kubeconfig     string
 	ResourceType   util.ResourceType
 	ResourceName   string
 	namespace      string
@@ -127,6 +128,12 @@ func (options *SessionOptions) Complete(cmd *cobra.Command, args []string) error
 	}
 	options.currentContext = context
 
+	// The kubectl port-forward child doesn't see our flags. Pass --kubeconfig on,
+	// or the child loads the default kubeconfig and may not know the context.
+	if kubeconfig, err := cmd.Flags().GetString("kubeconfig"); err == nil {
+		options.kubeconfig = kubeconfig
+	}
+
 	typeAndName := strings.Split(args[0], "/")
 	if len(typeAndName) == 1 {
 		options.ResourceType = util.RayCluster
@@ -182,16 +189,7 @@ func (options *SessionOptions) Run(ctx context.Context, factory cmdutil.Factory)
 		return fmt.Errorf("unsupported resource type: %s", options.ResourceType)
 	}
 
-	var kubectlArgs []string
-	if options.currentContext != "" {
-		kubectlArgs = append(kubectlArgs, "--context", options.currentContext)
-	}
-	// TODO (dxia): forward more global kubectl flags like --server, --insecure-skip-tls-verify, --token, --tls-server-name, --user, --password, etc?
-
-	kubectlArgs = append(kubectlArgs, "port-forward", "-n", options.namespace, "service/"+svcName)
-	for _, appPort := range appPorts {
-		kubectlArgs = append(kubectlArgs, fmt.Sprintf("%d:%d", appPort.port, appPort.port))
-	}
+	kubectlArgs := options.portForwardArgs(svcName, appPorts)
 
 	for _, appPort := range appPorts {
 		fmt.Printf("%s: http://localhost:%d\n", appPort.name, appPort.port)
@@ -230,4 +228,22 @@ func (options *SessionOptions) Run(ctx context.Context, factory cmdutil.Factory)
 
 	wg.Wait()
 	return nil
+}
+
+// portForwardArgs returns the arguments for the `kubectl port-forward` child process.
+func (options *SessionOptions) portForwardArgs(svcName string, appPorts []appPort) []string {
+	var kubectlArgs []string
+	if options.kubeconfig != "" {
+		kubectlArgs = append(kubectlArgs, "--kubeconfig", options.kubeconfig)
+	}
+	if options.currentContext != "" {
+		kubectlArgs = append(kubectlArgs, "--context", options.currentContext)
+	}
+	// TODO (dxia): forward more global kubectl flags like --server, --insecure-skip-tls-verify, --token, --tls-server-name, --user, --password, etc?
+
+	kubectlArgs = append(kubectlArgs, "port-forward", "-n", options.namespace, "service/"+svcName)
+	for _, appPort := range appPorts {
+		kubectlArgs = append(kubectlArgs, fmt.Sprintf("%d:%d", appPort.port, appPort.port))
+	}
+	return kubectlArgs
 }

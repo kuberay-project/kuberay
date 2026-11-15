@@ -133,9 +133,48 @@ func TestCompleteFoo(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tc.expectedNamespace, fakeSessionOptions.namespace)
 				assert.Equal(t, tc.expectedContext, fakeSessionOptions.currentContext)
+				assert.Equal(t, kubeConfigWithCurrentContext, fakeSessionOptions.kubeconfig)
 				assert.Equal(t, tc.expectedResourceType, fakeSessionOptions.ResourceType)
 				assert.Equal(t, tc.expectedName, fakeSessionOptions.ResourceName)
 			}
+		})
+	}
+}
+
+func TestPortForwardArgs(t *testing.T) {
+	appPorts := []appPort{dashboardPort, clientPort}
+
+	tests := []struct {
+		name         string
+		kubeconfig   string
+		context      string
+		expectedArgs []string
+	}{
+		{
+			name:         "kubeconfig and context",
+			kubeconfig:   "/path/to/kubeconfig",
+			context:      "my-context",
+			expectedArgs: []string{"--kubeconfig", "/path/to/kubeconfig", "--context", "my-context", "port-forward", "-n", "test-namespace", "service/test-svc", "8265:8265", "10001:10001"},
+		},
+		{
+			name:         "context only",
+			context:      "my-context",
+			expectedArgs: []string{"--context", "my-context", "port-forward", "-n", "test-namespace", "service/test-svc", "8265:8265", "10001:10001"},
+		},
+		{
+			name:         "neither",
+			expectedArgs: []string{"port-forward", "-n", "test-namespace", "service/test-svc", "8265:8265", "10001:10001"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			options := &SessionOptions{
+				kubeconfig:     tc.kubeconfig,
+				currentContext: tc.context,
+				namespace:      "test-namespace",
+			}
+			assert.Equal(t, tc.expectedArgs, options.portForwardArgs("test-svc", appPorts))
 		})
 	}
 }
