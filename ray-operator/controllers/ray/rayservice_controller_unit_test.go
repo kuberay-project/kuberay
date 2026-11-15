@@ -3540,3 +3540,110 @@ func TestHandleSuspendObservedGeneration(t *testing.T) {
 		assert.Equal(t, int64(4), rayService.Status.ObservedGeneration)
 	})
 }
+
+func TestReconcile_IncrementalUpgradeWithoutActiveCluster(t *testing.T) {
+	// The active RayCluster is gone (e.g. deleted by a user) while an incremental upgrade
+	// is in progress, and the pending RayCluster is ready. Reconcile should point the
+	// RayService's Services at the pending RayCluster instead of panicking on the nil
+	// active RayCluster.
+	features.SetFeatureGateDuringTest(t, features.RayClusterStatusConditions, true)
+	features.SetFeatureGateDuringTest(t, features.RayServiceIncrementalUpgrade, true)
+	ctx := context.TODO()
+	namespace := "test-ns"
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+	_ = discoveryv1.AddToScheme(newScheme)
+	_ = gwv1.Install(newScheme)
+
+	rayService := &rayv1.RayService{
+		ObjectMeta: metav1.ObjectMeta{Name: "rs", Namespace: namespace, Finalizers: []string{utils.RayServiceFinalizer}},
+		Spec: rayv1.RayServiceSpec{
+			ServeConfigV2: "applications: []",
+			UpgradeStrategy: &rayv1.RayServiceUpgradeStrategy{
+				Type: ptr.To(rayv1.RayServiceNewClusterWithIncrementalUpgrade),
+				ClusterUpgradeOptions: &rayv1.ClusterUpgradeOptions{
+					GatewayClassName: "istio",
+					MaxSurgePercent:  new(int32(50)),
+					StepSizePercent:  new(int32(10)),
+					IntervalSeconds:  new(int32(30)),
+				},
+			},
+			RayClusterSpec: rayv1.RayClusterSpec{
+				// Incremental upgrade requires the autoscaler.
+				EnableInTreeAutoscaling: new(true),
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name:  "ray-head",
+								Image: "rayproject/ray:2.9.0",
+								Ports: []corev1.ContainerPort{
+									{Name: utils.ServingPortName, ContainerPort: 8000},
+									{Name: utils.DashboardPortName, ContainerPort: 8265},
+								},
+							}},
+						},
+					},
+				},
+			},
+		},
+		Status: rayv1.RayServiceStatuses{
+			ActiveServiceStatus:  rayv1.RayServiceStatus{RayClusterName: "rs-active"},
+			PendingServiceStatus: rayv1.RayServiceStatus{RayClusterName: "rs-pending"},
+		},
+	}
+	setCondition(rayService, rayv1.UpgradeInProgress, metav1.ConditionTrue, rayv1.BothActivePendingClustersExist, "Both active and pending Ray clusters exist")
+	setCondition(rayService, rayv1.RayServiceReady, metav1.ConditionTrue, rayv1.NonZeroServeEndpoints, "Number of serve endpoints is greater than 0")
+
+	// Only the pending RayCluster exists, and its head Pod is ready.
+	pendingCluster, err := constructRayClusterForRayService(rayService, "rs-pending", newScheme)
+	require.NoError(t, err)
+	pendingCluster.Status.Conditions = []metav1.Condition{{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue, Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now()}}
+	headSvcName, err := utils.GenerateHeadServiceName(utils.RayClusterCRD, rayv1.RayClusterSpec{}, pendingCluster.Name)
+	require.NoError(t, err)
+	headSvc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: headSvcName, Namespace: namespace},
+		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Name: utils.DashboardPortName, Port: 8265}}},
+	}
+	headPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "rs-pending-head",
+			Namespace: namespace,
+			Labels:    map[string]string{utils.RayClusterLabelKey: pendingCluster.Name, utils.RayNodeTypeLabelKey: string(rayv1.HeadNode)},
+		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
+	}
+
+	fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).
+		WithRuntimeObjects(rayService, pendingCluster, headSvc, headPod).
+		WithStatusSubresource(rayService).Build()
+	fakeDashboardClient := &utils.FakeRayDashboardClient{}
+	fakeDashboardClient.SetMultiApplicationStatuses(map[string]*utiltypes.ServeApplicationStatus{
+		"app1": {Status: rayv1.ApplicationStatusEnum.RUNNING},
+	})
+	r := &RayServiceReconciler{
+		Client:                       fakeClient,
+		Recorder:                     &events.FakeRecorder{},
+		Scheme:                       newScheme,
+		ServeConfigs:                 lru.New(10),
+		RayClusterDeletionTimestamps: cmap.New[time.Time](),
+		dashboardClientFunc: func(_ *rayv1.RayCluster, _ string) (dashboardclient.RayDashboardClientInterface, error) {
+			return fakeDashboardClient, nil
+		},
+		httpProxyClientFunc: func(_, _, _ string, _ int) utils.RayHttpProxyClientInterface {
+			return initFakeRayHttpProxyClient(true)
+		},
+	}
+
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: rayService.Name, Namespace: namespace}}
+	require.NotPanics(t, func() { _, err = r.Reconcile(ctx, req) })
+	require.NoError(t, err)
+
+	rayServiceHeadSvcName, err := utils.GenerateHeadServiceName(utils.RayServiceCRD, rayService.Spec.RayClusterSpec, rayService.Name)
+	require.NoError(t, err)
+	rayServiceHeadSvc := &corev1.Service{}
+	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: rayServiceHeadSvcName, Namespace: namespace}, rayServiceHeadSvc))
+	assert.Equal(t, pendingCluster.Name, rayServiceHeadSvc.Spec.Selector[utils.RayClusterLabelKey])
+}
