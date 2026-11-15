@@ -222,6 +222,10 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 				break
 			}
 
+			if err := r.removePendingNodeIdleTerminationGate(ctx, rayJobInstance, rayClusterInstance); err != nil {
+				return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
+			}
+
 			if clientURL, err = utils.FetchHeadServiceURL(ctx, r.Client, rayClusterInstance, utils.DashboardPortName); err != nil || clientURL == "" {
 				logger.Error(err, "Failed to get the dashboard URL after the RayCluster is ready!", "RayCluster", rayClusterInstance.Name)
 				return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
@@ -1012,6 +1016,9 @@ func (r *RayJobReconciler) constructRayClusterForRayJob(rayJobInstance *rayv1.Ra
 	maps.Copy(annotations, rayJobInstance.Annotations)
 	if rayJobInstance.Spec.SubmissionMode == rayv1.SidecarMode {
 		annotations[utils.DisableProvisionedHeadRestartAnnotationKey] = "true"
+	} else if utils.IsAutoscalingEnabled(rayJobInstance.Spec.RayClusterSpec) {
+		// The other modes submit the job only after the RayCluster is ready, so pending worker Pods have no resource demand until then.
+		annotations[utils.PendingNodeIdleTerminationGateAnnotationKey] = "true"
 	}
 
 	rayCluster := &rayv1.RayCluster{
@@ -1045,6 +1052,17 @@ func (r *RayJobReconciler) constructRayClusterForRayJob(rayJobInstance *rayv1.Ra
 	}
 
 	return rayCluster, nil
+}
+
+func (r *RayJobReconciler) removePendingNodeIdleTerminationGate(ctx context.Context, rayJobInstance *rayv1.RayJob, rayClusterInstance *rayv1.RayCluster) error {
+	_, gated := rayClusterInstance.Annotations[utils.PendingNodeIdleTerminationGateAnnotationKey]
+	if !gated || len(rayJobInstance.Spec.ClusterSelector) != 0 {
+		return nil
+	}
+	ctrl.LoggerFrom(ctx).Info("Remove the pending node idle termination gate from the ready RayCluster", "RayCluster", rayClusterInstance.Name)
+	patch := client.MergeFromWithOptions(rayClusterInstance.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	delete(rayClusterInstance.Annotations, utils.PendingNodeIdleTerminationGateAnnotationKey)
+	return r.Patch(ctx, rayClusterInstance, patch)
 }
 
 func updateStatusToSuspendingIfNeeded(ctx context.Context, rayJob *rayv1.RayJob) bool {

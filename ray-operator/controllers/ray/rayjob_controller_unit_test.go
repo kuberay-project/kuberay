@@ -1272,3 +1272,137 @@ func TestBatchSchedulerCleanupCalledWhenRayJobSuspendingOrRetrying(t *testing.T)
 		})
 	}
 }
+
+func TestConstructRayClusterForRayJob_PendingNodeIdleTerminationGate(t *testing.T) {
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+
+	tests := []struct {
+		name                    string
+		submissionMode          rayv1.JobSubmissionMode
+		enableInTreeAutoscaling *bool
+		expectGate              bool
+	}{
+		{
+			name:                    "K8sJobMode with autoscaling",
+			submissionMode:          rayv1.K8sJobMode,
+			enableInTreeAutoscaling: new(true),
+			expectGate:              true,
+		},
+		{
+			name:                    "HTTPMode with autoscaling",
+			submissionMode:          rayv1.HTTPMode,
+			enableInTreeAutoscaling: new(true),
+			expectGate:              true,
+		},
+		{
+			name:                    "InteractiveMode with autoscaling",
+			submissionMode:          rayv1.InteractiveMode,
+			enableInTreeAutoscaling: new(true),
+			expectGate:              true,
+		},
+		{
+			name:                    "SidecarMode with autoscaling",
+			submissionMode:          rayv1.SidecarMode,
+			enableInTreeAutoscaling: new(true),
+			expectGate:              false,
+		},
+		{
+			name:           "K8sJobMode without autoscaling",
+			submissionMode: rayv1.K8sJobMode,
+			expectGate:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rayJob := &rayv1.RayJob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-rayjob",
+					Namespace: "default",
+				},
+				Spec: rayv1.RayJobSpec{
+					Entrypoint:     "echo test",
+					SubmissionMode: tc.submissionMode,
+					RayClusterSpec: &rayv1.RayClusterSpec{
+						EnableInTreeAutoscaling: tc.enableInTreeAutoscaling,
+						HeadGroupSpec: rayv1.HeadGroupSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{{Image: "rayproject/ray:test"}},
+								},
+							},
+						},
+					},
+				},
+			}
+			rayJobReconciler := &RayJobReconciler{Scheme: newScheme}
+
+			rayCluster, err := rayJobReconciler.constructRayClusterForRayJob(rayJob, "test-raycluster")
+			require.NoError(t, err)
+
+			if tc.expectGate {
+				assert.Equal(t, "true", rayCluster.Annotations[utils.PendingNodeIdleTerminationGateAnnotationKey])
+			} else {
+				assert.NotContains(t, rayCluster.Annotations, utils.PendingNodeIdleTerminationGateAnnotationKey)
+			}
+		})
+	}
+}
+
+func TestRemovePendingNodeIdleTerminationGate(t *testing.T) {
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+
+	tests := []struct {
+		name                string
+		clusterSelector     map[string]string
+		annotations         map[string]string
+		expectedAnnotations map[string]string
+	}{
+		{
+			name:                "Remove the gate and keep the other annotations",
+			annotations:         map[string]string{utils.PendingNodeIdleTerminationGateAnnotationKey: "true", "foo": "bar"},
+			expectedAnnotations: map[string]string{"foo": "bar"},
+		},
+		{
+			name:                "Keep the gate on a RayCluster selected by clusterSelector",
+			clusterSelector:     map[string]string{utils.RayJobClusterSelectorKey: "test-raycluster"},
+			annotations:         map[string]string{utils.PendingNodeIdleTerminationGateAnnotationKey: "true"},
+			expectedAnnotations: map[string]string{utils.PendingNodeIdleTerminationGateAnnotationKey: "true"},
+		},
+		{
+			name:                "No gate to remove",
+			annotations:         map[string]string{"foo": "bar"},
+			expectedAnnotations: map[string]string{"foo": "bar"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			namespacedName := types.NamespacedName{Name: "test-raycluster", Namespace: "default"}
+			rayCluster := &rayv1.RayCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        namespacedName.Name,
+					Namespace:   namespacedName.Namespace,
+					Annotations: tc.annotations,
+				},
+			}
+			rayJob := &rayv1.RayJob{
+				Spec: rayv1.RayJobSpec{
+					ClusterSelector: tc.clusterSelector,
+				},
+			}
+			fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(rayCluster).Build()
+			require.NoError(t, fakeClient.Get(ctx, namespacedName, rayCluster))
+			rayJobReconciler := &RayJobReconciler{Client: fakeClient}
+
+			err := rayJobReconciler.removePendingNodeIdleTerminationGate(ctx, rayJob, rayCluster)
+			require.NoError(t, err)
+
+			require.NoError(t, fakeClient.Get(ctx, namespacedName, rayCluster))
+			assert.Equal(t, tc.expectedAnnotations, rayCluster.Annotations)
+		})
+	}
+}
