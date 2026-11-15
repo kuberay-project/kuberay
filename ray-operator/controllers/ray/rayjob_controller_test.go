@@ -355,6 +355,48 @@ var _ = Context("RayJob with different submission modes", func() {
 			})
 		})
 
+		Describe("RayJob with autoscaling in K8sJobMode", Ordered, func() {
+			ctx := context.Background()
+			namespace := "default"
+			rayJob := rayJobTemplate("rayjob-autoscaling", namespace)
+			rayJob.Spec.RayClusterSpec.EnableInTreeAutoscaling = new(true)
+			rayCluster := &rayv1.RayCluster{}
+
+			It("Create a RayJob custom resource", func() {
+				err := k8sClient.Create(ctx, rayJob)
+				Expect(err).NotTo(HaveOccurred(), "Failed to create RayJob")
+				Eventually(
+					getResourceFunc(ctx, client.ObjectKey{Name: rayJob.Name, Namespace: namespace}, rayJob),
+					time.Second*3, time.Millisecond*500).Should(Succeed(), "Should be able to see RayJob: %v", rayJob.Name)
+			})
+
+			It("RayJobs's JobDeploymentStatus transitions from New to Initializing.", func() {
+				Eventually(
+					getRayJobDeploymentStatus(ctx, rayJob),
+					time.Second*3, time.Millisecond*500).Should(Equal(rayv1.JobDeploymentStatusInitializing), "JobDeploymentStatus = %v", rayJob.Status.JobDeploymentStatus)
+			})
+
+			It("In Initializing state, the RayCluster should have the pending node idle termination gate.", func() {
+				Eventually(
+					getResourceFunc(ctx, client.ObjectKey{Name: rayJob.Status.RayClusterName, Namespace: namespace}, rayCluster),
+					time.Second*3, time.Millisecond*500).Should(Succeed(), "RayCluster %v not found", rayJob.Status.RayClusterName)
+
+				Expect(rayCluster.Annotations).Should(HaveKeyWithValue(utils.PendingNodeIdleTerminationGateAnnotationKey, "true"))
+			})
+
+			It("The gate should be removed when the RayCluster is ready and the RayJob transitions to Running.", func() {
+				updateHeadPodToRunningAndReady(ctx, rayJob.Status.RayClusterName, namespace)
+				updateWorkerPodsToRunningAndReady(ctx, rayJob.Status.RayClusterName, namespace)
+
+				Eventually(
+					getRayJobDeploymentStatus(ctx, rayJob),
+					time.Second*3, time.Millisecond*500).Should(Equal(rayv1.JobDeploymentStatusRunning), "JobDeploymentStatus = %v", rayJob.Status.JobDeploymentStatus)
+
+				Expect(k8sClient.Get(ctx, client.ObjectKey{Name: rayJob.Status.RayClusterName, Namespace: namespace}, rayCluster)).To(Succeed())
+				Expect(rayCluster.Annotations).ShouldNot(HaveKey(utils.PendingNodeIdleTerminationGateAnnotationKey))
+			})
+		})
+
 		Describe("Successful RayJob in K8sJobMode with a maximum name", Ordered, func() {
 			ctx := context.Background()
 			namespace := "default"

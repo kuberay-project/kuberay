@@ -32,6 +32,8 @@ const (
 	RayJobSubmissionModeLabelKey             = "ray.io/job-submission-mode"
 	// DisableProvisionedHeadRestartAnnotationKey marks RayClusters created for sidecar-mode RayJobs to skip head Pod recreation after provisioning.
 	DisableProvisionedHeadRestartAnnotationKey = "ray.io/disable-provisioned-head-restart"
+	// PendingNodeIdleTerminationGateAnnotationKey marks RayClusters created for RayJobs to keep the Ray Autoscaler from idle-terminating pending worker Pods until the RayCluster is first ready.
+	PendingNodeIdleTerminationGateAnnotationKey = "ray.io/pending-node-idle-termination-gate"
 	// Finalizer for Idle Termination cleanup
 	IdleTerminationCleanupFinalizer = "ray.io/idle-termination-cleanup-finalizer"
 	// Labels for feature RayMultihostIndexing
