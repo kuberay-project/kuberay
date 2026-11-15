@@ -439,12 +439,6 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			return r.handleLegacyDeletionPolicy(ctx, rayJobInstance)
 		}
 
-		// Skip shutdownAfterJobFinishes cleanup when using an existing RayCluster.
-		if len(rayJobInstance.Spec.ClusterSelector) > 0 {
-			logger.Info("RayJob is using an existing RayCluster via clusterSelector; skipping resource deletion.", "RayClusterSelector", rayJobInstance.Spec.ClusterSelector)
-			return ctrl.Result{}, nil
-		}
-
 		if rayJobInstance.Spec.ShutdownAfterJobFinishes {
 			return r.handleShutdownAfterJobFinishes(ctx, rayJobInstance)
 		}
@@ -841,6 +835,11 @@ func (r *RayJobReconciler) deleteClusterResources(ctx context.Context, rayJobIns
 
 func (r *RayJobReconciler) suspendWorkerGroups(ctx context.Context, rayJobInstance *rayv1.RayJob) error {
 	logger := ctrl.LoggerFrom(ctx)
+	if len(rayJobInstance.Spec.ClusterSelector) > 0 {
+		logger.Info("RayJob is using an existing RayCluster via clusterSelector; skipping worker suspension.", "RayClusterSelector", rayJobInstance.Spec.ClusterSelector)
+		return nil
+	}
+
 	clusterIdentifier := common.RayJobRayClusterNamespacedName(rayJobInstance)
 
 	cluster := rayv1.RayCluster{}
