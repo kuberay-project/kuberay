@@ -5204,53 +5204,39 @@ func TestCalculateStatus_HeadPodFailedCondition(t *testing.T) {
 	}
 }
 
-func TestResolveHeadFailurePolicy(t *testing.T) {
+func TestShouldFailOnHeadFailure(t *testing.T) {
 	setupTest(t)
-
-	r := &RayClusterReconciler{
-		Recorder: events.NewFakeRecorder(10),
-	}
-	ctx := context.Background()
 
 	tests := []struct {
 		name                        string
 		annotation                  string
-		restartPolicy               corev1.RestartPolicy
 		disableStatusConditionsGate bool
-		expected                    rayv1.HeadFailurePolicy
+		expected                    bool
 	}{
 		{
-			name:     "missing annotation defaults to Recreate",
-			expected: rayv1.HeadFailurePolicyRecreate,
+			name:     "missing annotation is false",
+			expected: false,
 		},
 		{
-			name:          "Fail with Never restartPolicy",
-			annotation:    string(rayv1.HeadFailurePolicyFail),
-			restartPolicy: corev1.RestartPolicyNever,
-			expected:      rayv1.HeadFailurePolicyFail,
-		},
-		{
-			name:       "Fail with unset restartPolicy falls back to Recreate",
+			name:       "Fail annotation with RayClusterStatusConditions enabled is true",
 			annotation: string(rayv1.HeadFailurePolicyFail),
-			expected:   rayv1.HeadFailurePolicyRecreate,
+			expected:   true,
 		},
 		{
-			name:          "Fail with Always restartPolicy falls back to Recreate",
-			annotation:    string(rayv1.HeadFailurePolicyFail),
-			restartPolicy: corev1.RestartPolicyAlways,
-			expected:      rayv1.HeadFailurePolicyRecreate,
+			name:       "Recreate annotation is false",
+			annotation: string(rayv1.HeadFailurePolicyRecreate),
+			expected:   false,
 		},
 		{
-			name:       "unrecognized value falls back to Recreate",
+			name:       "unrecognized annotation is false",
 			annotation: "Unknown",
-			expected:   rayv1.HeadFailurePolicyRecreate,
+			expected:   false,
 		},
 		{
-			name:                        "Fail ignored when status conditions gate disabled",
+			name:                        "Fail annotation with RayClusterStatusConditions disabled is false",
 			annotation:                  string(rayv1.HeadFailurePolicyFail),
-			restartPolicy:               corev1.RestartPolicyNever,
 			disableStatusConditionsGate: true,
-			expected:                    rayv1.HeadFailurePolicyRecreate,
+			expected:                    false,
 		},
 	}
 
@@ -5262,9 +5248,8 @@ func TestResolveHeadFailurePolicy(t *testing.T) {
 			if tc.annotation != "" {
 				cluster.Annotations = map[string]string{utils.HeadFailurePolicyAnnotationKey: tc.annotation}
 			}
-			cluster.Spec.HeadGroupSpec.Template.Spec.RestartPolicy = tc.restartPolicy
 
-			assert.Equal(t, tc.expected, r.resolveHeadFailurePolicy(ctx, cluster))
+			assert.Equal(t, tc.expected, shouldFailOnHeadFailure(cluster))
 		})
 	}
 }

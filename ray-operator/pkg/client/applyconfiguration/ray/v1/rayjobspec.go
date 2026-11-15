@@ -82,9 +82,10 @@ type RayJobSpecApplyConfiguration struct {
 	// HeadFailurePolicy controls the behavior when the head pod fails.
 	// - If set to Recreate, the head pod will be recreated (existing behavior).
 	// - If set to Fail, the RayJob fails when the head pod fails, without recreating it.
-	// Fail requires the head Pod restartPolicy to be Never. If restartPolicy is unset,
-	// the controller sets it to Never when creating the RayCluster. Explicit Always or
-	// OnFailure is rejected. SidecarMode already forces Never for the same reason.
+	// Fail requires RayClusterStatusConditions to be enabled. It also requires the head
+	// Pod restartPolicy to be Never; if unset, the controller sets Never when creating
+	// the RayCluster. Explicit Always or OnFailure is rejected. SidecarMode already
+	// forces Never for the same reason.
 	// Defaults to Recreate if not set.
 	HeadFailurePolicy *rayv1.HeadFailurePolicy `json:"headFailurePolicy,omitempty"`
 }

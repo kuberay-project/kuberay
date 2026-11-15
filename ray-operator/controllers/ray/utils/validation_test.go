@@ -1881,6 +1881,26 @@ func TestValidateRayJobSpec(t *testing.T) {
 	}
 }
 
+func TestValidateRayJobSpec_HeadFailurePolicyRequiresStatusConditions(t *testing.T) {
+	spec := rayv1.RayJobSpec{
+		HeadFailurePolicy: ptr.To(rayv1.HeadFailurePolicyFail),
+		RayClusterSpec: &rayv1.RayClusterSpec{
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: podTemplateSpec(nil, ptr.To(corev1.RestartPolicyNever)),
+			},
+		},
+	}
+	rayJob := &rayv1.RayJob{Spec: spec}
+
+	features.SetFeatureGateDuringTest(t, features.RayClusterStatusConditions, true)
+	require.NoError(t, ValidateRayJobSpec(rayJob))
+
+	features.SetFeatureGateDuringTest(t, features.RayClusterStatusConditions, false)
+	err := ValidateRayJobSpec(rayJob)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "RayClusterStatusConditions")
+}
+
 func TestValidateRayJobSpecWithFeatureGate(t *testing.T) {
 	headGroupSpecWithOneContainer := rayv1.HeadGroupSpec{
 		Template: podTemplateSpec(nil, nil),

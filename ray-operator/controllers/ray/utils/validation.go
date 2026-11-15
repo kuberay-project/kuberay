@@ -709,6 +709,9 @@ func ValidateRayJobSpec(rayJob *rayv1.RayJob) error {
 	}
 
 	if rayJob.Spec.HeadFailurePolicy != nil && *rayJob.Spec.HeadFailurePolicy == rayv1.HeadFailurePolicyFail {
+		if !features.Enabled(features.RayClusterStatusConditions) {
+			return fmt.Errorf("The RayJob spec is invalid: headFailurePolicy Fail requires RayClusterStatusConditions feature gate to be enabled")
+		}
 		if isClusterSelectorMode {
 			return fmt.Errorf("The RayJob spec is invalid: headFailurePolicy Fail is incompatible with ClusterSelector")
 		}

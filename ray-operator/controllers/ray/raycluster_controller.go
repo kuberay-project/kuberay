@@ -1065,7 +1065,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		shouldDelete, reason := shouldDeletePod(headPod, rayv1.HeadNode)
 		logger.Info("reconcilePods", "head Pod", headPod.Name, "shouldDelete", shouldDelete, "reason", reason)
 		if shouldDelete {
-			if r.resolveHeadFailurePolicy(ctx, instance) == rayv1.HeadFailurePolicyFail {
+			if shouldFailOnHeadFailure(instance) {
 				logger.Info("Skipping head Pod deletion due to ray.io/head-failure-policy=Fail",
 					"pod", headPod.Name, "reason", reason)
 			} else {
@@ -1515,6 +1515,13 @@ func shouldSkipHeadPodRestart(instance *rayv1.RayCluster) bool {
 	return instance.Annotations[utils.DisableProvisionedHeadRestartAnnotationKey] == "true"
 }
 
+// shouldFailOnHeadFailure reports whether the RayCluster should retain a failed head Pod
+// and set HeadPodFailed so RayJob can fast-fail. Requires RayClusterStatusConditions enabled.
+func shouldFailOnHeadFailure(instance *rayv1.RayCluster) bool {
+	return instance.Annotations[utils.HeadFailurePolicyAnnotationKey] == string(rayv1.HeadFailurePolicyFail) &&
+		features.Enabled(features.RayClusterStatusConditions)
+}
+
 // shouldRecreatePodsForUpgrade checks if any pods need to be recreated based on RayClusterSpec changes
 func (r *RayClusterReconciler) shouldRecreatePodsForUpgrade(ctx context.Context, instance *rayv1.RayCluster) bool {
 	logger := ctrl.LoggerFrom(ctx)
@@ -1557,43 +1564,6 @@ func (r *RayClusterReconciler) shouldRecreatePodsForUpgrade(ctx context.Context,
 	return false
 }
 
-// resolveHeadFailurePolicy reads the ray.io/head-failure-policy annotation and returns
-// the effective policy. Unrecognized values, incompatible restartPolicy, or a disabled
-// RayClusterStatusConditions feature gate fall back to Recreate with a warning.
-func (r *RayClusterReconciler) resolveHeadFailurePolicy(ctx context.Context, instance *rayv1.RayCluster) rayv1.HeadFailurePolicy {
-	logger := ctrl.LoggerFrom(ctx)
-	value, ok := instance.Annotations[utils.HeadFailurePolicyAnnotationKey]
-	if !ok || value == "" || value == string(rayv1.HeadFailurePolicyRecreate) {
-		return rayv1.HeadFailurePolicyRecreate
-	}
-	if value != string(rayv1.HeadFailurePolicyFail) {
-		logger.Info("Unrecognized ray.io/head-failure-policy value; defaulting to Recreate", "value", value)
-		r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, "InvalidHeadFailurePolicy", string(utils.ValidateAction),
-			"Unrecognized ray.io/head-failure-policy value %q; defaulting to Recreate", value)
-		return rayv1.HeadFailurePolicyRecreate
-	}
-	if !features.Enabled(features.RayClusterStatusConditions) {
-		logger.Info("ray.io/head-failure-policy=Fail has no effect because RayClusterStatusConditions feature gate is disabled")
-		r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, "HeadFailurePolicyIgnored", string(utils.ValidateAction),
-			"ray.io/head-failure-policy=Fail has no effect because RayClusterStatusConditions feature gate is disabled")
-		return rayv1.HeadFailurePolicyRecreate
-	}
-	restartPolicy := instance.Spec.HeadGroupSpec.Template.Spec.RestartPolicy
-	// Empty restartPolicy is defaulted to Always by the API server, so it is not Fail.
-	if restartPolicy != corev1.RestartPolicyNever {
-		got := string(restartPolicy)
-		if got == "" {
-			got = "unset"
-		}
-		logger.Info("ray.io/head-failure-policy=Fail requires head Pod restartPolicy Never; defaulting to Recreate",
-			"restartPolicy", got)
-		r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, "InvalidHeadFailurePolicy", string(utils.ValidateAction),
-			"ray.io/head-failure-policy=Fail requires head Pod restartPolicy Never (got %s); defaulting to Recreate", got)
-		return rayv1.HeadFailurePolicyRecreate
-	}
-	return rayv1.HeadFailurePolicyFail
-}
-
 // setHeadPodFailedCondition updates the HeadPodFailed condition based on head pod state.
 // True when the head pod is in a terminal phase (Failed or Succeeded), or the ray container has
 // terminated, and the pod is not being deleted. Succeeded is included because Fail retains the
@@ -1601,8 +1571,8 @@ func (r *RayClusterReconciler) resolveHeadFailurePolicy(ctx context.Context, ins
 // False when the pod is healthy, missing, or carrying a DeletionTimestamp (e.g. UpgradeStrategy Recreate).
 func (r *RayClusterReconciler) setHeadPodFailedCondition(ctx context.Context, instance *rayv1.RayCluster, headPod *corev1.Pod) {
 	logger := ctrl.LoggerFrom(ctx)
-	if r.resolveHeadFailurePolicy(ctx, instance) != rayv1.HeadFailurePolicyFail {
-		// Clear the condition when policy is not Fail so stale True does not linger after annotation changes.
+	if !shouldFailOnHeadFailure(instance) {
+		// Clear the condition when Fail is not active so stale True does not linger after annotation changes.
 		meta.RemoveStatusCondition(&instance.Status.Conditions, string(rayv1.RayClusterHeadPodFailed))
 		return
 	}
