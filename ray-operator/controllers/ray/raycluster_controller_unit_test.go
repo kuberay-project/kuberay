@@ -5193,7 +5193,7 @@ func TestCalculateStatus_HeadPodFailedCondition(t *testing.T) {
 			newInstance, err := r.calculateStatus(context.Background(), cluster, nil)
 			require.NoError(t, err)
 
-			cond := meta.FindStatusCondition(newInstance.Status.Conditions, string(rayv1.HeadPodFailed))
+			cond := meta.FindStatusCondition(newInstance.Status.Conditions, string(rayv1.RayClusterHeadPodFailed))
 			if !tt.expectCondition {
 				assert.Nil(t, cond)
 				return

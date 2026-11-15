@@ -75,9 +75,8 @@ const (
 	JobDeploymentStatusTransitionGracePeriodExceeded JobFailedReason = "JobDeploymentStatusTransitionGracePeriodExceeded"
 	JobStatusCheckTimeoutExceeded                    JobFailedReason = "JobStatusCheckTimeoutExceeded"
 	ValidationFailed                                 JobFailedReason = "ValidationFailed"
-	// HeadPodFailedReason is set when the associated RayCluster reports the HeadPodFailed condition.
-	// The status string matches RayClusterConditionType HeadPodFailed.
-	HeadPodFailedReason JobFailedReason = "HeadPodFailed"
+	// HeadPodFailed is set when the associated RayCluster reports the HeadPodFailed condition.
+	HeadPodFailed JobFailedReason = "HeadPodFailed"
 )
 
 // HeadFailurePolicy controls the behavior when the head pod fails.

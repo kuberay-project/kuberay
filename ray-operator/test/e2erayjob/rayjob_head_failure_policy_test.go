@@ -121,13 +121,13 @@ func TestRayJobHeadFailurePolicy(t *testing.T) {
 
 		rayJob, err = GetRayJob(test, rayJob.Namespace, rayJob.Name)
 		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(rayJob.Status.Reason).To(Equal(rayv1.HeadPodFailedReason))
+		g.Expect(rayJob.Status.Reason).To(Equal(rayv1.HeadPodFailed))
 		g.Expect(rayJob.Status.RayClusterName).NotTo(BeEmpty())
 
 		rayCluster, err := GetRayCluster(test, namespace.Name, rayJob.Status.RayClusterName)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(rayCluster.Annotations[utils.HeadFailurePolicyAnnotationKey]).To(Equal(string(rayv1.HeadFailurePolicyFail)))
-		g.Expect(meta.IsStatusConditionTrue(rayCluster.Status.Conditions, string(rayv1.HeadPodFailed))).To(BeTrue())
+		g.Expect(meta.IsStatusConditionTrue(rayCluster.Status.Conditions, string(rayv1.RayClusterHeadPodFailed))).To(BeTrue())
 
 		headPod, err := GetHeadPod(test, rayCluster)
 		g.Expect(err).NotTo(HaveOccurred())
@@ -164,14 +164,14 @@ func TestRayJobHeadFailurePolicy(t *testing.T) {
 
 		rayJob, err = GetRayJob(test, rayJob.Namespace, rayJob.Name)
 		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(rayJob.Status.Reason).To(Equal(rayv1.HeadPodFailedReason))
+		g.Expect(rayJob.Status.Reason).To(Equal(rayv1.HeadPodFailed))
 		g.Expect(rayJob.Status.RayClusterName).NotTo(BeEmpty())
 
 		rayCluster, err := GetRayCluster(test, namespace.Name, rayJob.Status.RayClusterName)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(rayCluster.Labels[utils.RayJobSubmissionModeLabelKey]).To(Equal(string(rayv1.SidecarMode)))
 		g.Expect(rayCluster.Annotations[utils.HeadFailurePolicyAnnotationKey]).To(Equal(string(rayv1.HeadFailurePolicyFail)))
-		g.Expect(meta.IsStatusConditionTrue(rayCluster.Status.Conditions, string(rayv1.HeadPodFailed))).To(BeTrue())
+		g.Expect(meta.IsStatusConditionTrue(rayCluster.Status.Conditions, string(rayv1.RayClusterHeadPodFailed))).To(BeTrue())
 
 		headPod, err := GetHeadPod(test, rayCluster)
 		g.Expect(err).NotTo(HaveOccurred())
@@ -244,13 +244,13 @@ func TestRayJobHeadFailurePolicy(t *testing.T) {
 				gomega.Expect(headPod.UID).NotTo(Equal(firstUID), "head Pod should be recreated under Recreate policy")
 			}, TestTimeoutMedium, 2*time.Second).Should(Succeed())
 
-			// New feature must not mark the RayJob Failed with HeadPodFailedReason under Recreate.
+			// New feature must not mark the RayJob Failed with HeadPodFailed under Recreate.
 			g.Consistently(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutShort, 2*time.Second).
-				Should(WithTransform(RayJobReason, Not(Equal(rayv1.HeadPodFailedReason))))
+				Should(WithTransform(RayJobReason, Not(Equal(rayv1.HeadPodFailed))))
 			g.Consistently(func(gomega Gomega) {
 				rc, err := GetRayCluster(test, namespace.Name, rayJob.Status.RayClusterName)
 				gomega.Expect(err).NotTo(HaveOccurred())
-				gomega.Expect(meta.IsStatusConditionTrue(rc.Status.Conditions, string(rayv1.HeadPodFailed))).To(BeFalse())
+				gomega.Expect(meta.IsStatusConditionTrue(rc.Status.Conditions, string(rayv1.RayClusterHeadPodFailed))).To(BeFalse())
 			}, TestTimeoutShort, 2*time.Second).Should(Succeed())
 
 			err = test.Client().Ray().RayV1().RayJobs(namespace.Name).Delete(test.Ctx(), rayJob.Name, metav1.DeleteOptions{})

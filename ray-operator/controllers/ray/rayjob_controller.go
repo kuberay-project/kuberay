@@ -1297,14 +1297,14 @@ func checkPreRunningDeadlineAndUpdateStatusIfNeeded(ctx context.Context, rayJob 
 // RayCluster reports HeadPodFailed=True (set when headFailurePolicy is Fail).
 func checkHeadPodFailedAndUpdateStatusIfNeeded(ctx context.Context, rayJob *rayv1.RayJob, rayCluster *rayv1.RayCluster) bool {
 	logger := ctrl.LoggerFrom(ctx)
-	if rayCluster == nil || !meta.IsStatusConditionTrue(rayCluster.Status.Conditions, string(rayv1.HeadPodFailed)) {
+	if rayCluster == nil || !meta.IsStatusConditionTrue(rayCluster.Status.Conditions, string(rayv1.RayClusterHeadPodFailed)) {
 		return false
 	}
 
 	logger.Info("RayCluster HeadPodFailed condition is True. Transition the RayJob status to Failed.",
 		"RayCluster", rayCluster.Name)
 	rayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusFailed
-	rayJob.Status.Reason = rayv1.HeadPodFailedReason
+	rayJob.Status.Reason = rayv1.HeadPodFailed
 	rayJob.Status.Message = fmt.Sprintf("RayCluster %s/%s head Pod failed", rayCluster.Namespace, rayCluster.Name)
 	rayJob.Status.RayClusterStatus = rayCluster.Status
 	return true

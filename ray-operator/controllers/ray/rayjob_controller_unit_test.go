@@ -1377,16 +1377,16 @@ func TestCheckHeadPodFailedAndUpdateStatusIfNeeded(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "rc", Namespace: "default"},
 				Status: rayv1.RayClusterStatus{
 					Conditions: []metav1.Condition{{
-						Type:   string(rayv1.HeadPodFailed),
+						Type:   string(rayv1.RayClusterHeadPodFailed),
 						Status: metav1.ConditionTrue,
-						Reason: string(rayv1.HeadPodFailed),
+						Reason: string(rayv1.RayClusterHeadPodFailed),
 					}},
 				},
 			},
 			initialDeploymentStatus: rayv1.JobDeploymentStatusRunning,
 			expectUpdate:            true,
 			expectedStatus:          rayv1.JobDeploymentStatusFailed,
-			expectedReason:          rayv1.HeadPodFailedReason,
+			expectedReason:          rayv1.HeadPodFailed,
 			expectMessageContains:   "head Pod failed",
 		},
 		{

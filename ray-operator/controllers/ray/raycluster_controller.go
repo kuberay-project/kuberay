@@ -1603,7 +1603,7 @@ func (r *RayClusterReconciler) setHeadPodFailedCondition(ctx context.Context, in
 	logger := ctrl.LoggerFrom(ctx)
 	if r.resolveHeadFailurePolicy(ctx, instance) != rayv1.HeadFailurePolicyFail {
 		// Clear the condition when policy is not Fail so stale True does not linger after annotation changes.
-		meta.RemoveStatusCondition(&instance.Status.Conditions, string(rayv1.HeadPodFailed))
+		meta.RemoveStatusCondition(&instance.Status.Conditions, string(rayv1.RayClusterHeadPodFailed))
 		return
 	}
 
@@ -1623,11 +1623,11 @@ func (r *RayClusterReconciler) setHeadPodFailedCondition(ctx context.Context, in
 	reason := "HeadPodHealthy"
 	if failed {
 		status = metav1.ConditionTrue
-		reason = string(rayv1.HeadPodFailed)
+		reason = string(rayv1.RayClusterHeadPodFailed)
 	}
 	logger.Info("Updating HeadPodFailed condition", "status", status, "reason", reason, "message", message)
 	meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-		Type:    string(rayv1.HeadPodFailed),
+		Type:    string(rayv1.RayClusterHeadPodFailed),
 		Status:  status,
 		Reason:  reason,
 		Message: message,
