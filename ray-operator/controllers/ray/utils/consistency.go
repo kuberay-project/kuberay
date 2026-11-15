@@ -3,6 +3,8 @@ package utils
 import (
 	"reflect"
 
+	"k8s.io/utils/ptr"
+
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
@@ -77,9 +79,10 @@ func inconsistentRayServiceStatus(oldStatus rayv1.RayServiceStatus, newStatus ra
 
 	if features.Enabled(features.RayServiceIncrementalUpgrade) {
 		// Also check for changes in IncrementalUpgrade related Status fields.
-		if oldStatus.TrafficRoutedPercent != newStatus.TrafficRoutedPercent ||
-			oldStatus.TargetCapacity != newStatus.TargetCapacity ||
-			oldStatus.LastTrafficMigratedTime != newStatus.LastTrafficMigratedTime {
+		// These are pointers, so compare the values they point to.
+		if !ptr.Equal(oldStatus.TrafficRoutedPercent, newStatus.TrafficRoutedPercent) ||
+			!ptr.Equal(oldStatus.TargetCapacity, newStatus.TargetCapacity) ||
+			!oldStatus.LastTrafficMigratedTime.Equal(newStatus.LastTrafficMigratedTime) {
 			return true
 		}
 	}
