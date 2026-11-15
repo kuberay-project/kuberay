@@ -74,6 +74,26 @@ func TestBuildRoleBindingSubjectAndRoleRefName(t *testing.T) {
 				shortString(t),
 			},
 		},
+		{
+			name: "Ray cluster with a head group service account longer than 50 chars",
+			input: &rayv1.RayCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "raycluster-sample",
+					Namespace: "default",
+				},
+				Spec: rayv1.RayClusterSpec{
+					HeadGroupSpec: rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								// Created by the user, so it must not be clipped.
+								ServiceAccountName: "ray-autoscaler-workload-identity-sa-for-ml-platform-prod",
+							},
+						},
+					},
+				},
+			},
+			want: []string{"ray-autoscaler-workload-identity-sa-for-ml-platform-prod", "raycluster-sample"},
+		},
 	}
 
 	for _, tc := range tests {

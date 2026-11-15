@@ -1545,6 +1545,19 @@ func TestHeadPodTemplate_WithServiceAccount(t *testing.T) {
 	assert.Equal(t, serviceAccount, pod.Spec.ServiceAccountName)
 }
 
+// A service account specified by the user must already exist, so its name must not be clipped
+// even if it is longer than the names KubeRay generates.
+func TestHeadPodTemplate_WithLongServiceAccount(t *testing.T) {
+	cluster := instance.DeepCopy()
+	serviceAccount := "ray-autoscaler-workload-identity-sa-for-ml-platform-prod" // 56 chars
+	cluster.Spec.HeadGroupSpec.Template.Spec.ServiceAccountName = serviceAccount
+	cluster.Spec.EnableInTreeAutoscaling = &trueFlag
+	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
+	pod := DefaultHeadPodTemplate(context.Background(), *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+
+	assert.Equal(t, serviceAccount, pod.Spec.ServiceAccountName)
+}
+
 func splitAndSort(s string) []string {
 	strs := strings.Split(s, " ")
 	result := make([]string, 0, len(strs))
