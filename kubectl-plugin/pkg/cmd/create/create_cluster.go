@@ -293,7 +293,7 @@ func (options *CreateClusterOptions) Run(ctx context.Context, k8sClient client.C
 			WorkerGroups: []generation.WorkerGroup{
 				{
 					Name:             new("default-group"),
-					Replicas:         options.workerReplicas,
+					Replicas:         &options.workerReplicas,
 					NumOfHosts:       &options.numOfHosts,
 					CPU:              &options.workerCPU,
 					Memory:           &options.workerMemory,
