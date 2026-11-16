@@ -1124,6 +1124,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 	}
 
 	// Reconcile worker pods now
+	var createPodErrs []error
 	for _, worker := range instance.Spec.WorkerGroupSpecs {
 		if !r.rayClusterScaleExpectation.IsSatisfied(ctx, instance.Namespace, instance.Name, worker.GroupName) {
 			logger.Info("reconcilePods", "worker group", worker.GroupName, "Expectation", "NotSatisfiedGroupExpectations, reconcile the group later")
@@ -1153,7 +1154,12 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		isRayMultiHostIndexing := worker.NumOfHosts > 1 && features.Enabled(features.RayMultiHostIndexing)
 		if isRayMultiHostIndexing {
 			if err := r.reconcileMultiHostWorkerGroup(ctx, instance, &worker, workerPods.Items); err != nil {
-				return err
+				if errstd.Is(err, utils.ErrFailedCreateWorkerPod) {
+					logger.Error(err, "Failed to create worker pod for multi-host group, continuing with other groups", "worker group", worker.GroupName)
+					createPodErrs = append(createPodErrs, err)
+				} else {
+					return err
+				}
 			}
 			// Skip to the next worker as we've already handled multi-host reconciliation.
 			continue
@@ -1257,7 +1263,10 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 					validReplicaIndices[newReplicaIndex] = true
 					logger.Info("reconcilePods", "creating worker for group", worker.GroupName, "index", i, "total", diff, "replicaIndex", newReplicaIndex)
 					if err := r.createWorkerPodWithIndex(ctx, *instance, *worker.DeepCopy(), "", newReplicaIndex, 0); err != nil {
-						return errstd.Join(utils.ErrFailedCreateWorkerPod, err)
+						createErr := errstd.Join(utils.ErrFailedCreateWorkerPod, err)
+						logger.Error(createErr, "Failed to create worker pod, continuing with other groups", "worker group", worker.GroupName)
+						createPodErrs = append(createPodErrs, createErr)
+						break
 					}
 				}
 			} else {
@@ -1265,7 +1274,10 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 				for i := range diff {
 					logger.Info("reconcilePods", "creating worker for group", worker.GroupName, "index", i, "total", diff)
 					if err := r.createWorkerPod(ctx, *instance, *worker.DeepCopy()); err != nil {
-						return errstd.Join(utils.ErrFailedCreateWorkerPod, err)
+						createErr := errstd.Join(utils.ErrFailedCreateWorkerPod, err)
+						logger.Error(createErr, "Failed to create worker pod, continuing with other groups", "worker group", worker.GroupName)
+						createPodErrs = append(createPodErrs, createErr)
+						break
 					}
 				}
 			}
@@ -1312,7 +1324,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			}
 		}
 	}
-	return nil
+	return errstd.Join(createPodErrs...)
 }
 
 // deletePods is a helper function to handle the deletion of a list of Pods, setting scale expectations
