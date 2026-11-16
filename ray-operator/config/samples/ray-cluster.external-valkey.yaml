@@ -1,0 +1,214 @@
+# This sample demonstrates GCS fault tolerance using Valkey (BSD-3 licensed,
+# Linux Foundation) as the external metadata store. Valkey is wire-compatible
+# with Redis and serves as a drop-in replacement for the GCS FT backend.
+#
+# Usage:
+#   kubectl apply -f ray-cluster.external-valkey.yaml
+#
+# This deploys:
+#   - A Valkey pod + Service (valkey/valkey:8.1.8-alpine)
+#   - A RayCluster with GCS fault tolerance enabled pointing at Valkey
+#   - Example scripts for testing detached actor recovery
+#
+# The RayCluster spec is identical to the Redis-based sample
+# (ray-cluster.external-redis.yaml). Only the backing store image differs.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-external-valkey
+spec:
+  rayVersion: "2.52.0"
+  gcsFaultToleranceOptions:
+    # In most cases, you don't need to set `externalStorageNamespace` because KubeRay will
+    # automatically set it to the UID of RayCluster. Only modify this annotation if you fully understand
+    # the behaviors of the Ray GCS FT and RayService to avoid misconfiguration.
+    # [Example]:
+    # externalStorageNamespace: "my-raycluster-storage"
+    redisAddress: "valkey:6379"
+    redisPassword:
+      valueFrom:
+        secretKeyRef:
+          name: valkey-password-secret
+          key: password
+  headGroupSpec:
+    # The `rayStartParams` are used to configure the `ray start` command.
+    # See https://github.com/ray-project/kuberay/blob/master/docs/guidance/rayStartParams.md for the default settings of `rayStartParams` in KubeRay.
+    # See https://docs.ray.io/en/latest/cluster/cli.html#ray-start for all available options in `rayStartParams`.
+    rayStartParams:
+      # Setting "num-cpus: 0" to avoid any Ray actors or tasks being scheduled on the Ray head Pod.
+      num-cpus: "0"
+    # Pod template
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+          ports:
+          - containerPort: 6379
+            name: valkey
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          volumeMounts:
+          - mountPath: /tmp/ray
+            name: ray-logs
+          - mountPath: /home/ray/samples
+            name: ray-example-configmap
+        volumes:
+        - name: ray-logs
+          emptyDir: {}
+        - name: ray-example-configmap
+          configMap:
+            name: ray-example
+            defaultMode: 0777
+            items:
+            - key: detached_actor.py
+              path: detached_actor.py
+            - key: increment_counter.py
+              path: increment_counter.py
+  workerGroupSpecs:
+  # the pod replicas in this group typed worker
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 10
+    groupName: small-group
+    # The `rayStartParams` are used to configure the `ray start` command.
+    # See https://github.com/ray-project/kuberay/blob/master/docs/guidance/rayStartParams.md for the default settings of `rayStartParams` in KubeRay.
+    # See https://docs.ray.io/en/latest/cluster/cli.html#ray-start for all available options in `rayStartParams`.
+    rayStartParams: {}
+    # Pod template
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          volumeMounts:
+          - mountPath: /tmp/ray
+            name: ray-logs
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+        volumes:
+        - name: ray-logs
+          emptyDir: {}
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: valkey-config
+  labels:
+    app: valkey
+data:
+  valkey.conf: |-
+    dir /data
+    port 6379
+    bind 0.0.0.0
+    appendonly yes
+    # WARNING: protected-mode is explicitly disabled here; authentication is still
+    # required by --requirepass. In production, remove this line, use a strong password,
+    # and add network isolation/TLS; requirepass alone only authenticates clients.
+    protected-mode no
+    pidfile /data/valkey-6379.pid
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey
+  labels:
+    app: valkey
+spec:
+  type: ClusterIP
+  ports:
+  - name: valkey
+    port: 6379
+  selector:
+    app: valkey
+---
+# Valkey password — CHANGE THIS before deploying to production.
+# Generate a strong password: openssl rand -base64 32
+apiVersion: v1
+kind: Secret
+metadata:
+  name: valkey-password-secret
+type: Opaque
+data:
+  # echo -n "5241590000000000" | base64
+  password: NTI0MTU5MDAwMDAwMDAwMA==
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey
+  labels:
+    app: valkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: valkey
+  template:
+    metadata:
+      labels:
+        app: valkey
+    spec:
+      containers:
+      - name: valkey
+        image: valkey/valkey:8.1.8-alpine
+        command:
+        - "sh"
+        - "-c"
+        - "valkey-server /usr/local/etc/valkey/valkey.conf --requirepass \"$VALKEY_PASSWORD\""
+        env:
+        - name: VALKEY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: valkey-password-secret
+              key: password
+        ports:
+        - containerPort: 6379
+        volumeMounts:
+        - name: config
+          mountPath: /usr/local/etc/valkey/valkey.conf
+          subPath: valkey.conf
+      volumes:
+      - name: config
+        configMap:
+          name: valkey-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-example
+data:
+  detached_actor.py: |
+    import ray
+
+    @ray.remote(num_cpus=1)
+    class Counter:
+      def __init__(self):
+          self.value = 0
+
+      def increment(self):
+          self.value += 1
+          return self.value
+
+    ray.init(namespace="default_namespace")
+    Counter.options(name="counter_actor", lifetime="detached").remote()
+  increment_counter.py: |
+    import ray
+
+    ray.init(namespace="default_namespace")
+    counter = ray.get_actor("counter_actor")
+    print(ray.get(counter.increment.remote()))

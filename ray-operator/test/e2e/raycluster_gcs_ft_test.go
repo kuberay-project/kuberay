@@ -28,7 +28,7 @@ func TestRayClusterGCSFaultTolerance(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 
 	test.T().Run("Test Detached Actor", func(_ *testing.T) {
-		checkRedisDBSize := DeployRedis(test, namespace.Name, RedisPassword)
+		checkRedisDBSize := DeployStore(test, namespace.Name, RedisPassword)
 		defer g.Eventually(checkRedisDBSize, time.Second*30, time.Second).Should(BeEquivalentTo("0"))
 
 		rayClusterSpecAC := rayv1ac.RayClusterSpec().
@@ -208,7 +208,7 @@ func TestGcsFaultToleranceOptions(t *testing.T) {
 			g := NewWithT(t)
 			namespace := test.NewTestNamespace()
 
-			checkRedisDBSize := DeployRedis(test, namespace.Name, tc.redisPassword)
+			checkRedisDBSize := DeployStore(test, namespace.Name, tc.redisPassword)
 			defer g.Eventually(checkRedisDBSize, time.Second*30, time.Second).Should(BeEquivalentTo("0"))
 
 			if tc.createSecret {
@@ -300,7 +300,7 @@ func TestGcsFaultToleranceAnnotations(t *testing.T) {
 				redisPassword = tc.redisPasswordInRayStartParams
 			}
 
-			checkRedisDBSize := DeployRedis(test, namespace.Name, redisPassword)
+			checkRedisDBSize := DeployStore(test, namespace.Name, redisPassword)
 			defer g.Eventually(checkRedisDBSize, time.Second*30, time.Second).Should(BeEquivalentTo("0"))
 
 			// Prepare RayCluster ApplyConfiguration
