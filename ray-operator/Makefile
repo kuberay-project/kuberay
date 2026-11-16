@@ -62,11 +62,6 @@ vet: ## Run go vet against code.
 fumpt: gofumpt
 	$(GOFUMPT) -l -w ../
 
-# TODO: Remove this once a fix for https://github.com/golang/go/issues/75031 is released.
-# This is a workaround for an issue where `go test -cover` reports errors for packages with no test files.
-GOVERSION := $(shell go env GOVERSION)
-export GOTOOLCHAIN := $(GOVERSION)+auto
-
 test: WHAT ?= $(shell go list ./... | grep -v /test/)
 test: ENVTEST_K8S_VERSION ?= 1.37.0
 test: manifests fmt vet envtest ## Run tests.

@@ -1,6 +1,6 @@
 - label: 'Test E2E (kubectl-plugin)'
   instance_size: large
-  image: golang:1.26-bookworm
+  image: golang:1.27-bookworm
   commands:
     - source .buildkite/setup-env.sh
     - kind create cluster --wait 900s --config ./ci/kind-config-buildkite.yml

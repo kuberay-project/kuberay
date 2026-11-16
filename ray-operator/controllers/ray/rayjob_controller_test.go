@@ -200,7 +200,7 @@ var _ = Context("RayJob with different submission modes", func() {
 					job := &batchv1.Job{}
 					err := k8sClient.Get(ctx, namespacedName, job)
 					Expect(err).NotTo(HaveOccurred(), "failed to get Kubernetes Job")
-					Expect(*(job.Spec.BackoffLimit)).To(Equal(backoffLimit))
+					Expect(*job.Spec.BackoffLimit).To(Equal(backoffLimit))
 				}
 			})
 		})

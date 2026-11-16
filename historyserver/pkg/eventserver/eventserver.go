@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -283,10 +284,10 @@ func (h *EventHandler) storeEvent(clusterSessionKey string, eventMap map[string]
 
 			// --- UPDATE ADDRESS from ALIVE state ---
 			// NodeID and WorkerID are only populated in ALIVE state
-			for i := len(a.Events) - 1; i >= 0; i-- {
-				if a.Events[i].State == types.ALIVE && a.Events[i].NodeID != "" {
-					a.Address.NodeID = a.Events[i].NodeID
-					a.Address.WorkerID = a.Events[i].WorkerID
+			for _, event := range slices.Backward(a.Events) {
+				if event.State == types.ALIVE && event.NodeID != "" {
+					a.Address.NodeID = event.NodeID
+					a.Address.WorkerID = event.WorkerID
 					break
 				}
 			}

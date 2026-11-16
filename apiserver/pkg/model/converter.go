@@ -361,11 +361,11 @@ func convertSecurityContext(securityCtx *corev1.SecurityContext) *api.SecurityCo
 		Capabilities: &api.Capabilities{},
 	}
 	if securityCtx.Capabilities != nil {
-		for _, cap := range securityCtx.Capabilities.Add {
-			result.Capabilities.Add = append(result.Capabilities.Add, string(cap))
+		for _, capability := range securityCtx.Capabilities.Add {
+			result.Capabilities.Add = append(result.Capabilities.Add, string(capability))
 		}
-		for _, cap := range securityCtx.Capabilities.Drop {
-			result.Capabilities.Drop = append(result.Capabilities.Drop, string(cap))
+		for _, capability := range securityCtx.Capabilities.Drop {
+			result.Capabilities.Drop = append(result.Capabilities.Drop, string(capability))
 		}
 	}
 	return result

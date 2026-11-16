@@ -161,9 +161,11 @@ var _ = Describe("Calling ray plugin `session` command", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer cleanUpCmdProcessAndCheckPortForwarding(cmd)
 
-		done := make(chan error, 1)
+		done := make(chan struct{})
 		go func() {
-			done <- cmd.Wait()
+			// This test checks that the process exits, regardless of its exit status.
+			_ = cmd.Wait()
+			close(done)
 		}()
 
 		Eventually(func() error {

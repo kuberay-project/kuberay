@@ -11,6 +11,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -630,8 +631,8 @@ func (s *ServerHandler) getNodesSummary(nodeMap map[string]eventtypes.Node, sess
 		// Find the last non-empty resource string. NODE_DEAD transitions have empty
 		// resources, so we search backwards for the last ALIVE transition's resource string.
 		nodeResourceReplay := formatNodeResourceReplayForResp(node)
-		for i := len(nodeResourceReplay) - 1; i >= 0; i-- {
-			if rs, ok := nodeResourceReplay[i]["resourceString"].(string); ok && rs != "" {
+		for _, resource := range slices.Backward(nodeResourceReplay) {
+			if rs, ok := resource["resourceString"].(string); ok && rs != "" {
 				nodeLogicalResources[node.NodeID] = rs
 				break
 			}
@@ -1579,8 +1580,7 @@ func (s *ServerHandler) getNodeLogFile(req *restful.Request, resp *restful.Respo
 
 	content, err := s._getNodeLogFile(clusterSessionKey, clusterLogPathPrefix, sessionName, options)
 	if err != nil {
-		var httpErr *utils.HTTPError
-		if errors.As(err, &httpErr) {
+		if httpErr, ok := errors.AsType[*utils.HTTPError](err); ok {
 			logrus.Errorf("Error getting node log file: %v", httpErr.Unwrap())
 			resp.WriteError(httpErr.StatusCode(), httpErr)
 		} else {

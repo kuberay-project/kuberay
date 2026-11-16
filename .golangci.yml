@@ -85,6 +85,9 @@ linters:
             - '**/kubectl-plugin/pkg/util/*.go'
     modernize:
       disable:
+        # Go 1.27's embedlit analyzer rewrites a large part of the existing codebase.
+        # Keep this version upgrade focused; enable it in a dedicated cleanup.
+        - embedlit
         - omitzero
   exclusions:
     # Suppress SA1019 for the project's own deprecated API fields that are
@@ -139,6 +142,29 @@ linters:
       - linters: [gosec]
         path: '^historyserver/pkg/(historyserver/router|utils/auth)\.go$'
         text: '^G101:'
+
+      # Preserve plain-HTTP and Ray Dashboard compatibility for the existing
+      # session cookies. Revisit their attributes in a dedicated hardening change.
+      - linters: [gosec]
+        path: '^historyserver/pkg/historyserver/router\.go$'
+        text: '^G124:'
+        source: '^\s*http\.SetCookie\((r2|resp), &http\.Cookie\{MaxAge: 600, Path: "/", Name: COOKIE_(CLUSTER_NAME|CLUSTER_NAMESPACE|SESSION_NAME|OWNER_KIND|OWNER_NAME)_KEY, Value: (resolvedName|namespace|resolvedSession|resolvedClusterInfo\.Owner(Kind|Name)|(clusterName|clusterNamespace|sessionName|ownerKind|ownerName)\.Value)\}\)$'
+
+      # Missing owner cookies use in-memory defaults, with no response attributes.
+      - linters: [gosec]
+        path: '^historyserver/pkg/historyserver/router\.go$'
+        text: '^G124:'
+        source: '^\s*(ownerKind = &http\.Cookie\{Name: COOKIE_OWNER_KIND_KEY|ownerName = &http\.Cookie\{Name: COOKIE_OWNER_NAME_KEY), Value: ""\}$'
+
+      # These fixtures set request Cookie headers, which have no response attributes.
+      - linters: [gosec]
+        path: '^historyserver/pkg/historyserver/(cookie_handle|router)_test\.go$'
+        text: '^G124:'
+        source: '^\s*req\.AddCookie\(&http\.Cookie\{Name: name, Value: value\}\)$'
+      - linters: [gosec]
+        path: '^historyserver/pkg/historyserver/jobs_test\.go$'
+        text: '^G124:'
+        source: '^\s*request\.AddCookie\(&http\.Cookie\{Name: key, Value: value\}\)$'
 
       - linters: [gosec]
         path: '^historyserver/pkg/compression/compression\.go$'

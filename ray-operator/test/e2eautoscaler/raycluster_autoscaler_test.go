@@ -249,7 +249,8 @@ func TestRayClusterAutoscalerWithFakeTPU(t *testing.T) {
 				// It's not possible to wait on idle timeout since the required TPU nodeSelectors prevent scheduling.
 				rayCluster, err = test.Client().Ray().RayV1().RayClusters(namespace.Name).Get(test.Ctx(), rayCluster.Name, metav1.GetOptions{})
 				g.Expect(err).NotTo(gomega.HaveOccurred())
-				rayCluster.Spec.WorkerGroupSpecs[0].MaxReplicas = Ptr(int32(0))
+				zero := int32(0)
+				rayCluster.Spec.WorkerGroupSpecs[0].MaxReplicas = &zero
 				rayCluster, err = test.Client().Ray().RayV1().RayClusters(namespace.Name).Update(test.Ctx(), rayCluster, metav1.UpdateOptions{})
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				LogWithTimestamp(test.T(), "Updated RayCluster %s/%s successfully", rayCluster.Namespace, rayCluster.Name)
