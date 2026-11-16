@@ -307,8 +307,7 @@ func (s *ServerHandler) _getNodeLogFile(clusterSessionKey, clusterLogPathPrefix,
 	nodeID, filename, byteRange, err := s.resolveLogFilename(clusterSessionKey, clusterLogPathPrefix, sessionID, options)
 	if err != nil {
 		// Preserve HTTPError status code if already set, otherwise use BadRequest
-		var httpErr *utils.HTTPError
-		if errors.As(err, &httpErr) {
+		if _, ok := errors.AsType[*utils.HTTPError](err); ok {
 			return nil, err
 		}
 		return nil, utils.NewHTTPError(err, http.StatusBadRequest)

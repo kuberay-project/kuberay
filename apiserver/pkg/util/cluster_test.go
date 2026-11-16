@@ -557,7 +557,7 @@ func TestBuildHeadPodTemplate(t *testing.T) {
 	if podSpec.Spec.ImagePullSecrets[0].Name != "foo" {
 		t.Errorf("failed to propagate image pull secret")
 	}
-	if (string)(podSpec.Spec.Containers[0].ImagePullPolicy) != "Always" {
+	if string(podSpec.Spec.Containers[0].ImagePullPolicy) != "Always" {
 		t.Errorf("failed to propagate image pull policy")
 	}
 	if len(podSpec.Spec.Containers[0].Env) != 6 {
@@ -697,8 +697,8 @@ func TestConvertAutoscalerOptions(t *testing.T) {
 	options, err := buildAutoscalerOptions(&testAutoscalerOptions)
 	require.NoError(t, err)
 	assert.Equal(t, int32(25), *options.IdleTimeoutSeconds)
-	assert.Equal(t, (string)(*options.UpscalingMode), "Default")
-	assert.Equal(t, (string)(*options.ImagePullPolicy), "Always")
+	assert.Equal(t, "Default", string(*options.UpscalingMode))
+	assert.Equal(t, "Always", string(*options.ImagePullPolicy))
 	assert.Len(t, options.Env, 1)
 	assert.Len(t, options.EnvFrom, 2)
 	assert.Len(t, options.VolumeMounts, 2)

@@ -134,8 +134,7 @@ func (b *ClusterStatusBuilder) AddNodeFromDebugState(state *NodeDebugState) {
 func (b *ClusterStatusBuilder) AddFailedNodesFromNodes(nodes map[string]types.Node) {
 	for _, node := range nodes {
 		// only take the latest DEAD transition per node
-		for i := len(node.StateTransitions) - 1; i >= 0; i-- {
-			tr := node.StateTransitions[i]
+		for _, tr := range slices.Backward(node.StateTransitions) {
 			if tr.State != types.NODE_DEAD ||
 				(tr.DeathInfo != nil && (tr.DeathInfo.Reason == types.EXPECTED_TERMINATION ||
 					tr.DeathInfo.Reason == types.AUTOSCALER_DRAIN_IDLE)) {

@@ -811,11 +811,11 @@ func buildSecurityContext(securityCtx *api.SecurityContext) *corev1.SecurityCont
 		Capabilities: &corev1.Capabilities{},
 	}
 	if securityCtx.Capabilities != nil {
-		for _, cap := range securityCtx.Capabilities.Add {
-			result.Capabilities.Add = append(result.Capabilities.Add, corev1.Capability(cap))
+		for _, capability := range securityCtx.Capabilities.Add {
+			result.Capabilities.Add = append(result.Capabilities.Add, corev1.Capability(capability))
 		}
-		for _, cap := range securityCtx.Capabilities.Drop {
-			result.Capabilities.Drop = append(result.Capabilities.Drop, corev1.Capability(cap))
+		for _, capability := range securityCtx.Capabilities.Drop {
+			result.Capabilities.Drop = append(result.Capabilities.Drop, corev1.Capability(capability))
 		}
 	}
 	return result

@@ -92,7 +92,7 @@ func RayClusterSpecWith(spec *rayv1ac.RayClusterSpecApplyConfiguration, options 
 
 func MountConfigMap[T rayv1ac.RayClusterSpecApplyConfiguration | corev1ac.PodTemplateSpecApplyConfiguration](configMap *corev1.ConfigMap, mountPath string) SupportOption[T] {
 	return func(t *T) *T {
-		switch obj := (any)(t).(type) {
+		switch obj := any(t).(type) {
 		case *rayv1ac.RayClusterSpecApplyConfiguration:
 			obj.HeadGroupSpec.Template.Spec.Containers[0].WithVolumeMounts(corev1ac.VolumeMount().
 				WithName(configMap.Name).

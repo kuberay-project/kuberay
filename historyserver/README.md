@@ -17,7 +17,7 @@ The History Server consists of two main components:
 
 ### Prerequisites
 
-- Go 1.19 or higher
+- Go 1.27 or higher
 - Docker (for building container images)
 - Make
 

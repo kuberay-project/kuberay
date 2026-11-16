@@ -291,8 +291,7 @@ func createBucketIfNotExists(s3Client *s3.S3, bucketName string) error {
 	})
 	if err != nil {
 		// Check if the error is because bucket doesn't exist
-		var aerr awserr.Error
-		if errors.As(err, &aerr) {
+		if aerr, ok := errors.AsType[awserr.Error](err); ok {
 			switch aerr.Code() {
 			case s3.ErrCodeNoSuchBucket, "NotFound", "404":
 				// Bucket doesn't exist, create it
@@ -302,11 +301,10 @@ func createBucketIfNotExists(s3Client *s3.S3, bucketName string) error {
 				})
 				if createErr != nil {
 					// Check if bucket already exists (race condition)
-					var aerr2 awserr.Error
-					if errors.As(createErr, &aerr2) {
-						if aerr2.Code() == s3.ErrCodeBucketAlreadyExists ||
-							aerr2.Code() == s3.ErrCodeBucketAlreadyOwnedByYou ||
-							aerr2.Code() == "BucketAlreadyOwnedByYou" {
+					if createAWSErr, ok := errors.AsType[awserr.Error](createErr); ok {
+						if createAWSErr.Code() == s3.ErrCodeBucketAlreadyExists ||
+							createAWSErr.Code() == s3.ErrCodeBucketAlreadyOwnedByYou ||
+							createAWSErr.Code() == "BucketAlreadyOwnedByYou" {
 							logrus.Infof("Bucket %s already exists", bucketName)
 							return nil
 						}
@@ -328,8 +326,7 @@ func createBucketIfNotExists(s3Client *s3.S3, bucketName string) error {
 			Bucket: new(bucketName),
 		})
 		if createErr != nil {
-			var aerr awserr.Error
-			if errors.As(createErr, &aerr) {
+			if aerr, ok := errors.AsType[awserr.Error](createErr); ok {
 				if aerr.Code() == s3.ErrCodeBucketAlreadyExists ||
 					aerr.Code() == s3.ErrCodeBucketAlreadyOwnedByYou ||
 					aerr.Code() == "BucketAlreadyOwnedByYou" {
