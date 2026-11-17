@@ -15,8 +15,9 @@ import (
 type RayJobApplyConfiguration struct {
 	metav1.TypeMetaApplyConfiguration    `json:""`
 	*metav1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                                 *RayJobSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                               *RayJobStatusApplyConfiguration `json:"status,omitempty"`
+	Spec                                 *RayJobSpecApplyConfiguration `json:"spec,omitempty"`
+	// Status is the most recently observed state of the RayJob.
+	Status *RayJobStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // RayJob constructs a declarative configuration of the RayJob type for use with
