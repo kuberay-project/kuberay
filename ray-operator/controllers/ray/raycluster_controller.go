@@ -1568,38 +1568,27 @@ func (r *RayClusterReconciler) shouldRecreatePodsForUpgrade(ctx context.Context,
 // True when the head pod is in a terminal phase (Failed or Succeeded), or the ray container has
 // terminated, and the pod is not being deleted. Succeeded is included because Fail retains the
 // pod, so an exit-0 head would otherwise leave the RayJob waiting on a dead cluster.
-// False when the pod is healthy, missing, or carrying a DeletionTimestamp (e.g. UpgradeStrategy Recreate).
 func (r *RayClusterReconciler) setHeadPodFailedCondition(ctx context.Context, instance *rayv1.RayCluster, headPod *corev1.Pod) {
 	logger := ctrl.LoggerFrom(ctx)
-	if !shouldFailOnHeadFailure(instance) {
-		// Clear the condition when Fail is not active so stale True does not linger after annotation changes.
-		meta.RemoveStatusCondition(&instance.Status.Conditions, string(rayv1.RayClusterHeadPodFailed))
+	if !shouldFailOnHeadFailure(instance) || headPod == nil || !headPod.DeletionTimestamp.IsZero() {
 		return
 	}
 
-	failed := false
-	message := "Head Pod is healthy"
-	if headPod != nil && headPod.DeletionTimestamp.IsZero() {
-		if headPod.Status.Phase == corev1.PodFailed || headPod.Status.Phase == corev1.PodSucceeded {
-			failed = true
-			message = fmt.Sprintf("Head Pod %s is in %s phase", headPod.Name, headPod.Status.Phase)
-		} else if headPod.Status.Phase == corev1.PodRunning && getRayContainerStateTerminated(*headPod) != nil {
-			failed = true
-			message = fmt.Sprintf("Head Pod %s Ray container has terminated", headPod.Name)
-		}
+	var message string
+	switch {
+	case headPod.Status.Phase == corev1.PodFailed || headPod.Status.Phase == corev1.PodSucceeded:
+		message = fmt.Sprintf("Head Pod %s is in %s phase", headPod.Name, headPod.Status.Phase)
+	case headPod.Status.Phase == corev1.PodRunning && getRayContainerStateTerminated(*headPod) != nil:
+		message = fmt.Sprintf("Head Pod %s Ray container has terminated", headPod.Name)
+	default:
+		return
 	}
 
-	status := metav1.ConditionFalse
-	reason := "HeadPodHealthy"
-	if failed {
-		status = metav1.ConditionTrue
-		reason = string(rayv1.RayClusterHeadPodFailed)
-	}
-	logger.Info("Updating HeadPodFailed condition", "status", status, "reason", reason, "message", message)
+	logger.Info("Setting HeadPodFailed condition to True", "message", message)
 	meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 		Type:    string(rayv1.RayClusterHeadPodFailed),
-		Status:  status,
-		Reason:  reason,
+		Status:  metav1.ConditionTrue,
+		Reason:  string(rayv1.RayClusterHeadPodFailed),
 		Message: message,
 	})
 }

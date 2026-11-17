@@ -5148,24 +5148,22 @@ func TestCalculateStatus_HeadPodFailedCondition(t *testing.T) {
 			expectStatus:    metav1.ConditionTrue,
 		},
 		{
-			name:            "Fail policy with DeletionTimestamp sets False",
+			name:            "Fail policy with DeletionTimestamp does not set condition",
 			annotation:      string(rayv1.HeadFailurePolicyFail),
 			headPod:         makeHeadPod(corev1.PodFailed, false, true),
-			expectCondition: true,
-			expectStatus:    metav1.ConditionFalse,
+			expectCondition: false,
 		},
 		{
-			name:            "Recreate policy removes HeadPodFailed condition",
+			name:            "Recreate policy does not set HeadPodFailed condition",
 			annotation:      string(rayv1.HeadFailurePolicyRecreate),
 			headPod:         makeHeadPod(corev1.PodFailed, false, false),
 			expectCondition: false,
 		},
 		{
-			name:            "Fail policy with healthy head sets False",
+			name:            "Fail policy with healthy head does not set condition",
 			annotation:      string(rayv1.HeadFailurePolicyFail),
 			headPod:         makeHeadPod(corev1.PodRunning, false, false),
-			expectCondition: true,
-			expectStatus:    metav1.ConditionFalse,
+			expectCondition: false,
 		},
 	}
 
