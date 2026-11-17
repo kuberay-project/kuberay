@@ -204,6 +204,7 @@ func (v *VolcanoBatchScheduler) syncPodGroup(ctx context.Context, owner metav1.O
 	// to use subgroup scheduling and avoid these redundant requests. Volcano v1.14.0 stores
 	// the policy but only schedules subgroups when the PodGroup or one of its subgroups
 	// sets hard network topology with a highest allowed tier.
+	// TODO(win5923): Record a Warning event when the API server prunes SubGroupPolicy
 	if podGroup.Spec.MinMember != size || podGroup.Spec.MinResources == nil || !quotav1.Equals(*podGroup.Spec.MinResources, totalResource) || !apiequality.Semantic.DeepEqual(podGroup.Spec.SubGroupPolicy, subGroupPolicy) {
 		podGroup.Spec.MinMember = size
 		podGroup.Spec.MinResources = &totalResource
