@@ -6,7 +6,6 @@ import (
 	"time"
 
 	. "github.com/onsi/gomega"
-	"github.com/stretchr/testify/assert"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -373,7 +372,7 @@ env_vars:
 		LogWithTimestamp(test.T(), "Deleted RayJob %s/%s successfully", *rayJobAC.Namespace, *rayJobAC.Name)
 	})
 
-	test.T().Run("RayJob has exceed SubmitterFinishedTimeout", func(_ *testing.T) {
+	test.T().Run("RayJob survives the submitter finishing while the job is still running", func(_ *testing.T) {
 		rayJobAC := rayv1ac.RayJob("submitter-timeout", namespace.Name).
 			WithSpec(rayv1ac.RayJobSpec().
 				WithRayClusterSpec(NewRayClusterSpec(MountConfigMap[rayv1ac.RayClusterSpecApplyConfiguration](jobs, "/home/ray/jobs"))).
@@ -430,28 +429,16 @@ env_vars:
 		g.Expect(err).NotTo(HaveOccurred())
 		LogWithTimestamp(test.T(), "Successfully marked submitter job as completed at %v", now.Time)
 
-		// Record the start time for timeout measurement
-		timeoutStartTime := time.Now()
+		// The submitter is gone but the head never restarted, so the RUNNING status it reports is
+		// current and the job must be left to run. Watch well past the grace period.
+		LogWithTimestamp(test.T(), "Asserting RayJob %s/%s outlives the submitter", rayJob.Namespace, rayJob.Name)
+		g.Consistently(RayJob(test, rayJob.Namespace, rayJob.Name), 3*ray.DefaultSubmitterFinishedTimeout).
+			Should(WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusRunning)))
 
-		// Wait for the timeout to trigger
-		LogWithTimestamp(test.T(), "Waiting for RayJob %s/%s to exceed SubmitterFinishedTimeout", rayJob.Namespace, rayJob.Name)
-		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutShort).
-			Should(WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusFailed)))
-
-		// Measure the actual timeout duration and verify the timeout duration is close to DefaultSubmitterFinishedTimeout
-		actualTimeoutDuration := time.Since(timeoutStartTime)
-		expectedTimeout := ray.DefaultSubmitterFinishedTimeout
-		assert.InDelta(test.T(), expectedTimeout.Seconds(), actualTimeoutDuration.Seconds(), 5.0,
-			"Actual timeout duration should be close to DefaultSubmitterFinishedTimeout")
-
-		// Get the updated rayJob
 		rayJob, err = GetRayJob(test, rayJob.Namespace, rayJob.Name)
 		g.Expect(err).NotTo(HaveOccurred())
-
-		reason := rayJob.Status.Reason
-		message := rayJob.Status.Message
-		g.Expect(reason).To(Equal(rayv1.JobDeploymentStatusTransitionGracePeriodExceeded))
-		g.Expect(message).To(MatchRegexp(`The RayJob submitter finished at .* but the ray job did not reach terminal state within .*`))
+		g.Expect(rayJob.Status.JobStatus).To(Equal(rayv1.JobStatusRunning))
+		g.Expect(rayJob.Status.Reason).NotTo(Equal(rayv1.JobDeploymentStatusTransitionGracePeriodExceeded))
 	})
 
 	test.T().Run("RayCluster status update propagates to RayJob", func(_ *testing.T) {

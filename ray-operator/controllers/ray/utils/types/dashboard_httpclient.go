@@ -17,9 +17,12 @@ type RayJobInfo struct {
 	Entrypoint   string            `json:"entrypoint,omitempty"`
 	JobId        string            `json:"job_id,omitempty"`
 	SubmissionId string            `json:"submission_id,omitempty"`
-	Message      string            `json:"message,omitempty"`
-	StartTime    uint64            `json:"start_time,omitempty"`
-	EndTime      uint64            `json:"end_time,omitempty"`
+	// DriverNodeID is the Ray node the job's driver runs on. Checking it against the cluster's live
+	// nodes tells whether an active JobStatus is current or frozen behind a node that is gone.
+	DriverNodeID string `json:"driver_node_id,omitempty"`
+	Message      string `json:"message,omitempty"`
+	StartTime    uint64 `json:"start_time,omitempty"`
+	EndTime      uint64 `json:"end_time,omitempty"`
 }
 
 // RayJobRequest is the request body to submit.
@@ -45,4 +48,23 @@ type RayJobStopResponse struct {
 
 type RayJobLogsResponse struct {
 	Logs string `json:"logs,omitempty"`
+}
+
+// RayNodesResponse contains the State API's filtered node-list result.
+type RayNodesResponse struct {
+	Msg  string `json:"msg"`
+	Data struct {
+		Result *struct {
+			PartialFailureWarning string         `json:"partial_failure_warning"`
+			Result                []RayNodeState `json:"result"`
+			NumFiltered           int            `json:"num_filtered"`
+		} `json:"result"`
+	} `json:"data"`
+	Result bool `json:"result"`
+}
+
+// https://github.com/ray-project/ray/blob/237c2455ebb1ea15a32dd9e1fdeb2d617badc37f/python/ray/util/state/common.py#L557-L571
+type RayNodeState struct {
+	NodeID string `json:"node_id"`
+	State  string `json:"state"`
 }
