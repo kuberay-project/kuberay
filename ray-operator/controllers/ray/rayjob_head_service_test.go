@@ -176,8 +176,10 @@ func TestDeletionRulesHeadServiceCleanup(t *testing.T) {
 			job.Status.EndTime = &metav1.Time{Time: time.Now().Add(-time.Hour)}
 			status := job.Status.JobDeploymentStatus
 			job.Spec.DeletionStrategy = &rayv1.DeletionStrategy{
-				DeletionRules: []rayv1.DeletionRule{{Policy: rayv1.DeleteCluster,
-					Condition: rayv1.DeletionCondition{JobDeploymentStatus: &status}}},
+				DeletionRules: []rayv1.DeletionRule{{
+					Policy:    rayv1.DeleteCluster,
+					Condition: rayv1.DeletionCondition{JobDeploymentStatus: &status},
+				}},
 			}
 			svc := headServiceForRayJob(t, job)
 			objects := []client.Object{svc}
