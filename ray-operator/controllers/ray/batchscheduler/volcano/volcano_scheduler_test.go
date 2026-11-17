@@ -189,7 +189,7 @@ func TestCreatePodGroupForRayCluster(t *testing.T) {
 
 	minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 	totalResource := utils.CalculateDesiredResources(&cluster)
-	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster.Spec))
+	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster, &cluster.Spec))
 	require.NoError(t, err)
 
 	a.Equal(cluster.Namespace, pg.Namespace)
@@ -221,7 +221,7 @@ func TestCreatePodGroupForRayCluster_NumOfHosts2(t *testing.T) {
 
 	minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 	totalResource := utils.CalculateDesiredResources(&cluster)
-	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster.Spec))
+	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster, &cluster.Spec))
 	require.NoError(t, err)
 
 	a.Equal(cluster.Namespace, pg.Namespace)
@@ -258,9 +258,9 @@ func createTestRayClusterWithLabels(labels map[string]string) rayv1.RayCluster {
 	return cluster
 }
 
-func mustCalculateSubGroupPolicy(t *testing.T, rayClusterSpec *rayv1.RayClusterSpec) []volcanoschedulingv1beta1.SubGroupPolicySpec {
+func mustCalculateSubGroupPolicy(t *testing.T, owner metav1.Object, rayClusterSpec *rayv1.RayClusterSpec) []volcanoschedulingv1beta1.SubGroupPolicySpec {
 	t.Helper()
-	subGroupPolicy, err := calculateSubGroupPolicy(rayClusterSpec)
+	subGroupPolicy, err := calculateSubGroupPolicy(owner, rayClusterSpec)
 	require.NoError(t, err)
 	return subGroupPolicy
 }
@@ -276,7 +276,7 @@ func TestCreatePodGroup_NetworkTopologyBothLabels(t *testing.T) {
 
 	minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 	totalResource := utils.CalculateDesiredResources(&cluster)
-	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster.Spec))
+	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster, &cluster.Spec))
 	require.NoError(t, err)
 
 	a.Equal(cluster.Namespace, pg.Namespace)
@@ -295,7 +295,7 @@ func TestCreatePodGroup_NetworkTopologyOnlyModeLabel(t *testing.T) {
 
 	minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 	totalResource := utils.CalculateDesiredResources(&cluster)
-	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster.Spec))
+	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster, &cluster.Spec))
 	require.NoError(t, err)
 
 	a.Equal(cluster.Namespace, pg.Namespace)
@@ -315,7 +315,8 @@ func TestCreatePodGroup_NetworkTopologyHighestTierAllowedNotInt(t *testing.T) {
 
 	minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 	totalResource := utils.CalculateDesiredResources(&cluster)
-	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster.Spec))
+	// calculateSubGroupPolicy also rejects this owner label, so test createPodGroup without a subgroup policy.
+	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, nil)
 
 	require.Error(t, err)
 	a.Contains(err.Error(), "failed to convert "+NetworkTopologyHighestTierAllowedLabelKey+" label to int")
@@ -513,7 +514,8 @@ func TestCreatePodGroupForRayJob_NetworkTopology(t *testing.T) {
 	require.NoError(t, fakeCli.Get(ctx, client.ObjectKey{Namespace: rayJob.Namespace, Name: getAppPodGroupName(&rayJob)}, &pg))
 	assert.Equal(t, &volcanoschedulingv1beta1.NetworkTopologySpec{Mode: "hard", HighestTierAllowed: new(2)}, pg.Spec.NetworkTopology)
 	require.Len(t, pg.Spec.SubGroupPolicy, 2)
-	assert.Nil(t, pg.Spec.SubGroupPolicy[0].NetworkTopology)
+	// The head group has no network topology labels, so its subgroup inherits the RayJob's network topology.
+	assert.Equal(t, pg.Spec.NetworkTopology, pg.Spec.SubGroupPolicy[0].NetworkTopology)
 	assert.Equal(t, &volcanoschedulingv1beta1.NetworkTopologySpec{Mode: "hard", HighestTierAllowed: new(1)}, pg.Spec.SubGroupPolicy[1].NetworkTopology)
 }
 
@@ -616,7 +618,7 @@ func TestCalculateSubGroupPolicy(t *testing.T) {
 			},
 		}
 
-		policies := mustCalculateSubGroupPolicy(t, &cluster.Spec)
+		policies := mustCalculateSubGroupPolicy(t, &cluster, &cluster.Spec)
 		scheduler := &VolcanoBatchScheduler{}
 		minMember, _ := scheduler.calculatePodGroupParams(&cluster.Spec)
 
@@ -665,7 +667,7 @@ func TestCalculateSubGroupPolicy(t *testing.T) {
 			},
 		}
 
-		policies := mustCalculateSubGroupPolicy(t, &cluster.Spec)
+		policies := mustCalculateSubGroupPolicy(t, &cluster, &cluster.Spec)
 
 		require.Len(t, policies, 3)
 		assert.Equal(t, "clamped-to-min", policies[1].Name)
@@ -680,7 +682,7 @@ func TestCalculateSubGroupPolicy(t *testing.T) {
 		features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, false)
 		cluster := createTestRayCluster(2)
 
-		assert.Nil(t, mustCalculateSubGroupPolicy(t, &cluster.Spec))
+		assert.Nil(t, mustCalculateSubGroupPolicy(t, &cluster, &cluster.Spec))
 	})
 
 	t.Run("group Pod template labels set the network topology of each replica", func(t *testing.T) {
@@ -701,7 +703,7 @@ func TestCalculateSubGroupPolicy(t *testing.T) {
 		tierOnlyGroup.Template.Labels = map[string]string{NetworkTopologyHighestTierAllowedLabelKey: "1"}
 		cluster.Spec.WorkerGroupSpecs = append(cluster.Spec.WorkerGroupSpecs, modeOnlyGroup, tierOnlyGroup)
 
-		policies := mustCalculateSubGroupPolicy(t, &cluster.Spec)
+		policies := mustCalculateSubGroupPolicy(t, &cluster, &cluster.Spec)
 
 		require.Len(t, policies, 4)
 		assert.Equal(t, &volcanoschedulingv1beta1.NetworkTopologySpec{Mode: "hard", HighestTierAllowed: new(1)}, policies[0].NetworkTopology)
@@ -721,10 +723,22 @@ func TestCalculateSubGroupPolicy(t *testing.T) {
 			NetworkTopologyHighestTierAllowedLabelKey: "not-an-int",
 		}
 
-		_, err := calculateSubGroupPolicy(&cluster.Spec)
+		_, err := calculateSubGroupPolicy(&cluster, &cluster.Spec)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "group small-group")
+		assert.Contains(t, err.Error(), "failed to convert "+NetworkTopologyHighestTierAllowedLabelKey+" label to int")
+	})
+
+	t.Run("owner highest tier allowed label that is not an int returns an error", func(t *testing.T) {
+		cluster := createTestRayClusterWithLabels(map[string]string{
+			NetworkTopologyModeLabelKey:               "hard",
+			NetworkTopologyHighestTierAllowedLabelKey: "not-an-int",
+		})
+
+		_, err := calculateSubGroupPolicy(&cluster, &cluster.Spec)
+
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to convert "+NetworkTopologyHighestTierAllowedLabelKey+" label to int")
 	})
 }
@@ -738,18 +752,24 @@ func TestCreatePodGroup_OwnerAndGroupNetworkTopology(t *testing.T) {
 		NetworkTopologyModeLabelKey:               "hard",
 		NetworkTopologyHighestTierAllowedLabelKey: "1",
 	}
+	unlabeledGroup := *cluster.Spec.WorkerGroupSpecs[0].DeepCopy()
+	unlabeledGroup.GroupName = "unlabeled-group"
+	unlabeledGroup.Template.Labels = nil
+	cluster.Spec.WorkerGroupSpecs = append(cluster.Spec.WorkerGroupSpecs, unlabeledGroup)
 
 	minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 	totalResource := utils.CalculateDesiredResources(&cluster)
-	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster.Spec))
+	pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster, &cluster.Spec))
 	require.NoError(t, err)
 
 	// The owner labels apply to the whole PodGroup and the group labels apply to its subgroup.
-	assert.Equal(t, &volcanoschedulingv1beta1.NetworkTopologySpec{Mode: "hard", HighestTierAllowed: new(2)}, pg.Spec.NetworkTopology)
-	require.Len(t, pg.Spec.SubGroupPolicy, 2)
-	// Subgroups do not inherit the owner network topology.
-	assert.Nil(t, pg.Spec.SubGroupPolicy[0].NetworkTopology)
+	ownerNetworkTopology := &volcanoschedulingv1beta1.NetworkTopologySpec{Mode: "hard", HighestTierAllowed: new(2)}
+	assert.Equal(t, ownerNetworkTopology, pg.Spec.NetworkTopology)
+	require.Len(t, pg.Spec.SubGroupPolicy, 3)
 	assert.Equal(t, &volcanoschedulingv1beta1.NetworkTopologySpec{Mode: "hard", HighestTierAllowed: new(1)}, pg.Spec.SubGroupPolicy[1].NetworkTopology)
+	// The head group and unlabeled-group have no network topology labels, so their subgroups inherit the owner's.
+	assert.Equal(t, ownerNetworkTopology, pg.Spec.SubGroupPolicy[0].NetworkTopology)
+	assert.Equal(t, ownerNetworkTopology, pg.Spec.SubGroupPolicy[2].NetworkTopology)
 }
 
 func TestSyncPodGroup_SubGroupPolicy(t *testing.T) {
@@ -789,7 +809,7 @@ func TestSyncPodGroup_SubGroupPolicy(t *testing.T) {
 	assert.Equal(t, &volcanoschedulingv1beta1.NetworkTopologySpec{Mode: "hard", HighestTierAllowed: new(1)}, podGroup.Spec.SubGroupPolicy[1].NetworkTopology)
 
 	minMember, totalResource := scheduler.calculatePodGroupParams(&cluster.Spec)
-	didUpdate, err := scheduler.syncPodGroup(ctx, &cluster, minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster.Spec))
+	didUpdate, err := scheduler.syncPodGroup(ctx, &cluster, minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster, &cluster.Spec))
 	require.NoError(t, err)
 	assert.False(t, didUpdate)
 }
@@ -847,7 +867,7 @@ func TestCreatePodGroup_OwnerAnnotationsCopied(t *testing.T) {
 
 		minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 		totalResource := utils.CalculateDesiredResources(&cluster)
-		pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster.Spec))
+		pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster, &cluster.Spec))
 		require.NoError(t, err)
 
 		a.NotNil(pg.Annotations)
@@ -865,7 +885,7 @@ func TestCreatePodGroup_OwnerAnnotationsCopied(t *testing.T) {
 
 		minMember := utils.CalculateDesiredReplicas(&rayv1.RayCluster{Spec: *rayJob.Spec.RayClusterSpec}) + 1
 		totalResource := utils.CalculateDesiredResources(&rayv1.RayCluster{Spec: *rayJob.Spec.RayClusterSpec})
-		pg, err := createPodGroup(&rayJob, getAppPodGroupName(&rayJob), minMember, totalResource, mustCalculateSubGroupPolicy(t, rayJob.Spec.RayClusterSpec))
+		pg, err := createPodGroup(&rayJob, getAppPodGroupName(&rayJob), minMember, totalResource, mustCalculateSubGroupPolicy(t, &rayJob, rayJob.Spec.RayClusterSpec))
 		require.NoError(t, err)
 
 		a.NotNil(pg.Annotations)
@@ -880,7 +900,7 @@ func TestCreatePodGroup_OwnerAnnotationsCopied(t *testing.T) {
 
 		minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 		totalResource := utils.CalculateDesiredResources(&cluster)
-		pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster.Spec))
+		pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster, &cluster.Spec))
 		require.NoError(t, err)
 
 		a.NotNil(pg.Annotations)
@@ -893,7 +913,7 @@ func TestCreatePodGroup_OwnerAnnotationsCopied(t *testing.T) {
 
 		minMember := utils.CalculateDesiredReplicas(&cluster) + 1
 		totalResource := utils.CalculateDesiredResources(&cluster)
-		pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster.Spec))
+		pg, err := createPodGroup(&cluster, getAppPodGroupName(&cluster), minMember, totalResource, mustCalculateSubGroupPolicy(t, &cluster, &cluster.Spec))
 		require.NoError(t, err)
 
 		a.NotNil(pg.Annotations)

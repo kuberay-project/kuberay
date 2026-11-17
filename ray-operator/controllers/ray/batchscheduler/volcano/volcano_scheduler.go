@@ -68,7 +68,7 @@ func (v *VolcanoBatchScheduler) handleRayCluster(ctx context.Context, raycluster
 	}
 
 	minMember, totalResource := v.calculatePodGroupParams(&raycluster.Spec)
-	subGroupPolicy, err := calculateSubGroupPolicy(&raycluster.Spec)
+	subGroupPolicy, err := calculateSubGroupPolicy(raycluster, &raycluster.Spec)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func (v *VolcanoBatchScheduler) handleRayJob(ctx context.Context, rayJob *rayv1.
 
 	var totalResourceList []corev1.ResourceList
 	minMember, totalResource := v.calculatePodGroupParams(rayJob.Spec.RayClusterSpec)
-	subGroupPolicy, err := calculateSubGroupPolicy(rayJob.Spec.RayClusterSpec)
+	subGroupPolicy, err := calculateSubGroupPolicy(rayJob, rayJob.Spec.RayClusterSpec)
 	if err != nil {
 		return err
 	}
@@ -234,12 +234,20 @@ func (v *VolcanoBatchScheduler) calculatePodGroupParams(rayClusterSpec *rayv1.Ra
 // effective desired replica semantics used to calculate the PodGroup's global MinMember.
 // The network topology labels on a group's Pod template apply to each replica of that group.
 // Pre-v1.14 Volcano CRDs prune this field and retain the legacy global PodGroup settings.
-func calculateSubGroupPolicy(rayClusterSpec *rayv1.RayClusterSpec) ([]volcanoschedulingv1beta1.SubGroupPolicySpec, error) {
+func calculateSubGroupPolicy(owner metav1.Object, rayClusterSpec *rayv1.RayClusterSpec) ([]volcanoschedulingv1beta1.SubGroupPolicySpec, error) {
 	if !features.Enabled(features.RayMultiHostIndexing) {
 		return nil, nil
 	}
 
-	headPolicy, err := newSubGroupPolicy(utils.RayNodeHeadGroupLabelValue, 1, 1, utils.RayNodeGroupLabelKey, rayClusterSpec.HeadGroupSpec.Template.Labels)
+	// The existing top-level topology labels apply topology constraints to the entire PodGroup.
+	// Generating per-replica subgroups without copying that policy would change those semantics.
+	// Groups without their own topology labels inherit that policy.
+	ownerNetworkTopology, err := parseNetworkTopology(owner.GetLabels())
+	if err != nil {
+		return nil, err
+	}
+
+	headPolicy, err := newSubGroupPolicy(utils.RayNodeHeadGroupLabelValue, 1, 1, utils.RayNodeGroupLabelKey, rayClusterSpec.HeadGroupSpec.Template.Labels, ownerNetworkTopology)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +279,7 @@ func calculateSubGroupPolicy(rayClusterSpec *rayv1.RayClusterSpec) ([]volcanosch
 			matchLabelKey = utils.RayWorkerReplicaNameKey
 		}
 
-		workerPolicy, err := newSubGroupPolicy(workerGroupSpec.GroupName, numOfHosts, minSubGroups, matchLabelKey, workerGroupSpec.Template.Labels)
+		workerPolicy, err := newSubGroupPolicy(workerGroupSpec.GroupName, numOfHosts, minSubGroups, matchLabelKey, workerGroupSpec.Template.Labels, ownerNetworkTopology)
 		if err != nil {
 			return nil, err
 		}
@@ -283,10 +291,14 @@ func calculateSubGroupPolicy(rayClusterSpec *rayv1.RayClusterSpec) ([]volcanosch
 
 // newSubGroupPolicy selects the Pods of a Ray group and splits them into subgroups by matchLabelKey.
 // The network topology from the group's Pod labels applies to each of those subgroups.
-func newSubGroupPolicy(groupName string, subGroupSize, minSubGroups int32, matchLabelKey string, podLabels map[string]string) (volcanoschedulingv1beta1.SubGroupPolicySpec, error) {
+// Without the network topology mode label, the subgroups inherit ownerNetworkTopology.
+func newSubGroupPolicy(groupName string, subGroupSize, minSubGroups int32, matchLabelKey string, podLabels map[string]string, ownerNetworkTopology *volcanoschedulingv1beta1.NetworkTopologySpec) (volcanoschedulingv1beta1.SubGroupPolicySpec, error) {
 	networkTopology, err := parseNetworkTopology(podLabels)
 	if err != nil {
 		return volcanoschedulingv1beta1.SubGroupPolicySpec{}, fmt.Errorf("group %s: %w", groupName, err)
+	}
+	if networkTopology == nil {
+		networkTopology = ownerNetworkTopology.DeepCopy()
 	}
 
 	return volcanoschedulingv1beta1.SubGroupPolicySpec{
@@ -426,7 +438,7 @@ func (v *VolcanoBatchScheduler) CleanupOnCompletion(ctx context.Context, object 
 		clusterMinMembers, clusterMinResources := v.calculatePodGroupParams(&cluster.Spec)
 		minMembers = clusterMinMembers
 		totalResourceList = append(totalResourceList, clusterMinResources)
-		subGroupPolicy, err = calculateSubGroupPolicy(&cluster.Spec)
+		subGroupPolicy, err = calculateSubGroupPolicy(rayJob, &cluster.Spec)
 		if err != nil {
 			return false, err
 		}
