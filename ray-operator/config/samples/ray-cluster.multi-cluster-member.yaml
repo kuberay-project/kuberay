@@ -11,8 +11,9 @@ metadata:
 spec:
   rayVersion: "2.52.0" # must match the Ray version of the primary RayCluster
   headGroupSpec:
-    # KubeRay always creates a head Pod. No worker connects to this one, so set
-    # `num-cpus: "0"` to keep it from advertising CPUs it never uses.
+    # KubeRay always creates a head Pod. The workers don't join this one, so set
+    # `num-cpus: "0"` to keep it from advertising CPUs it never uses. The workers' init
+    # containers still wait for this head to be ready before the workers start.
     rayStartParams:
       num-cpus: "0"
     template:
@@ -42,6 +43,11 @@ spec:
         containers:
         - name: ray-worker
           image: rayproject/ray:2.52.0
+          env:
+          # KubeRay sets RAY_ADDRESS to the head of this RayCluster by default. Point it at
+          # the primary Ray head, so that Ray commands and drivers in this Pod connect to it.
+          - name: RAY_ADDRESS
+            value: raycluster-kuberay-head-svc.default.svc.clusterset.local:6379
           resources:
             limits:
               cpu: "1"
