@@ -831,6 +831,7 @@ type RayCluster struct {
 
 	// Specification of the desired behavior of the RayCluster.
 	Spec RayClusterSpec `json:"spec,omitempty"`
+	// Status is the most recently observed state of the RayCluster.
 	// +optional
 	Status RayClusterStatus `json:"status,omitempty"`
 }
