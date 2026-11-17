@@ -2939,6 +2939,22 @@ func TestConfigureTLS_Disabled(t *testing.T) {
 	assert.Nil(t, getEnvVar(rayContainer, utils.RAY_USE_TLS))
 }
 
+// Users who manage TLS themselves set RAY_USE_TLS on the container without tlsOptions. Their
+// Ray nodes still register with pod IPs, so the head keeps connecting through loopback.
+func TestConfigureTLS_UserManagedTLSKeepsLoopbackRayAddress(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
+	cluster := instance.DeepCopy()
+	rayContainer := &cluster.Spec.HeadGroupSpec.Template.Spec.Containers[utils.RayContainerIndex]
+	rayContainer.Env = append(rayContainer.Env, corev1.EnvVar{Name: utils.RAY_USE_TLS, Value: "1"})
+	ctx := context.Background()
+
+	podTemplate := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, "test-head", "6379")
+	fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
+	pod := BuildPod(ctx, podTemplate, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), fqdnRayIP, nil, "")
+
+	checkContainerEnv(t, pod.Spec.Containers[utils.RayContainerIndex], utils.RAY_ADDRESS, "127.0.0.1:6379")
+}
+
 func TestConfigureTLS_AutoGenerate_HeadPod(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
 	cluster := instance.DeepCopy()

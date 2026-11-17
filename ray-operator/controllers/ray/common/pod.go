@@ -263,9 +263,17 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 	mergedLabels := mergeLabels(headSpec.Template.ObjectMeta.Labels, headSpec.Labels)
 	podTemplate.Labels = labelPod(rayv1.HeadNode, instance.Name, utils.RayNodeHeadGroupLabelValue, mergedLabels)
 
-	// Under mTLS the head registers with its service DNS name so workers match its DNS SAN.
-	if _, ok := headSpec.RayStartParams["node-ip-address"]; !ok && utils.IsTLSEnabled(&instance.Spec) {
-		headSpec.RayStartParams["node-ip-address"] = utils.GenerateFQDNServiceName(ctx, instance, instance.Namespace)
+	// Under mTLS the head registers with its service DNS name so workers match its DNS SAN,
+	// and local clients (ray.init(), ray job submit) must dial that same name instead of loopback.
+	if utils.IsTLSEnabled(&instance.Spec) {
+		headFQDN := utils.GenerateFQDNServiceName(ctx, instance, instance.Namespace)
+		if _, ok := headSpec.RayStartParams["node-ip-address"]; !ok {
+			headSpec.RayStartParams["node-ip-address"] = headFQDN
+		}
+		rayContainer := &podTemplate.Spec.Containers[utils.RayContainerIndex]
+		if !utils.EnvVarExists(utils.RAY_ADDRESS, rayContainer.Env) {
+			rayContainer.Env = append(rayContainer.Env, corev1.EnvVar{Name: utils.RAY_ADDRESS, Value: headFQDN + ":" + headPort})
+		}
 	}
 
 	headSpec.RayStartParams = setMissingRayStartParams(ctx, headSpec.RayStartParams, rayv1.HeadNode, headPort, "")
@@ -1226,12 +1234,10 @@ func setContainerEnvVars(pod *corev1.Pod, rayNodeType rayv1.RayNodeType, fqdnRay
 		}
 	}
 
-	// case 1: head   => Use LOCAL_HOST. Under TLS use fqdnRayIP instead.
+	// case 1: head   => Use LOCAL_HOST. Under mTLS, DefaultHeadPodTemplate has already set
+	//                   RAY_ADDRESS to the head service FQDN, so this default isn't used.
 	// case 2: worker => Use fqdnRayIP (fully qualified domain name)
 	ip := utils.LOCAL_HOST
-	if utils.EnvVarExists(utils.RAY_USE_TLS, container.Env) {
-		ip = fqdnRayIP
-	}
 	if rayNodeType == rayv1.WorkerNode {
 		ip = fqdnRayIP
 		container.Env = append(container.Env,
