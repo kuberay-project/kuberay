@@ -137,6 +137,11 @@ spec:
                 type: number
               entrypointResources:
                 type: string
+              headFailurePolicy:
+                enum:
+                - Recreate
+                - Fail
+                type: string
               jobId:
                 type: string
               managedBy:

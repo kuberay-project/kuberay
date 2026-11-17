@@ -1,0 +1,96 @@
+# Example: RayJob with headFailurePolicy=Fail.
+# When the head Pod fails, KubeRay retains the failed Pod (for debugging) and
+# marks the RayJob as Failed instead of recreating the head Pod.
+#
+# Constraints when headFailurePolicy is Fail:
+# - head Pod restartPolicy must be Never, or unset (controller sets Never)
+# - explicit Always/OnFailure is rejected
+# - backoffLimit must be 0 (default)
+# - clusterSelector is not supported
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob-head-failure-policy-fail
+spec:
+  headFailurePolicy: Fail
+  backoffLimit: 0
+  entrypoint: python /home/ray/samples/sample_code.py
+
+  rayClusterSpec:
+    rayVersion: "2.59.0"
+    headGroupSpec:
+      rayStartParams: {}
+      template:
+        spec:
+          # Unset restartPolicy is also fine: the controller sets Never for Fail.
+          restartPolicy: Never
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.59.0
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            resources:
+              limits:
+                cpu: "1"
+                memory: "2Gi"
+              requests:
+                cpu: "500m"
+                memory: "1Gi"
+            volumeMounts:
+            - mountPath: /home/ray/samples
+              name: code-sample
+          volumes:
+          - name: code-sample
+            configMap:
+              name: ray-job-code-sample
+              items:
+              - key: sample_code.py
+                path: sample_code.py
+    workerGroupSpecs:
+    - replicas: 1
+      minReplicas: 1
+      maxReplicas: 1
+      groupName: small-group
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.59.0
+            resources:
+              limits:
+                cpu: "1"
+              requests:
+                cpu: "200m"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-job-code-sample
+data:
+  sample_code.py: |
+    import ray
+
+    ray.init()
+
+    @ray.remote
+    class Counter:
+        def __init__(self):
+            self.name = "test_counter"
+            self.counter = 0
+
+        def inc(self):
+            self.counter += 1
+
+        def get_counter(self):
+            return "{} got {}".format(self.name, self.counter)
+
+    counter = Counter.remote()
+    for _ in range(5):
+        ray.get(counter.inc.remote())
+        print(ray.get(counter.get_counter.remote()))

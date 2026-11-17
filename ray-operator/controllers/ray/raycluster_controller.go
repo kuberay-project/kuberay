@@ -1068,17 +1068,22 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		shouldDelete, reason := shouldDeletePod(headPod, rayv1.HeadNode)
 		logger.Info("reconcilePods", "head Pod", headPod.Name, "shouldDelete", shouldDelete, "reason", reason)
 		if shouldDelete {
-			if err := r.Delete(ctx, &headPod); err != nil {
-				r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteHeadPod), string(utils.DeleteAction),
-					"Failed deleting head Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v, %v",
-					headPod.Namespace, headPod.Name, headPod.Status.Phase, headPod.Spec.RestartPolicy, getRayContainerStateTerminated(headPod), err)
-				return errstd.Join(utils.ErrFailedDeleteHeadPod, err)
+			if shouldFailOnHeadFailure(instance) {
+				logger.Info("Skipping head Pod deletion due to ray.io/head-failure-policy=Fail",
+					"pod", headPod.Name, "reason", reason)
+			} else {
+				if err := r.Delete(ctx, &headPod); err != nil {
+					r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteHeadPod), string(utils.DeleteAction),
+						"Failed deleting head Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v, %v",
+						headPod.Namespace, headPod.Name, headPod.Status.Phase, headPod.Spec.RestartPolicy, getRayContainerStateTerminated(headPod), err)
+					return errstd.Join(utils.ErrFailedDeleteHeadPod, err)
+				}
+				r.rayClusterScaleExpectation.ExpectScalePod(headPod.Namespace, instance.Name, expectations.HeadGroup, headPod.Name, expectations.Delete)
+				r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedHeadPod), string(utils.DeleteAction),
+					"Deleted head Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v",
+					headPod.Namespace, headPod.Name, headPod.Status.Phase, headPod.Spec.RestartPolicy, getRayContainerStateTerminated(headPod))
+				return errstd.New(reason)
 			}
-			r.rayClusterScaleExpectation.ExpectScalePod(headPod.Namespace, instance.Name, expectations.HeadGroup, headPod.Name, expectations.Delete)
-			r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(utils.DeletedHeadPod), string(utils.DeleteAction),
-				"Deleted head Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v",
-				headPod.Namespace, headPod.Name, headPod.Status.Phase, headPod.Spec.RestartPolicy, getRayContainerStateTerminated(headPod))
-			return errstd.New(reason)
 		}
 	} else if len(headPods.Items) == 0 {
 		if meta.IsStatusConditionTrue(instance.Status.Conditions, string(rayv1.RayClusterProvisioned)) &&
@@ -1513,6 +1518,13 @@ func shouldSkipHeadPodRestart(instance *rayv1.RayCluster) bool {
 	return instance.Annotations[utils.DisableProvisionedHeadRestartAnnotationKey] == "true"
 }
 
+// shouldFailOnHeadFailure reports whether the RayCluster should retain a failed head Pod
+// and set HeadPodFailed so RayJob can fast-fail. Requires RayClusterStatusConditions enabled.
+func shouldFailOnHeadFailure(instance *rayv1.RayCluster) bool {
+	return instance.Annotations[utils.HeadFailurePolicyAnnotationKey] == string(rayv1.HeadFailurePolicyFail) &&
+		features.Enabled(features.RayClusterStatusConditions)
+}
+
 // shouldRecreatePodsForUpgrade checks if any pods need to be recreated based on RayClusterSpec changes
 func (r *RayClusterReconciler) shouldRecreatePodsForUpgrade(ctx context.Context, instance *rayv1.RayCluster) bool {
 	logger := ctrl.LoggerFrom(ctx)
@@ -1553,6 +1565,35 @@ func (r *RayClusterReconciler) shouldRecreatePodsForUpgrade(ctx context.Context,
 		}
 	}
 	return false
+}
+
+// setHeadPodFailedCondition updates the HeadPodFailed condition based on head pod state.
+// True when the head pod is in a terminal phase (Failed or Succeeded), or the ray container has
+// terminated, and the pod is not being deleted. Succeeded is included because Fail retains the
+// pod, so an exit-0 head would otherwise leave the RayJob waiting on a dead cluster.
+func (r *RayClusterReconciler) setHeadPodFailedCondition(ctx context.Context, instance *rayv1.RayCluster, headPod *corev1.Pod) {
+	logger := ctrl.LoggerFrom(ctx)
+	if !shouldFailOnHeadFailure(instance) || headPod == nil || !headPod.DeletionTimestamp.IsZero() {
+		return
+	}
+
+	var message string
+	switch {
+	case headPod.Status.Phase == corev1.PodFailed || headPod.Status.Phase == corev1.PodSucceeded:
+		message = fmt.Sprintf("Head Pod %s is in %s phase", headPod.Name, headPod.Status.Phase)
+	case headPod.Status.Phase == corev1.PodRunning && getRayContainerStateTerminated(*headPod) != nil:
+		message = fmt.Sprintf("Head Pod %s Ray container has terminated", headPod.Name)
+	default:
+		return
+	}
+
+	logger.Info("Setting HeadPodFailed condition to True", "message", message)
+	meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+		Type:    string(rayv1.RayClusterHeadPodFailed),
+		Status:  metav1.ConditionTrue,
+		Reason:  string(rayv1.RayClusterHeadPodFailed),
+		Message: message,
+	})
 }
 
 // shouldDeletePod returns whether the Pod should be deleted and the reason
@@ -2166,6 +2207,8 @@ func (r *RayClusterReconciler) calculateStatus(ctx context.Context, instance *ra
 			headPodReadyCondition := utils.FindHeadPodReadyCondition(headPod)
 			meta.SetStatusCondition(&newInstance.Status.Conditions, headPodReadyCondition)
 		}
+
+		r.setHeadPodFailedCondition(ctx, newInstance, headPod)
 
 		suspendStatus := utils.FindRayClusterSuspendStatus(newInstance)
 		if !meta.IsStatusConditionTrue(newInstance.Status.Conditions, string(rayv1.RayClusterProvisioned)) && suspendStatus != rayv1.RayClusterSuspended {

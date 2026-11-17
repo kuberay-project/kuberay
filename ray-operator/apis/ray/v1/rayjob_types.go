@@ -75,6 +75,18 @@ const (
 	JobDeploymentStatusTransitionGracePeriodExceeded JobFailedReason = "JobDeploymentStatusTransitionGracePeriodExceeded"
 	JobStatusCheckTimeoutExceeded                    JobFailedReason = "JobStatusCheckTimeoutExceeded"
 	ValidationFailed                                 JobFailedReason = "ValidationFailed"
+	// HeadPodFailed is set when the associated RayCluster reports the HeadPodFailed condition.
+	HeadPodFailed JobFailedReason = "HeadPodFailed"
+)
+
+// HeadFailurePolicy controls the behavior when the head pod fails.
+type HeadFailurePolicy string
+
+const (
+	// HeadFailurePolicyRecreate recreates the head pod when it fails (existing behavior).
+	HeadFailurePolicyRecreate HeadFailurePolicy = "Recreate"
+	// HeadFailurePolicyFail marks the RayJob as failed when the head pod fails, without recreating it.
+	HeadFailurePolicyFail HeadFailurePolicy = "Fail"
 )
 
 type JobSubmissionMode string
@@ -298,6 +310,17 @@ type RayJobSpec struct {
 	// In case of transition to false a new RayCluster will be created.
 	// +optional
 	Suspend bool `json:"suspend,omitempty"`
+	// HeadFailurePolicy controls the behavior when the head pod fails.
+	// - If set to Recreate, the head pod will be recreated (existing behavior).
+	// - If set to Fail, the RayJob fails when the head pod fails, without recreating it.
+	//   Fail requires RayClusterStatusConditions to be enabled. It also requires the head
+	//   Pod restartPolicy to be Never; if unset, the controller sets Never when creating
+	//   the RayCluster. Explicit Always or OnFailure is rejected. SidecarMode already
+	//   forces Never for the same reason.
+	// Defaults to Recreate if not set.
+	// +kubebuilder:validation:Enum=Recreate;Fail
+	// +optional
+	HeadFailurePolicy *HeadFailurePolicy `json:"headFailurePolicy,omitempty"`
 }
 
 // RayJobStatus defines the observed state of RayJob
