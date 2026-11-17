@@ -175,6 +175,20 @@ func RayJobRayClusterNamespacedName(rayJob *rayv1.RayJob) types.NamespacedName {
 	}
 }
 
+// RayJobHeadServiceNamespacedName returns the NamespacedName of the head Service
+// owned by the RayJob (the one created by BuildHeadServiceForRayJob, whose name
+// is stable across RayCluster switches and whose owner is the RayJob itself).
+func RayJobHeadServiceNamespacedName(rayJob *rayv1.RayJob) (types.NamespacedName, error) {
+	headSvcName, err := utils.GenerateHeadServiceName(utils.RayJobCRD, rayv1.RayClusterSpec{}, rayJob.Name)
+	if err != nil {
+		return types.NamespacedName{}, err
+	}
+	return types.NamespacedName{
+		Name:      headSvcName,
+		Namespace: rayJob.Namespace,
+	}, nil
+}
+
 // GetRayClusterHeadPod gets a *corev1.Pod from a *rayv1.RayCluster. Note that it returns (nil, nil) in the case of no head pod exists.
 func GetRayClusterHeadPod(ctx context.Context, reader client.Reader, instance *rayv1.RayCluster) (*corev1.Pod, error) {
 	logger := ctrl.LoggerFrom(ctx)
