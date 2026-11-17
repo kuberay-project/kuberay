@@ -55,7 +55,6 @@ func NewRayClusterMTLSController(mgr ctrl.Manager) *RayClusterMTLSController {
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificates/status,verbs=get
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;update;delete
-// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // Reconcile handles mTLS certificate lifecycle for a RayCluster.
 // Cert-manager Issuers and Certificates are owned by the RayCluster via controller
