@@ -585,4 +585,76 @@ var _ = Context("RayService env tests", func() {
 			})
 		})
 	})
+
+	Context("ClusterUpgradeOptions gatewayClassName/gatewayRef CEL validation", func() {
+		ctx := context.Background()
+		namespace := "default"
+		serveAppName := "app"
+
+		withIncrementalUpgradeOptions := func(rayService *rayv1.RayService, opts *rayv1.ClusterUpgradeOptions) *rayv1.RayService {
+			rayService.Spec.UpgradeStrategy = &rayv1.RayServiceUpgradeStrategy{
+				Type:                  ptr.To(rayv1.RayServiceNewClusterWithIncrementalUpgrade),
+				ClusterUpgradeOptions: opts,
+			}
+			return rayService
+		}
+		baseOpts := func() *rayv1.ClusterUpgradeOptions {
+			return &rayv1.ClusterUpgradeOptions{
+				MaxSurgePercent: new(int32(100)),
+				StepSizePercent: new(int32(10)),
+				IntervalSeconds: new(int32(30)),
+			}
+		}
+
+		It("accepts gatewayRef alone (gatewayClassName absent)", func() {
+			opts := baseOpts()
+			opts.GatewayRef = &rayv1.GatewayReference{Name: "shared-gateway"}
+			rayService := withIncrementalUpgradeOptions(rayServiceTemplate("cel-gatewayref", namespace, serveAppName), opts)
+			Expect(k8sClient.Create(ctx, rayService)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, rayService)).To(Succeed())
+		})
+
+		It("accepts gatewayClassName alone (gatewayRef absent)", func() {
+			opts := baseOpts()
+			opts.GatewayClassName = "istio"
+			rayService := withIncrementalUpgradeOptions(rayServiceTemplate("cel-gatewayclass", namespace, serveAppName), opts)
+			Expect(k8sClient.Create(ctx, rayService)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, rayService)).To(Succeed())
+		})
+
+		It("rejects both gatewayClassName and gatewayRef", func() {
+			opts := baseOpts()
+			opts.GatewayClassName = "istio"
+			opts.GatewayRef = &rayv1.GatewayReference{Name: "shared-gateway"}
+			rayService := withIncrementalUpgradeOptions(rayServiceTemplate("cel-both", namespace, serveAppName), opts)
+			err := k8sClient.Create(ctx, rayService)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("Exactly one of gatewayClassName or gatewayRef must be specified"))
+		})
+
+		It("rejects neither gatewayClassName nor gatewayRef", func() {
+			rayService := withIncrementalUpgradeOptions(rayServiceTemplate("cel-neither", namespace, serveAppName), baseOpts())
+			err := k8sClient.Create(ctx, rayService)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("Exactly one of gatewayClassName or gatewayRef must be specified"))
+		})
+
+		It("rejects an explicit empty gatewayClassName with no gatewayRef", func() {
+			opts := baseOpts()
+			opts.GatewayClassName = "" // present but empty must count as "not set"
+			rayService := withIncrementalUpgradeOptions(rayServiceTemplate("cel-empty-class", namespace, serveAppName), opts)
+			err := k8sClient.Create(ctx, rayService)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("Exactly one of gatewayClassName or gatewayRef must be specified"))
+		})
+
+		It("accepts gatewayRef with an explicit empty gatewayClassName", func() {
+			opts := baseOpts()
+			opts.GatewayClassName = ""
+			opts.GatewayRef = &rayv1.GatewayReference{Name: "shared-gateway"}
+			rayService := withIncrementalUpgradeOptions(rayServiceTemplate("cel-ref-empty-class", namespace, serveAppName), opts)
+			Expect(k8sClient.Create(ctx, rayService)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, rayService)).To(Succeed())
+		})
+	})
 })

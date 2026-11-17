@@ -3,7 +3,7 @@ kind: RayCluster
 metadata:
   name: raycluster-embedded-gcs-ft
 spec:
-  rayVersion: "2.52.0"
+  rayVersion: "2.57.0"
   gcsFaultToleranceOptions:
     # Use the embedded RocksDB backend for GCS fault tolerance. RocksDB is linked
     # into the GCS process (no external Redis service). KubeRay provisions a PVC,
@@ -45,7 +45,7 @@ spec:
       spec:
         containers:
         - name: ray-head
-          image: rayproject/ray:2.52.0
+          image: rayproject/ray:2.57.0
           resources:
             limits:
               cpu: "1"
@@ -76,7 +76,7 @@ spec:
       spec:
         containers:
         - name: ray-worker
-          image: rayproject/ray:2.52.0
+          image: rayproject/ray:2.57.0
           resources:
             limits:
               cpu: "1"

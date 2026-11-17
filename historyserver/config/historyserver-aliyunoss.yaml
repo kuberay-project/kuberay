@@ -1,0 +1,91 @@
+# History Server deployment reading from Alibaba Cloud OSS via RRSA.
+#
+# Prerequisites (on ACK):
+#   1. Enable RRSA (RAM Roles for Service Accounts) on the ACK cluster and create a
+#      RAM role whose trust policy allows the cluster's OIDC provider.
+#      NOTE: the trust policy Action must be "sts:AssumeRole" (not
+#      "sts:AssumeRoleWithOIDC"), with condition StringEquals oidc:aud=sts.aliyuncs.com.
+#   2. Grant the RAM role read access to the OSS bucket.
+#   3. Install the ack-pod-identity-webhook, then apply service_account.yaml and
+#      annotate the ServiceAccount with the RAM role so the ALIBABA_CLOUD_*
+#      credential env vars are injected automatically:
+#        kubectl apply -f historyserver/config/service_account.yaml
+#        kubectl annotate sa historyserver \
+#          pod-identity.alibabacloud.com/role-name=${RAM_ROLE_NAME} --overwrite
+#
+# Apply with envsubst to substitute environment variables:
+#   envsubst < historyserver/config/historyserver-aliyunoss.yaml | kubectl apply -f -
+#
+# Example values used for validation:
+#   HISTORYSERVER_IMAGE=quay.io/kuberay/historyserver:v1.7.0-rc.0
+#   OSS_REGION=cn-hongkong
+#   OSS_BUCKET=my-bucket
+#   OSS_ENDPOINT=oss-cn-hongkong-internal.aliyuncs.com
+apiVersion: v1
+kind: Service
+metadata:
+  name: historyserver
+  labels:
+    app: historyserver
+spec:
+  selector:
+    app: historyserver
+  ports:
+  - protocol: TCP
+    name: http
+    port: 30080
+    targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: historyserver-demo
+  labels:
+    app: historyserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: historyserver
+  template:
+    metadata:
+      labels:
+        app: historyserver
+        # Lets the ack-pod-identity-webhook inject the RRSA credential env vars.
+        pod-identity.alibabacloud.com/injection: "on"
+    spec:
+      serviceAccountName: historyserver
+      containers:
+      - name: historyserver
+        env:
+          # Region such as cn-hangzhou.
+          - name: OSS_REGION
+            value: "${OSS_REGION}"
+          - name: OSS_BUCKET
+            value: "${OSS_BUCKET}"
+          # Endpoint such as oss-cn-hangzhou-internal.aliyuncs.com.
+          - name: OSS_ENDPOINT
+            value: "${OSS_ENDPOINT}"
+          - name: STORAGE_BACKEND
+            value: "aliyunoss"
+          # Root dir inside the bucket; must match the collector's STORAGE_ROOT_DIR.
+          # NOTE: images up to v1.7.0-rc.0 do not read this env var (the option was
+          # added after v1.7.0-rc.0, initially as RAY_ROOT_DIR, later renamed) and
+          # use the bucket root (fixed cluster-history/ prefix).
+          - name: STORAGE_ROOT_DIR
+            value: "ray-history"
+        image: ${HISTORYSERVER_IMAGE}
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        # Cache is soft-bounded at 8 GiB; 12 GiB leaves decode headroom.
+        # The 2 GiB request keeps examples schedulable; size production requests to residency.
+        args:
+        - --session-cache-max-memory=8Gi
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "2Gi"
+          limits:
+            memory: "12Gi"

@@ -14,16 +14,18 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path"
 	"strings"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
-	"github.com/sirupsen/logrus"
 )
 
 // maxLineLengthLimit is the maximum line length for event files.
@@ -53,22 +55,14 @@ func NewLogEventReader(reader storage.StorageReader) *LogEventReader {
 //
 // Return an error if any listed file fails to read (total or partial).
 func (r *LogEventReader) ReadLogEvents(clusterInfo utils.ClusterInfo, clusterSessionKey string, eventStore *types.ClusterLogEventMap) error {
-	// Build cluster ID (clusterLogPathPrefix) used by StorageReader
-	clusterLogPathPrefix := clusterlogs.Prefix("", clusterInfo.OwnerKind, clusterInfo.OwnerName, clusterInfo.Namespace, clusterInfo.Name)
+	// Build storage prefix used by StorageReader
+	clusterLogPathPrefix := clusterlogs.Prefix("", clusterInfo)
 
 	// Get or create the JobEventMap for this cluster session
 	jobEventMap := eventStore.GetOrCreateJobEventMap(clusterSessionKey)
 
 	// Find candidate nodes under {sessionName}/
-	var nodeIDs []string
-	for _, entry := range r.reader.ListFiles(clusterLogPathPrefix, clusterInfo.SessionName) {
-		if strings.HasSuffix(entry, "/") {
-			nodeID := strings.TrimSuffix(entry, "/")
-			if nodeID != "" {
-				nodeIDs = append(nodeIDs, nodeID)
-			}
-		}
-	}
+	nodeIDs := clusterlogs.ListSessionNodeDirs(r.reader, clusterLogPathPrefix, clusterInfo.SessionName)
 	logrus.Debugf("Found candidate node directories for cluster %s: %v", clusterSessionKey, nodeIDs)
 
 	total := 0
@@ -76,7 +70,7 @@ func (r *LogEventReader) ReadLogEvents(clusterInfo utils.ClusterInfo, clusterSes
 	for _, nodeID := range nodeIDs {
 		// Events directory: hierarchical (<sessionName>/<nodeId>/logs/events)
 		eventsDir := path.Join(clusterlogs.RelLogsDir(clusterInfo.SessionName, nodeID), "events")
-		eventFileNames := r.reader.ListFiles(clusterLogPathPrefix, eventsDir)
+		eventFileNames := clusterlogs.ListLogFiles(r.reader, clusterLogPathPrefix, eventsDir)
 		for _, fileName := range eventFileNames {
 			if !strings.HasPrefix(fileName, "event_") || !strings.HasSuffix(fileName, ".log") {
 				continue
@@ -100,8 +94,8 @@ func (r *LogEventReader) ReadLogEvents(clusterInfo utils.ClusterInfo, clusterSes
 // readEventFile reads and parses a single event_*.log file (JSON Lines format).
 // Lines exceeding maxLineLengthLimit are drained and skipped without accumulating
 // in memory, matching Ray Dashboard's _read_file() behavior in event_utils.py.
-func (r *LogEventReader) readEventFile(clusterID, filePath string, jobEventMap *types.JobEventMap) error {
-	ioReader := r.reader.GetContent(clusterID, filePath)
+func (r *LogEventReader) readEventFile(prefix, filePath string, jobEventMap *types.JobEventMap) error {
+	ioReader := clusterlogs.ReadLogFile(r.reader, prefix, filePath)
 	if ioReader == nil {
 		return fmt.Errorf("failed to get content for %s", filePath)
 	}
@@ -116,10 +110,10 @@ func (r *LogEventReader) readEventFile(clusterID, filePath string, jobEventMap *
 		line, n, tooLong, err := readLineWithLimit(br, maxLineLengthLimit)
 
 		// No remaining data — clean EOF with nothing left to process
-		if err == io.EOF && n == 0 {
+		if errors.Is(err, io.EOF) && n == 0 {
 			break
 		}
-		if err != nil && err != io.EOF {
+		if err != nil && !errors.Is(err, io.EOF) {
 			return fmt.Errorf("error reading %s at line %d: %w", filePath, lineNum+1, err)
 		}
 
@@ -136,7 +130,7 @@ func (r *LogEventReader) readEventFile(clusterID, filePath string, jobEventMap *
 		}
 
 		// EOF after processing the last partial line (file didn't end with '\n')
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 	}
@@ -173,15 +167,12 @@ func readLineWithLimit(br *bufio.Reader, limit int) (line []byte, n int, tooLong
 		// If tooLong, we keep looping to drain remaining bytes until '\n' or EOF,
 		// but do not accumulate them.
 
-		switch e {
-		case nil:
-			// Found '\n' — full line complete.
+		switch {
+		case e == nil:
 			return buf, n, tooLong, nil
-		case bufio.ErrBufferFull:
-			// Fragment filled the internal buffer but no '\n' yet — keep reading.
+		case errors.Is(e, bufio.ErrBufferFull):
 			continue
-		case io.EOF:
-			// Stream ended. frag may contain the last partial line without '\n'.
+		case errors.Is(e, io.EOF):
 			return buf, n, tooLong, io.EOF
 		default:
 			return nil, n, false, e

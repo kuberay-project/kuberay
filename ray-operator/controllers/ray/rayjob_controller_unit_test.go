@@ -192,7 +192,7 @@ func TestGetSubmitterTemplate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/bin/bash", "-ce", "--"}, submitterTemplate.Spec.Containers[utils.RayContainerIndex].Command)
 	expectedK8sJobModeArgs := []string{
-		"until " + fmt.Sprintf(utils.BasePythonHealthCommand, "http://test-url/"+utils.RayDashboardGCSHealthPath, utils.RayDashboardGCSHealthCheckTimeoutSeconds) +
+		"until " + fmt.Sprintf(utils.K8sJobDashboardHealthCommand, utils.RayDashboardGCSHealthPath, utils.RayDashboardGCSHealthCheckTimeoutSeconds, "http://test-url") +
 			" >/dev/null 2>&1 ; do echo \"Waiting for Ray Dashboard GCS to become healthy at http://test-url ...\" ; sleep 2 ; done ; " +
 			"if ! ray job status --address http://test-url test-job-id >/dev/null 2>&1 ; then ray job submit --address http://test-url --no-wait --submission-id test-job-id -- echo no quote 'single quote' \"double quote\" ; fi ; ray job logs --address http://test-url --follow test-job-id",
 	}

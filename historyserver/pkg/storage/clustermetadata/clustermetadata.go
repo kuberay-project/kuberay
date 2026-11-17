@@ -13,7 +13,7 @@ const (
 	// Without owner: cluster-metadata/raycluster/{namespace}_{cluster_name}/{session_id}
 	metaPartsCountWithoutOwner = 2
 	// With owner:    cluster-metadata/{rayjob|rayservice}/{namespace}_{owner_name}_{cluster_name}/{session_id}
-	metaPartsCountWithOwner    = 3
+	metaPartsCountWithOwner = 3
 )
 
 // EncodePath builds the hierarchical path for a given session ID.

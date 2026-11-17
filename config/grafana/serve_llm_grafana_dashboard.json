@@ -121,7 +121,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by (deployment, replica) (rate(ray_serve_deployment_request_counter_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", deployment=~\"$deployment\"}[$interval]))",
+                    "expr": "sum by (deployment, replica) (rate(ray_serve_deployment_request_counter_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"}[$interval]))",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -129,7 +129,7 @@
                 },
                 {
                     "exemplar": true,
-                    "expr": "sum(rate(ray_serve_deployment_request_counter_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", deployment=~\"$deployment\"}[$interval]))",
+                    "expr": "sum(rate(ray_serve_deployment_request_counter_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"}[$interval]))",
                     "interval": "",
                     "legendFormat": "Total QPS",
                     "queryType": "randomWalk",
@@ -269,7 +269,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by(WorkerId) (rate(ray_vllm_request_prompt_tokens_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "sum by(WorkerId) (rate(ray_vllm_request_prompt_tokens_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -277,7 +277,7 @@
                 },
                 {
                     "exemplar": true,
-                    "expr": "sum(rate(ray_vllm_request_prompt_tokens_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))",
+                    "expr": "sum(rate(ray_vllm_request_prompt_tokens_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))",
                     "interval": "",
                     "legendFormat": "Total",
                     "queryType": "randomWalk",
@@ -417,7 +417,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by(WorkerId) (rate(ray_vllm_generation_tokens_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "sum by(WorkerId) (rate(ray_vllm_generation_tokens_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -425,7 +425,7 @@
                 },
                 {
                     "exemplar": true,
-                    "expr": "sum(rate(ray_vllm_generation_tokens_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))",
+                    "expr": "sum(rate(ray_vllm_generation_tokens_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))",
                     "interval": "",
                     "legendFormat": "Total",
                     "queryType": "randomWalk",
@@ -578,7 +578,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -718,7 +718,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  histogram_quantile(\n    0.5,\n    sum by (le, WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  histogram_quantile(\n    0.5,\n    sum by (le, WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -858,7 +858,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  histogram_quantile(\n    0.9,\n    sum by (le, WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  histogram_quantile(\n    0.9,\n    sum by (le, WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_time_per_output_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -998,7 +998,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_time_to_first_token_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_time_to_first_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_time_to_first_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_time_to_first_token_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_time_to_first_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_time_to_first_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -1138,7 +1138,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  histogram_quantile(\n    0.5,\n    sum by (le, WorkerId) (rate(ray_vllm_time_to_first_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_time_to_first_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  histogram_quantile(\n    0.5,\n    sum by (le, WorkerId) (rate(ray_vllm_time_to_first_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_time_to_first_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -1278,7 +1278,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  histogram_quantile(\n    0.9,\n    sum by (le, WorkerId) (rate(ray_vllm_time_to_first_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_time_to_first_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  histogram_quantile(\n    0.9,\n    sum by (le, WorkerId) (rate(ray_vllm_time_to_first_token_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_time_to_first_token_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -1418,7 +1418,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -1558,7 +1558,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  histogram_quantile(\n    0.5,\n    sum by (le, WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  histogram_quantile(\n    0.5,\n    sum by (le, WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -1698,7 +1698,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  histogram_quantile(\n    0.9,\n    sum by (le, WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  histogram_quantile(\n    0.9,\n    sum by (le, WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_e2e_request_latency_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -1851,7 +1851,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by(WorkerId) (ray_vllm_kv_cache_usage_perc{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"})\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "sum by(WorkerId) (ray_vllm_kv_cache_usage_perc{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"})\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -1991,7 +1991,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "100 * ((sum by(WorkerId) (rate(ray_vllm_prefix_cache_hits_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) / sum by(WorkerId) (rate(ray_vllm_prefix_cache_queries_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))) and on(WorkerId) (sum by(WorkerId) (rate(ray_vllm_prefix_cache_queries_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "100 * ((sum by(WorkerId) (rate(ray_vllm_prefix_cache_hits_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) / sum by(WorkerId) (rate(ray_vllm_prefix_cache_queries_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))) and on(WorkerId) (sum by(WorkerId) (rate(ray_vllm_prefix_cache_queries_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -2144,7 +2144,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_prompt_tokens_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_request_prompt_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_prompt_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_prompt_tokens_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_request_prompt_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_prompt_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -2284,7 +2284,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  histogram_quantile(\n    0.5,\n    sum by (le, WorkerId) (rate(ray_vllm_request_prompt_tokens_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_prompt_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  histogram_quantile(\n    0.5,\n    sum by (le, WorkerId) (rate(ray_vllm_request_prompt_tokens_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_prompt_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -2424,7 +2424,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  histogram_quantile(\n    0.9,\n    sum by (le, WorkerId) (rate(ray_vllm_request_prompt_tokens_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_prompt_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  histogram_quantile(\n    0.9,\n    sum by (le, WorkerId) (rate(ray_vllm_request_prompt_tokens_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_prompt_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -2564,7 +2564,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_generation_tokens_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_request_generation_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_generation_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_generation_tokens_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_request_generation_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_generation_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -2704,7 +2704,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  histogram_quantile(\n    0.5,\n    sum by (le, WorkerId) (rate(ray_vllm_request_generation_tokens_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_generation_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  histogram_quantile(\n    0.5,\n    sum by (le, WorkerId) (rate(ray_vllm_request_generation_tokens_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_generation_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -2844,7 +2844,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  histogram_quantile(\n    0.9,\n    sum by (le, WorkerId) (rate(ray_vllm_request_generation_tokens_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_generation_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  histogram_quantile(\n    0.9,\n    sum by (le, WorkerId) (rate(ray_vllm_request_generation_tokens_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_request_generation_tokens_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -2997,7 +2997,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by(WorkerId) (ray_vllm_num_requests_running{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"})\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "sum by(WorkerId) (ray_vllm_num_requests_running{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"})\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -3137,7 +3137,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by(WorkerId) (ray_vllm_num_requests_swapped{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"})\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "sum by(WorkerId) (ray_vllm_num_requests_swapped{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"})\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -3277,7 +3277,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by(WorkerId) (ray_vllm_num_requests_waiting{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"})\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "sum by(WorkerId) (ray_vllm_num_requests_waiting{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"})\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -3417,7 +3417,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by(finished_reason, WorkerId) (increase(ray_vllm_request_success_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "sum by(finished_reason, WorkerId) (increase(ray_vllm_request_success_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{finished_reason}} \u2014 {{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -3557,7 +3557,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by(WorkerId) (rate(ray_vllm_request_queue_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "sum by(WorkerId) (rate(ray_vllm_request_queue_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -3697,7 +3697,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by(WorkerId) (rate(ray_vllm_request_prefill_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "sum by(WorkerId) (rate(ray_vllm_request_prefill_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -3837,7 +3837,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by(WorkerId) (rate(ray_vllm_request_decode_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "sum by(WorkerId) (rate(ray_vllm_request_decode_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -3990,7 +3990,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_nixl_xfer_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_nixl_xfer_time_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n    * 1000\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_nixl_xfer_time_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_nixl_xfer_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_nixl_xfer_time_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    * 1000\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_nixl_xfer_time_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -4130,7 +4130,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_nixl_bytes_transferred_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_nixl_xfer_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n    / 1024 / 1024 / 1024\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_nixl_xfer_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_nixl_bytes_transferred_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_nixl_xfer_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    / 1024 / 1024 / 1024\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_nixl_xfer_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -4270,7 +4270,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by(WorkerId) (rate(ray_vllm_nixl_xfer_time_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "sum by(WorkerId) (rate(ray_vllm_nixl_xfer_time_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -4410,7 +4410,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_nixl_post_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_nixl_post_time_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n    * 1000\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_nixl_post_time_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_nixl_post_time_seconds_sum{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_nixl_post_time_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    * 1000\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_nixl_post_time_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -4550,7 +4550,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by(WorkerId) (increase(ray_vllm_nixl_num_failed_transfers{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "sum by(WorkerId) (increase(ray_vllm_nixl_num_failed_transfers{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -4690,7 +4690,7 @@
             "targets": [
                 {
                     "exemplar": true,
-                    "expr": "sum by(WorkerId) (increase(ray_vllm_nixl_num_kv_expired_reqs_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{ deployment=~\"$deployment\"} * 0 + 1)",
+                    "expr": "sum by(WorkerId) (increase(ray_vllm_nixl_num_kv_expired_reqs_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
                     "interval": "",
                     "legendFormat": "{{deployment}}: {{replica}}",
                     "queryType": "randomWalk",
@@ -4748,6 +4748,1312 @@
                 "x": 0,
                 "y": 102
             },
+            "id": 508,
+            "title": "KV Cache Offload / Reload",
+            "type": "row",
+            "panels": [
+                {
+                    "aliasColors": {},
+                    "bars": false,
+                    "dashLength": 10,
+                    "dashes": false,
+                    "datasource": "${datasource}",
+                    "description": "GPU-to-CPU KV data/s.",
+                    "fieldConfig": {
+                        "defaults": {
+                            "unit": "GBs"
+                        },
+                        "overrides": []
+                    },
+                    "gridPos": {
+                        "x": 0,
+                        "y": 103,
+                        "w": 8,
+                        "h": 8
+                    },
+                    "fill": 1,
+                    "fillGradient": 0,
+                    "hiddenSeries": false,
+                    "id": 52,
+                    "legend": {
+                        "alignAsTable": true,
+                        "avg": true,
+                        "current": true,
+                        "hideEmpty": false,
+                        "hideZero": true,
+                        "max": true,
+                        "min": false,
+                        "rightSide": false,
+                        "show": true,
+                        "sort": "current",
+                        "sortDesc": true,
+                        "total": false,
+                        "values": true
+                    },
+                    "lines": true,
+                    "linewidth": 1,
+                    "nullPointMode": null,
+                    "options": {
+                        "alertThreshold": true
+                    },
+                    "percentage": false,
+                    "pluginVersion": "7.5.17",
+                    "pointradius": 2,
+                    "points": false,
+                    "renderer": "flot",
+                    "seriesOverrides": [
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX",
+                            "dashes": true,
+                            "color": "#1F60C4",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "$$hashKey": "object:78",
+                            "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX + PENDING",
+                            "dashes": true,
+                            "color": "#777777",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "alias": "/Container/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "alias": "Container MAX",
+                            "dashes": true,
+                            "color": "#73BF69",
+                            "fill": 0,
+                            "stack": false,
+                            "hiddenSeries": true
+                        }
+                    ],
+                    "spaceLength": 10,
+                    "stack": false,
+                    "steppedLine": false,
+                    "targets": [
+                        {
+                            "exemplar": true,
+                            "expr": "(sum by(WorkerId) (rate(ray_vllm_kv_offload_store_bytes_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)) / 1024 / 1024 / 1024",
+                            "interval": "",
+                            "legendFormat": "{{deployment}}: {{replica}}",
+                            "queryType": "randomWalk",
+                            "refId": "A"
+                        }
+                    ],
+                    "thresholds": [],
+                    "timeFrom": null,
+                    "timeRegions": [],
+                    "timeShift": null,
+                    "title": "KV Offload: Store Throughput",
+                    "tooltip": {
+                        "shared": true,
+                        "sort": 0,
+                        "value_type": "individual"
+                    },
+                    "type": "graph",
+                    "xaxis": {
+                        "buckets": null,
+                        "mode": "time",
+                        "name": null,
+                        "show": true,
+                        "values": []
+                    },
+                    "yaxes": [
+                        {
+                            "$$hashKey": "object:628",
+                            "format": "GBs",
+                            "label": "",
+                            "logBase": 1,
+                            "max": null,
+                            "min": "0",
+                            "show": true
+                        },
+                        {
+                            "$$hashKey": "object:629",
+                            "format": "short",
+                            "label": null,
+                            "logBase": 1,
+                            "max": null,
+                            "min": null,
+                            "show": true
+                        }
+                    ],
+                    "yaxis": {
+                        "align": false,
+                        "alignLevel": null
+                    }
+                },
+                {
+                    "aliasColors": {},
+                    "bars": false,
+                    "dashLength": 10,
+                    "dashes": false,
+                    "datasource": "${datasource}",
+                    "description": "CPU-to-GPU KV data/s.",
+                    "fieldConfig": {
+                        "defaults": {
+                            "unit": "GBs"
+                        },
+                        "overrides": []
+                    },
+                    "gridPos": {
+                        "x": 8,
+                        "y": 103,
+                        "w": 8,
+                        "h": 8
+                    },
+                    "fill": 1,
+                    "fillGradient": 0,
+                    "hiddenSeries": false,
+                    "id": 53,
+                    "legend": {
+                        "alignAsTable": true,
+                        "avg": true,
+                        "current": true,
+                        "hideEmpty": false,
+                        "hideZero": true,
+                        "max": true,
+                        "min": false,
+                        "rightSide": false,
+                        "show": true,
+                        "sort": "current",
+                        "sortDesc": true,
+                        "total": false,
+                        "values": true
+                    },
+                    "lines": true,
+                    "linewidth": 1,
+                    "nullPointMode": null,
+                    "options": {
+                        "alertThreshold": true
+                    },
+                    "percentage": false,
+                    "pluginVersion": "7.5.17",
+                    "pointradius": 2,
+                    "points": false,
+                    "renderer": "flot",
+                    "seriesOverrides": [
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX",
+                            "dashes": true,
+                            "color": "#1F60C4",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "$$hashKey": "object:78",
+                            "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX + PENDING",
+                            "dashes": true,
+                            "color": "#777777",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "alias": "/Container/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "alias": "Container MAX",
+                            "dashes": true,
+                            "color": "#73BF69",
+                            "fill": 0,
+                            "stack": false,
+                            "hiddenSeries": true
+                        }
+                    ],
+                    "spaceLength": 10,
+                    "stack": false,
+                    "steppedLine": false,
+                    "targets": [
+                        {
+                            "exemplar": true,
+                            "expr": "(sum by(WorkerId) (rate(ray_vllm_kv_offload_load_bytes_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)) / 1024 / 1024 / 1024",
+                            "interval": "",
+                            "legendFormat": "{{deployment}}: {{replica}}",
+                            "queryType": "randomWalk",
+                            "refId": "A"
+                        }
+                    ],
+                    "thresholds": [],
+                    "timeFrom": null,
+                    "timeRegions": [],
+                    "timeShift": null,
+                    "title": "KV Offload: Reload Throughput",
+                    "tooltip": {
+                        "shared": true,
+                        "sort": 0,
+                        "value_type": "individual"
+                    },
+                    "type": "graph",
+                    "xaxis": {
+                        "buckets": null,
+                        "mode": "time",
+                        "name": null,
+                        "show": true,
+                        "values": []
+                    },
+                    "yaxes": [
+                        {
+                            "$$hashKey": "object:628",
+                            "format": "GBs",
+                            "label": "",
+                            "logBase": 1,
+                            "max": null,
+                            "min": "0",
+                            "show": true
+                        },
+                        {
+                            "$$hashKey": "object:629",
+                            "format": "short",
+                            "label": null,
+                            "logBase": 1,
+                            "max": null,
+                            "min": null,
+                            "show": true
+                        }
+                    ],
+                    "yaxis": {
+                        "align": false,
+                        "alignLevel": null
+                    }
+                },
+                {
+                    "aliasColors": {},
+                    "bars": false,
+                    "dashLength": 10,
+                    "dashes": false,
+                    "datasource": "${datasource}",
+                    "description": "KV store and reload operations/s.",
+                    "fieldConfig": {
+                        "defaults": {
+                            "unit": "ops"
+                        },
+                        "overrides": []
+                    },
+                    "gridPos": {
+                        "x": 16,
+                        "y": 103,
+                        "w": 8,
+                        "h": 8
+                    },
+                    "fill": 1,
+                    "fillGradient": 0,
+                    "hiddenSeries": false,
+                    "id": 54,
+                    "legend": {
+                        "alignAsTable": true,
+                        "avg": true,
+                        "current": true,
+                        "hideEmpty": false,
+                        "hideZero": true,
+                        "max": true,
+                        "min": false,
+                        "rightSide": false,
+                        "show": true,
+                        "sort": "current",
+                        "sortDesc": true,
+                        "total": false,
+                        "values": true
+                    },
+                    "lines": true,
+                    "linewidth": 1,
+                    "nullPointMode": null,
+                    "options": {
+                        "alertThreshold": true
+                    },
+                    "percentage": false,
+                    "pluginVersion": "7.5.17",
+                    "pointradius": 2,
+                    "points": false,
+                    "renderer": "flot",
+                    "seriesOverrides": [
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX",
+                            "dashes": true,
+                            "color": "#1F60C4",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "$$hashKey": "object:78",
+                            "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX + PENDING",
+                            "dashes": true,
+                            "color": "#777777",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "alias": "/Container/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "alias": "Container MAX",
+                            "dashes": true,
+                            "color": "#73BF69",
+                            "fill": 0,
+                            "stack": false,
+                            "hiddenSeries": true
+                        }
+                    ],
+                    "spaceLength": 10,
+                    "stack": false,
+                    "steppedLine": false,
+                    "targets": [
+                        {
+                            "exemplar": true,
+                            "expr": "sum by(WorkerId) (rate(ray_vllm_kv_offload_store_size_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
+                            "interval": "",
+                            "legendFormat": "store \u2014 {{deployment}}: {{replica}}",
+                            "queryType": "randomWalk",
+                            "refId": "A"
+                        },
+                        {
+                            "exemplar": true,
+                            "expr": "sum by(WorkerId) (rate(ray_vllm_kv_offload_load_size_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
+                            "interval": "",
+                            "legendFormat": "reload \u2014 {{deployment}}: {{replica}}",
+                            "queryType": "randomWalk",
+                            "refId": "B"
+                        }
+                    ],
+                    "thresholds": [],
+                    "timeFrom": null,
+                    "timeRegions": [],
+                    "timeShift": null,
+                    "title": "KV Offload: Store and Reload Operations/s",
+                    "tooltip": {
+                        "shared": true,
+                        "sort": 0,
+                        "value_type": "individual"
+                    },
+                    "type": "graph",
+                    "xaxis": {
+                        "buckets": null,
+                        "mode": "time",
+                        "name": null,
+                        "show": true,
+                        "values": []
+                    },
+                    "yaxes": [
+                        {
+                            "$$hashKey": "object:628",
+                            "format": "ops",
+                            "label": "",
+                            "logBase": 1,
+                            "max": null,
+                            "min": "0",
+                            "show": true
+                        },
+                        {
+                            "$$hashKey": "object:629",
+                            "format": "short",
+                            "label": null,
+                            "logBase": 1,
+                            "max": null,
+                            "min": null,
+                            "show": true
+                        }
+                    ],
+                    "yaxis": {
+                        "align": false,
+                        "alignLevel": null
+                    }
+                },
+                {
+                    "aliasColors": {},
+                    "bars": false,
+                    "dashLength": 10,
+                    "dashes": false,
+                    "datasource": "${datasource}",
+                    "description": "GPU-to-CPU KV transfer bandwidth.",
+                    "fieldConfig": {
+                        "defaults": {
+                            "unit": "GBs"
+                        },
+                        "overrides": []
+                    },
+                    "gridPos": {
+                        "x": 0,
+                        "y": 111,
+                        "w": 8,
+                        "h": 8
+                    },
+                    "fill": 1,
+                    "fillGradient": 0,
+                    "hiddenSeries": false,
+                    "id": 55,
+                    "legend": {
+                        "alignAsTable": true,
+                        "avg": true,
+                        "current": true,
+                        "hideEmpty": false,
+                        "hideZero": true,
+                        "max": true,
+                        "min": false,
+                        "rightSide": false,
+                        "show": true,
+                        "sort": "current",
+                        "sortDesc": true,
+                        "total": false,
+                        "values": true
+                    },
+                    "lines": true,
+                    "linewidth": 1,
+                    "nullPointMode": null,
+                    "options": {
+                        "alertThreshold": true
+                    },
+                    "percentage": false,
+                    "pluginVersion": "7.5.17",
+                    "pointradius": 2,
+                    "points": false,
+                    "renderer": "flot",
+                    "seriesOverrides": [
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX",
+                            "dashes": true,
+                            "color": "#1F60C4",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "$$hashKey": "object:78",
+                            "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX + PENDING",
+                            "dashes": true,
+                            "color": "#777777",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "alias": "/Container/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "alias": "Container MAX",
+                            "dashes": true,
+                            "color": "#73BF69",
+                            "fill": 0,
+                            "stack": false,
+                            "hiddenSeries": true
+                        }
+                    ],
+                    "spaceLength": 10,
+                    "stack": false,
+                    "steppedLine": false,
+                    "targets": [
+                        {
+                            "exemplar": true,
+                            "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_kv_offload_store_bytes_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_kv_offload_store_time_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    / 1024 / 1024 / 1024\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_kv_offload_store_time_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
+                            "interval": "",
+                            "legendFormat": "{{deployment}}: {{replica}}",
+                            "queryType": "randomWalk",
+                            "refId": "A"
+                        }
+                    ],
+                    "thresholds": [],
+                    "timeFrom": null,
+                    "timeRegions": [],
+                    "timeShift": null,
+                    "title": "KV Offload: Store Bandwidth",
+                    "tooltip": {
+                        "shared": true,
+                        "sort": 0,
+                        "value_type": "individual"
+                    },
+                    "type": "graph",
+                    "xaxis": {
+                        "buckets": null,
+                        "mode": "time",
+                        "name": null,
+                        "show": true,
+                        "values": []
+                    },
+                    "yaxes": [
+                        {
+                            "$$hashKey": "object:628",
+                            "format": "GBs",
+                            "label": "",
+                            "logBase": 1,
+                            "max": null,
+                            "min": "0",
+                            "show": true
+                        },
+                        {
+                            "$$hashKey": "object:629",
+                            "format": "short",
+                            "label": null,
+                            "logBase": 1,
+                            "max": null,
+                            "min": null,
+                            "show": true
+                        }
+                    ],
+                    "yaxis": {
+                        "align": false,
+                        "alignLevel": null
+                    }
+                },
+                {
+                    "aliasColors": {},
+                    "bars": false,
+                    "dashLength": 10,
+                    "dashes": false,
+                    "datasource": "${datasource}",
+                    "description": "CPU-to-GPU KV transfer bandwidth.",
+                    "fieldConfig": {
+                        "defaults": {
+                            "unit": "GBs"
+                        },
+                        "overrides": []
+                    },
+                    "gridPos": {
+                        "x": 8,
+                        "y": 111,
+                        "w": 8,
+                        "h": 8
+                    },
+                    "fill": 1,
+                    "fillGradient": 0,
+                    "hiddenSeries": false,
+                    "id": 56,
+                    "legend": {
+                        "alignAsTable": true,
+                        "avg": true,
+                        "current": true,
+                        "hideEmpty": false,
+                        "hideZero": true,
+                        "max": true,
+                        "min": false,
+                        "rightSide": false,
+                        "show": true,
+                        "sort": "current",
+                        "sortDesc": true,
+                        "total": false,
+                        "values": true
+                    },
+                    "lines": true,
+                    "linewidth": 1,
+                    "nullPointMode": null,
+                    "options": {
+                        "alertThreshold": true
+                    },
+                    "percentage": false,
+                    "pluginVersion": "7.5.17",
+                    "pointradius": 2,
+                    "points": false,
+                    "renderer": "flot",
+                    "seriesOverrides": [
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX",
+                            "dashes": true,
+                            "color": "#1F60C4",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "$$hashKey": "object:78",
+                            "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX + PENDING",
+                            "dashes": true,
+                            "color": "#777777",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "alias": "/Container/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "alias": "Container MAX",
+                            "dashes": true,
+                            "color": "#73BF69",
+                            "fill": 0,
+                            "stack": false,
+                            "hiddenSeries": true
+                        }
+                    ],
+                    "spaceLength": 10,
+                    "stack": false,
+                    "steppedLine": false,
+                    "targets": [
+                        {
+                            "exemplar": true,
+                            "expr": "(\n  (\n    sum by(WorkerId) (rate(ray_vllm_kv_offload_load_bytes_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_kv_offload_load_time_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    / 1024 / 1024 / 1024\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_kv_offload_load_time_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
+                            "interval": "",
+                            "legendFormat": "{{deployment}}: {{replica}}",
+                            "queryType": "randomWalk",
+                            "refId": "A"
+                        }
+                    ],
+                    "thresholds": [],
+                    "timeFrom": null,
+                    "timeRegions": [],
+                    "timeShift": null,
+                    "title": "KV Offload: Reload Bandwidth",
+                    "tooltip": {
+                        "shared": true,
+                        "sort": 0,
+                        "value_type": "individual"
+                    },
+                    "type": "graph",
+                    "xaxis": {
+                        "buckets": null,
+                        "mode": "time",
+                        "name": null,
+                        "show": true,
+                        "values": []
+                    },
+                    "yaxes": [
+                        {
+                            "$$hashKey": "object:628",
+                            "format": "GBs",
+                            "label": "",
+                            "logBase": 1,
+                            "max": null,
+                            "min": "0",
+                            "show": true
+                        },
+                        {
+                            "$$hashKey": "object:629",
+                            "format": "short",
+                            "label": null,
+                            "logBase": 1,
+                            "max": null,
+                            "min": null,
+                            "show": true
+                        }
+                    ],
+                    "yaxis": {
+                        "align": false,
+                        "alignLevel": null
+                    }
+                },
+                {
+                    "aliasColors": {},
+                    "bars": false,
+                    "dashLength": 10,
+                    "dashes": false,
+                    "datasource": "${datasource}",
+                    "description": "Share of the CPU KV pool pinned by in-flight transfers. Sustained values near 100% mean transfers may be dropped.",
+                    "fieldConfig": {
+                        "defaults": {
+                            "unit": "percentunit"
+                        },
+                        "overrides": []
+                    },
+                    "gridPos": {
+                        "x": 16,
+                        "y": 111,
+                        "w": 8,
+                        "h": 8
+                    },
+                    "fill": 1,
+                    "fillGradient": 0,
+                    "hiddenSeries": false,
+                    "id": 57,
+                    "legend": {
+                        "alignAsTable": true,
+                        "avg": true,
+                        "current": true,
+                        "hideEmpty": false,
+                        "hideZero": true,
+                        "max": true,
+                        "min": false,
+                        "rightSide": false,
+                        "show": true,
+                        "sort": "current",
+                        "sortDesc": true,
+                        "total": false,
+                        "values": true
+                    },
+                    "lines": true,
+                    "linewidth": 1,
+                    "nullPointMode": null,
+                    "options": {
+                        "alertThreshold": true
+                    },
+                    "percentage": false,
+                    "pluginVersion": "7.5.17",
+                    "pointradius": 2,
+                    "points": false,
+                    "renderer": "flot",
+                    "seriesOverrides": [
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX",
+                            "dashes": true,
+                            "color": "#1F60C4",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "$$hashKey": "object:78",
+                            "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX + PENDING",
+                            "dashes": true,
+                            "color": "#777777",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "alias": "/Container/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "alias": "Container MAX",
+                            "dashes": true,
+                            "color": "#73BF69",
+                            "fill": 0,
+                            "stack": false,
+                            "hiddenSeries": true
+                        }
+                    ],
+                    "spaceLength": 10,
+                    "stack": false,
+                    "steppedLine": false,
+                    "targets": [
+                        {
+                            "exemplar": true,
+                            "expr": "sum by(WorkerId) (ray_vllm_kv_offload_cpu_cache_usage_perc{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"})\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
+                            "interval": "",
+                            "legendFormat": "total \u2014 {{deployment}}: {{replica}}",
+                            "queryType": "randomWalk",
+                            "refId": "A"
+                        },
+                        {
+                            "exemplar": true,
+                            "expr": "sum by(WorkerId) (ray_vllm_kv_offload_cpu_cache_write_usage_perc{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"})\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
+                            "interval": "",
+                            "legendFormat": "stores \u2014 {{deployment}}: {{replica}}",
+                            "queryType": "randomWalk",
+                            "refId": "B"
+                        },
+                        {
+                            "exemplar": true,
+                            "expr": "sum by(WorkerId) (ray_vllm_kv_offload_cpu_cache_read_usage_perc{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"})\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
+                            "interval": "",
+                            "legendFormat": "reloads \u2014 {{deployment}}: {{replica}}",
+                            "queryType": "randomWalk",
+                            "refId": "C"
+                        }
+                    ],
+                    "thresholds": [],
+                    "timeFrom": null,
+                    "timeRegions": [],
+                    "timeShift": null,
+                    "title": "KV Offload: CPU Capacity Pinned by Transfers",
+                    "tooltip": {
+                        "shared": true,
+                        "sort": 0,
+                        "value_type": "individual"
+                    },
+                    "type": "graph",
+                    "xaxis": {
+                        "buckets": null,
+                        "mode": "time",
+                        "name": null,
+                        "show": true,
+                        "values": []
+                    },
+                    "yaxes": [
+                        {
+                            "$$hashKey": "object:628",
+                            "format": "percentunit",
+                            "label": "",
+                            "logBase": 1,
+                            "max": null,
+                            "min": "0",
+                            "show": true
+                        },
+                        {
+                            "$$hashKey": "object:629",
+                            "format": "short",
+                            "label": null,
+                            "logBase": 1,
+                            "max": null,
+                            "min": null,
+                            "show": true
+                        }
+                    ],
+                    "yaxis": {
+                        "align": false,
+                        "alignLevel": null
+                    }
+                },
+                {
+                    "aliasColors": {},
+                    "bars": false,
+                    "dashLength": 10,
+                    "dashes": false,
+                    "datasource": "${datasource}",
+                    "description": "Connector prefix-cache hit rate.",
+                    "fieldConfig": {
+                        "defaults": {
+                            "unit": "percent"
+                        },
+                        "overrides": []
+                    },
+                    "gridPos": {
+                        "x": 0,
+                        "y": 119,
+                        "w": 8,
+                        "h": 8
+                    },
+                    "fill": 1,
+                    "fillGradient": 0,
+                    "hiddenSeries": false,
+                    "id": 58,
+                    "legend": {
+                        "alignAsTable": true,
+                        "avg": true,
+                        "current": true,
+                        "hideEmpty": false,
+                        "hideZero": true,
+                        "max": true,
+                        "min": false,
+                        "rightSide": false,
+                        "show": true,
+                        "sort": "current",
+                        "sortDesc": true,
+                        "total": false,
+                        "values": true
+                    },
+                    "lines": true,
+                    "linewidth": 1,
+                    "nullPointMode": null,
+                    "options": {
+                        "alertThreshold": true
+                    },
+                    "percentage": false,
+                    "pluginVersion": "7.5.17",
+                    "pointradius": 2,
+                    "points": false,
+                    "renderer": "flot",
+                    "seriesOverrides": [
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX",
+                            "dashes": true,
+                            "color": "#1F60C4",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "$$hashKey": "object:78",
+                            "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX + PENDING",
+                            "dashes": true,
+                            "color": "#777777",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "alias": "/Container/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "alias": "Container MAX",
+                            "dashes": true,
+                            "color": "#73BF69",
+                            "fill": 0,
+                            "stack": false,
+                            "hiddenSeries": true
+                        }
+                    ],
+                    "spaceLength": 10,
+                    "stack": false,
+                    "steppedLine": false,
+                    "targets": [
+                        {
+                            "exemplar": true,
+                            "expr": "100 * (\n  (\n    sum by(WorkerId) (rate(ray_vllm_external_prefix_cache_hits_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_external_prefix_cache_queries_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_external_prefix_cache_queries_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
+                            "interval": "",
+                            "legendFormat": "{{deployment}}: {{replica}}",
+                            "queryType": "randomWalk",
+                            "refId": "A"
+                        }
+                    ],
+                    "thresholds": [],
+                    "timeFrom": null,
+                    "timeRegions": [],
+                    "timeShift": null,
+                    "title": "KV Offload: External Prefix Hit Rate",
+                    "tooltip": {
+                        "shared": true,
+                        "sort": 0,
+                        "value_type": "individual"
+                    },
+                    "type": "graph",
+                    "xaxis": {
+                        "buckets": null,
+                        "mode": "time",
+                        "name": null,
+                        "show": true,
+                        "values": []
+                    },
+                    "yaxes": [
+                        {
+                            "$$hashKey": "object:628",
+                            "format": "percent",
+                            "label": "",
+                            "logBase": 1,
+                            "max": null,
+                            "min": "0",
+                            "show": true
+                        },
+                        {
+                            "$$hashKey": "object:629",
+                            "format": "short",
+                            "label": null,
+                            "logBase": 1,
+                            "max": null,
+                            "min": null,
+                            "show": true
+                        }
+                    ],
+                    "yaxis": {
+                        "align": false,
+                        "alignLevel": null
+                    }
+                },
+                {
+                    "aliasColors": {},
+                    "bars": false,
+                    "dashLength": 10,
+                    "dashes": false,
+                    "datasource": "${datasource}",
+                    "description": "Prompt tokens served from either cache tier, GPU or offloaded.",
+                    "fieldConfig": {
+                        "defaults": {
+                            "unit": "percent"
+                        },
+                        "overrides": []
+                    },
+                    "gridPos": {
+                        "x": 8,
+                        "y": 119,
+                        "w": 8,
+                        "h": 8
+                    },
+                    "fill": 1,
+                    "fillGradient": 0,
+                    "hiddenSeries": false,
+                    "id": 60,
+                    "legend": {
+                        "alignAsTable": true,
+                        "avg": true,
+                        "current": true,
+                        "hideEmpty": false,
+                        "hideZero": true,
+                        "max": true,
+                        "min": false,
+                        "rightSide": false,
+                        "show": true,
+                        "sort": "current",
+                        "sortDesc": true,
+                        "total": false,
+                        "values": true
+                    },
+                    "lines": true,
+                    "linewidth": 1,
+                    "nullPointMode": null,
+                    "options": {
+                        "alertThreshold": true
+                    },
+                    "percentage": false,
+                    "pluginVersion": "7.5.17",
+                    "pointradius": 2,
+                    "points": false,
+                    "renderer": "flot",
+                    "seriesOverrides": [
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX",
+                            "dashes": true,
+                            "color": "#1F60C4",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "$$hashKey": "object:78",
+                            "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX + PENDING",
+                            "dashes": true,
+                            "color": "#777777",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "alias": "/Container/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "alias": "Container MAX",
+                            "dashes": true,
+                            "color": "#73BF69",
+                            "fill": 0,
+                            "stack": false,
+                            "hiddenSeries": true
+                        }
+                    ],
+                    "spaceLength": 10,
+                    "stack": false,
+                    "steppedLine": false,
+                    "targets": [
+                        {
+                            "exemplar": true,
+                            "expr": "100 * (\n  (\n    (\n      sum by(WorkerId) (rate(ray_vllm_prefix_cache_hits_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n      +\n      sum by(WorkerId) (rate(ray_vllm_external_prefix_cache_hits_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    )\n    /\n    sum by(WorkerId) (rate(ray_vllm_prefix_cache_queries_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_prefix_cache_queries_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
+                            "interval": "",
+                            "legendFormat": "overall \u2014 {{deployment}}: {{replica}}",
+                            "queryType": "randomWalk",
+                            "refId": "A"
+                        },
+                        {
+                            "exemplar": true,
+                            "expr": "100 * (\n  (\n    sum by(WorkerId) (rate(ray_vllm_prefix_cache_hits_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n    /\n    sum by(WorkerId) (rate(ray_vllm_prefix_cache_queries_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_prefix_cache_queries_total{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
+                            "interval": "",
+                            "legendFormat": "GPU only \u2014 {{deployment}}: {{replica}}",
+                            "queryType": "randomWalk",
+                            "refId": "B"
+                        }
+                    ],
+                    "thresholds": [],
+                    "timeFrom": null,
+                    "timeRegions": [],
+                    "timeShift": null,
+                    "title": "KV Offload: Overall Prefix Hit Rate",
+                    "tooltip": {
+                        "shared": true,
+                        "sort": 0,
+                        "value_type": "individual"
+                    },
+                    "type": "graph",
+                    "xaxis": {
+                        "buckets": null,
+                        "mode": "time",
+                        "name": null,
+                        "show": true,
+                        "values": []
+                    },
+                    "yaxes": [
+                        {
+                            "$$hashKey": "object:628",
+                            "format": "percent",
+                            "label": "",
+                            "logBase": 1,
+                            "max": null,
+                            "min": "0",
+                            "show": true
+                        },
+                        {
+                            "$$hashKey": "object:629",
+                            "format": "short",
+                            "label": null,
+                            "logBase": 1,
+                            "max": null,
+                            "min": null,
+                            "show": true
+                        }
+                    ],
+                    "yaxis": {
+                        "align": false,
+                        "alignLevel": null
+                    }
+                },
+                {
+                    "aliasColors": {},
+                    "bars": false,
+                    "dashLength": 10,
+                    "dashes": false,
+                    "datasource": "${datasource}",
+                    "description": "P90 offloaded-prefix lookup latency.",
+                    "fieldConfig": {
+                        "defaults": {
+                            "unit": "s"
+                        },
+                        "overrides": []
+                    },
+                    "gridPos": {
+                        "x": 16,
+                        "y": 119,
+                        "w": 8,
+                        "h": 8
+                    },
+                    "fill": 1,
+                    "fillGradient": 0,
+                    "hiddenSeries": false,
+                    "id": 59,
+                    "legend": {
+                        "alignAsTable": true,
+                        "avg": true,
+                        "current": true,
+                        "hideEmpty": false,
+                        "hideZero": true,
+                        "max": true,
+                        "min": false,
+                        "rightSide": false,
+                        "show": true,
+                        "sort": "current",
+                        "sortDesc": true,
+                        "total": false,
+                        "values": true
+                    },
+                    "lines": true,
+                    "linewidth": 1,
+                    "nullPointMode": null,
+                    "options": {
+                        "alertThreshold": true
+                    },
+                    "percentage": false,
+                    "pluginVersion": "7.5.17",
+                    "pointradius": 2,
+                    "points": false,
+                    "renderer": "flot",
+                    "seriesOverrides": [
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX",
+                            "dashes": true,
+                            "color": "#1F60C4",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "$$hashKey": "object:78",
+                            "alias": "/FINISHED|FAILED|DEAD|REMOVED|Failed Nodes:/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "$$hashKey": "object:2987",
+                            "alias": "MAX + PENDING",
+                            "dashes": true,
+                            "color": "#777777",
+                            "fill": 0,
+                            "stack": false
+                        },
+                        {
+                            "alias": "/Container/",
+                            "hiddenSeries": true
+                        },
+                        {
+                            "alias": "Container MAX",
+                            "dashes": true,
+                            "color": "#73BF69",
+                            "fill": 0,
+                            "stack": false,
+                            "hiddenSeries": true
+                        }
+                    ],
+                    "spaceLength": 10,
+                    "stack": false,
+                    "steppedLine": false,
+                    "targets": [
+                        {
+                            "exemplar": true,
+                            "expr": "(\n  histogram_quantile(\n    0.9,\n    sum by (le, WorkerId) (rate(ray_vllm_kv_offload_lookup_sync_delay_seconds_bucket{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval]))\n  )\n  and on(WorkerId)\n  (\n    sum by(WorkerId) (rate(ray_vllm_kv_offload_lookup_sync_delay_seconds_count{model_name=~\"$vllm_model_name\", WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[$interval])) > 0\n  )\n)\n* on(WorkerId) group_left(deployment, replica)\nmax by(WorkerId, deployment, replica) (ray_serve_deployment_request_counter_total{deployment=~\"$deployment\", ray_io_cluster=~\"$Cluster\"} * 0 + 1)",
+                            "interval": "",
+                            "legendFormat": "{{deployment}}: {{replica}}",
+                            "queryType": "randomWalk",
+                            "refId": "A"
+                        }
+                    ],
+                    "thresholds": [],
+                    "timeFrom": null,
+                    "timeRegions": [],
+                    "timeShift": null,
+                    "title": "KV Offload: Lookup Delay -- P90",
+                    "tooltip": {
+                        "shared": true,
+                        "sort": 0,
+                        "value_type": "individual"
+                    },
+                    "type": "graph",
+                    "xaxis": {
+                        "buckets": null,
+                        "mode": "time",
+                        "name": null,
+                        "show": true,
+                        "values": []
+                    },
+                    "yaxes": [
+                        {
+                            "$$hashKey": "object:628",
+                            "format": "s",
+                            "label": "",
+                            "logBase": 1,
+                            "max": null,
+                            "min": "0",
+                            "show": true
+                        },
+                        {
+                            "$$hashKey": "object:629",
+                            "format": "short",
+                            "label": null,
+                            "logBase": 1,
+                            "max": null,
+                            "min": null,
+                            "show": true
+                        }
+                    ],
+                    "yaxis": {
+                        "align": false,
+                        "alignLevel": null
+                    }
+                }
+            ]
+        },
+        {
+            "collapsed": true,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 127
+            },
             "id": 507,
             "title": "Token Distribution",
             "type": "row",
@@ -4802,7 +6108,7 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "(sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\"}[1d])))",
+                            "expr": "(sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1d])))",
                             "interval": "",
                             "legendFormat": "Input: {{model_name}}",
                             "queryType": "randomWalk",
@@ -4810,7 +6116,7 @@
                         },
                         {
                             "exemplar": true,
-                            "expr": "(sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\"}[1d])))",
+                            "expr": "(sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1d])))",
                             "interval": "",
                             "legendFormat": "Generated: {{model_name}}",
                             "queryType": "randomWalk",
@@ -4899,7 +6205,7 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\"}[1h]))",
+                            "expr": "sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1h]))",
                             "interval": "",
                             "legendFormat": "Input: {{model_name}}",
                             "queryType": "randomWalk",
@@ -4907,7 +6213,7 @@
                         },
                         {
                             "exemplar": true,
-                            "expr": "sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\"}[1h]))",
+                            "expr": "sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1h]))",
                             "interval": "",
                             "legendFormat": "Generated: {{model_name}}",
                             "queryType": "randomWalk",
@@ -4996,7 +6302,7 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\"}[1d])) / sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\"}[1d]))",
+                            "expr": "sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1d])) / sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1d]))",
                             "interval": "",
                             "legendFormat": "{{model_name}}",
                             "queryType": "randomWalk",
@@ -5069,7 +6375,7 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum by (model_name) (delta(ray_vllm_request_success_total{WorkerId=~\"$workerid\"}[1d]))",
+                            "expr": "sum by (model_name) (delta(ray_vllm_request_success_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1d]))",
                             "interval": "",
                             "legendFormat": "{{model_name}}",
                             "queryType": "randomWalk",
@@ -5157,7 +6463,7 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "max_over_time(sum by (model_name) (rate(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\"}[2m]))[24h:1m])",
+                            "expr": "max_over_time(sum by (model_name) (rate(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[2m]))[24h:1m])",
                             "interval": "",
                             "legendFormat": "{{model_name}}",
                             "queryType": "randomWalk",
@@ -5246,7 +6552,7 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\"}[1d])) + sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\"}[1d]))",
+                            "expr": "sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1d])) + sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1d]))",
                             "interval": "",
                             "legendFormat": "{{model_name}}",
                             "queryType": "randomWalk",
@@ -5325,7 +6631,7 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "(sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\"}[1w])) +\nsum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\"}[1w]))) / sum by (model_name) (delta(ray_vllm_request_success_total{WorkerId=~\"$workerid\"}[1w]))",
+                            "expr": "(sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1w])) +\nsum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1w]))) / sum by (model_name) (delta(ray_vllm_request_success_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1w]))",
                             "interval": "",
                             "legendFormat": "{{ model_name}}",
                             "queryType": "randomWalk",
@@ -5402,7 +6708,7 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum by (model_name) (delta(ray_vllm_request_success_total{WorkerId=~\"$workerid\"}[1w]))",
+                            "expr": "sum by (model_name) (delta(ray_vllm_request_success_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1w]))",
                             "interval": "",
                             "legendFormat": "{{ model_name}}",
                             "queryType": "randomWalk",
@@ -5479,7 +6785,7 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\"}[1w]))",
+                            "expr": "sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1w]))",
                             "interval": "",
                             "legendFormat": "In: {{ model_name}}",
                             "queryType": "randomWalk",
@@ -5487,7 +6793,7 @@
                         },
                         {
                             "exemplar": true,
-                            "expr": "sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\"}[1w]))",
+                            "expr": "sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1w]))",
                             "interval": "",
                             "legendFormat": "Out: {{ model_name }}",
                             "queryType": "randomWalk",
@@ -5564,7 +6870,7 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "(sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\"}[1w])) + sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\"}[1w])))/ sum by (model_name) (delta(ray_vllm_request_success_total{WorkerId=~\"$workerid\"}[1w]))",
+                            "expr": "(sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1w])) + sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1w])))/ sum by (model_name) (delta(ray_vllm_request_success_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1w]))",
                             "interval": "",
                             "legendFormat": "{{ model_name}}",
                             "queryType": "randomWalk",
@@ -5641,7 +6947,7 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\"}[1w])) / sum by (model_name) (delta(ray_vllm_request_success_total{WorkerId=~\"$workerid\"}[1w]))",
+                            "expr": "sum by (model_name) (delta(ray_vllm_prompt_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1w])) / sum by (model_name) (delta(ray_vllm_request_success_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1w]))",
                             "interval": "",
                             "legendFormat": "In: {{ model_name}}",
                             "queryType": "randomWalk",
@@ -5649,7 +6955,7 @@
                         },
                         {
                             "exemplar": true,
-                            "expr": "sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\"}[1w])) / sum by (model_name) (delta(ray_vllm_request_success_total{WorkerId=~\"$workerid\"}[1w]))",
+                            "expr": "sum by (model_name) (delta(ray_vllm_generation_tokens_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1w])) / sum by (model_name) (delta(ray_vllm_request_success_total{WorkerId=~\"$workerid\", ray_io_cluster=~\"$Cluster\"}[1w]))",
                             "interval": "",
                             "legendFormat": "Out: {{ model_name}}",
                             "queryType": "randomWalk",
@@ -5693,7 +6999,7 @@
     "schemaVersion": 27,
     "style": "dark",
     "tags": [
-        "rayVersion:2.56.0"
+        "rayVersion:2.58.0"
     ],
     "templating": {
         "list": [
@@ -5719,9 +7025,9 @@
                 "type": "query",
                 "hide": 0,
                 "datasource": "${datasource}",
-                "definition": "label_values(ray_vllm:request_prompt_tokens_sum{}, model_name)",
+                "definition": "label_values(ray_vllm_request_prompt_tokens_sum{}, model_name)",
                 "query": {
-                    "query": "label_values(ray_vllm:request_prompt_tokens_sum{}, model_name)",
+                    "query": "label_values(ray_vllm_request_prompt_tokens_sum{}, model_name)",
                     "refId": "StandardVariableQuery"
                 },
                 "refresh": 1,
@@ -5744,9 +7050,9 @@
                 "type": "query",
                 "hide": 0,
                 "datasource": "${datasource}",
-                "definition": "label_values(ray_vllm:request_prompt_tokens_sum{}, WorkerId)",
+                "definition": "label_values(ray_vllm_request_prompt_tokens_sum{}, WorkerId)",
                 "query": {
-                    "query": "label_values(ray_vllm:request_prompt_tokens_sum{}, WorkerId)",
+                    "query": "label_values(ray_vllm_request_prompt_tokens_sum{}, WorkerId)",
                     "refId": "StandardVariableQuery"
                 },
                 "refresh": 1,
@@ -5787,6 +7093,35 @@
                         "$__all"
                     ]
                 }
+            },
+            {
+                "allValue": ".*",
+                "current": {
+                    "selected": false
+                },
+                "datasource": "${datasource}",
+                "definition": "label_values(ray_node_network_receive_speed{}, ray_io_cluster)",
+                "description": "Filter queries to specific Ray clusters for KubeRay. When ingesting metrics across multiple ray clusters, the ray_io_cluster label should be set per cluster. For KubeRay users, this is done automatically with Prometheus PodMonitor.",
+                "error": null,
+                "hide": 0,
+                "includeAll": true,
+                "label": null,
+                "multi": false,
+                "name": "Cluster",
+                "options": [],
+                "query": {
+                    "query": "label_values(ray_node_network_receive_speed{}, ray_io_cluster)",
+                    "refId": "StandardVariableQuery"
+                },
+                "refresh": 1,
+                "regex": "",
+                "skipUrlSync": false,
+                "sort": 2,
+                "tagValuesQuery": "",
+                "tags": [],
+                "tagsQuery": "",
+                "type": "query",
+                "useTags": false
             },
             {
                 "name": "interval",

@@ -1,0 +1,49 @@
+# Proxy Ray head pod: its dashboard routes non-dashboard requests to the History
+# Server via `ray start --proxy-server-url` (in-cluster alternative to the local
+# `ray start` flow in DEVELOPMENT.md Step 6).
+#
+# Usage:
+#   kubectl apply -f historyserver/config/ray-proxy-head.yaml
+#   kubectl wait pod/ray-proxy-head --for=condition=Ready --timeout=5m
+#   kubectl port-forward pod/ray-proxy-head 8265:8265
+#
+# Then browse the History Server through the Ray Dashboard:
+#   http://localhost:8265/clusters
+#   http://localhost:8265/enter_cluster/<namespace>/<owner-kind>/<owner-name>/<session-id>
+#   http://localhost:8265/#/cluster
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ray-proxy-head
+  labels:
+    app: ray-proxy-head
+spec:
+  containers:
+  - name: ray-head
+    image: rayproject/ray:2.58.0
+    imagePullPolicy: IfNotPresent
+    command: ["/bin/bash", "-lc"]
+    args:
+    # Point --proxy-server-url at the History Server service; adjust the
+    # namespace if the History Server is not deployed in `default`.
+    - >-
+      ray start --head --num-cpus=1
+      --dashboard-host=0.0.0.0
+      --proxy-server-url=http://historyserver.default.svc.cluster.local:30080
+      --block
+    ports:
+    - containerPort: 8265
+      name: dashboard
+    readinessProbe:
+      httpGet:
+        path: /api/gcs_healthz
+        port: 8265
+      initialDelaySeconds: 10
+      periodSeconds: 5
+    resources:
+      requests:
+        cpu: "100m"
+        memory: 1G
+      limits:
+        cpu: "500m"
+        memory: 2G

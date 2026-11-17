@@ -1,4 +1,5 @@
-# Ensure that the env var GCS_BUCKET is set before applying
+# Apply with envsubst to substitute environment variables:
+#   envsubst < historyserver/config/historyserver-gcs.yaml | kubectl apply -f -
 apiVersion: v1
 kind: Service
 metadata:
@@ -37,14 +38,27 @@ spec:
         env:
           - name: GCS_BUCKET
             value: "${GCS_BUCKET}"
+          - name: STORAGE_BACKEND
+            value: "gcs"
         image: ${HISTORY_SERVER_IMAGE}
         imagePullPolicy: IfNotPresent
-        command:
-        - historyserver
-        - --runtime-class-name=gcs
-        - --ray-root-dir=log
         ports:
         - containerPort: 8080
+        # Cache is soft-bounded at 8 GiB; 12 GiB leaves decode headroom.
+        # The 2 GiB request keeps examples schedulable; size production requests to residency.
+        args:
+        - --session-cache-max-memory=8Gi
+        # Enable access to live RayClusters through the History Server.
+        # - --enable-live-clusters=true
+        #
+        # Enable proxying to live RayClusters with token authentication enabled.
+        # The history server reads the auth Secret and forwards requests with the
+        # appropriate authorization header. Requires the RBAC in
+        # service_account_auth_token_mode.yaml.
+        # - --use-auth-token-mode=true
         resources:
-          limits:
+          requests:
             cpu: "500m"
+            memory: "2Gi"
+          limits:
+            memory: "12Gi"

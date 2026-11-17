@@ -118,7 +118,7 @@ var _ = Describe("Calling ray plugin `job submit` command on Ray Job", func() {
 			entrypointSampleFileName,
 		)
 		output, err := cmd.CombinedOutput()
-		Expect(err).NotTo(HaveOccurred())
+		Expect(err).NotTo(HaveOccurred(), string(output))
 		// Retrieve the Job ID from the output
 		cmdOutputJobID := extractRayJobID(string(output))
 

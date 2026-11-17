@@ -1,7 +1,6 @@
 package support
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
@@ -10,18 +9,24 @@ import (
 
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/rest"
 
 	. "github.com/ray-project/kuberay/ray-operator/test/support"
 )
 
-// CreateHTTPClientWithCookieJar creates an HTTP client with cookie jar to maintain session.
-func CreateHTTPClientWithCookieJar(g *WithT) *http.Client {
+// CreateHTTPClientWithCookieJar creates an HTTP client with a cookie jar to maintain
+// session. The client authenticates to the Kubernetes API server, since requests to
+// in-cluster services are routed through the API server's service proxy.
+func CreateHTTPClientWithCookieJar(test Test, g *WithT) *http.Client {
+	cfg := test.Client().Config()
+	client, err := rest.HTTPClientFor(&cfg)
+	g.Expect(err).NotTo(HaveOccurred())
+	client.Timeout = 30 * time.Second
+
 	jar, err := cookiejar.New(nil)
 	g.Expect(err).NotTo(HaveOccurred())
-	return &http.Client{
-		Jar:     jar,
-		Timeout: 30 * time.Second,
-	}
+	client.Jar = jar
+	return client
 }
 
 // GetContainerStatusByName retrieves the container status by container name.
@@ -37,12 +42,14 @@ func GetContainerStatusByName(pod *corev1.Pod, containerName string) (*corev1.Co
 	return nil, fmt.Errorf("container %s not found in pod %s/%s", containerName, pod.Namespace, pod.Name)
 }
 
+// PortForwardService forwards a service port to localhost via kubectl.
+//
+// TODO: port-forwarding is flaky in CI (see #5302) — the forward can die
+// silently and nothing restarts it. Only the Azurite tests still use this;
+// they should migrate to in-cluster access like the RustFS and history server
+// tests, after which this helper should be deleted.
 func PortForwardService(test Test, g *WithT, namespace, serviceName string, port int) {
-	ctx, cancel := context.WithCancel(context.Background())
-	test.T().Cleanup(cancel)
-
-	kubectlCmd := exec.CommandContext(
-		ctx,
+	kubectlCmd := exec.Command(
 		"kubectl",
 		"-n", namespace,
 		"port-forward",
@@ -51,6 +58,13 @@ func PortForwardService(test Test, g *WithT, namespace, serviceName string, port
 	)
 	err := kubectlCmd.Start()
 	g.Expect(err).NotTo(HaveOccurred())
+
+	// Kill and reap on cleanup: a leaked forward keeps the port, so the next test's
+	// forward cannot bind and silently talks to this test's deleted namespace.
+	test.T().Cleanup(func() {
+		_ = kubectlCmd.Process.Kill()
+		_ = kubectlCmd.Wait()
+	})
 }
 
 // InstallGrafanaAndPrometheus installs Grafana and Prometheus in the cluster for testing.

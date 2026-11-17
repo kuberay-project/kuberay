@@ -18,11 +18,39 @@ import (
 )
 
 // RayClusterInformer provides access to a shared informer and lister for
-// RayClusters.
+// RayClusters. Prefer using the type-safe variant (see [TypedRayClusterInformer]).
 type RayClusterInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() rayv1.RayClusterLister
 }
+
+// TypedRayClusterInformer provides access to a shared informer and lister for
+// RayClusters, including the type-safe TypedInformer variant.
+// It is a superset of RayClusterInformer.
+type TypedRayClusterInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() RayClusterIndexInformer
+	Lister() rayv1.RayClusterLister
+}
+
+// RayClusterIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type RayClusterIndexInformer cache.TypedSharedIndexInformer[*apisrayv1.RayCluster]
+
+// RayClusterHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for RayCluster.
+type RayClusterHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*apisrayv1.RayCluster]
+
+// RayClusterDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for RayCluster.
+type RayClusterDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*apisrayv1.RayCluster]
+
+// RayClusterFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for RayCluster.
+type RayClusterFilteringHandler = cache.TypedFilteringResourceEventHandler[*apisrayv1.RayCluster]
+
+// RayClusterIndexers is a specialization of [cache.TypedIndexers] for RayCluster.
+type RayClusterIndexers = cache.TypedIndexers[*apisrayv1.RayCluster]
+
+// DeletedRayCluster is a specialization of [cache.DeletedObject] for RayCluster.
+type DeletedRayCluster = cache.DeletedObject[*apisrayv1.RayCluster]
 
 type rayClusterInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -33,25 +61,49 @@ type rayClusterInformer struct {
 // NewRayClusterInformer constructs a new informer for RayCluster type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedRayClusterInformer]).
 func NewRayClusterInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
 	return NewRayClusterInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedRayClusterInformer constructs a new informer for RayCluster type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedRayClusterInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers RayClusterIndexers) RayClusterIndexInformer {
+	return NewTypedRayClusterInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredRayClusterInformer constructs a new informer for RayCluster type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredRayClusterInformer]).
 func NewFilteredRayClusterInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return NewRayClusterInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+	return NewTypedRayClusterInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredRayClusterInformer constructs a new informer for RayCluster type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredRayClusterInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers RayClusterIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) RayClusterIndexInformer {
+	return NewTypedRayClusterInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
 }
 
 // NewRayClusterInformerWithOptions constructs a new informer for RayCluster type with additional options.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedRayClusterInformerWithOptions]).
 func NewRayClusterInformerWithOptions(client versioned.Interface, namespace string, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedRayClusterInformerWithOptions(client, namespace, options)
+}
+
+// NewTypedRayClusterInformerWithOptions constructs a new informer for RayCluster type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedRayClusterInformerWithOptions(client versioned.Interface, namespace string, options internalinterfaces.InformerOptions) RayClusterIndexInformer {
 	gvr := schema.GroupVersionResource{Group: "ray.io", Version: "v1", Resource: "rayclusters"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*apisrayv1.RayCluster](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts metav1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -84,17 +136,57 @@ func NewRayClusterInformerWithOptions(client versioned.Interface, namespace stri
 			Indexers:     options.Indexers,
 			Identifier:   identifier,
 		},
-	)
+	))
 }
 
 func (f *rayClusterInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewRayClusterInformerWithOptions(client, f.namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
+	return NewTypedRayClusterInformerWithOptions(client, f.namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *rayClusterInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apisrayv1.RayCluster{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *rayClusterInformer) TypedInformer() RayClusterIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apisrayv1.RayCluster](f.factory.InformerFor(&apisrayv1.RayCluster{}, f.defaultInformer))
 }
 
 func (f *rayClusterInformer) Lister() rayv1.RayClusterLister {
 	return rayv1.NewRayClusterLister(f.Informer().GetIndexer())
+}
+
+// ToTypedRayClusterInformer converts an untyped informer into a TypedRayClusterInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *RayCluster. If that is not the case, calling type-safe methods of the returned
+// TypedRayClusterInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedRayClusterInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedRayClusterInformer(informer RayClusterInformer) TypedRayClusterInformer {
+	if informer, ok := informer.(TypedRayClusterInformer); ok {
+		return informer
+	}
+	return &rayClusterTypedInformerAdapter{informer}
+}
+
+type rayClusterTypedInformerAdapter struct {
+	RayClusterInformer
+}
+
+func (a *rayClusterTypedInformerAdapter) TypedInformer() RayClusterIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apisrayv1.RayCluster](a.Informer())
+}
+
+// ToRayClusterIndexInformer converts an untyped informer into a RayClusterIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *RayCluster. If that is not the case, calling type-safe methods of the returned
+// RayClusterIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a RayClusterIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToRayClusterIndexInformer(informer cache.SharedIndexInformer) RayClusterIndexInformer {
+	if informer, ok := informer.(RayClusterIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*apisrayv1.RayCluster](informer)
 }

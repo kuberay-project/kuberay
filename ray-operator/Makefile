@@ -68,7 +68,7 @@ GOVERSION := $(shell go env GOVERSION)
 export GOTOOLCHAIN := $(GOVERSION)+auto
 
 test: WHAT ?= $(shell go list ./... | grep -v /test/)
-test: ENVTEST_K8S_VERSION ?= 1.34.1
+test: ENVTEST_K8S_VERSION ?= 1.37.0
 test: manifests fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $(WHAT) -coverprofile cover.out
 
@@ -106,6 +106,10 @@ test-sampleyaml: manifests fmt vet
 
 test-e2e-rayjob: WHAT ?= ./test/e2erayjob
 test-e2e-rayjob: manifests fmt vet ## Run e2e RayJob tests.
+	go test -timeout 30m -v $(WHAT)
+
+test-e2e-kubernetes-was-v1alpha3: WHAT ?= ./test/e2ekuberneteswas
+test-e2e-kubernetes-was-v1alpha3: manifests fmt vet ## Run e2e Kubernetes WAS v1alpha3 tests.
 	go test -timeout 30m -v $(WHAT)
 
 sync: helm api-docs
@@ -168,6 +172,10 @@ deploy-with-override: manifests kustomize ## Deploy controller with test-only fe
 	cd config/default && $(KUSTOMIZE) edit set image kuberay/operator=${IMG}
 	$(KUSTOMIZE) build config/overlays/test-overrides | kubectl apply --server-side=true -f -
 
+deploy-kubernetes-was-v1alpha3: manifests kustomize ## Deploy controller with Kubernetes WAS v1alpha3 batch scheduler enabled (requires K8s 1.37+).
+	cd config/default && $(KUSTOMIZE) edit set image kuberay/operator=${IMG}
+	$(KUSTOMIZE) build config/overlays/kubernetes-was-v1alpha3 | kubectl apply --server-side=true -f -
+
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
 
@@ -212,7 +220,7 @@ kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
 ENVTEST = $(LOCALBIN)/setup-envtest
 $(ENVTEST): $(LOCALBIN)
 envtest: $(ENVTEST) ## Download envtest locally if necessary.
-	test -s $(ENVTEST) || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24
+	test -s $(ENVTEST) || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.25
 
 GOFUMPT = $(LOCALBIN)/gofumpt
 $(GOFUMPT): $(LOCALBIN)

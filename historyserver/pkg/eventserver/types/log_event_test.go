@@ -46,7 +46,7 @@ func TestJobEventMap(t *testing.T) {
 		}
 
 		events := em.GetEventsByJobID("01000000")
-		require.Equal(t, MaxEventsPerJob, len(events))
+		require.Len(t, events, MaxEventsPerJob)
 		// Verify oldest events were evicted
 		assert.Equal(t, fmt.Sprintf("%d", 1770635000+numEvents-MaxEventsPerJob), events[0]["timestamp"].(string))
 	})
@@ -82,7 +82,7 @@ func TestLogEventToAPIResponse(t *testing.T) {
 		assert.Equal(t, "JOBS", response["sourceType"])
 		assert.Equal(t, "raycluster-historyserver-head-6gvqk", response["sourceHostname"])
 		assert.Equal(t, 568, response["sourcePid"])
-		assert.Equal(t, "", response["label"])
+		assert.Empty(t, response["label"])
 		assert.Equal(t, "INFO", response["severity"])
 		assert.Equal(t, "1770635705", response["timestamp"])
 		assert.Equal(t, "Started a ray job rayjob-brmng-rhrb7.", response["message"])

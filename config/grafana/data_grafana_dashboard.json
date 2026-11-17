@@ -9517,9 +9517,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_initialize_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_initialize_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Seconds: {{dataset}}, {{operator}}",
+                            "legendFormat": "Seconds: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -9657,9 +9657,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_total_blocked_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_total_blocked_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Seconds: {{dataset}}",
+                            "legendFormat": "Seconds: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -9797,9 +9797,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_user_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_user_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Seconds: {{dataset}}",
+                            "legendFormat": "Seconds: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -9937,9 +9937,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_get_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_get_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Seconds: {{dataset}}",
+                            "legendFormat": "Seconds: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -10077,9 +10077,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_next_batch_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_next_batch_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Seconds: {{dataset}}",
+                            "legendFormat": "Seconds: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -10217,9 +10217,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_format_batch_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_format_batch_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Seconds: {{dataset}}",
+                            "legendFormat": "Seconds: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -10357,9 +10357,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_collate_batch_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_collate_batch_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Seconds: {{dataset}}",
+                            "legendFormat": "Seconds: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -10497,9 +10497,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_finalize_batch_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_finalize_batch_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Seconds: {{dataset}}",
+                            "legendFormat": "Seconds: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -10637,9 +10637,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_blocks_local{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_blocks_local{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Blocks: {{dataset}}",
+                            "legendFormat": "Blocks: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -10777,9 +10777,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_blocks_remote{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_blocks_remote{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Blocks: {{dataset}}",
+                            "legendFormat": "Blocks: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -10917,9 +10917,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_unknown_location{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_unknown_location{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Blocks: {{dataset}}",
+                            "legendFormat": "Blocks: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -11057,9 +11057,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_prefetched_bytes{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_prefetched_bytes{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Prefetched Bytes: {{dataset}}",
+                            "legendFormat": "Prefetched Bytes: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -11197,9 +11197,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_time_to_first_batch_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_time_to_first_batch_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Seconds: {{dataset}}",
+                            "legendFormat": "Seconds: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -11337,9 +11337,9 @@
                     "targets": [
                         {
                             "exemplar": true,
-                            "expr": "sum(ray_data_iter_get_ref_bundles_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset)",
+                            "expr": "sum(ray_data_iter_get_ref_bundles_seconds{dataset=~\"$DatasetID\",SessionName=~\"$SessionName\",ray_io_cluster=~\"$Cluster\"}) by (dataset, split)",
                             "interval": "",
-                            "legendFormat": "Seconds: {{dataset}}",
+                            "legendFormat": "Seconds: {{dataset}}, {{split}}",
                             "queryType": "randomWalk",
                             "refId": "A"
                         }
@@ -12012,7 +12012,7 @@
     "schemaVersion": 27,
     "style": "dark",
     "tags": [
-        "rayVersion:2.56.0"
+        "rayVersion:2.58.0"
     ],
     "templating": {
         "list": [
@@ -12138,7 +12138,7 @@
                 },
                 "datasource": "${datasource}",
                 "definition": "label_values(ray_node_network_receive_speed{}, ray_io_cluster)",
-                "description": "Filter queries to specific Ray clusters for KubeRay. When ingesting metrics across multiple ray clusters, the ray_io_cluster label should be set per cluster. For KubeRay users, this is done automaticaly with Prometheus PodMonitor.",
+                "description": "Filter queries to specific Ray clusters for KubeRay. When ingesting metrics across multiple ray clusters, the ray_io_cluster label should be set per cluster. For KubeRay users, this is done automatically with Prometheus PodMonitor.",
                 "error": null,
                 "hide": 0,
                 "includeAll": true,

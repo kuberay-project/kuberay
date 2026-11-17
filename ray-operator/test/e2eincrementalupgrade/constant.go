@@ -110,11 +110,11 @@ const highRPSServeConfigV2 serveConfigV2 = `applications:
       working_dir: "https://github.com/ray-project/serve_config_examples/archive/530e247ca195530b71b92d7e708048a1bdc02583.zip"
     deployments:
       - name: SimpleDeployment
+        max_ongoing_requests: 6
         autoscaling_config:
           min_replicas: 1
           max_replicas: 2
           target_ongoing_requests: 2
-          max_ongoing_requests: 6
           upscale_delay_s: 0.5
         ray_actor_options:
           num_cpus: 2

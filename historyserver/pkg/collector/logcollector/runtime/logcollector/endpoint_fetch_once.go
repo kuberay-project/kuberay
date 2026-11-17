@@ -12,6 +12,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 )
 
@@ -76,6 +77,12 @@ func (r *RayLogHandler) fetchAndStoreEndpoint(cfg endpointFetchConfig) {
 			return
 		}
 
+		if err := utils.SetRayAuthHeader(req); err != nil {
+			cancel()
+			logrus.Errorf("Failed to authenticate request for %s: %v", cfg.endpoint, err)
+			return
+		}
+
 		client := r.HttpClient
 		if client == nil {
 			client = http.DefaultClient
@@ -105,6 +112,13 @@ func (r *RayLogHandler) fetchAndStoreEndpoint(cfg endpointFetchConfig) {
 			continue
 		}
 
+		// Unlike a Dashboard that is still starting up, a rejected credential never resolves on
+		// its own. Retrying until shutdown would bury the cause under an endless warning loop.
+		if utils.IsAuthFailure(resp.StatusCode) {
+			logrus.Errorf("%s returned status %d: the collector is not authenticated against the Ray Dashboard, giving up on this endpoint. Check that token auth is configured for the collector container.", cfg.endpoint, resp.StatusCode)
+			return
+		}
+
 		if resp.StatusCode != http.StatusOK {
 			logrus.Warnf("%s returned status %d, retrying in %v", cfg.endpoint, resp.StatusCode, retryInterval)
 			if !r.sleepOrShutdown(retryInterval) {
@@ -125,7 +139,7 @@ func (r *RayLogHandler) fetchAndStoreEndpoint(cfg endpointFetchConfig) {
 
 		// Successfully fetched — store it under the session path
 		storageKey := utils.EndpointPathToStorageKey(cfg.endpoint)
-		objectKey := path.Join(r.ClusterDir, sessionName, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
+		objectKey := path.Join(clusterlogs.FetchedEndpointsDir(r.ClusterDir, sessionName), storageKey)
 		if err := r.Writer.WriteFile(objectKey, bytes.NewReader(body)); err != nil {
 			logrus.Errorf("Failed to store %s at %s: %v", cfg.endpoint, objectKey, err)
 			if !r.sleepOrShutdown(retryInterval) {
@@ -173,9 +187,6 @@ func (r *RayLogHandler) sleepOrShutdown(d time.Duration) bool {
 
 // nextBackoff doubles the interval up to maxInterval.
 func nextBackoff(current, maxInterval time.Duration) time.Duration {
-	next := current * 2
-	if next > maxInterval {
-		next = maxInterval
-	}
+	next := min(current*2, maxInterval)
 	return next
 }

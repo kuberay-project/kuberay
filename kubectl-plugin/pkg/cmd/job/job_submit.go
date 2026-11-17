@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"log"
 	"math/big"
 	"net/http"
 	"os"
@@ -118,6 +117,9 @@ var (
 		# Generate Ray job with specifications and print out the generated RayJob YAML
 		kubectl ray job submit --dry-run --name rayjob-sample --ray-version %s --image %s --head-cpu 1 --head-memory 5Gi --worker-replicas 3 --worker-cpu 1 --worker-memory 5Gi --runtime-env path/to/runtimeEnv.yaml -- python my_script.py
 	`, util.RayVersion, util.RayImage, util.RayVersion, util.RayImage))
+
+	defaultImage        = "rayproject/ray"
+	defaultImageWithTag = fmt.Sprintf("%s:%s", defaultImage, util.RayVersion)
 )
 
 func NewJobSubmitOptions(cmdFactory cmdutil.Factory, streams genericiooptions.IOStreams) *SubmitJobOptions {
@@ -169,7 +171,7 @@ func NewJobSubmitCommand(cmdFactory cmdutil.Factory, streams genericclioptions.I
 
 	cmd.Flags().StringVar(&options.rayjobName, "name", "", "Ray job name")
 	cmd.Flags().StringVar(&options.rayVersion, "ray-version", util.RayVersion, "Ray version to use")
-	cmd.Flags().StringVar(&options.image, "image", fmt.Sprintf("rayproject/ray:%s", options.rayVersion), "container image to use")
+	cmd.Flags().StringVar(&options.image, "image", defaultImageWithTag, "container image to use")
 	cmd.Flags().StringVar(&options.headCPU, "head-cpu", "2", "number of CPUs in the Ray head")
 	cmd.Flags().StringVar(&options.headMemory, "head-memory", "4Gi", "amount of memory in the Ray head")
 	cmd.Flags().StringVar(&options.headGPU, "head-gpu", "0", "number of GPUs in the Ray head")
@@ -200,6 +202,12 @@ func (options *SubmitJobOptions) Complete() error {
 	if options.fileName != "" {
 		options.fileName = filepath.Clean(options.fileName)
 	}
+
+	// If the image is the default, align its tag with the configured Ray version.
+	if options.image == defaultImageWithTag {
+		options.image = fmt.Sprintf("%s:%s", defaultImage, options.rayVersion)
+	}
+
 	return nil
 }
 
@@ -438,25 +446,17 @@ func (options *SubmitJobOptions) Run(ctx context.Context, factory cmdutil.Factor
 		return fmt.Errorf("Timed out waiting for cluster")
 	}
 
-	if options.address == "" {
+	usingPortForward := options.address == ""
+	if usingPortForward {
 		svcName, err := k8sClients.GetRayHeadSvcName(ctx, options.namespace, util.RayCluster, options.cluster)
 		if err != nil {
 			return fmt.Errorf("Failed to find service name: %w", err)
 		}
 
-		// start port forward section
-		portForwardCmd := portforward.NewCmdPortForward(factory, *options.ioStreams)
-		portForwardCmd.SetArgs([]string{"service/" + svcName, fmt.Sprintf("%d:%d", 8265, 8265)})
-
 		// create new context for port-forwarding so we can cancel the context to stop the port forwarding only
 		portForwardCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		go func() {
-			fmt.Printf("Port forwarding service %s\n", svcName)
-			if err := portForwardCmd.ExecuteContext(portForwardCtx); err != nil {
-				log.Fatalf("Error occurred while port-forwarding Ray dashboard: %v", err)
-			}
-		}()
+		go runPortForward(portForwardCtx, factory, options.ioStreams, svcName)
 
 		// Wait for port forward to be ready
 		var portForwardReady bool
@@ -515,7 +515,7 @@ func (options *SubmitJobOptions) Run(ctx context.Context, factory cmdutil.Factor
 
 	fmt.Printf("Running Ray submit job command...\n")
 	if err := cmd.Start(); err != nil {
-		log.Fatalf("error occurred while running command %s: %v", fmt.Sprint(raySubmitCmd), err)
+		return fmt.Errorf("error occurred while running command %s: %w", fmt.Sprint(raySubmitCmd), err)
 	}
 
 	rayJobID := options.submissionID
@@ -550,7 +550,7 @@ func (options *SubmitJobOptions) Run(ctx context.Context, factory cmdutil.Factor
 	// Wait for Ray job submit to finish.
 	err = cmd.Wait()
 	if err != nil {
-		return fmt.Errorf("Error occurred with Ray job submit: %w", err)
+		return options.checkJobStatusOnSubmitError(ctx, k8sClients, usingPortForward, err)
 	}
 	if options.noWait {
 		fmt.Printf("Ray job submitted with ID %s\n", rayJobID)
@@ -583,27 +583,111 @@ func (options *SubmitJobOptions) Run(ctx context.Context, factory cmdutil.Factor
 		fmt.Printf("Current status: %s (RayJob: %s, JobID: %s)\n",
 			status, job.GetName(), jobID)
 
-		if rayv1.IsJobTerminal(status) {
-			switch status {
-			case rayv1.JobStatusSucceeded, rayv1.JobStatusStopped:
+		terminal, terminalErr := rayJobTerminalResult(job)
+		if terminal {
+			if terminalErr == nil {
 				fmt.Printf("Job %s finished with status %s.\n", jobID, status)
-				return nil
-
-			case rayv1.JobStatusFailed:
-				if msg := job.Status.Message; msg != "" {
-					return fmt.Errorf("job %s failed: %s", jobID, msg)
-				}
-				return fmt.Errorf("job %s failed with status %s", jobID, status)
-
-			default:
-				return fmt.Errorf("job %s in unexpected terminal state %s", jobID, status)
 			}
+			return terminalErr
 		}
 	}
 
 	fmt.Fprintf(options.ioStreams.ErrOut,
 		"rayjob %s watch ended without a clear terminal state\n", options.RayJob.GetName())
 	return nil
+}
+
+func runPortForward(
+	ctx context.Context,
+	factory cmdutil.Factory,
+	streams *genericiooptions.IOStreams,
+	svcName string,
+) {
+	args := []string{"service/" + svcName, fmt.Sprintf("%d:%d", 8265, 8265)}
+	opts := portforward.NewDefaultPortForwardOptions(*streams)
+	opts.Address = []string{"localhost"}
+	portForwardCmd := portforward.NewCmdPortForward(factory, *streams)
+
+	fmt.Printf("Port forwarding service %s\n", svcName)
+	if err := opts.Complete(factory, portForwardCmd, args); err != nil {
+		fmt.Fprintf(streams.ErrOut, "Port-forward setup failed: %v\n", err)
+		return
+	}
+	if err := opts.Validate(); err != nil {
+		fmt.Fprintf(streams.ErrOut, "Port-forward validation failed: %v\n", err)
+		return
+	}
+	if err := opts.RunPortForwardContext(ctx); err != nil && ctx.Err() == nil {
+		// Restarting the port-forward cannot reconnect the Ray CLI's existing
+		// log stream. Let the Ray CLI exit, then check the RayJob status in
+		// checkJobStatusOnSubmitError.
+		fmt.Fprintf(streams.ErrOut, "Port-forward to Ray dashboard ended: %v\n", err)
+	}
+}
+
+func (options *SubmitJobOptions) checkJobStatusOnSubmitError(
+	ctx context.Context,
+	k8sClients client.Client,
+	usingPortForward bool,
+	submitErr error,
+) error {
+	wrappedSubmitErr := fmt.Errorf("Error occurred with Ray job submit: %w", submitErr)
+	if !usingPortForward {
+		return wrappedSubmitErr
+	}
+
+	// A locally managed port-forward can disappear after a TTL=0 RayJob
+	// succeeds because the operator immediately deletes the RayCluster. In
+	// that case, the Ray CLI reports a connection error even though the job
+	// completed successfully. The persisted RayJob status is the source of
+	// truth for the job result.
+	jobName := options.RayJob.GetName()
+	job, err := k8sClients.RayClient().RayV1().RayJobs(options.namespace).Get(
+		ctx,
+		jobName,
+		v1.GetOptions{},
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"%w; failed to get RayJob %s/%s while checking job status: %w",
+			wrappedSubmitErr, options.namespace, jobName, err,
+		)
+	}
+
+	terminal, terminalErr := rayJobTerminalResult(job)
+	if !terminal {
+		return wrappedSubmitErr
+	}
+	if terminalErr == nil {
+		fmt.Fprintf(options.ioStreams.ErrOut,
+			"Ray CLI exited after RayJob %s reached status %s; treating the submission as successful.\n",
+			job.GetName(), job.Status.JobStatus)
+	}
+	return terminalErr
+}
+
+func rayJobTerminalResult(job *rayv1.RayJob) (bool, error) {
+	status := job.Status.JobStatus
+	if !rayv1.IsJobTerminal(status) {
+		return false, nil
+	}
+
+	jobID := job.Status.JobId
+	if jobID == "" {
+		jobID = "unknown"
+	}
+
+	switch status {
+	case rayv1.JobStatusSucceeded, rayv1.JobStatusStopped:
+		return true, nil
+	case rayv1.JobStatusFailed:
+		if msg := job.Status.Message; msg != "" {
+			return true, fmt.Errorf("job %s failed: %s", jobID, msg)
+		}
+		return true, fmt.Errorf("job %s failed with status %s", jobID, status)
+	default:
+		return true, fmt.Errorf("job %s in unexpected terminal state %s", jobID, status)
+	}
 }
 
 func (options *SubmitJobOptions) raySubmitCmd() ([]string, error) {

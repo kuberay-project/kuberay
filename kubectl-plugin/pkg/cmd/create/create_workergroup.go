@@ -92,7 +92,7 @@ func NewCreateWorkerGroupCommand(cmdFactory cmdutil.Factory, streams genericclio
 	cmd.Flags().StringVarP(&options.clusterName, "ray-cluster", "c", "", "Ray cluster to add a worker group to")
 	cobra.CheckErr(cmd.MarkFlagRequired("ray-cluster"))
 	cmd.Flags().StringVar(&options.rayVersion, "ray-version", util.RayVersion, "Ray version to use")
-	cmd.Flags().StringVar(&options.image, "image", fmt.Sprintf("rayproject/ray:%s", options.rayVersion), "container image to use")
+	cmd.Flags().StringVar(&options.image, "image", defaultImageWithTag, "container image to use")
 	cmd.Flags().Int32Var(&options.workerReplicas, "worker-replicas", 1, "desired replicas")
 	cmd.Flags().Int32Var(&options.numOfHosts, "num-of-hosts", 1, "number of hosts in the worker group per replica")
 	cmd.Flags().Int32Var(&options.workerMinReplicas, "worker-min-replicas", 1, "minimum number of replicas")
@@ -125,6 +125,11 @@ func (options *CreateWorkerGroupOptions) Complete(cmd *cobra.Command, args []str
 
 	if options.image == "" {
 		options.image = fmt.Sprintf("rayproject/ray:%s", options.rayVersion)
+	}
+
+	// If the image is the default, align its tag with the configured Ray version.
+	if options.image == defaultImageWithTag {
+		options.image = fmt.Sprintf("%s:%s", defaultImage, options.rayVersion)
 	}
 
 	return nil

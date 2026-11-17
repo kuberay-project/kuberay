@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -16,8 +17,9 @@ import (
 	"time"
 	"unicode"
 
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/sirupsen/logrus"
+
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 )
 
 const (
@@ -30,8 +32,9 @@ const (
 )
 
 var (
-	sessionIDRegex = regexp.MustCompile(SESSION_ID_REGEX)
-	hexRegex       = regexp.MustCompile(HEX_REGEX)
+	sessionIDRegex         = regexp.MustCompile(SESSION_ID_REGEX)
+	hexRegex               = regexp.MustCompile(HEX_REGEX)
+	errDashboardAuthFailed = errors.New("ray dashboard rejected the request: authentication failed")
 )
 
 // EndpointPathToStorageKey converts a Ray Dashboard API endpoint path to a
@@ -75,7 +78,7 @@ const (
 // IsSessionDirActive checks if the raylet socket is running. Connection means raylet is active.
 func IsSessionDirActive(sessionDir string) bool {
 	socketPath := filepath.Join(sessionDir, "sockets", "raylet")
-	conn, err := net.DialTimeout("unix", socketPath, 1*time.Second)
+	conn, err := (&net.Dialer{Timeout: 1 * time.Second}).DialContext(context.Background(), "unix", socketPath)
 	if err == nil {
 		conn.Close()
 		return true
@@ -85,7 +88,7 @@ func IsSessionDirActive(sessionDir string) bool {
 
 func GetSessionDir() (string, error) {
 	var lastErr error
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		symlinkPath := GetRaySessionLatestPath()
 		resolvedPath, resolveErr := filepath.EvalSymlinks(symlinkPath)
 		if resolveErr != nil {
@@ -133,7 +136,7 @@ func MoveSessionLogsToPrevLogs(sessionDir, nodeID string) error {
 	}
 
 	dest := filepath.Join(GetTmpRayRoot(), "prev-logs", sessionName, nodeID)
-	if err := os.MkdirAll(dest, 0755); err != nil {
+	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return fmt.Errorf("failed to create destination path %s: %w", dest, err)
 	}
 
@@ -218,8 +221,8 @@ func FetchCurrentNodeID() (string, error) {
 	}
 	addr := rayheadAddr
 	scheme := "http://"
-	if strings.HasPrefix(addr, "https://") {
-		scheme, addr = "https://", strings.TrimPrefix(addr, "https://")
+	if after, ok := strings.CutPrefix(addr, "https://"); ok {
+		scheme, addr = "https://", after
 	}
 	addr = strings.TrimPrefix(addr, "http://")
 	if !strings.Contains(addr, ":") {
@@ -232,11 +235,22 @@ func FetchCurrentNodeID() (string, error) {
 	endpoint := fmt.Sprintf("%s%s/api/v0/nodes?limit=10000", scheme, strings.TrimRight(addr, "/"))
 	client := &http.Client{Timeout: 1 * time.Second}
 
-	resp, err := client.Get(endpoint)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	if err := SetRayAuthHeader(req); err != nil {
+		return "", fmt.Errorf("failed to authenticate request to %s: %w", endpoint, err)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
+	if IsAuthFailure(resp.StatusCode) {
+		return "", fmt.Errorf("%w: HTTP status %d from endpoint %s", errDashboardAuthFailed, resp.StatusCode, endpoint)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("HTTP status %d from endpoint %s", resp.StatusCode, endpoint)
 	}
@@ -256,14 +270,16 @@ func FetchCurrentNodeID() (string, error) {
 func GetNodeRayIDWithFQIP() (string, error) {
 	var lastErr error
 	// Retry loop waiting for Ray Head to become ready. 12 times so the total timeout is 60 seconds
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		nodeID, err := FetchCurrentNodeID()
 		if err == nil {
 			return nodeID, nil
 		}
-		if errors.Is(err, ErrPodIPNotSet) || errors.Is(err, ErrFQRayIPNotSet) {
+		if errors.Is(err, ErrPodIPNotSet) || errors.Is(err, ErrFQRayIPNotSet) ||
+			errors.Is(err, errDashboardAuthFailed) || errors.Is(err, errRayAuthConfig) {
 			return "", err
 		}
+		logrus.Warnf("Attempt %d/12 to discover Ray NodeID failed: %v, retrying in 5s", i+1, err)
 		lastErr = err
 		time.Sleep(5 * time.Second)
 	}

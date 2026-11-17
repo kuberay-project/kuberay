@@ -515,6 +515,149 @@ func TestTaskLifecycleEventDeduplication(t *testing.T) {
 	}
 }
 
+func TestTaskLogInfoLifecycleReplay(t *testing.T) {
+	const (
+		clusterName = "cluster1"
+		taskID      = "ccccdddd5678ccccaaaabbbb1234aaaabbbb1234aaaabbbb"
+	)
+
+	makeLogEvent := func(attempt int, taskLogInfo map[string]any) map[string]any {
+		return map[string]any{
+			"eventType": string(types.TASK_LIFECYCLE_EVENT),
+			"taskLifecycleEvent": map[string]any{
+				"taskId":           taskID,
+				"taskAttempt":      attempt,
+				"stateTransitions": []any{},
+				"taskLogInfo":      taskLogInfo,
+			},
+		}
+	}
+	// Ray reports a task's log boundaries through two separate calls:
+	// - RecordTaskLogStart sets only the file paths and start offsets
+	// - RecordTaskLogEnd sets only the end offsets.
+	// Ref: https://github.com/ray-project/ray/blob/d53df23caf6210f6bca58855607951d89c52d345/src/ray/core_worker/core_worker.cc#L4933-L4976
+	start := makeLogEvent(0, map[string]any{
+		"stdoutFile": "worker.out", "stderrFile": "worker.err",
+		"stdoutStart": "0", "stderrStart": "7",
+	})
+	end := makeLogEvent(0, map[string]any{
+		"stdoutEnd": "20", "stderrEnd": "30",
+	})
+	definition := makeTaskEventMap("bench_task", "", taskID, 0)
+	stateWithoutLogInfo := map[string]any{
+		"eventType": string(types.TASK_LIFECYCLE_EVENT),
+		"taskLifecycleEvent": map[string]any{
+			"taskId":      taskID,
+			"taskAttempt": 0,
+			"stateTransitions": []any{map[string]any{
+				"state": "RUNNING", "timestamp": "2026-08-08T01:45:58.211147463Z",
+			}},
+		},
+	}
+	want := &types.TaskLogInfo{
+		StdoutFile: "worker.out", StderrFile: "worker.err",
+		StdoutStart: 0, StdoutEnd: 20, StderrStart: 7, StderrEnd: 30,
+	}
+
+	for _, tt := range []struct {
+		name   string
+		events []map[string]any
+	}{
+		{name: "start then end", events: []map[string]any{start, end, definition, stateWithoutLogInfo}},
+		{name: "end then start", events: []map[string]any{end, start, definition, stateWithoutLogInfo}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewEventHandler(nil)
+			for _, event := range tt.events {
+				require.NoError(t, h.storeEvent(clusterName, event))
+			}
+			tasks := h.getTasks(clusterName)
+			require.Len(t, tasks, 1)
+			assert.Equal(t, want, tasks[0].TaskLogInfo)
+			assert.Equal(t, "bench_task", tasks[0].TaskName)
+			assert.Equal(t, types.RUNNING, tasks[0].State)
+		})
+	}
+
+	t.Run("metadata-only update preserves lifecycle fields", func(t *testing.T) {
+		h := NewEventHandler(nil)
+		state := stateWithoutLogInfo["taskLifecycleEvent"].(map[string]any)
+		state["jobId"] = "aaaabbbb"
+		state["workerPid"] = 123
+		state["actorReprName"] = "Counter.increment"
+		require.NoError(t, h.storeEvent(clusterName, stateWithoutLogInfo))
+		before := h.getTasks(clusterName)[0]
+
+		require.NoError(t, h.storeEvent(clusterName, end))
+		after := h.getTasks(clusterName)[0]
+		assert.Equal(t, before.StateTransitions, after.StateTransitions)
+		assert.Equal(t, before.State, after.State)
+		assert.Equal(t, before.JobID, after.JobID)
+		assert.Equal(t, before.WorkerPID, after.WorkerPID)
+		assert.Equal(t, before.ActorReprName, after.ActorReprName)
+		require.NotNil(t, after.TaskLogInfo)
+		assert.Equal(t, int64(20), after.TaskLogInfo.StdoutEnd)
+	})
+
+	t.Run("task attempts remain isolated", func(t *testing.T) {
+		h := NewEventHandler(nil)
+		attempt1 := makeLogEvent(1, map[string]any{
+			"stdoutFile": "attempt1.out", "stderrFile": "attempt1.err",
+			"stdoutStart": "25", "stderrStart": "25",
+		})
+		require.NoError(t, h.storeEvent(clusterName, end))
+		require.NoError(t, h.storeEvent(clusterName, attempt1))
+		tasks := h.getTasks(clusterName)
+		require.Len(t, tasks, 2)
+		assert.Equal(t, int64(20), tasks[0].TaskLogInfo.StdoutEnd)
+		assert.Equal(t, "attempt1.out", tasks[1].TaskLogInfo.StdoutFile)
+		assert.Zero(t, tasks[1].TaskLogInfo.StdoutEnd)
+	})
+
+	h := NewEventHandler(nil)
+	err := h.storeEvent(clusterName, map[string]any{
+		"eventType": string(types.TASK_LIFECYCLE_EVENT),
+		"taskLifecycleEvent": map[string]any{
+			"taskId": taskID, "taskAttempt": 0, "stateTransitions": []any{},
+		},
+	})
+	require.Error(t, err, "an empty lifecycle event without TaskLogInfo must still be rejected")
+}
+
+func TestStoreRay256TaskLogInfoJSONL(t *testing.T) {
+	// A task whose execution spans Ray's ray_events_report_interval_ms (1s default)
+	// exports its log start and log end as two lifecycle events
+	const capturedEvents = `
+{"eventType":"TASK_LIFECYCLE_EVENT","taskLifecycleEvent":{"jobId":"AwAAAA==","nodeId":"","stateTransitions":[],"taskAttempt":0,"taskId":"UYPGNywAXvb///////////////8DAAAA","taskLogInfo":{"stdoutFile":"/tmp/ray/session_2026-08-08_01-45-50_123456_1/logs/worker-058747b57347ad6c698b59511de4e64fc37e4c7ad2b033eb7cdf7cf1-03000000-215.out","stderrFile":"/tmp/ray/session_2026-08-08_01-45-50_123456_1/logs/worker-058747b57347ad6c698b59511de4e64fc37e4c7ad2b033eb7cdf7cf1-03000000-215.err","stdoutStart":"512","stderrStart":"0"},"workerId":"","workerPid":0}}
+{"eventType":"TASK_DEFINITION_EVENT","taskDefinitionEvent":{"jobId":"AwAAAA==","language":"PYTHON","requiredResources":{"CPU":0.2},"taskAttempt":0,"taskId":"UYPGNywAXvb///////////////8DAAAA","taskName":"bench_task","taskType":"NORMAL_TASK"}}
+{"eventType":"TASK_LIFECYCLE_EVENT","taskLifecycleEvent":{"jobId":"AwAAAA==","nodeId":"","stateTransitions":[{"state":"RUNNING","timestamp":"2026-08-08T01:45:58.211147463Z"}],"taskAttempt":0,"taskId":"UYPGNywAXvb///////////////8DAAAA","workerId":"","workerPid":215}}
+{"eventType":"TASK_LIFECYCLE_EVENT","taskLifecycleEvent":{"jobId":"AwAAAA==","nodeId":"","stateTransitions":[],"taskAttempt":0,"taskId":"UYPGNywAXvb///////////////8DAAAA","taskLogInfo":{"stdoutEnd":"6331","stderrEnd":"6331"},"workerId":"","workerPid":0}}
+{"eventType":"TASK_LIFECYCLE_EVENT","taskLifecycleEvent":{"jobId":"AwAAAA==","nodeId":"D2kMAY8zIxLFuYnLXnAKJtuumyBv618fCGSF7g==","stateTransitions":[{"state":"PENDING_ARGS_AVAIL","timestamp":"2026-08-08T01:45:57.009825296Z"},{"state":"SUBMITTED_TO_WORKER","timestamp":"2026-08-08T01:45:58.209153338Z"},{"state":"FINISHED","timestamp":"2026-08-08T01:45:58.224019505Z"}],"taskAttempt":0,"taskId":"UYPGNywAXvb///////////////8DAAAA","workerId":"BYdHtXNHrWxpi1lRHeTmT8N+THrSsDPrfN988Q==","workerPid":0}}
+`
+
+	events, err := DecodeEventFileBytes("ray-2.56-events.jsonl", []byte(capturedEvents))
+	require.NoError(t, err)
+	require.Len(t, events, 5)
+
+	h := NewEventHandler(nil)
+	for _, event := range events {
+		require.NoError(t, h.storeEvent("cluster1", event))
+	}
+	tasks := h.getTasks("cluster1")
+	require.Len(t, tasks, 1)
+	task := tasks[0]
+	assert.Equal(t, "bench_task", task.TaskName)
+	assert.Equal(t, types.FINISHED, task.State)
+	assert.NotEmpty(t, task.NodeID)
+	assert.NotEmpty(t, task.WorkerID)
+	require.NotNil(t, task.TaskLogInfo)
+	assert.Equal(t, "/tmp/ray/session_2026-08-08_01-45-50_123456_1/logs/worker-058747b57347ad6c698b59511de4e64fc37e4c7ad2b033eb7cdf7cf1-03000000-215.out", task.TaskLogInfo.StdoutFile)
+	assert.Equal(t, int64(512), task.TaskLogInfo.StdoutStart)
+	assert.Equal(t, int64(6331), task.TaskLogInfo.StdoutEnd)
+	assert.Equal(t, int64(0), task.TaskLogInfo.StderrStart)
+	assert.Equal(t, int64(6331), task.TaskLogInfo.StderrEnd)
+}
+
 // TestActorLifecycleEventDeduplication verifies that duplicate actor events are correctly filtered
 func TestActorLifecycleEventDeduplication(t *testing.T) {
 	// IDs follow Ray's ID spec; see TestStoreEvent for rationale.
@@ -867,7 +1010,7 @@ func TestMultipleReprocessingCycles(t *testing.T) {
 	}
 
 	// Simulate 10 hourly reprocessing cycles
-	for cycle := 0; cycle < 10; cycle++ {
+	for cycle := range 10 {
 		err := h.storeEvent(testClusterName, eventMap)
 		if err != nil {
 			t.Fatalf("Cycle %d: storeEvent() error = %v", cycle, err)
@@ -958,13 +1101,13 @@ func TestProcessSingleSession(t *testing.T) {
 
 	t.Run("returns error when every listed file fails I/O", func(t *testing.T) {
 		mock := newLogEventMockReader()
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1", []string{"node1/"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/job_events/", []string{"job-01000000/"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/job_events/job-01000000/",
+		mock.addDir("session1", []string{"node1/"})
+		mock.addDir("session1/node1/job_events/", []string{"job-01000000/"})
+		mock.addDir("session1/node1/job_events/job-01000000/",
 			[]string{"01000000-2024-01-01-00.gz"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/node_events/",
+		mock.addDir("session1/node1/node_events/",
 			[]string{"node1-2024-01-01-00.gz"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/logs", []string{})
+		mock.addDir("session1/logs", []string{})
 
 		h := NewEventHandler(mock)
 		err := h.ProcessSingleSession(context.Background(), clusterInfo)
@@ -974,10 +1117,10 @@ func TestProcessSingleSession(t *testing.T) {
 
 	t.Run("empty file list returns nil (legit empty session)", func(t *testing.T) {
 		mock := newLogEventMockReader()
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1", []string{"node1/"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/job_events/", []string{})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/node_events/", []string{})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/logs", []string{})
+		mock.addDir("session1", []string{"node1/"})
+		mock.addDir("session1/node1/job_events/", []string{})
+		mock.addDir("session1/node1/node_events/", []string{})
+		mock.addDir("session1/logs", []string{})
 
 		h := NewEventHandler(mock)
 		err := h.ProcessSingleSession(context.Background(), clusterInfo)
@@ -986,10 +1129,10 @@ func TestProcessSingleSession(t *testing.T) {
 
 	t.Run("partial success does not return error", func(t *testing.T) {
 		mock := newLogEventMockReader()
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1", []string{"node1/", "node2/"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/node_events/",
+		mock.addDir("session1", []string{"node1/", "node2/"})
+		mock.addDir("session1/node1/node_events/",
 			[]string{"node1-2024-01-01-00.gz"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node2/node_events/",
+		mock.addDir("session1/node2/node_events/",
 			[]string{"node2-2024-01-01-00.gz"})
 
 		var buf bytes.Buffer
@@ -998,10 +1141,10 @@ func TestProcessSingleSession(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, gw.Close())
 
-		mock.addFile("cluster-history/raycluster/ns/cluster", "session1/node1/node_events/node1-2024-01-01-00.gz", buf.String())
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/job_events/", []string{})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node2/job_events/", []string{})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/logs", []string{})
+		mock.addFile("session1/node1/node_events/node1-2024-01-01-00.gz", buf.String())
+		mock.addDir("session1/node1/job_events/", []string{})
+		mock.addDir("session1/node2/job_events/", []string{})
+		mock.addDir("session1/logs", []string{})
 
 		h := NewEventHandler(mock)
 		err = h.ProcessSingleSession(context.Background(), clusterInfo)
@@ -1010,10 +1153,10 @@ func TestProcessSingleSession(t *testing.T) {
 
 	t.Run("all corrupt JSON does not return error", func(t *testing.T) {
 		mock := newLogEventMockReader()
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1", []string{"node1/", "node2/"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/node_events/",
+		mock.addDir("session1", []string{"node1/", "node2/"})
+		mock.addDir("session1/node1/node_events/",
 			[]string{"node1-2024-01-01-00.gz"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node2/node_events/",
+		mock.addDir("session1/node2/node_events/",
 			[]string{"node2-2024-01-01-00.gz"})
 
 		var buf bytes.Buffer
@@ -1022,11 +1165,11 @@ func TestProcessSingleSession(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, gw.Close())
 
-		mock.addFile("cluster-history/raycluster/ns/cluster", "session1/node1/node_events/node1-2024-01-01-00.gz", buf.String())
-		mock.addFile("cluster-history/raycluster/ns/cluster", "session1/node2/node_events/node2-2024-01-01-00.gz", buf.String())
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/job_events/", []string{})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node2/job_events/", []string{})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/logs", []string{})
+		mock.addFile("session1/node1/node_events/node1-2024-01-01-00.gz", buf.String())
+		mock.addFile("session1/node2/node_events/node2-2024-01-01-00.gz", buf.String())
+		mock.addDir("session1/node1/job_events/", []string{})
+		mock.addDir("session1/node2/job_events/", []string{})
+		mock.addDir("session1/logs", []string{})
 
 		h := NewEventHandler(mock)
 		err = h.ProcessSingleSession(context.Background(), clusterInfo)
@@ -1035,11 +1178,11 @@ func TestProcessSingleSession(t *testing.T) {
 
 	t.Run("log events failure alone does not surface as error", func(t *testing.T) {
 		mock := newLogEventMockReader()
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1", []string{"node1/"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/job_events/", []string{})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/node_events/", []string{})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/logs", []string{"node1/"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/logs/node1/events", []string{"event_GCS.log"})
+		mock.addDir("session1", []string{"node1/"})
+		mock.addDir("session1/node1/job_events/", []string{})
+		mock.addDir("session1/node1/node_events/", []string{})
+		mock.addDir("session1/logs", []string{"node1/"})
+		mock.addDir("session1/logs/node1/events", []string{"event_GCS.log"})
 
 		h := NewEventHandler(mock)
 		err := h.ProcessSingleSession(context.Background(), clusterInfo)
@@ -1048,11 +1191,11 @@ func TestProcessSingleSession(t *testing.T) {
 
 	t.Run("ray events failure surfaces; log events failure stays silent", func(t *testing.T) {
 		mock := newLogEventMockReader()
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1", []string{"node1/"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/node_events/", []string{"node1-2024-01-01-00.gz"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/job_events/", []string{})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/logs", []string{"node1/"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/logs/node1/events", []string{"event_GCS.log"})
+		mock.addDir("session1", []string{"node1/"})
+		mock.addDir("session1/node1/node_events/", []string{"node1-2024-01-01-00.gz"})
+		mock.addDir("session1/node1/job_events/", []string{})
+		mock.addDir("session1/logs", []string{"node1/"})
+		mock.addDir("session1/logs/node1/events", []string{"event_GCS.log"})
 
 		h := NewEventHandler(mock)
 		err := h.ProcessSingleSession(context.Background(), clusterInfo)
@@ -1063,10 +1206,10 @@ func TestProcessSingleSession(t *testing.T) {
 
 	t.Run("transparent decompression of compressed .gz files and reading uncompressed legacy files", func(t *testing.T) {
 		mock := newLogEventMockReader()
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1", []string{"node1/", "node2/"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/node_events/",
+		mock.addDir("session1", []string{"node1/", "node2/"})
+		mock.addDir("session1/node1/node_events/",
 			[]string{"node1-2024-01-01-00.gz"})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node2/node_events/",
+		mock.addDir("session1/node2/node_events/",
 			[]string{"node2-2024-01-01-00"})
 
 		// 1. Compress node1 event file
@@ -1075,15 +1218,15 @@ func TestProcessSingleSession(t *testing.T) {
 		_, err := gw.Write([]byte(`[{"eventType":"NODE_DEFINITION_EVENT","nodeDefinitionEvent":{"nodeId":"YWJjZA=="}}]`))
 		require.NoError(t, err)
 		require.NoError(t, gw.Close())
-		mock.addFile("cluster-history/raycluster/ns/cluster", "session1/node1/node_events/node1-2024-01-01-00.gz", buf.String())
+		mock.addFile("session1/node1/node_events/node1-2024-01-01-00.gz", buf.String())
 
 		// 2. Keep node2 event file uncompressed
-		mock.addFile("cluster-history/raycluster/ns/cluster", "session1/node2/node_events/node2-2024-01-01-00",
+		mock.addFile("session1/node2/node_events/node2-2024-01-01-00",
 			`[{"eventType":"NODE_DEFINITION_EVENT","nodeDefinitionEvent":{"nodeId":"ZWZnaA=="}}]`)
 
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node1/job_events/", []string{})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/node2/job_events/", []string{})
-		mock.addDir("cluster-history/raycluster/ns/cluster", "session1/logs", []string{})
+		mock.addDir("session1/node1/job_events/", []string{})
+		mock.addDir("session1/node2/job_events/", []string{})
+		mock.addDir("session1/logs", []string{})
 
 		h := NewEventHandler(mock)
 		err = h.ProcessSingleSession(context.Background(), clusterInfo)

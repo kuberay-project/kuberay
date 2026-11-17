@@ -19,12 +19,15 @@ type GcsFaultToleranceOptionsApplyConfiguration struct {
 	RedisUsername            *RedisCredentialApplyConfiguration `json:"redisUsername,omitempty"`
 	RedisPassword            *RedisCredentialApplyConfiguration `json:"redisPassword,omitempty"`
 	ExternalStorageNamespace *string                            `json:"externalStorageNamespace,omitempty"`
-	// RedisAddress is the address of the external Redis service used when Backend
-	// is "redis". It may alternatively be supplied via env vars/annotations.
+	// RedisAddress is the address of the external Redis service. Required when
+	// Backend is "redis"; must be empty for "rocksdb".
 	RedisAddress *string `json:"redisAddress,omitempty"`
 	// Storage configures the persistent volume backing the embedded RocksDB
 	// store. Only used when Backend is "rocksdb".
 	Storage *GcsEmbeddedStorageApplyConfiguration `json:"storage,omitempty"`
+	// ActivePassiveHeadOptions configures active-passive high availability for the GCS.
+	// It is only supported with the "redis" backend, not with "rocksdb".
+	ActivePassiveHeadOptions *ActivePassiveHeadOptionsApplyConfiguration `json:"activePassiveHeadOptions,omitempty"`
 }
 
 // GcsFaultToleranceOptionsApplyConfiguration constructs a declarative configuration of the GcsFaultToleranceOptions type for use with
@@ -78,5 +81,13 @@ func (b *GcsFaultToleranceOptionsApplyConfiguration) WithRedisAddress(value stri
 // If called multiple times, the Storage field is set to the value of the last call.
 func (b *GcsFaultToleranceOptionsApplyConfiguration) WithStorage(value *GcsEmbeddedStorageApplyConfiguration) *GcsFaultToleranceOptionsApplyConfiguration {
 	b.Storage = value
+	return b
+}
+
+// WithActivePassiveHeadOptions sets the ActivePassiveHeadOptions field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ActivePassiveHeadOptions field is set to the value of the last call.
+func (b *GcsFaultToleranceOptionsApplyConfiguration) WithActivePassiveHeadOptions(value *ActivePassiveHeadOptionsApplyConfiguration) *GcsFaultToleranceOptionsApplyConfiguration {
+	b.ActivePassiveHeadOptions = value
 	return b
 }

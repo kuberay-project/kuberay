@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSlice(t *testing.T) {
@@ -27,7 +30,7 @@ func TestSlice(t *testing.T) {
 }
 
 func TestConvertBase64ToHex(t *testing.T) {
-	//TODO(chiayi): use real base64 strings from job ids as tests ex: AgAAAA==
+	// TODO(chiayi): use real base64 strings from job ids as tests ex: AgAAAA==
 	tests := []struct {
 		scenario       string
 		base64Str      string
@@ -35,13 +38,13 @@ func TestConvertBase64ToHex(t *testing.T) {
 		expectError    bool
 	}{
 		{
-			scenario:       "Successful convertion from base64 to hex",
+			scenario:       "Successful conversion from base64 to hex",
 			base64Str:      "AgAAAA==",
 			expectedHexStr: "02000000",
 			expectError:    false,
 		},
 		{
-			scenario:       "Failed convertion from base64 to hex - contains '_'",
+			scenario:       "Failed conversion from base64 to hex - contains '_'",
 			base64Str:      "AQAAAA_==",
 			expectedHexStr: "AQAAAA_==",
 			expectError:    true,
@@ -67,7 +70,7 @@ func TestConvertBase64ToHex(t *testing.T) {
 				t.Errorf("ConvertToBase64ToHex() expected error for base64 string %s", tt.base64Str)
 			}
 			if actualHexStr != tt.expectedHexStr {
-				t.Errorf("Actual convertion does not match expected result. Actual: %s Expected: %s", actualHexStr, tt.expectedHexStr)
+				t.Errorf("Actual conversion does not match expected result. Actual: %s Expected: %s", actualHexStr, tt.expectedHexStr)
 			}
 		})
 	}
@@ -171,6 +174,33 @@ func TestGetNodeRayIDWithFQIP_EnvVars(t *testing.T) {
 	}
 }
 
+// A credential that cannot be resolved never becomes valid, so discovery must
+// surface it immediately instead of spending the full 60s retry budget and then
+// reporting a misleading timeout.
+func TestGetNodeRayIDWithFQIP_FailsFastOnAuthConfigError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":{"result":{"result":[{"node_id":"node-id-abc","node_ip":"10.0.0.1","state":"ALIVE"}]}}}`))
+	}))
+	defer ts.Close()
+
+	t.Setenv("POD_IP", "10.0.0.1")
+	t.Setenv("FQ_RAY_IP", ts.URL)
+	// Token auth requested, but neither RAY_AUTH_TOKEN nor the projected token volume is available.
+	t.Setenv(RAY_AUTH_MODE_ENV_VAR, RayAuthModeToken)
+	t.Setenv(RAY_AUTH_TOKEN_ENV_VAR, "")
+	t.Setenv(RAY_ENABLE_K8S_TOKEN_AUTH_ENV_VAR, "")
+
+	start := time.Now()
+	_, err := GetNodeRayIDWithFQIP()
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, errRayAuthConfig)
+	assert.NotContains(t, err.Error(), "timeout", "misconfiguration must not be reported as a discovery timeout")
+	assert.Less(t, elapsed, 5*time.Second, "must not enter the retry loop")
+}
+
 func TestGetSessionDir_Symlinks(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "s-*")
 	if err != nil {
@@ -181,17 +211,17 @@ func TestGetSessionDir_Symlinks(t *testing.T) {
 
 	sessionDirName := "session_1"
 	absSessionDir := filepath.Join(tmpDir, sessionDirName)
-	if err := os.MkdirAll(absSessionDir, 0755); err != nil {
+	if err := os.MkdirAll(absSessionDir, 0o755); err != nil {
 		t.Fatalf("failed to create session dir: %v", err)
 	}
 
 	// Create and start a Unix domain socket listener to mock the active raylet process.
 	socketDir := filepath.Join(absSessionDir, "sockets")
-	if err := os.MkdirAll(socketDir, 0755); err != nil {
+	if err := os.MkdirAll(socketDir, 0o755); err != nil {
 		t.Fatalf("failed to create sockets dir: %v", err)
 	}
 	socketPath := filepath.Join(socketDir, "raylet")
-	listener, err := net.Listen("unix", socketPath)
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socketPath)
 	if err != nil {
 		t.Fatalf("failed to listen on unix socket: %v", err)
 	}
@@ -237,7 +267,7 @@ func TestGetSessionDir_FatalError_FailsFast(t *testing.T) {
 
 	// Create a file (not a directory)
 	filePath := filepath.Join(tmpDir, "file")
-	if err := os.WriteFile(filePath, []byte("test"), 0644); err != nil {
+	if err := os.WriteFile(filePath, []byte("test"), 0o600); err != nil {
 		t.Fatalf("failed to create file: %v", err)
 	}
 
@@ -266,7 +296,7 @@ func TestGetSessionDir_WaitsForActive(t *testing.T) {
 
 	sessionDirName := "session_1"
 	absSessionDir := filepath.Join(tmpDir, sessionDirName)
-	if err := os.MkdirAll(absSessionDir, 0755); err != nil {
+	if err := os.MkdirAll(absSessionDir, 0o755); err != nil {
 		t.Fatalf("failed to create session dir: %v", err)
 	}
 
@@ -276,7 +306,7 @@ func TestGetSessionDir_WaitsForActive(t *testing.T) {
 	}
 
 	socketDir := filepath.Join(absSessionDir, "sockets")
-	if err := os.MkdirAll(socketDir, 0755); err != nil {
+	if err := os.MkdirAll(socketDir, 0o755); err != nil {
 		t.Fatalf("failed to create sockets dir: %v", err)
 	}
 	socketPath := filepath.Join(socketDir, "raylet")
@@ -284,7 +314,7 @@ func TestGetSessionDir_WaitsForActive(t *testing.T) {
 	// Start a goroutine that will create the active raylet socket after a short delay (e.g., 2 seconds).
 	go func() {
 		time.Sleep(2 * time.Second)
-		listener, err := net.Listen("unix", socketPath)
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socketPath)
 		if err == nil {
 			t.Cleanup(func() {
 				listener.Close()
@@ -318,10 +348,10 @@ func TestMoveLeftoverSessionLogs(t *testing.T) {
 	priorSessionName := "session_2026-07-08_14-00-00_123456_1"
 	priorSessionDir := filepath.Join(tmpDir, priorSessionName)
 	priorLogsDir := filepath.Join(priorSessionDir, "logs")
-	if err := os.MkdirAll(priorLogsDir, 0755); err != nil {
+	if err := os.MkdirAll(priorLogsDir, 0o755); err != nil {
 		t.Fatalf("failed to create prior logs dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(priorLogsDir, "raylet.out"), []byte("prior logs"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(priorLogsDir, "raylet.out"), []byte("prior logs"), 0o600); err != nil {
 		t.Fatalf("failed to write prior log file: %v", err)
 	}
 
@@ -329,10 +359,10 @@ func TestMoveLeftoverSessionLogs(t *testing.T) {
 	activeSessionName := "session_2026-07-08_15-00-00_123456_1"
 	activeSessionDir := filepath.Join(tmpDir, activeSessionName)
 	activeLogsDir := filepath.Join(activeSessionDir, "logs")
-	if err := os.MkdirAll(activeLogsDir, 0755); err != nil {
+	if err := os.MkdirAll(activeLogsDir, 0o755); err != nil {
 		t.Fatalf("failed to create active logs dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(activeLogsDir, "raylet.out"), []byte("active logs"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(activeLogsDir, "raylet.out"), []byte("active logs"), 0o600); err != nil {
 		t.Fatalf("failed to write active log file: %v", err)
 	}
 

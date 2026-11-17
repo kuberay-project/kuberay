@@ -41,7 +41,7 @@ type mockStorageWriter struct {
 	writtenData []byte
 }
 
-func (m *mockStorageWriter) WriteFile(file string, reader io.ReadSeeker) error {
+func (m *mockStorageWriter) WriteFile(_ string, reader io.ReadSeeker) error {
 	var err error
 	m.writtenData, err = io.ReadAll(reader)
 	return err
@@ -97,7 +97,7 @@ type mockStorageReader struct {
 	content []byte
 }
 
-func (m *mockStorageReader) GetContent(clusterId string, fileName string) io.Reader {
+func (m *mockStorageReader) GetContent(_, _ string) io.Reader {
 	if m.content == nil {
 		return nil
 	}

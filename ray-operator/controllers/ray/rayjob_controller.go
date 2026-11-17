@@ -172,6 +172,13 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 				return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
 			}
 		}
+
+		if rayJobInstance.Spec.Suspend {
+			// Skip initialization to avoid generating an unwanted RayClusterName.
+			rayJobInstance.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusSuspended
+			break
+		}
+
 		// Set `Status.JobDeploymentStatus` to `JobDeploymentStatusInitializing`, and initialize `Status.JobId`
 		// and `Status.RayClusterName` prior to avoid duplicate job submissions and cluster creations.
 		logger.Info("JobDeploymentStatusNew")

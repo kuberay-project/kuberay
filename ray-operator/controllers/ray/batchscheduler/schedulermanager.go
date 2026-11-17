@@ -13,9 +13,12 @@ import (
 	configapi "github.com/ray-project/kuberay/ray-operator/apis/config/v1alpha1"
 	schedulerinterface "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/interface"
 	kaischeduler "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/kai-scheduler"
+	kuberneteswas "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/kubernetes-was"
+	_ "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/kubernetes-was/v1alpha3" // register the v1alpha3 WAS provider
 	schedulerplugins "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/scheduler-plugins"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/volcano"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/yunikorn"
+	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
 type SchedulerManager struct {
@@ -50,6 +53,12 @@ func NewSchedulerManager(ctx context.Context, rayConfigs configapi.Configuration
 }
 
 func getSchedulerFactory(rayConfigs configapi.Configuration) (schedulerinterface.BatchSchedulerFactory, error) {
+	// The KubernetesWAS feature gate selects the Kubernetes WAS scheduler; ValidateBatchSchedulerConfig
+	// enforces that it is not combined with --batch-scheduler or --enable-batch-scheduler.
+	if features.Enabled(features.KubernetesWAS) {
+		return &kuberneteswas.SchedulerFactory{}, nil
+	}
+
 	var factory schedulerinterface.BatchSchedulerFactory
 
 	// when a batch scheduler name is provided

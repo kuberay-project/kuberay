@@ -331,12 +331,23 @@ jobs:
         run: go mod download
         working-directory: ${{env.working-directory}}
 
+      - name: Lint
+        run: make lint
+        working-directory: ${{env.working-directory}}
+
       - name: Build
         run: make build
         working-directory: ${{env.working-directory}}
 
       - name: Test
         run: make test
+        working-directory: ${{env.working-directory}}
+
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v5
+
+      - name: Build Docker Images - Historyserver and Collector
+        run: make localimage-build
         working-directory: ${{env.working-directory}}
 
       - name: Log in to Quay.io

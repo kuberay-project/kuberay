@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
@@ -218,7 +219,7 @@ func (e2etc *End2EndTestingContext) GetK8sClient() *kubernetes.Clientset {
 }
 
 func (e2etc *End2EndTestingContext) GetNextName() string {
-	e2etc.currentName = petnames.Name()
+	e2etc.currentName = fmt.Sprintf("%s-%s", petnames.Name(), rand.String(5))
 	return e2etc.currentName
 }
 

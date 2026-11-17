@@ -1,40 +1,157 @@
 package support
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/remotecommand"
 
 	. "github.com/ray-project/kuberay/ray-operator/test/support"
 )
 
 const (
-	// MinIO configuration
-	MinioNamespace    = "minio-dev"
-	MinioManifestPath = "../../config/minio.yaml"
-	MinioUsername     = "minioadmin"
-	MinioSecret       = "minioadmin"
-	MinioAPIEndpoint  = "http://localhost:9000"
-	MinioAPIPort      = 9000
-	S3BucketName      = "ray-historyserver"
+	// RustFS configuration
+	RustFSNamespace    = "rustfs-dev"
+	RustFSManifestPath = "../../config/rustfs.yaml"
+	S3BucketName       = "ray-historyserver"
+
+	// Container in the storage pod (config/rustfs.yaml) that tests exec the AWS CLI in.
+	S3ClientContainerName = "aws-cli"
 )
 
-// ApplyMinIO deploys minio once per test namespace, making sure it's idempotent.
-func ApplyMinIO(test Test, g *WithT) {
-	KubectlApplyYAML(test, MinioManifestPath, MinioNamespace)
+// S3TestClient verifies bucket contents by executing AWS CLI commands in the S3 client container.
+type S3TestClient struct {
+	test Test
+}
 
-	// Wait for MinIO pods ready.
+func NewS3TestClient(test Test) *S3TestClient {
+	return &S3TestClient{test: test}
+}
+
+// rustfsPod returns the running RustFS pod.
+func (c *S3TestClient) rustfsPod() (*corev1.Pod, error) {
+	pods, err := c.test.Client().Core().CoreV1().Pods(RustFSNamespace).List(
+		c.test.Ctx(), metav1.ListOptions{LabelSelector: "app=rustfs"},
+	)
+	if err != nil {
+		return nil, err
+	}
+	for i := range pods.Items {
+		// A terminating pod still reports phase Running, but exec into it fails.
+		if pods.Items[i].Status.Phase == corev1.PodRunning && pods.Items[i].DeletionTimestamp == nil {
+			return &pods.Items[i], nil
+		}
+	}
+	return nil, fmt.Errorf("no running RustFS pod found in namespace %s", RustFSNamespace)
+}
+
+// execAWS runs an AWS CLI command in the S3 client container and returns its stdout.
+func (c *S3TestClient) execAWS(args ...string) (string, error) {
+	pod, err := c.rustfsPod()
+	if err != nil {
+		return "", err
+	}
+	cmd := append([]string{"aws"}, args...)
+
+	req := c.test.Client().Core().CoreV1().RESTClient().
+		Post().
+		Resource("pods").
+		Name(pod.Name).
+		Namespace(pod.Namespace).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Command:   cmd,
+			Container: S3ClientContainerName,
+			Stdout:    true,
+			Stderr:    true,
+		}, clientgoscheme.ParameterCodec)
+
+	cfg := c.test.Client().Config()
+	executor, err := remotecommand.NewSPDYExecutor(&cfg, "POST", req.URL())
+	if err != nil {
+		return "", fmt.Errorf("failed to create executor for %q: %w", strings.Join(cmd, " "), err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := executor.StreamWithContext(c.test.Ctx(), remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	}); err != nil {
+		return "", fmt.Errorf("%q failed: %w (stderr: %s)", strings.Join(cmd, " "), err, stderr.String())
+	}
+	return stdout.String(), nil
+}
+
+// StatObject returns nil if the object exists. An empty key checks the bucket itself.
+func (c *S3TestClient) StatObject(bucket, key string) error {
+	if key == "" {
+		_, err := c.execAWS("s3api", "head-bucket", "--bucket", bucket)
+		return err
+	}
+	_, err := c.execAWS("s3api", "head-object", "--bucket", bucket, "--key", key)
+	return err
+}
+
+// ReadObject returns the object's content.
+func (c *S3TestClient) ReadObject(bucket, key string) ([]byte, error) {
+	out, err := c.execAWS("s3", "cp", fmt.Sprintf("s3://%s/%s", bucket, key), "-")
+	if err != nil {
+		return nil, err
+	}
+	return []byte(out), nil
+}
+
+// ListObjectKeys returns the full keys of all objects under bucket/prefix, recursively.
+func (c *S3TestClient) ListObjectKeys(bucket, prefix string) ([]string, error) {
+	// Trailing slash lists the prefix's contents rather than every key starting with it.
+	if prefix != "" {
+		prefix = strings.TrimSuffix(prefix, "/") + "/"
+	}
+	// The AWS CLI follows the ListObjectsV2 pagination and applies --query to all pages.
+	out, err := c.execAWS("s3api", "list-objects-v2", "--bucket", bucket, "--prefix", prefix,
+		"--query", "Contents[].Key", "--output", "json")
+	if err != nil {
+		return nil, err
+	}
+	var allKeys []string // The output is null when nothing matches.
+	if err := json.Unmarshal([]byte(out), &allKeys); err != nil {
+		return nil, fmt.Errorf("failed to parse list-objects-v2 output %q: %w", out, err)
+	}
+	var keys []string
+	for _, key := range allKeys {
+		// Skip zero-byte directory markers such as "logs/".
+		if !strings.HasSuffix(key, "/") {
+			keys = append(keys, key)
+		}
+	}
+	return keys, nil
+}
+
+// DeleteBucket removes the bucket and everything in it. A missing bucket is not an error.
+func (c *S3TestClient) DeleteBucket(bucket string) error {
+	_, err := c.execAWS("s3", "rb", "s3://"+bucket, "--force")
+	if err != nil && strings.Contains(err.Error(), "NoSuchBucket") {
+		return nil
+	}
+	return err
+}
+
+// ApplyRustFS deploys RustFS once per test namespace, making sure it's idempotent.
+func ApplyRustFS(test Test, g *WithT) {
+	KubectlApplyYAML(test, RustFSManifestPath, RustFSNamespace)
+
+	// Wait for RustFS pods ready.
 	g.Eventually(func(gg Gomega) {
-		pods, err := test.Client().Core().CoreV1().Pods(MinioNamespace).List(
+		pods, err := test.Client().Core().CoreV1().Pods(RustFSNamespace).List(
 			test.Ctx(), metav1.ListOptions{
-				LabelSelector: "app=minio",
+				LabelSelector: "app=rustfs",
 			},
 		)
 		gg.Expect(err).NotTo(HaveOccurred())
@@ -43,118 +160,26 @@ func ApplyMinIO(test Test, g *WithT) {
 	}, TestTimeoutMedium).Should(Succeed())
 }
 
-// EnsureS3Client creates an S3 client and ensures API endpoint accessibility.
-func EnsureS3Client(t *testing.T) *s3.S3 {
+// EnsureS3Client deploys RustFS and returns a client once the S3 API responds.
+func EnsureS3Client(t *testing.T) *S3TestClient {
 	test := With(t)
 	g := NewWithT(t)
-	ApplyMinIO(test, g)
+	ApplyRustFS(test, g)
 
-	PortForwardService(test, g, MinioNamespace, "minio-service", MinioAPIPort)
-
-	// Check readiness of the MinIO API endpoint.
+	s3Client := NewS3TestClient(test)
 	g.Eventually(func() error {
-		s3Client, err := NewS3Client(MinioAPIEndpoint)
-		if err != nil {
-			return err
-		}
-		_, err = s3Client.ListBuckets(&s3.ListBucketsInput{}) // Dummy operation to ensure accessibility
+		_, err := s3Client.execAWS("s3api", "list-buckets") // Dummy operation to ensure accessibility
 		return err
-	}, TestTimeoutMedium).Should(Succeed(), "MinIO API endpoint should be ready")
-	LogWithTimestamp(test.T(), "Port-forwarded MinIO API port to localhost:%d successfully", MinioAPIPort)
-
-	s3Client, err := NewS3Client(MinioAPIEndpoint)
-	g.Expect(err).NotTo(HaveOccurred())
+	}, TestTimeoutMedium).Should(Succeed(), "RustFS API endpoint should be ready")
 
 	return s3Client
 }
 
-// NewS3Client creates a new S3 client.
-func NewS3Client(endpoint string) (*s3.S3, error) {
-	sess, err := session.NewSession(&aws.Config{
-		Endpoint:         aws.String(endpoint),
-		Region:           aws.String("e2e-test"),
-		Credentials:      credentials.NewStaticCredentials(MinioUsername, MinioSecret, ""),
-		DisableSSL:       aws.Bool(true),
-		S3ForcePathStyle: aws.Bool(true),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return s3.New(sess), nil
-}
-
-// DeleteS3Bucket deletes the S3 bucket. Note that objects under the bucket should be deleted first.
-func DeleteS3Bucket(test Test, g *WithT, s3Client *s3.S3) {
+// DeleteS3Bucket deletes the S3 bucket and everything in it. Cleanup failures
+// are logged rather than failing the test.
+func DeleteS3Bucket(test Test, _ *WithT, s3Client *S3TestClient) {
 	LogWithTimestamp(test.T(), "Deleting S3 bucket %s", S3BucketName)
-
-	err := s3Client.ListObjectsV2Pages(&s3.ListObjectsV2Input{
-		Bucket: aws.String(S3BucketName),
-	}, func(page *s3.ListObjectsV2Output, lastPage bool) bool {
-		if len(page.Contents) == 0 {
-			return false
-		}
-
-		var objectsToDelete []*s3.ObjectIdentifier
-		for _, obj := range page.Contents {
-			objectsToDelete = append(objectsToDelete, &s3.ObjectIdentifier{
-				Key: obj.Key,
-			})
-		}
-
-		_, err := s3Client.DeleteObjects(&s3.DeleteObjectsInput{
-			Bucket: aws.String(S3BucketName),
-			Delete: &s3.Delete{
-				Objects: objectsToDelete,
-				Quiet:   aws.Bool(true),
-			},
-		})
-		if err != nil {
-			test.T().Logf("Failed to delete objects: %v", err)
-			return false
-		}
-
-		return true
-	})
-	if err != nil {
-		test.T().Logf("Failed to list/delete objects in bucket: %v", err)
+	if err := s3Client.DeleteBucket(S3BucketName); err != nil {
+		test.T().Logf("Failed to delete bucket %s: %v", S3BucketName, err)
 	}
-
-	_, err = s3Client.DeleteBucket(&s3.DeleteBucketInput{
-		Bucket: aws.String(S3BucketName),
-	})
-	if err != nil {
-		test.T().Logf("Failed to delete bucket %s: %v (this is OK if bucket doesn't exist)", S3BucketName, err)
-	} else {
-		LogWithTimestamp(test.T(), "Deleted S3 bucket %s successfully", S3BucketName)
-	}
-}
-
-// ListS3Directories lists all directories (prefixes) under the given S3 prefix.
-// In S3, directories are simulated using prefixes and delimiters.
-// For example, given prefix "log/cluster/session/job_events/", this function returns ["AgAAAA==", "AQAAAA=="]
-// which are the jobID directories under job_events/.
-func ListS3Directories(s3Client *s3.S3, bucket string, prefix string) ([]string, error) {
-	result, err := s3Client.ListObjectsV2(&s3.ListObjectsV2Input{
-		Bucket:    aws.String(bucket),
-		Prefix:    aws.String(prefix),
-		Delimiter: aws.String("/"),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list S3 directories under %s: %w", prefix, err)
-	}
-
-	// Extract directory names from CommonPrefixes.
-	var directories []string
-	for _, commonPrefix := range result.CommonPrefixes {
-		fullPrefix := aws.StringValue(commonPrefix.Prefix)
-		// Extract the directory name by removing the parent prefix and trailing slash.
-		// Example: "log/cluster/session/job_events/AgAAAA==/" -> "AgAAAA=="
-		dirName := strings.TrimPrefix(fullPrefix, prefix)
-		dirName = strings.TrimSuffix(dirName, "/")
-		if dirName != "" {
-			directories = append(directories, dirName)
-		}
-	}
-
-	return directories, nil
 }

@@ -3,7 +3,7 @@ kind: RayCluster
 metadata:
   name: ray-cluster-with-k8s-auth
 spec:
-  rayVersion: '2.55.0'
+  rayVersion: '2.57.0'
   headGroupSpec:
     rayStartParams: {}
     template:
@@ -12,8 +12,7 @@ spec:
         containers:
         - name: ray-head
           imagePullPolicy: Always
-          # TODO: update to rayproject/ray:2.55.0 once released
-          image: rayproject/ray:nightly
+          image: rayproject/ray:2.57.0
           env:
           - name: RAY_AUTH_MODE
             value: "token"
@@ -54,8 +53,7 @@ spec:
         containers:
         - name: ray-worker
           imagePullPolicy: Always
-          # TODO: update to rayproject/ray:2.55.0 once released
-          image: rayproject/ray:nightly
+          image: rayproject/ray:2.57.0
           env:
           - name: RAY_AUTH_MODE
             value: "token"

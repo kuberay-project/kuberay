@@ -25,7 +25,7 @@ import (
 type EventHandler struct {
 	reader storage.StorageReader
 
-	ClusterTaskMap *types.ClusterTaskMap
+	ClusterTaskMap     *types.ClusterTaskMap
 	ClusterActorMap    *types.ClusterActorMap
 	ClusterJobMap      *types.ClusterJobMap
 	ClusterNodeMap     *types.ClusterNodeMap
@@ -133,7 +133,7 @@ func (h *EventHandler) storeEvent(clusterSessionKey string, eventMap map[string]
 	}
 	eventType := types.EventType(eventTypeStr)
 
-	logrus.Infof("current eventType: %v", eventType)
+	logrus.Debugf("current eventType: %v", eventType)
 	switch eventType {
 	case types.TASK_DEFINITION_EVENT:
 		return h.handleTaskDefinitionEvent(eventMap, clusterSessionKey, false)
@@ -522,7 +522,7 @@ func (h *EventHandler) storeEvent(clusterSessionKey string, eventMap map[string]
 // getClusterLogPathPrefix returns the cluster storage prefix:
 // e.g., cluster-history/{ownerKind}/{namespace}/{ownerName}/{clusterName}
 func (h *EventHandler) getClusterLogPathPrefix(clusterInfo utils.ClusterInfo) string {
-	return clusterlogs.Prefix("", clusterInfo.OwnerKind, clusterInfo.OwnerName, clusterInfo.Namespace, clusterInfo.Name)
+	return clusterlogs.Prefix("", clusterInfo)
 }
 
 // getAllJobEventFiles get all the job event files for the given cluster.
@@ -532,11 +532,8 @@ func (h *EventHandler) getAllJobEventFiles(clusterInfo utils.ClusterInfo) []stri
 
 	// Check candidate prefixes under each node (<sessionName>/<nodeName>/job_events/)
 	var candidatePrefixes []string
-	for _, rawEntry := range h.reader.ListFiles(clusterLogPathPrefix, clusterInfo.SessionName) {
-		if strings.HasSuffix(rawEntry, "/") {
-			nodeName := strings.TrimSuffix(rawEntry, "/")
-			candidatePrefixes = append(candidatePrefixes, clusterlogs.RelJobEventsDir(clusterInfo.SessionName, nodeName, "")+"/")
-		}
+	for _, nodeName := range clusterlogs.ListSessionNodeDirs(h.reader, clusterLogPathPrefix, clusterInfo.SessionName) {
+		candidatePrefixes = append(candidatePrefixes, clusterlogs.RelJobEventsDir(clusterInfo.SessionName, nodeName, "")+"/")
 	}
 
 	for _, jobEventDirPrefix := range candidatePrefixes {
@@ -563,11 +560,8 @@ func (h *EventHandler) getAllNodeEventFiles(clusterInfo utils.ClusterInfo) []str
 
 	// Check candidate prefixes under each node (<sessionName>/<nodeName>/node_events/)
 	var candidatePrefixes []string
-	for _, rawEntry := range h.reader.ListFiles(clusterLogPathPrefix, clusterInfo.SessionName) {
-		if strings.HasSuffix(rawEntry, "/") {
-			nodeName := strings.TrimSuffix(rawEntry, "/")
-			candidatePrefixes = append(candidatePrefixes, clusterlogs.RelNodeEventsDir(clusterInfo.SessionName, nodeName)+"/")
-		}
+	for _, nodeName := range clusterlogs.ListSessionNodeDirs(h.reader, clusterLogPathPrefix, clusterInfo.SessionName) {
+		candidatePrefixes = append(candidatePrefixes, clusterlogs.RelNodeEventsDir(clusterInfo.SessionName, nodeName)+"/")
 	}
 
 	var nodeEventFiles []string
@@ -715,11 +709,13 @@ func (h *EventHandler) handleTaskDefinitionEvent(eventMap map[string]any, cluste
 			task.WorkerPID = existingWorkerPID
 			task.IsDebuggerPaused = existingIsDebuggerPaused
 			task.ActorReprName = existingActorReprName
-			task.TaskLogInfo = existingTaskLogInfo
 			task.State = task.GetLastState()
 			task.StartTime = existingStartTime
 			task.EndTime = existingEndTime
 			task.CreationTime = existingCreationTime
+		}
+		if existingTaskLogInfo != nil {
+			task.TaskLogInfo = existingTaskLogInfo
 		}
 
 		// Restore profile-derived fields (from TASK_PROFILE_EVENT)
@@ -733,6 +729,52 @@ func (h *EventHandler) handleTaskDefinitionEvent(eventMap map[string]any, cluste
 	})
 
 	return nil
+}
+
+// mergeTaskLogInfo combines Ray's partial log-start and log-end updates.
+func mergeTaskLogInfo(current **types.TaskLogInfo, update *types.TaskLogInfo) {
+	if update == nil {
+		return
+	}
+	if *current == nil {
+		copied := *update
+		*current = &copied
+		return
+	}
+
+	mergeTaskLogStream(
+		&(*current).StdoutFile,
+		&(*current).StdoutStart,
+		&(*current).StdoutEnd,
+		update.StdoutFile,
+		update.StdoutStart,
+		update.StdoutEnd,
+	)
+	mergeTaskLogStream(
+		&(*current).StderrFile,
+		&(*current).StderrStart,
+		&(*current).StderrEnd,
+		update.StderrFile,
+		update.StderrStart,
+		update.StderrEnd,
+	)
+}
+
+func mergeTaskLogStream(
+	currentFile *string,
+	currentStart, currentEnd *int64,
+	updateFile string,
+	updateStart, updateEnd int64,
+) {
+	if updateFile != "" {
+		*currentFile = updateFile
+		*currentStart = updateStart
+	} else if updateStart != 0 {
+		*currentStart = updateStart
+	}
+	if updateEnd != 0 || *currentEnd == 0 {
+		*currentEnd = updateEnd
+	}
 }
 
 // handleTaskLifecycleEvent processes TASK_LIFECYCLE_EVENT and merges state transitions for a given task attempt.
@@ -756,9 +798,8 @@ func (h *EventHandler) handleTaskLifecycleEvent(eventMap map[string]any, cluster
 	}
 	normalizeTaskIDsToHex(&currTask)
 
-	// TODO(jiangjiawei1103): Clarify if there must be at least one state transition. Can one task have more than one state transition?
-	if len(currTask.StateTransitions) == 0 {
-		return fmt.Errorf("TASK_LIFECYCLE_EVENT must have at least one state transition")
+	if len(currTask.StateTransitions) == 0 && currTask.TaskLogInfo == nil {
+		return fmt.Errorf("TASK_LIFECYCLE_EVENT must have at least one state transition or task log info")
 	}
 
 	taskMap := h.ClusterTaskMap.GetOrCreateTaskMap(clusterSessionKey)
@@ -788,16 +829,18 @@ func (h *EventHandler) handleTaskLifecycleEvent(eventMap map[string]any, cluster
 			return task.StateTransitions[i].Timestamp.Before(task.StateTransitions[j].Timestamp)
 		})
 
-		if len(task.StateTransitions) == 0 {
+		if currTask.JobID != "" {
+			task.JobID = currTask.JobID
+		}
+		mergeTaskLogInfo(&task.TaskLogInfo, currTask.TaskLogInfo)
+
+		if len(currTask.StateTransitions) == 0 {
 			return
 		}
 
 		// TODO(jiangjiawei1103): Before beta, the lifecycle-related fields are overwritten.
 		// In beta, the complete historical replay will be supported.
 		task.RayErrorInfo = currTask.RayErrorInfo
-		if currTask.JobID != "" {
-			task.JobID = currTask.JobID
-		}
 		if currTask.NodeID != "" {
 			task.NodeID = currTask.NodeID
 		}
@@ -809,7 +852,6 @@ func (h *EventHandler) handleTaskLifecycleEvent(eventMap map[string]any, cluster
 		}
 		task.IsDebuggerPaused = currTask.IsDebuggerPaused
 		task.ActorReprName = currTask.ActorReprName
-		task.TaskLogInfo = currTask.TaskLogInfo
 		task.State = task.GetLastState()
 
 		// Derive creation time, start time and end time from state transitions.
@@ -938,7 +980,7 @@ func (h *EventHandler) handleTaskProfileEvent(eventMap map[string]any, clusterSe
 	}
 
 	// Convert events to ProfileEventRaw format
-	var rawEvents = make([]types.ProfileEventRaw, 0, len(profileData.ProfileEvents.Events))
+	rawEvents := make([]types.ProfileEventRaw, 0, len(profileData.ProfileEvents.Events))
 	for _, e := range profileData.ProfileEvents.Events {
 		startTime, err := strconv.ParseInt(e.StartTime, 10, 64)
 		if err != nil {
@@ -1015,7 +1057,7 @@ func (h *EventHandler) handleTaskProfileEvent(eventMap map[string]any, clusterSe
 		// Extract func_or_class_name from extraData if available
 		for _, e := range rawEvents {
 			if strings.HasPrefix(e.EventName, taskPrefix) && e.ExtraData != "" {
-				var extra map[string]interface{}
+				var extra map[string]any
 				if err := json.Unmarshal([]byte(e.ExtraData), &extra); err == nil {
 					if name, ok := extra["name"].(string); ok && name != "" {
 						// For actor methods, name might be just "increment" or "get_count"

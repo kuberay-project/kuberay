@@ -1,6 +1,7 @@
 package types
 
 import (
+	"maps"
 	"sync"
 	"time"
 )
@@ -151,9 +152,7 @@ func (n Node) DeepCopy() Node {
 
 	if len(n.Labels) > 0 {
 		cp.Labels = make(map[string]string, len(n.Labels))
-		for k, v := range n.Labels {
-			cp.Labels[k] = v
-		}
+		maps.Copy(cp.Labels, n.Labels)
 	}
 
 	if len(n.StateTransitions) > 0 {
@@ -163,9 +162,7 @@ func (n Node) DeepCopy() Node {
 
 			if len(tr.Resources) > 0 {
 				cp.StateTransitions[i].Resources = make(map[string]float64, len(tr.Resources))
-				for k, v := range tr.Resources {
-					cp.StateTransitions[i].Resources[k] = v
-				}
+				maps.Copy(cp.StateTransitions[i].Resources, tr.Resources)
 			}
 
 			if tr.DeathInfo != nil {

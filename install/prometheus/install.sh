@@ -48,7 +48,23 @@ if [[ "$AUTO_LOAD_DASHBOARD" == "true" ]]; then
   done
 fi
 
-helm --namespace prometheus-system install prometheus prometheus-community/kube-prometheus-stack --version 48.2.1 -f "${DIR}"/overrides.yaml
+# Pull the chart to a local cache once (with retries) and install from the cached file instead.
+CHART_TGZ="/tmp/kube-prometheus-stack-48.2.1.tgz"
+if [[ ! -f "$CHART_TGZ" ]]; then
+  for attempt in 1 2 3; do
+    if helm pull prometheus-community/kube-prometheus-stack --version 48.2.1 -d /tmp; then
+      break
+    fi
+    if [[ "$attempt" == 3 ]]; then
+      echo "helm pull failed after ${attempt} attempts"
+      exit 1
+    fi
+    echo "helm pull failed (attempt ${attempt}/3), retrying in 5s..."
+    sleep 5
+  done
+fi
+
+helm --namespace prometheus-system install prometheus "$CHART_TGZ" -f "${DIR}"/overrides.yaml
 
 # set the place of monitor files
 monitor_dir="${DIR}"/../../config/prometheus

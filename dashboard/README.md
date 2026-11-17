@@ -1,4 +1,4 @@
-# Kuberay Dashboard
+# KubeRay Dashboard
 
 This is the repo for the open source dashboard for KubeRay
 
@@ -10,41 +10,44 @@ First, clone the KubeRay repo and cd to the `apiserver` folder. Then, create a l
 components by running
 
 ```bash
-make cluster
-make operator-image
-make load-operator-image
-make deploy-operator
-make install
+make cluster operator-image load-operator-image deploy-operator install
+kubectl -n ray-system rollout status deploy/kuberay-apiserver
 ```
 
-Now, you should be able to access the KubeRay apiserver at `http://localhost:31888/apis/v1/namespaces/default/jobs`.
+The API server is then available at `http://localhost:31888/apis/ray.io/v1/namespaces/default/rayjobs`.
 
-Now, to deploy the dashboard, you can run `yarn dev` and go to `localhost:3000/ray/jobs` on your browser. Note that
-you might need to disable CORS by launching Chrome with
+Now, to deploy the dashboard, `cd` to the `dashboard` folder and run:
 
 ```bash
-open -n -a /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --args --user-data-dir="/tmp/chrome_dev_test"
---disable-web-security
+yarn
+yarn dev
 ```
 
-If you have any ray jobs in the kind cluster, they will show up here. If not, you can create new ones by clicking on the
-Create Job button, choosing a random compute template (they don't work yet), and clicking "Create Job".
+Open [http://localhost:3000/jobs](http://localhost:3000/jobs). The tables are empty until you create resources
+(run `kubectl` from the repository root):
 
-If you run into an error about missing compute template, you can apply the demo/compute-template.yaml file.
+- **Jobs**: Use Create Job in the UI, or
+  `kubectl apply -f ray-operator/config/samples/ray-job.sample.yaml`
+- **Clusters**: There is no create-cluster button; apply
+  `kubectl apply -f ray-operator/config/samples/ray-cluster.sample.yaml`
+  and open `/clusters`. A RayJob also creates a cluster, so the job sample appears there too.
+- **History**: This UI still has a `/history` tab, but the supported path is the
+  [Ray Dashboard + History Server](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/kuberay-history-server.html).
 
 ## What works
 
-You can view the list of ray jobs and ray clusters. You can search and filter them using frontend components. You can
-delete them using the select button. You can also create a test job, but the compute templates don't work yet.
+You can view the list of Ray jobs and Ray clusters. You can search and filter them using frontend
+components. You can delete them using the select button. You can also create a test job, but the
+compute templates don't work yet. Links to the Ray head dashboard are available once the cluster
+service is ready.
 
 ## What doesn't work
 
-The Grafana and Logs link don't work since the KubeRay apiserver doesn't return the metrics/logs links. We should allow
-users to customize their metrics/logs link templates based on their observability setup.
+The Grafana link is empty because the dashboard does not yet let users customize metrics URL
+templates for their observability setup.
 
-Create job doesn't work with compute templates yet. We don't have a detailed view of each job/cluster. We also don't
-have links to the Ray head node dashboard as the user would need to expose them securely. We also need to add a
-namespace selector since it's using the "default" namespace right now.
+We don't have a detailed view of each job/cluster. We also need to add a namespace selector since
+it's using the "default" namespace right now.
 
 ## Note on open source
 
@@ -70,10 +73,7 @@ the standard React framework.
 Since we don’t need SEO, we can build it as a SPA instead of using SSR (server-side rendering), which Next.js is known
 for. Nonetheless, Next.js is still good for building SPAs, since it provides a file-system based router, fast local
 development with TurboPack, a performant Rust-based transpiler called SWC, and built-in optimizations for asset-loading
-(such as fonts and images).
-
-To disable SSR, we can use React Router and change server config like
-[this](https://dev.to/apkoponen/how-to-disable-server-side-rendering-ssr-in-next-js-1563) or use dynamic.
+(such as fonts and images). The app uses the App Router with client components (`"use client"`) rather than SSR.
 
 ### UI Framework ➜ MUI (Joy UI)
 
@@ -92,39 +92,3 @@ Since our app is a dashboard, we want to revalidate the data every 5s like Grafa
 information than UI latency, we won’t use the optimistic UI feature for POST requests, which mutates data immediately
 and only rollback if the request didn’t go through. Instead, we will show a spinner for every API call like Kubeflow
 does.
-
-## Next.js
-
-This is a [Next.js](https://nextjs.org/) project bootstrapped with
-[`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
-
-### Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and
-load Inter, a custom Google Font.
-
-### Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions
-are welcome!

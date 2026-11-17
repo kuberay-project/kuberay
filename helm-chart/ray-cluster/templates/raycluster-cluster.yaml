@@ -20,6 +20,14 @@ spec:
   autoscalerOptions:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- with .Values.upgradeStrategy }}
+  upgradeStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.authOptions }}
+  authOptions:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   {{- if .Values.gcsFaultTolerance.enabled }}
   gcsFaultToleranceOptions:
     redisAddress: {{ .Values.gcsFaultTolerance.redisAddress | quote }}
@@ -38,6 +46,13 @@ spec:
   headGroupSpec:
     {{- with .Values.head.headService }}
     headService:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.head.enableIngress }}
+    enableIngress: {{ . }}
+    {{- end }}
+    {{- with .Values.head.ingressOptions }}
+    ingressOptions:
       {{- toYaml . | nindent 6 }}
     {{- end }}
     {{- with .Values.service.type }}
@@ -91,7 +106,7 @@ spec:
           env:
           {{- toYaml . | nindent 10 }}
           {{- end }}
-          {{- with .Values.head.envFrom }}
+          {{- with concat (.Values.common.envFrom | default list) (.Values.head.envFrom | default list) }}
           envFrom:
           {{- toYaml . | nindent 10 }}
           {{- end }}
@@ -174,7 +189,11 @@ spec:
   - groupName: {{ .Values.worker.groupName }}
     replicas: {{ .Values.worker.replicas }}
     minReplicas: {{ .Values.worker.minReplicas | default 0 }}
-    maxReplicas: {{ .Values.worker.maxReplicas | default 2147483647 }}
+    {{- if ne .Values.worker.maxReplicas nil }}
+    maxReplicas: {{ .Values.worker.maxReplicas }}
+    {{- else }}
+    maxReplicas: 2147483647
+    {{- end }}
     numOfHosts: {{ .Values.worker.numOfHosts | default 1 }}
     {{- if or .Values.worker.rayStartParams .Values.worker.initArgs }}
     rayStartParams:
@@ -224,7 +243,7 @@ spec:
           env:
           {{- toYaml . | nindent 10 }}
           {{- end }}
-          {{- with .Values.worker.envFrom }}
+          {{- with concat (.Values.common.envFrom | default list) (.Values.worker.envFrom | default list) }}
           envFrom:
           {{- toYaml . | nindent 10 }}
           {{- end }}
@@ -308,7 +327,11 @@ spec:
   - groupName: {{ $groupName }}
     replicas: {{ $values.replicas }}
     minReplicas: {{ $values.minReplicas | default 0 }}
-    maxReplicas: {{ $values.maxReplicas | default 2147483647 }}
+    {{- if ne $values.maxReplicas nil }}
+    maxReplicas: {{ $values.maxReplicas }}
+    {{- else }}
+    maxReplicas: 2147483647
+    {{- end }}
     numOfHosts: {{ $values.numOfHosts | default 1 }}
     {{- if or $values.rayStartParams $values.initArgs }}
     rayStartParams:
@@ -358,7 +381,7 @@ spec:
           env:
           {{- toYaml . | nindent 10 }}
           {{- end }}
-          {{- with $values.envFrom }}
+          {{- with concat ($.Values.common.envFrom | default list) ($values.envFrom | default list) }}
           envFrom:
           {{- toYaml . | nindent 10 }}
           {{- end }}

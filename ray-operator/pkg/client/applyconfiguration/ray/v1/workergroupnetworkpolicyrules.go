@@ -13,7 +13,7 @@ import (
 type WorkerGroupNetworkPolicyRulesApplyConfiguration struct {
 	// GroupName matches WorkerGroupSpec.GroupName.
 	GroupName                            *string `json:"groupName,omitempty"`
-	NetworkPolicyRulesApplyConfiguration `json:",inline"`
+	NetworkPolicyRulesApplyConfiguration `json:""`
 }
 
 // WorkerGroupNetworkPolicyRulesApplyConfiguration constructs a declarative configuration of the WorkerGroupNetworkPolicyRules type for use with

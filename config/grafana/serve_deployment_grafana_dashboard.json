@@ -2147,7 +2147,7 @@
     "schemaVersion": 27,
     "style": "dark",
     "tags": [
-        "rayVersion:2.56.0"
+        "rayVersion:2.58.0"
     ],
     "templating": {
         "list": [
@@ -2314,7 +2314,7 @@
                 },
                 "datasource": "${datasource}",
                 "definition": "label_values(ray_node_network_receive_speed{}, ray_io_cluster)",
-                "description": "Filter queries to specific Ray clusters for KubeRay. When ingesting metrics across multiple ray clusters, the ray_io_cluster label should be set per cluster. For KubeRay users, this is done automaticaly with Prometheus PodMonitor.",
+                "description": "Filter queries to specific Ray clusters for KubeRay. When ingesting metrics across multiple ray clusters, the ray_io_cluster label should be set per cluster. For KubeRay users, this is done automatically with Prometheus PodMonitor.",
                 "error": null,
                 "hide": 0,
                 "includeAll": true,

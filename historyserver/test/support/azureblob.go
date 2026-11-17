@@ -24,7 +24,7 @@ const (
 	AzureContainerName  = "ray-historyserver"
 
 	// Azure-specific RayCluster config
-	AzureRayClusterManifestPath    = "../../config/raycluster-azureblob.yaml"
+	AzureRayClusterManifestPath    = "../testdata/raycluster-azureblob.yaml"
 	AzureHistoryServerManifestPath = "../../config/historyserver-azureblob.yaml"
 )
 
@@ -84,7 +84,7 @@ func NewAzureBlobClient() (*azblob.Client, error) {
 }
 
 // DeleteAzureBlobContainer deletes all blobs in the Azure container.
-func DeleteAzureBlobContainer(test Test, g *WithT, azureClient *azblob.Client) {
+func DeleteAzureBlobContainer(test Test, _ *WithT, azureClient *azblob.Client) {
 	LogWithTimestamp(test.T(), "Deleting Azure Blob container %s", AzureContainerName)
 
 	containerClient := azureClient.ServiceClient().NewContainerClient(AzureContainerName)

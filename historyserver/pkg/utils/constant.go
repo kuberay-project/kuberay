@@ -2,7 +2,10 @@ package utils
 
 import (
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 const (
@@ -14,15 +17,29 @@ const (
 	RayServiceKind = "rayservice"
 	RayClusterKind = "raycluster"
 
-	RAY_AUTH_TOKEN_SECRET_KEY = "auth_token"
-
 	// RayContainerIndex is the index of the Ray container in the head pod template.
 	RayContainerIndex = 0
 	// DashboardPortName is the name the ray-operator gives the dashboard port.
 	DashboardPortName = "dashboard"
 	// DefaultDashboardPort is used when the head container does not declare a dashboard port.
 	DefaultDashboardPort = 8265
+
+	// RotatedLogMarker separates a rotated log generation's identity from the
+	// active log name it was rotated out of: <base>.rotated.<time>-<inode><ext>.
+	RotatedLogMarker = ".rotated."
+
+	// DefaultLogUploadInterval is how often the collector scans the active
+	// session log directory and uploads rotation backups and active log chunks.
+	// A shorter interval creates more smaller objects in the object store, which
+	// slows down reads that merge the chunks.
+	DefaultLogUploadInterval = 5 * time.Minute
 )
+
+// IsRotatedLogName reports whether a log file name refers to a rotated
+// generation uploaded by the collector rather than an active Ray log stream.
+func IsRotatedLogName(name string) bool {
+	return strings.Contains(path.Base(name), RotatedLogMarker)
+}
 
 func GetTmpRayRoot() string {
 	if tmpRoot := os.Getenv("RAY_TMP_ROOT"); tmpRoot != "" {

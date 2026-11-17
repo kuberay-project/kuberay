@@ -70,6 +70,39 @@ FeatureGates
 {{- end }}
 {{- end }}
 
+{{/*
+Whether the KubernetesWAS feature gate is enabled in .Values.featureGates.
+*/}}
+{{- define "kuberay.kubernetesWASEnabled" -}}
+{{- range .Values.featureGates -}}
+{{- if and (eq .name "KubernetesWAS") .enabled -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether the NodeLabelDelivery feature gate is enabled in .Values.featureGates.
+*/}}
+{{- define "kuberay.nodeLabelDeliveryEnabled" -}}
+{{- range .Values.featureGates -}}
+{{- if and (eq .name "NodeLabelDelivery") .enabled -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{- /* Names shared by the admission webhook templates and the Deployment. */ -}}
+{{- define "kuberay-operator.webhook.serviceName" -}}
+{{- include "kuberay-operator.fullname" . -}}-webhook
+{{- end -}}
+{{- define "kuberay-operator.webhook.certName" -}}
+{{- include "kuberay-operator.fullname" . -}}-serving-cert
+{{- end -}}
+{{- define "kuberay-operator.webhook.certSecretName" -}}
+{{- include "kuberay-operator.fullname" . -}}-webhook-server-cert
+{{- end -}}
+
 {{- /* Create the name of the service to use. */ -}}
 {{- define "kuberay-operator.service.name" -}}
 {{- include "kuberay-operator.fullname" . }}
@@ -130,7 +163,27 @@ It should be called early in the deployment to ensure invalid values are caught.
 {{- end }}
 {{- end }}
 {{- end }}
+{{- $nodeEventForwarderEnabled := false -}}
+{{- if and (hasKey .Values "nodeEventForwarder") (hasKey .Values.nodeEventForwarder "enabled") -}}
+  {{- $nodeEventForwarderEnabled = .Values.nodeEventForwarder.enabled -}}
+{{- end -}}
+{{- if and .Values.singleNamespaceInstall $nodeEventForwarderEnabled }}
+{{- fail "nodeEventForwarder is not supported when singleNamespaceInstall is true because Node events are cluster-scoped and recorded in 'default' or 'kube-system', which requires permissions outside a single namespace." }}
 {{- end }}
+{{- if and .Values.singleNamespaceInstall .Values.webhooks.enabled }}
+{{- fail "webhooks are not supported when singleNamespaceInstall is true because the webhook configurations and Node reads are cluster-scoped." }}
+{{- end }}
+{{- end }}
+
+{{- /* Create the name of the node event forwarder role to use. */ -}}
+{{- define "kuberay-operator.nodeEventForwarderRole.name" -}}
+{{- include "kuberay-operator.fullname" . -}}-node-event-forwarder
+{{- end -}}
+
+{{- /* Create the name of the node event forwarder role binding to use. */ -}}
+{{- define "kuberay-operator.nodeEventForwarderRoleBinding.name" -}}
+{{- include "kuberay-operator.fullname" . -}}-node-event-forwarder
+{{- end -}}
 
 {{- /* Create the name of the leader election role to use. */ -}}
 {{- define "kuberay-operator.leaderElectionRole.name" -}}
@@ -147,6 +200,17 @@ Create a template to ensure consistency for Role and ClusterRole.
 */}}
 {{- define "role.consistentRules" -}}
 rules:
+{{- if .clusterScoped }}
+# the pods/binding webhook and controller read the bound node's labels from the informer cache; nodes are cluster-scoped so only the ClusterRole carries it
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+{{- end }}
 - apiGroups:
   - ""
   resources:
@@ -392,6 +456,21 @@ rules:
   - patch
   - update
   - watch
+{{- if .kubernetesWASEnabled }}
+- apiGroups:
+  - scheduling.k8s.io
+  resources:
+  - podgroups
+  - workloads
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+{{- end -}}
 {{- if or .batchSchedulerEnabled (eq .batchSchedulerName "volcano") }}
 - apiGroups:
   - scheduling.volcano.sh

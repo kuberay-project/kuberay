@@ -9,9 +9,19 @@ import (
 	schedulerplugins "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/scheduler-plugins"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/volcano"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/yunikorn"
+	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
 func ValidateBatchSchedulerConfig(logger logr.Logger, config Configuration) error {
+	// The KubernetesWAS feature gate selects the Kubernetes WAS scheduler and is mutually
+	// exclusive with --batch-scheduler and --enable-batch-scheduler.
+	if features.Enabled(features.KubernetesWAS) {
+		if config.EnableBatchScheduler || len(config.BatchScheduler) > 0 {
+			return fmt.Errorf("the KubernetesWAS feature gate cannot be combined with --batch-scheduler or --enable-batch-scheduler")
+		}
+		return nil
+	}
+
 	if config.EnableBatchScheduler && len(config.BatchScheduler) > 0 {
 		return fmt.Errorf("both feature flags enable-batch-scheduler (deprecated) and batch-scheduler are set. Please use batch-scheduler only")
 	}
