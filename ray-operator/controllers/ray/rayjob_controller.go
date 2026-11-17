@@ -251,8 +251,9 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			break
 		}
 
-		var rayClusterInstance *rayv1.RayCluster
-		if rayClusterInstance, err = r.getOrCreateRayClusterInstance(ctx, rayJobInstance); err != nil {
+		// Waiting is only for InteractiveMode after the RayCluster already exists; get without create.
+		rayClusterInstance := &rayv1.RayCluster{}
+		if err := r.Get(ctx, common.RayJobRayClusterNamespacedName(rayJobInstance), rayClusterInstance); err != nil {
 			return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
 		}
 		if shouldUpdate := checkHeadPodFailedAndUpdateStatusIfNeeded(ctx, rayJobInstance, rayClusterInstance); shouldUpdate {
