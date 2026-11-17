@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"path"
 
 	"github.com/sirupsen/logrus"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -11,7 +13,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/ray-project/kuberay/historyserver/pkg/eventserver"
+	eventtypes "github.com/ray-project/kuberay/historyserver/pkg/eventserver/types"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage"
+	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 )
@@ -92,10 +96,68 @@ func (p *SessionProcessor) ProcessSession(ctx context.Context, session utils.Clu
 		return SessionStatusEventsErr, nil, fmt.Errorf("process events for %s/%s: %w", session.Namespace, session.Name, err)
 	}
 
-	if !dead {
-		return SessionStatusProcessedRunning, h.BuildSnapshot(session), nil
+	snap := h.BuildSnapshot(session)
+	submissions, err := p.loadSubmissions(ctx, session)
+	if err != nil {
+		return SessionStatusCanceled, nil, err
 	}
-	return SessionStatusProcessed, h.BuildSnapshot(session), nil
+	snap.Submissions = submissions
+	logJobReplayConflicts(session, snap)
+	if !dead {
+		return SessionStatusProcessedRunning, snap, nil
+	}
+	return SessionStatusProcessed, snap, nil
+}
+
+// The Jobs API object is optional. Storage failures and bad rows cannot invalidate
+// successfully processed events; cancellation still invalidates the whole load.
+func (p *SessionProcessor) loadSubmissions(ctx context.Context, session utils.ClusterInfo) (map[string]eventtypes.JobDetails, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	prefix := clusterlogs.Prefix("", session)
+	filename := path.Join(session.SessionName, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, "restful__api__jobs")
+	r := p.reader.GetContent(prefix, filename)
+	if r == nil {
+		return nil, ctx.Err()
+	}
+	if closer, ok := r.(io.Closer); ok {
+		defer closer.Close()
+	}
+	body, readErr := io.ReadAll(r)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	if isCtxCanceled(readErr) {
+		return nil, readErr
+	}
+
+	if readErr != nil {
+		logrus.Warn("Optional Jobs API snapshot read failed; using events")
+		return nil, nil
+	}
+	records, rowErrors, parseErr := eventtypes.ParseJobDetailsList(body)
+	if parseErr != nil {
+		logrus.Warn("Invalid optional Jobs API snapshot; using events")
+		return nil, nil
+	}
+	if len(rowErrors) > 0 {
+		logrus.Warnf("Skipped %d invalid rows in optional Jobs API snapshot", len(rowErrors))
+	}
+	var submissions map[string]eventtypes.JobDetails
+	for _, record := range records {
+		if record.Type != "SUBMISSION" {
+			continue
+		}
+		if submissions == nil {
+			submissions = make(map[string]eventtypes.JobDetails)
+		}
+		submissions[*record.SubmissionID] = record
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return submissions, nil
 }
 
 // IsDead determines if the RayCluster CR is absent.
