@@ -285,6 +285,7 @@ env:
 # - name: ENABLE_INIT_CONTAINER_INJECTION
 #   value: "true"
 # If set to true, kuberay creates a normal ClusterIP service for a Ray Head instead of a Headless service. Default to false.
+# Not compatible with RayClusters that enable mTLS (tlsOptions), which require a Headless head service.
 # - name: ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE
 #   value: "false"
 # If not set or set to "", kuberay will pick up the default k8s cluster domain `cluster.local`

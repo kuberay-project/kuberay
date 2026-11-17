@@ -3954,6 +3954,29 @@ func TestValidateRayClusterSpec_NetworkPolicyRequiresFeatureGate(t *testing.T) {
 	assert.Contains(t, err.Error(), "RayClusterNetworkPolicy")
 }
 
+// mTLS needs a headless head Service, but ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE makes the default one a ClusterIP Service.
+func TestValidateTLSOptions_OperatorClusterIPHeadService(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
+	t.Setenv(ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE, "true")
+
+	// With the env var set, mTLS is rejected when the default head Service is used.
+	spec := rayv1.RayClusterSpec{
+		TLSOptions: &rayv1.TLSOptions{Enabled: new(true)},
+		HeadGroupSpec: rayv1.HeadGroupSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head", Image: "rayproject/ray:latest"}}},
+			},
+		},
+	}
+	require.ErrorContains(t, validateTLSOptions(&spec), ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE)
+
+	// A custom headless headService is still accepted.
+	spec.HeadGroupSpec.HeadService = &corev1.Service{
+		Spec: corev1.ServiceSpec{ClusterIP: corev1.ClusterIPNone, PublishNotReadyAddresses: true},
+	}
+	require.NoError(t, validateTLSOptions(&spec))
+}
+
 func TestValidateTLSOptions(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
 	baseSpec := func() rayv1.RayClusterSpec {
@@ -4022,6 +4045,46 @@ func TestValidateTLSOptions(t *testing.T) {
 			},
 			expectError: true,
 			errorMsg:    "requires autoscaler v2",
+		},
+		{
+			name: "TLS with enablePodFQDN false - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.EnablePodFQDN = new(false)
+			},
+			expectError: true,
+			errorMsg:    "enablePodFQDN cannot be false",
+		},
+		{
+			name: "TLS with NodePort head service - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.HeadGroupSpec.ServiceType = corev1.ServiceTypeNodePort
+			},
+			expectError: true,
+			errorMsg:    "requires a headless head Service",
+		},
+		{
+			name: "TLS with custom head service that is not headless - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.HeadGroupSpec.HeadService = &corev1.Service{
+					Spec: corev1.ServiceSpec{PublishNotReadyAddresses: true},
+				}
+			},
+			expectError: true,
+			errorMsg:    "clusterIP: None and publishNotReadyAddresses: true",
+		},
+		{
+			name: "TLS with custom head service that hides not-ready addresses - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.HeadGroupSpec.HeadService = &corev1.Service{
+					Spec: corev1.ServiceSpec{ClusterIP: corev1.ClusterIPNone},
+				}
+			},
+			expectError: true,
+			errorMsg:    "clusterIP: None and publishNotReadyAddresses: true",
 		},
 		{
 			name: "tlsOptions set but enabled is false - valid (disables TLS)",

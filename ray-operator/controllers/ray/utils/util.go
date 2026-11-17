@@ -825,6 +825,12 @@ func IsCollectorEnabled(spec *rayv1.RayClusterSpec) bool {
 		spec.HistoryServerOptions.CollectorOptions != nil
 }
 
+// IsRayHeadClusterIPServiceEnabled returns whether the operator is configured to create a
+// regular ClusterIP head Service instead of the default headless one.
+func IsRayHeadClusterIPServiceEnabled() bool {
+	return strings.ToLower(os.Getenv(ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE)) == "true"
+}
+
 // IsTLSEnabled returns whether TLS is enabled for the RayCluster.
 // TLS is enabled when the RayClusterMTLS feature gate is on, spec.TLSOptions is non-nil,
 // and spec.TLSOptions.Enabled is true.

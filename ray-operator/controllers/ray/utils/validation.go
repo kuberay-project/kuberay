@@ -517,6 +517,27 @@ func validateTLSOptions(spec *rayv1.RayClusterSpec) error {
 		return nil
 	}
 
+	// mTLS relies on per-pod FQDNs, so an explicit enablePodFQDN: false contradicts it.
+	if spec.EnablePodFQDN != nil && !*spec.EnablePodFQDN {
+		return fmt.Errorf("enablePodFQDN cannot be false when tlsOptions is enabled; mTLS requires per-pod FQDNs")
+	}
+
+	// Under mTLS the head registers with the head Service FQDN, so the head itself and every
+	// other node reach all head ports through that name. This requires a headless Service
+	// that publishes the head address before the Pod is Ready.
+	head := &spec.HeadGroupSpec
+	if head.ServiceType != "" && head.ServiceType != corev1.ServiceTypeClusterIP {
+		return fmt.Errorf("tlsOptions requires a headless head Service, but headGroupSpec.serviceType is %s", head.ServiceType)
+	}
+	if svc := head.HeadService; svc != nil {
+		if svc.Spec.ClusterIP != corev1.ClusterIPNone || !svc.Spec.PublishNotReadyAddresses {
+			return fmt.Errorf("tlsOptions requires headGroupSpec.headService to set clusterIP: None and publishNotReadyAddresses: true")
+		}
+	} else if IsRayHeadClusterIPServiceEnabled() {
+		return fmt.Errorf("tlsOptions requires a headless head Service, but the operator sets %s=true; "+
+			"unset it or provide a headless headGroupSpec.headService", ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE)
+	}
+
 	// Under mTLS the autoscaler sidecar dials GCS with --gcs-address, which older
 	// `ray kuberay-autoscaler` rejects (https://github.com/ray-project/ray/pull/65894), and
 	// autoscaler v1 matches pods to Ray nodes by IP, which never matches an FQDN.

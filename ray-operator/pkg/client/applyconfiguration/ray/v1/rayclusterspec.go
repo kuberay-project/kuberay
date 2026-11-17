@@ -53,7 +53,7 @@ type RayClusterSpecApplyConfiguration struct {
 	// EnablePodFQDN creates per-pod DNS records (pod hostname/subdomain plus the
 	// headless Service) for worker pods without changing how Ray nodes register.
 	// Ray keeps using pod IPs. Implied when mTLS is enabled, in which case Ray nodes
-	// register with their FQDN instead.
+	// register with their FQDN instead; it must not be set to false together with mTLS.
 	EnablePodFQDN *bool `json:"enablePodFQDN,omitempty"`
 	// HeadGroupSpec is the spec for the head pod
 	HeadGroupSpec *HeadGroupSpecApplyConfiguration `json:"headGroupSpec,omitempty"`
