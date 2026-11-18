@@ -219,7 +219,7 @@ func (options *SubmitJobOptions) Validate(cmd *cobra.Command) error {
 		} else if err != nil {
 			return fmt.Errorf("Error occurred when checking runtime env file: %w", err)
 		} else if !info.Mode().IsRegular() {
-			return fmt.Errorf("Filename given is not a regular file. Failed with: %w", err)
+			return fmt.Errorf("Runtime Env file %s is not a regular file", options.runtimeEnv)
 		}
 
 		runtimeEnvWorkingDir, err := runtimeEnvHasWorkingDir(options.runtimeEnv)
@@ -247,7 +247,7 @@ func (options *SubmitJobOptions) Validate(cmd *cobra.Command) error {
 		} else if err != nil {
 			return fmt.Errorf("Error occurred when checking Ray job file: %w", err)
 		} else if !info.Mode().IsRegular() {
-			return fmt.Errorf("Filename given is not a regular file. Failed with: %w", err)
+			return fmt.Errorf("Ray Job file %s is not a regular file", options.fileName)
 		}
 
 		options.RayJob, err = decodeRayJobYaml(options.fileName)
