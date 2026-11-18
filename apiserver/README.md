@@ -86,7 +86,7 @@ curl --silent -X 'GET' \
 
 ## Usage
 
-After deployment, you can use the `{{baseUrl}}` to access the service. Refer to the [Swagger support section](https://ray-project.github.io/kuberay/components/apiserver/#swagger-support) for complete API definitions.
+After deployment, you can use the `{{baseUrl}}` to access the service. Refer to the [Swagger support section](#swagger-support) for complete API definitions.
 
 - (default) for NodePort access, use port `31888` for connection
 

@@ -30,7 +30,7 @@ gcloud container clusters create kuberay-benchmark-cluster \
 ./install/prometheus/install.sh
 ```
 
-Follow "Step 2: Install Kubernetes Prometheus Stack via Helm chart" in [prometheus-grafana.md](https://github.com/ray-project/kuberay/blob/master/docs/guidance/prometheus-grafana.md#step-2-install-kubernetes-prometheus-stack-via-helm-chart) to install the [kube-prometheus-stack v48.2.1](https://github.com/prometheus-community/helm-charts/tree/kube-prometheus-stack-48.2.1/charts/kube-prometheus-stack) chart and related custom resources.
+Follow "Step 2: Install Kubernetes Prometheus Stack via Helm chart" in [prometheus-grafana.md](https://docs.ray.io/en/latest/cluster/kubernetes/k8s-ecosystem/prometheus-grafana.html#step-2-install-kubernetes-prometheus-stack-via-helm-chart) to install the [kube-prometheus-stack v48.2.1](https://github.com/prometheus-community/helm-charts/tree/kube-prometheus-stack-48.2.1/charts/kube-prometheus-stack) chart and related custom resources.
 
 ### Step 3: Install a KubeRay operator
 
@@ -47,7 +47,7 @@ Follow [this document](https://github.com/ray-project/kuberay/blob/master/helm-c
   python3 memory_benchmark_utils.py | tee benchmark_log
   ```
 
-* Step 4.3: Follow [prometheus-grafana.md](https://github.com/ray-project/kuberay/blob/master/docs/guidance/prometheus-grafana.md#step-2-install-kubernetes-prometheus-stack-via-helm-chart) to access Grafana's dashboard.
+* Step 4.3: Follow [prometheus-grafana.md](https://docs.ray.io/en/latest/cluster/kubernetes/k8s-ecosystem/prometheus-grafana.html#step-2-install-kubernetes-prometheus-stack-via-helm-chart) to access Grafana's dashboard.
   * Sign into the Grafana dashboard.
   * Click on "Dashboards"
   * Select "Kubernetes / Compute Resources / Pod"
