@@ -119,6 +119,12 @@ var podTemplateTest = corev1.PodTemplateSpec{
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
 						SecretName: "my-secret",
+						Items: []corev1.KeyToPath{
+							{
+								Key:  "secret-key",
+								Path: "secret-path",
+							},
+						},
 					},
 				},
 			},
@@ -174,6 +180,9 @@ var expectedVolumes = []*api.Volume{
 		MountPath:  "/tmp/secret",
 		VolumeType: api.Volume_SECRET,
 		Source:     "my-secret",
+		Items: map[string]string{
+			"secret-key": "secret-path",
+		},
 	},
 	{
 		Name:       "emptyDir",
