@@ -3,6 +3,7 @@ package ray
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -119,6 +120,8 @@ func (r *RayCronJobReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 	if err := r.Create(ctx, rayJob); err != nil {
 		if !errors.IsAlreadyExists(err) {
 			logger.Error(err, "Failed to create RayJob from RayCronJob")
+			r.Recorder.Eventf(rayCronJobInstance, nil, corev1.EventTypeWarning, string(utils.FailedToCreateRayJob), string(utils.CreateAction),
+				"Failed to create RayJob %s/%s: %v", rayJob.Namespace, rayJob.Name, err)
 			return ctrl.Result{}, err
 		}
 		// The deterministic name means a RayJob for this tick already exists, so a previous
@@ -168,18 +171,22 @@ func getRayJobName(cronJobName string, scheduledTime time.Time) string {
 }
 
 func (r *RayCronJobReconciler) constructRayJob(cronJob *rayv1.RayCronJob, expectedTimestamp time.Time) (*rayv1.RayJob, error) {
+	labels := make(map[string]string, len(cronJob.Spec.JobTemplate.Labels))
+	maps.Copy(labels, cronJob.Spec.JobTemplate.Labels)
+	labels[utils.RayCronJobNameLabelKey] = cronJob.Name
+
+	annotations := make(map[string]string, len(cronJob.Spec.JobTemplate.Annotations))
+	maps.Copy(annotations, cronJob.Spec.JobTemplate.Annotations)
+	annotations[utils.RayCronJobTimestampAnnotationKey] = expectedTimestamp.UTC().Format(time.RFC3339)
+
 	rayJob := &rayv1.RayJob{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      getRayJobName(cronJob.Name, expectedTimestamp),
-			Namespace: cronJob.Namespace,
-			Labels: map[string]string{
-				utils.RayCronJobNameLabelKey: cronJob.Name,
-			},
-			Annotations: map[string]string{
-				utils.RayCronJobTimestampAnnotationKey: expectedTimestamp.UTC().Format(time.RFC3339),
-			},
+			Name:        getRayJobName(cronJob.Name, expectedTimestamp),
+			Namespace:   cronJob.Namespace,
+			Labels:      labels,
+			Annotations: annotations,
 		},
-		Spec: *cronJob.Spec.JobTemplate.DeepCopy(),
+		Spec: *cronJob.Spec.JobTemplate.Spec.DeepCopy(),
 	}
 
 	// Set the ownership in order to do the garbage collection by k8s.

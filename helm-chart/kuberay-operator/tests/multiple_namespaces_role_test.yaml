@@ -70,4 +70,6 @@ tests:
               - nodes
             verbs:
               - get
+              - list
+              - watch
         documentIndex: 0

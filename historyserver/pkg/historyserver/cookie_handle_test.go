@@ -111,7 +111,10 @@ func TestCookieHandleAllowsLiveSessionWhenEnabled(t *testing.T) {
 // TestCookieHandlePassesStoredSessionWhenLiveDisabled confirms the gate is scoped to the live
 // sentinel and does not disturb replay of stored sessions.
 func TestCookieHandlePassesStoredSessionWhenLiveDisabled(t *testing.T) {
-	handler := &ServerHandler{clientManager: newTestClientManager()}
+	handler := &ServerHandler{
+		clientManager: newTestClientManager(),
+		sessionLoader: newTestLoader(t, &fakeProcessor{}, loaderTestConfig{}),
+	}
 
 	cookies := liveCookies()
 	cookies[COOKIE_SESSION_NAME_KEY] = "session_2026-04-22_10-00-00_000000_1"

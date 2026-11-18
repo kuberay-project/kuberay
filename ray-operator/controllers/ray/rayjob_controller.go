@@ -437,13 +437,6 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			}
 		}()
 
-		// The RayJob has reached a terminal state. Handle the cleanup and deletion logic.
-		// If the RayJob uses an existing RayCluster, we must not delete it.
-		if len(rayJobInstance.Spec.ClusterSelector) > 0 {
-			logger.Info("RayJob is using an existing RayCluster via clusterSelector; skipping resource deletion.", "RayClusterSelector", rayJobInstance.Spec.ClusterSelector)
-			return ctrl.Result{}, nil
-		}
-
 		if features.Enabled(features.RayJobDeletionPolicy) && rayJobInstance.Spec.DeletionStrategy != nil {
 			// The previous validation logic ensures that either DeletionRules or the legacy policies are set, but not both.
 			if rayJobInstance.Spec.DeletionStrategy.DeletionRules != nil {
@@ -848,6 +841,11 @@ func (r *RayJobReconciler) deleteClusterResources(ctx context.Context, rayJobIns
 
 func (r *RayJobReconciler) suspendWorkerGroups(ctx context.Context, rayJobInstance *rayv1.RayJob) error {
 	logger := ctrl.LoggerFrom(ctx)
+	if len(rayJobInstance.Spec.ClusterSelector) > 0 {
+		logger.Info("RayJob is using an existing RayCluster via clusterSelector; skipping worker suspension.", "RayClusterSelector", rayJobInstance.Spec.ClusterSelector)
+		return nil
+	}
+
 	clusterIdentifier := common.RayJobRayClusterNamespacedName(rayJobInstance)
 
 	cluster := rayv1.RayCluster{}
@@ -1570,6 +1568,7 @@ func (r *RayJobReconciler) handleShutdownAfterJobFinishes(ctx context.Context, r
 
 	var err error
 	if s := os.Getenv(utils.DELETE_RAYJOB_CR_AFTER_JOB_FINISHES); strings.ToLower(s) == "true" {
+		logger.Info("The DELETE_RAYJOB_CR_AFTER_JOB_FINISHES environment variable is deprecated and will be removed in release 1.10.0. Use the RayJob DeletionStrategy API instead.")
 		err = r.Client.Delete(ctx, rayJob)
 		if err == nil {
 			logger.Info("RayJob is deleted", "RayJob", rayJob.Name)

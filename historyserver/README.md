@@ -71,7 +71,8 @@ The history server can be configured using command-line flags:
 - `--enable-live-clusters`: Serve RayClusters that are still running by reverse-proxying to their
   head dashboard (default: `false`). When disabled, a running RayCluster is served from storage
   using whatever the collector has uploaded so far. The cached snapshot does not refresh on its
-  own; enter the cluster with `?reload=true` to re-read it.
+  own; use the reload button on the cluster selector page (or enter the cluster with
+  `?reload=true`) to re-read it.
 
 > [!WARNING]
 > The history server does not authenticate its own callers, and the RayCluster it proxies to is
@@ -134,7 +135,8 @@ History Server supports multiple storage backends:
 
 1. **S3**: For AWS S3 or S3-compatible storage (e.g. RustFS)
 2. **Aliyun OSS**: For Alibaba Cloud Object Storage Service
-3. **Local Test**: For local testing and development
+3. **OCI Object Storage**: For Oracle Cloud Infrastructure Object Storage
+4. **Local Test**: For local testing and development
 
 Each backend requires specific configuration parameters passed through environment variables or configuration files.
 
