@@ -18,7 +18,7 @@ trap "cleanup" EXIT SIGINT
 cleanup
 
 mkdir -p "${TMP_DIFFROOT}"
-cp -a "${DIFFROOT}"/api.md "${TMP_DIFFROOT}"
+cp -a "${DIFFROOT}"/api.md "${DIFFROOT}"/api-ray-docs.md "${TMP_DIFFROOT}"
 
 make api-docs
 echo "diffing ${DIFFROOT} against freshly generated API reference"
