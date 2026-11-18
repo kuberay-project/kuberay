@@ -9,9 +9,9 @@ edit_uri: ""
 
 # Copyright
 copyright: >-
-  Copyright KubeRay a Series of LF Projects, LLC<br>
+  <strong>Copyright Kuberay Series of LF Projects, LLC<br><br>
   For website terms of use, trademark policy and other project policies please see
-  <a href="https://lfprojects.org/policies/">lfprojects.org/policies/</a>.
+  <a href="http://lfprojects.org/policies/">lfprojects.org/policies/</a>.</strong>
 
 # Configuration
 theme:
@@ -29,6 +29,7 @@ nav:
 
 # Customization
 extra:
+  generator: false
   version:
     provider: mike
 
