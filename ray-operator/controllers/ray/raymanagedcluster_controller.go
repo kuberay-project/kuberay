@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -70,10 +71,16 @@ type RayManagedClusterReconciler struct {
 	// Reads the API server itself, for what the cache may not have caught up with yet.
 	APIReader client.Reader
 	Scheme    *runtime.Scheme
+	Recorder  events.EventRecorder
 }
 
 func NewRayManagedClusterReconciler(mgr manager.Manager) *RayManagedClusterReconciler {
-	return &RayManagedClusterReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Scheme: mgr.GetScheme()}
+	return &RayManagedClusterReconciler{
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		Scheme:    mgr.GetScheme(),
+		Recorder:  mgr.GetEventRecorder("raymanagedcluster-controller"),
+	}
 }
 
 // +kubebuilder:rbac:groups=ray.io,resources=raymanagedclusters,verbs=get;list;watch;update;patch
@@ -81,6 +88,7 @@ func NewRayManagedClusterReconciler(mgr manager.Manager) *RayManagedClusterRecon
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete;deletecollection
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 func (r *RayManagedClusterReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
@@ -149,8 +157,14 @@ func (r *RayManagedClusterReconciler) Reconcile(ctx context.Context, request ctr
 			if err != nil && !errors.As(err, &refusal) {
 				// Nothing is recorded, and createdReplicas only rises: the group's later replicas
 				// wait for this one.
+				var clash *nameClashError
+				if errors.As(err, &clash) {
+					r.Recorder.Eventf(&cluster, nil, corev1.EventTypeWarning, "PodNameTaken", "CreatePod",
+						"Group %q's replica %d waits: %v. Pods are named <cluster>-<group>-<replica>-<host>, so rename this cluster or the group",
+						group.Name, replica.Replica, clash)
+				}
 				if errors.Is(err, errNameTaken) {
-					logger.Info("A replica waits for another pod with its pod's name to go", "group", group.Name, "replica", replica.Replica)
+					logger.Info("A replica waits for another pod with its pod's name to go", "group", group.Name, "replica", replica.Replica, "why", err.Error())
 					retry = true
 				} else {
 					errs = append(errs, fmt.Errorf("creating group %q's replica %d: %w", group.Name, replica.Replica, err))
@@ -452,8 +466,9 @@ func (r *RayManagedClusterReconciler) createReplica(ctx context.Context, cluster
 }
 
 // isOwnPod checks the pod with `pod`'s name, from the API server: nil if it's this replica's
-// host's, from a create repeated after a crash; errNameTaken if it's another's or is going (it's
-// made again once it's gone).
+// host's, from a create repeated after a crash. Otherwise the replica waits, and is made once the
+// other pod is gone: errNameTaken if it will go (it's being deleted, or an earlier cluster of this
+// name made it), or a nameClashError if it's another cluster's, which only renaming resolves.
 func (r *RayManagedClusterReconciler) isOwnPod(ctx context.Context, cluster *rayv1.RayManagedCluster, pod *corev1.Pod, nodeID string) error {
 	var existing corev1.Pod
 	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(pod), &existing); err != nil {
@@ -462,11 +477,34 @@ func (r *RayManagedClusterReconciler) isOwnPod(ctx context.Context, cluster *ray
 		}
 		return err
 	}
-	if !metav1.IsControlledBy(&existing, cluster) || existing.Labels[rayNodeIDLabelKey] != nodeID || existing.DeletionTimestamp != nil {
+	owner := metav1.GetControllerOf(&existing)
+	switch {
+	case existing.DeletionTimestamp != nil:
 		return errNameTaken
+	case metav1.IsControlledBy(&existing, cluster):
+		if existing.Labels[rayNodeIDLabelKey] != nodeID {
+			return errNameTaken
+		}
+		return nil
+	case owner != nil && owner.Kind == "RayManagedCluster" && owner.Name == cluster.Name:
+		return errNameTaken
+	case owner != nil:
+		return &nameClashError{pod: pod.Name, holder: fmt.Sprintf("%s %s", owner.Kind, owner.Name)}
 	}
-	return nil
+	return &nameClashError{pod: pod.Name, holder: "a pod no controller owns"}
 }
+
+// nameClashError: a pod of another cluster's (or no cluster's) has the name of a replica's pod,
+// which waits for it to go.
+type nameClashError struct {
+	pod, holder string
+}
+
+func (e *nameClashError) Error() string {
+	return fmt.Sprintf("pod name %s is taken by %s", e.pod, e.holder)
+}
+
+func (e *nameClashError) Is(target error) bool { return target == errNameTaken }
 
 // refused says whether the API server won't create the pod: a quota, an admission webhook or the
 // pod's validation refuses it. Anything else (a timeout, an overloaded or restarting API server, a
@@ -505,40 +543,29 @@ func (r *RayManagedClusterReconciler) buildWorkerPod(ctx context.Context, cluste
 	return pod
 }
 
-// deletePods deletes the pods Ray gave up, and, if the group says so, their replicas' others.
+// deletePods deletes the pods Ray gave up, and, if the group says so, their replicas' others. They're
+// found by their labels, not their names, so a change to the naming rule strands none.
 func (r *RayManagedClusterReconciler) deletePods(ctx context.Context, cluster *rayv1.RayManagedCluster, group *rayv1.RayManagedWorkerGroupSpec, groupName string, deleted rayv1.RayManagedDeletePods) error {
-	// Each pod is deleted whatever happens to the others.
-	var pods []corev1.Pod
-	var errs []error
-	if group != nil && group.DeleteWholeReplicas {
-		var list corev1.PodList
-		selector := client.MatchingLabels{
-			utils.RayClusterLabelKey:   cluster.Name,
-			utils.RayNodeGroupLabelKey: groupName,
-			rayNodeReplicaLabelKey:     strconv.FormatInt(deleted.Replica, 10),
-		}
-		if err := r.List(ctx, &list, client.InNamespace(cluster.Namespace), selector); err != nil {
-			return err
-		}
-		pods = list.Items
-	} else {
-		for _, host := range deleted.Hosts {
-			var pod corev1.Pod
-			key := types.NamespacedName{Namespace: cluster.Namespace, Name: workerPodName(cluster.Name, groupName, deleted.Replica, int(host))}
-			if err := r.Get(ctx, key, &pod); err != nil {
-				if !apierrors.IsNotFound(err) {
-					errs = append(errs, err)
-				}
-				continue
-			}
-			pods = append(pods, pod)
-		}
+	var list corev1.PodList
+	selector := client.MatchingLabels{
+		utils.RayClusterLabelKey:   cluster.Name,
+		utils.RayNodeGroupLabelKey: groupName,
+		rayNodeReplicaLabelKey:     strconv.FormatInt(deleted.Replica, 10),
 	}
-	for i := range pods {
-		if pods[i].DeletionTimestamp != nil {
+	if err := r.List(ctx, &list, client.InNamespace(cluster.Namespace), selector); err != nil {
+		return err
+	}
+	whole := group != nil && group.DeleteWholeReplicas
+	// Each pod is deleted whatever happens to the others.
+	var errs []error
+	for i := range list.Items {
+		pod := &list.Items[i]
+		host, err := strconv.ParseInt(pod.Labels[rayNodeHostLabelKey], 10, 64)
+		listed := err == nil && slices.Contains(deleted.Hosts, host)
+		if !metav1.IsControlledBy(pod, cluster) || pod.DeletionTimestamp != nil || (!whole && !listed) {
 			continue
 		}
-		if err := r.Delete(ctx, &pods[i]); client.IgnoreNotFound(err) != nil {
+		if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -674,16 +701,30 @@ func provisioningOf(provisioning *rayv1.RayManagedClusterProvisioning, name stri
 }
 
 // workerPodName is a replica's host's pod's name: the same for a repeated create, which then gets
-// AlreadyExists. A long one is cut, with a hash keeping it unique.
+// AlreadyExists, and a hostname (at most 63 lowercase letters, digits and dashes). Plainly
+// `<cluster>-<group>-<replica>-<host>` when that is one. Otherwise the cluster and group part is
+// cleaned up and cut, and a hash of their names keeps groups apart. The replica and host are never
+// cut, so a group's pods never share a name, however many there are. Clusters whose plain names run
+// together (`a-b` and `c`, `a` and `b-c`) would share them: the second waits, and says why.
 func workerPodName(cluster, group string, replica int64, host int) string {
-	name := fmt.Sprintf("%s-%s-%d-%d", cluster, group, replica, host)
-	if len(name) <= maxPodNameLength {
-		return name
+	prefix, suffix := cluster+"-"+group, fmt.Sprintf("-%d-%d", replica, host)
+	isHostname := func(c rune) bool { return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' }
+	if len(prefix)+len(suffix) <= maxPodNameLength && !strings.ContainsFunc(prefix, func(c rune) bool { return !isHostname(c) }) {
+		return prefix + suffix
 	}
 	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(name))
-	suffix := fmt.Sprintf("-%08x", hash.Sum32())
-	return name[:maxPodNameLength-len(suffix)] + suffix
+	_, _ = hash.Write([]byte(cluster + "/" + group))
+	suffix = fmt.Sprintf("-%08x%s", hash.Sum32(), suffix)
+	cleaned := strings.Map(func(c rune) rune {
+		if isHostname(c) {
+			return c
+		}
+		if c >= 'A' && c <= 'Z' {
+			return c - 'A' + 'a'
+		}
+		return '-'
+	}, prefix)
+	return strings.TrimRight(cleaned[:min(len(cleaned), maxPodNameLength-len(suffix))], "-") + suffix
 }
 
 // newNodeID is a random Ray node ID, in hex.

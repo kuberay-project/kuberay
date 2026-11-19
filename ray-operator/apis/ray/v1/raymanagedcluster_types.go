@@ -28,7 +28,10 @@ type RayManagedClusterSpec struct {
 
 // RayManagedWorkerGroupSpec is a worker group: pods of one shape, made a replica at a time.
 type RayManagedWorkerGroupSpec struct {
-	// GroupName names the group. headgroup is reserved.
+	// GroupName names the group. headgroup is reserved. It's the pods' ray.io/group label, so a label
+	// value.
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`
 	GroupName string `json:"groupName"`
 	// InitialReplicas is how many replicas the group starts with when the cluster is created.
 	// KubeRay doesn't keep this count afterward.

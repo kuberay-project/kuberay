@@ -1232,7 +1232,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `groupName` _string_ | GroupName names the group. headgroup is reserved. |  |  |
+| `groupName` _string_ | GroupName names the group. headgroup is reserved. It's the pods' ray.io/group label, so a label<br />value. |  | MaxLength: 63 <br />Pattern: `^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$` <br /> |
 | `initialReplicas` _integer_ | InitialReplicas is how many replicas the group starts with when the cluster is created.<br />KubeRay doesn't keep this count afterward. | 0 | Minimum: 0 <br /> |
 | `maxReplicas` _integer_ | MaxReplicas is the most replicas the group can have. Ray enforces it, not KubeRay. | 2147483647 | Minimum: 0 <br /> |
 | `numOfHosts` _integer_ | NumOfHosts is the number of pods in each replica, one per host. | 1 | Minimum: 1 <br /> |

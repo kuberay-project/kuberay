@@ -3,7 +3,11 @@ package ray
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
+	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,6 +43,7 @@ type managedFixture struct {
 	t          *testing.T
 	client     client.Client
 	reconciler *RayManagedClusterReconciler
+	events     *events.FakeRecorder
 	// Fail these: a create or delete of a worker pod with the name, unless nil.
 	failCreate func(name string) error
 	failDelete func(name string) error
@@ -120,7 +126,8 @@ func newManagedFixture(t *testing.T, cluster *rayv1.RayManagedCluster, objects .
 		WithStatusSubresource(&rayv1.RayManagedCluster{}).
 		WithInterceptorFuncs(funcs).
 		Build()
-	f.reconciler = &RayManagedClusterReconciler{Client: f.client, APIReader: f.client, Scheme: s}
+	f.events = events.NewFakeRecorder(10)
+	f.reconciler = &RayManagedClusterReconciler{Client: f.client, APIReader: f.client, Scheme: s, Recorder: f.events}
 	return f
 }
 
@@ -356,6 +363,7 @@ func TestRayManagedClusterWaitsForAnotherClustersPod(t *testing.T) {
 	assert.Equal(t, nameTakenRetry, result.RequeueAfter)
 	assert.Equal(t, int64(0), f.answer("cpu").CreatedReplicas)
 	assert.Empty(t, f.answer("cpu").FailedReplicas)
+	assert.Empty(t, f.warnings(), "an earlier cluster of this name: its pod goes with it")
 }
 
 func TestRayManagedClusterAFailingDeleteHoldsUpOnlyItself(t *testing.T) {
@@ -626,6 +634,111 @@ func hasVolume(pod *corev1.Pod, name string) bool {
 		}
 	}
 	return false
+}
+
+// warnings are the events recorded so far.
+func (f *managedFixture) warnings() []string {
+	var got []string
+	for {
+		select {
+		case event := <-f.events.Events:
+			got = append(got, event)
+		default:
+			return got
+		}
+	}
+}
+
+func TestRayManagedClusterPodNames(t *testing.T) {
+	hostname := regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+	valid := func(name string) {
+		t.Helper()
+		assert.LessOrEqual(t, len(name), 63, name)
+		assert.Regexp(t, hostname, name)
+	}
+	assert.Equal(t, "raynode-cpu-12-0", workerPodName("raynode", "cpu", 12, 0), "plain when that's a hostname")
+
+	// Group names a hostname can't have: cleaned up, and kept apart by the hash.
+	cleaned := map[string]bool{}
+	for _, group := range []string{"GPU_A", "gpu_a", "gpu.a", "Gpu-A"} {
+		name := workerPodName("raynode", group, 1, 0)
+		valid(name)
+		assert.True(t, strings.HasPrefix(name, "raynode-gpu-a-"), name)
+		cleaned[name] = true
+	}
+	assert.Len(t, cleaned, 4)
+
+	// A long cluster name is cut; the replica and host never are, the largest ones included.
+	long := strings.Repeat("abcdefghij", 25)
+	for _, c := range []struct {
+		replica int64
+		host    int
+	}{{1, 0}, {math.MaxInt64, math.MaxInt32}} {
+		name := workerPodName(long, "tpu-v5e-256", c.replica, c.host)
+		valid(name)
+		assert.True(t, strings.HasSuffix(name, fmt.Sprintf("-%d-%d", c.replica, c.host)), name)
+	}
+
+	// So a group's pods never share a name, however many there are.
+	seen := make(map[string]struct{}, 200_000)
+	for replica := int64(1); replica <= 100_000; replica++ {
+		for host := range 2 {
+			seen[workerPodName(long, "tpu-v5e-256", replica, host)] = struct{}{}
+		}
+	}
+	assert.Len(t, seen, 200_000)
+
+	// Groups whose cut names match are kept apart by the hash.
+	assert.NotEqual(t, workerPodName(long, "zone-a", 1, 0), workerPodName(long, "zone-b", 1, 0))
+	// Clusters whose plain names run together share them: the second waits, and says why.
+	assert.Equal(t, workerPodName("a-b", "c", 1, 0), workerPodName("a", "b-c", 1, 0))
+}
+
+func TestRayManagedClusterReportsAPodNameAnotherClusterHolds(t *testing.T) {
+	asked := rayv1.RayManagedGroupRequests{Name: "x-y", NewReplicas: []rayv1.RayManagedNewReplica{{Replica: 1, Nodes: []string{nodeA}}}}
+	// Cluster c-x's group y runs together with cluster c's group x-y.
+	other := newManagedCluster()
+	other.Name, other.UID = "c-x", "another-cluster"
+	theirs := ownedPod(t, other, "y", 1, nodeB)
+	theirs.Name, theirs.Labels["ray.io/cluster"] = workerPodName("c-x", "y", 1, 0), "c-x"
+	require.Equal(t, workerPodName(managedName, "x-y", 1, 0), theirs.Name)
+	nobodys := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: theirs.Name, Namespace: managedNamespace, Labels: map[string]string{"ray.io/node-type": "worker"}},
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-worker", Image: "ray"}}},
+	}
+	for holder, pod := range map[string]*corev1.Pod{"RayManagedCluster c-x": theirs, "a pod no controller owns": nobodys} {
+		f := newManagedFixture(t, started(newManagedCluster(managedGroup("x-y", 1, 0)), nil, asked), pod)
+		result, err := f.reconcile()
+		require.NoError(t, err)
+		assert.Equal(t, nameTakenRetry, result.RequeueAfter, "it waits")
+		assert.Equal(t, int64(0), f.answer("x-y").CreatedReplicas)
+		warnings := f.warnings()
+		require.Len(t, warnings, 1, holder)
+		assert.Contains(t, warnings[0], "Warning PodNameTaken")
+		assert.Contains(t, warnings[0], holder)
+		assert.Contains(t, warnings[0], "rename this cluster or the group")
+	}
+}
+
+func TestRayManagedClusterDeletesPodsFoundByTheirLabels(t *testing.T) {
+	cluster := started(newManagedCluster(managedGroup("cpu", 2, 0)), map[string]int64{"cpu": 1},
+		rayv1.RayManagedGroupRequests{Name: "cpu", DeletePods: []rayv1.RayManagedDeletePods{{Replica: 1, Hosts: []int64{0}}}})
+	named := func(pod *corev1.Pod, name, host string) *corev1.Pod {
+		pod.Name, pod.Labels["ray.io/host"] = name, host
+		return pod
+	}
+	earlier := newManagedCluster()
+	earlier.UID = "an-earlier-cluster"
+	f := newManagedFixture(t, cluster,
+		named(ownedPod(t, cluster, "cpu", 1, nodeA), "an-older-rules-name", "0"),
+		named(ownedPod(t, cluster, "cpu", 1, nodeB), "c-cpu-1-1", "1"),
+		named(ownedPod(t, earlier, "cpu", 1, nodeA), "an-earlier-clusters", "0"),
+	)
+	_, err := f.reconcile()
+	require.NoError(t, err)
+	assert.Nil(t, f.pod("an-older-rules-name"), "found by its labels, whatever its name")
+	assert.NotNil(t, f.pod("c-cpu-1-1"), "a host Ray didn't list stays")
+	assert.NotNil(t, f.pod("an-earlier-clusters"), "another cluster's pod isn't this one's to delete")
 }
 
 func TestRayManagedClusterRefusals(t *testing.T) {
