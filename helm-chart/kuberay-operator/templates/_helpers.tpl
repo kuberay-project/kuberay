@@ -418,11 +418,22 @@ rules:
   - rayclusters/status
   - raycronjobs/status
   - rayjobs/status
+  - raymanagedclusters/status
   - rayservices/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - ray.io
+  resources:
+  - raymanagedclusters
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
