@@ -1063,6 +1063,8 @@ func TestIsClusterSpecHashEqual(t *testing.T) {
 		expected          bool
 		addNewWorkerGroup bool
 		updateClusterSpec bool
+		numWorkerGroups   *string
+		clusterHash       *string
 	}{
 		{
 			name:              "[full] diff replicas",
@@ -1113,6 +1115,40 @@ func TestIsClusterSpecHashEqual(t *testing.T) {
 			updateClusterSpec: true,
 			expected:          false,
 		},
+		{
+			name:              "[partial] negative num worker groups annotation",
+			partial:           true,
+			numWorkerGroups:   new("-1"),
+			addNewWorkerGroup: true,
+			expected:          false,
+		},
+		{
+			name:              "[partial] invalid num worker groups annotation",
+			partial:           true,
+			numWorkerGroups:   new("invalid"),
+			addNewWorkerGroup: true,
+			expected:          false,
+		},
+		{
+			name:              "[partial] missing num worker groups annotation",
+			partial:           true,
+			numWorkerGroups:   new(""),
+			addNewWorkerGroup: true,
+			expected:          false,
+		},
+		{
+			name:        "[full] missing cluster hash annotation",
+			partial:     false,
+			clusterHash: new(""),
+			expected:    false,
+		},
+		{
+			name:              "[partial] missing cluster hash annotation",
+			partial:           true,
+			clusterHash:       new(""),
+			addNewWorkerGroup: true,
+			expected:          false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1140,6 +1176,20 @@ func TestIsClusterSpecHashEqual(t *testing.T) {
 			}
 			if tt.updateClusterSpec {
 				service.Spec.RayClusterSpec.RayVersion = "new-version"
+			}
+			if tt.numWorkerGroups != nil {
+				if *tt.numWorkerGroups == "" {
+					delete(cluster.Annotations, utils.NumWorkerGroupsKey)
+				} else {
+					cluster.Annotations[utils.NumWorkerGroupsKey] = *tt.numWorkerGroups
+				}
+			}
+			if tt.clusterHash != nil {
+				if *tt.clusterHash == "" {
+					delete(cluster.Annotations, utils.HashWithoutReplicasAndWorkersToDeleteKey)
+				} else {
+					cluster.Annotations[utils.HashWithoutReplicasAndWorkersToDeleteKey] = *tt.clusterHash
+				}
 			}
 
 			isEqual := isClusterSpecHashEqual(service, &cluster, tt.partial)

@@ -1408,27 +1408,33 @@ func shouldUpdateCluster(rayServiceInstance *rayv1.RayService, cluster *rayv1.Ra
 func isClusterSpecHashEqual(rayServiceInstance *rayv1.RayService, cluster *rayv1.RayCluster, partial bool) bool {
 	// If `partial` is true, only compare the first `len(cluster.Spec.WorkerGroupSpecs)` worker groups in the CR spec.
 	clusterHash := cluster.ObjectMeta.Annotations[utils.HashWithoutReplicasAndWorkersToDeleteKey]
+	if clusterHash == "" {
+		return false
+	}
 	goalClusterSpec := rayClusterSpecForHashing(rayServiceInstance)
 	goalClusterHash := ""
+	var err error
 	if !partial {
-		goalClusterHash, _ = utils.GenerateHashWithoutReplicasAndWorkersToDelete(*goalClusterSpec)
+		goalClusterHash, err = utils.GenerateHashWithoutReplicasAndWorkersToDelete(*goalClusterSpec)
+		if err != nil {
+			return false
+		}
 	} else {
 		// If everything is identical except for the Replicas and WorkersToDelete of
 		// the existing workergroups, and one or more new workergroups are added at the end, then update the cluster.
 		clusterNumWorkerGroups, err := strconv.Atoi(cluster.ObjectMeta.Annotations[utils.NumWorkerGroupsKey])
-		if err != nil {
-			return true
+		if err != nil || clusterNumWorkerGroups < 0 {
+			return false
 		}
 		goalNumWorkerGroups := len(goalClusterSpec.WorkerGroupSpecs)
 		if goalNumWorkerGroups >= clusterNumWorkerGroups {
-
 			// Remove the new workergroup(s) from the end before calculating the hash.
 			goalClusterSpec.WorkerGroupSpecs = goalClusterSpec.WorkerGroupSpecs[:clusterNumWorkerGroups]
 
 			// Generate the hash of the old worker group specs.
 			goalClusterHash, err = utils.GenerateHashWithoutReplicasAndWorkersToDelete(*goalClusterSpec)
 			if err != nil {
-				return true
+				return false
 			}
 		}
 	}
