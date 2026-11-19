@@ -561,6 +561,8 @@ const (
 	// Role event list
 	CreatedRole        K8sEventType = "CreatedRole"
 	FailedToCreateRole K8sEventType = "FailedToCreateRole"
+	UpdatedRole        K8sEventType = "UpdatedRole"
+	FailedToUpdateRole K8sEventType = "FailedToUpdateRole"
 
 	// RoleBinding list
 	CreatedRoleBinding        K8sEventType = "CreatedRoleBinding"
