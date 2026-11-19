@@ -2303,6 +2303,17 @@ func TestGenerateRayStartCommand(t *testing.T) {
 			expected: "ray start  --num-gpus=1 ",
 		},
 		{
+			name:           "WorkerNode with GPU requested through the DRA implicit extended resource name",
+			nodeType:       rayv1.WorkerNode,
+			rayStartParams: map[string]string{},
+			resource: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					"deviceclass.resource.kubernetes.io/gpu.nvidia.com": resource.MustParse("2"),
+				},
+			},
+			expected: "ray start  --num-gpus=2 ",
+		},
+		{
 			name:           "WorkerNode with TPU",
 			nodeType:       rayv1.WorkerNode,
 			rayStartParams: map[string]string{},
@@ -2764,6 +2775,15 @@ func TestUpdateRayStartParamsResources(t *testing.T) {
 			expectedRayStartParams: map[string]string{
 				"num-gpus":  "1",
 				"resources": "'{\"TPU\":4}'",
+			},
+		},
+		"GPU set through the DRA implicit extended resource name in `Resources` overrides rayStartParams": {
+			initialRayStartParams: map[string]string{},
+			groupResources: map[string]string{
+				"deviceclass.resource.kubernetes.io/gpu.nvidia.com": "2",
+			},
+			expectedRayStartParams: map[string]string{
+				"num-gpus": "2",
 			},
 		},
 		"Top-level `Resources` should override existing resource params": {
