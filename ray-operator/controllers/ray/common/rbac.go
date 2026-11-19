@@ -63,7 +63,6 @@ func BuildRole(cluster *rayv1.RayCluster) (*rbacv1.Role, error) {
 
 // BuildRole
 func BuildRoleBinding(cluster *rayv1.RayCluster) (*rbacv1.RoleBinding, error) {
-	serviceAccountName := utils.GetHeadGroupServiceAccountName(cluster)
 	rb := &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cluster.Name,
@@ -76,9 +75,8 @@ func BuildRoleBinding(cluster *rayv1.RayCluster) (*rbacv1.RoleBinding, error) {
 		},
 		Subjects: []rbacv1.Subject{
 			{
-				Kind: rbacv1.ServiceAccountKind,
-				// Clip name for consistency with the function reconcileAutoscalerServiceAccount.
-				Name:      utils.CheckName(serviceAccountName),
+				Kind:      rbacv1.ServiceAccountKind,
+				Name:      utils.GetAutoscalerServiceAccountName(cluster),
 				Namespace: cluster.Namespace,
 			},
 		},
