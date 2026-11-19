@@ -1,0 +1,23 @@
+{{- /* ClusterRole for end users to edit RayCluster. */ -}}
+{{- if and .Values.rbacEnable (not .Values.singleNamespaceInstall) }}
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: raycluster-editor-role
+  labels:
+    {{- include "kuberay-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ray.io
+  resources:
+  - rayclusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+  - deletecollection
+{{- end }}
