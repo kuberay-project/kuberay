@@ -260,7 +260,7 @@ func (r *RayManagedClusterReconciler) patchStatus(ctx context.Context, cluster *
 // with its name that isn't the cluster's (an earlier cluster's, being deleted) has it wait
 // (errNameTaken).
 func (r *RayManagedClusterReconciler) reconcileHead(ctx context.Context, cluster *rayv1.RayManagedCluster, rayCluster rayv1.RayCluster) (rayv1.HeadInfo, *metav1.Condition, error) {
-	service, err := common.BuildServiceForHeadPod(ctx, rayCluster, nil, cluster.Spec.HeadServiceAnnotations)
+	service, err := common.BuildServiceForHeadPod(ctx, rayCluster, nil, nil)
 	if err != nil {
 		return rayv1.HeadInfo{}, nil, err
 	}
@@ -561,9 +561,8 @@ func asRayCluster(cluster *rayv1.RayManagedCluster) rayv1.RayCluster {
 			Annotations: cluster.Annotations,
 		},
 		Spec: rayv1.RayClusterSpec{
-			HeadGroupSpec:          headSpec,
-			HeadServiceAnnotations: cluster.Spec.HeadServiceAnnotations,
-			RayVersion:             cluster.Spec.RayVersion,
+			HeadGroupSpec: headSpec,
+			RayVersion:    cluster.Spec.RayVersion,
 		},
 	}
 }

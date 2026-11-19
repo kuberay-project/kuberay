@@ -16,8 +16,6 @@ type RayManagedClusterSpec struct {
 	// +kubebuilder:validation:XValidation:rule="!has(self.enableK8sTokenAuth) || !self.enableK8sTokenAuth",message="Ray 3 has no Kubernetes token authentication"
 	// +optional
 	AuthOptions *AuthOptions `json:"authOptions,omitempty"`
-	// HeadServiceAnnotations are added to the head service.
-	HeadServiceAnnotations map[string]string `json:"headServiceAnnotations,omitempty"`
 	// HeadGroupSpec is the head pod's spec: the instance group named headgroup.
 	HeadGroupSpec HeadGroupSpec `json:"headGroupSpec"`
 	// RayVersion is the version of Ray the pods run.

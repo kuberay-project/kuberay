@@ -4235,10 +4235,6 @@ spec:
                 required:
                 - template
                 type: object
-              headServiceAnnotations:
-                additionalProperties:
-                  type: string
-                type: object
               rayVersion:
                 type: string
               workerGroupSpecs:

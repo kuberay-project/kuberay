@@ -1332,13 +1332,6 @@ func (in *RayManagedClusterSpec) DeepCopyInto(out *RayManagedClusterSpec) {
 		*out = new(AuthOptions)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.HeadServiceAnnotations != nil {
-		in, out := &in.HeadServiceAnnotations, &out.HeadServiceAnnotations
-		*out = make(map[string]string, len(*in))
-		for key, val := range *in {
-			(*out)[key] = val
-		}
-	}
 	in.HeadGroupSpec.DeepCopyInto(&out.HeadGroupSpec)
 	if in.WorkerGroupSpecs != nil {
 		in, out := &in.WorkerGroupSpecs, &out.WorkerGroupSpecs
