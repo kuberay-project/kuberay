@@ -1,0 +1,73 @@
+# This sample requires Volcano v1.14.1 or later, the network-topology-aware scheduler plugin,
+# and HyperNode resources that describe the network topology of the Kubernetes cluster.
+
+# Network topology can be set at two levels with the `volcano.sh/network-topology-mode` and
+# `volcano.sh/network-topology-highest-tier-allowed` labels:
+# - RayCluster labels: All Pods of the RayCluster must be placed within one HyperNode of the
+#   given tier or below.
+# - Worker group Pod template labels: The constraint applies to each logical replica of the
+#   worker group. A logical replica is a set of numOfHosts Pods.
+#   KubeRay creates one Volcano subgroup per replica, and Volcano schedules a replica only when
+#   all of its Pods fit within one HyperNode of the given tier or below. Different replicas can
+#   be placed in different HyperNodes.
+
+# Example: Suppose tier 2 represents block tier and tier 1 represents rack tier.
+# With this sample, Volcano places the Pods as follows:
+#
+#   RayCluster (hard, tier 2)            -> all 5 Pods are within one block
+#   ├── Head Pod
+#   └── Worker group "worker" (replicas: 2, numOfHosts: 2, hard, tier 1)
+#       ├── Replica 0: Pod A, Pod B      -> within one rack
+#       └── Replica 1: Pod C, Pod D      -> within one rack, which can differ from replica 0's rack
+
+# NOTE: With numOfHosts: 1, each replica is a single Pod, so the worker group labels don't place
+# Pods together. Use the RayCluster labels instead, which apply to all Pods of the RayCluster.
+
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: test-cluster-network-topology
+  labels:
+    # All Pods of the RayCluster must be placed within one HyperNode of tier 2 or below. E.g. tier 2 represents block tier, tier 1 represents rack tier.
+    volcano.sh/network-topology-mode: hard
+    volcano.sh/network-topology-highest-tier-allowed: "2"
+spec:
+  rayVersion: "2.52.0"
+  headGroupSpec:
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+  workerGroupSpecs:
+  - groupName: worker
+    replicas: 2
+    minReplicas: 2
+    maxReplicas: 2
+    numOfHosts: 2
+    rayStartParams: {}
+    template:
+      metadata:
+        labels:
+          # Each replica (2 Pods) of this worker group must be placed within one HyperNode of tier 1 or below.
+          volcano.sh/network-topology-mode: hard
+          volcano.sh/network-topology-highest-tier-allowed: "1"
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.52.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"
