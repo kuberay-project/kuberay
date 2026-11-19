@@ -186,6 +186,34 @@ spec:
 	}
 }
 
+func TestRayJobSubmitValidateRejectsNonRegularFile(t *testing.T) {
+	dir := t.TempDir()
+
+	tests := []struct {
+		opts        *SubmitJobOptions
+		name        string
+		expectError string
+	}{
+		{
+			name:        "Ray Job file is a directory",
+			opts:        &SubmitJobOptions{fileName: dir},
+			expectError: fmt.Sprintf("Ray Job file %s is not a regular file", dir),
+		},
+		{
+			name:        "Runtime Env file is a directory",
+			opts:        &SubmitJobOptions{runtimeEnv: dir},
+			expectError: fmt.Sprintf("Runtime Env file %s is not a regular file", dir),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.opts.Validate(&cobra.Command{})
+			require.EqualError(t, err, tc.expectError)
+		})
+	}
+}
+
 func TestRayJobSubmitWithoutYamlValidate(t *testing.T) {
 	testStreams, _, _, _ := genericclioptions.NewTestIOStreams()
 	cmdFactory := cmdutil.NewFactory(genericclioptions.NewConfigFlags(true))
