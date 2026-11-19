@@ -234,6 +234,57 @@ func TestRayJobSubmitWithoutYamlValidate(t *testing.T) {
 	}
 }
 
+func TestRayJobSubmitDryRunValidate(t *testing.T) {
+	testStreams, _, _, _ := genericclioptions.NewTestIOStreams()
+	cmdFactory := cmdutil.NewFactory(genericclioptions.NewConfigFlags(true))
+
+	rayJobYamlPath := filepath.Join(t.TempDir(), "rayjob.yaml")
+	require.NoError(t, os.WriteFile(rayJobYamlPath, []byte(`apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob-sample
+spec:
+  submissionMode: 'InteractiveMode'`), 0o600))
+
+	tests := []struct {
+		name        string
+		fileName    string
+		rayjobName  string
+		expectError string
+	}{
+		{
+			name:       "dry run with generated RayJob",
+			rayjobName: "rayjob-sample",
+		},
+		{
+			// Run only honors --dry-run for a generated RayJob. With --filename it
+			// would create the RayJob and submit the job, so reject the combination.
+			name:        "dry run with RayJob YAML file",
+			fileName:    rayJobYamlPath,
+			expectError: "--dry-run is not supported with --filename",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := &SubmitJobOptions{
+				cmdFactory: cmdFactory,
+				ioStreams:  &testStreams,
+				fileName:   tc.fileName,
+				rayjobName: tc.rayjobName,
+				workingDir: "Fake/File/Path",
+				dryRun:     true,
+			}
+			err := opts.Validate(&cobra.Command{})
+			if tc.expectError != "" {
+				require.EqualError(t, err, tc.expectError)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestRayJobTerminalResult(t *testing.T) {
 	tests := []struct {
 		name         string
