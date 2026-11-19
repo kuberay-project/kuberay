@@ -1,0 +1,39 @@
+{{- /*
+PriorityClass is cluster-scoped, so unlike the rest of the operator's RBAC (see role.yaml and
+multiple_namespaces_role.yaml), it cannot be granted via a namespaced Role under
+singleNamespaceInstall. This ClusterRole/ClusterRoleBinding is therefore always rendered as
+cluster-scoped, regardless of singleNamespaceInstall, but only when the KubernetesWAS feature
+gate is enabled so singleNamespaceInstall users who don't use that feature see no new RBAC.
+*/}}
+{{- if and .Values.rbacEnable (include "kuberay.kubernetesWASEnabled" .) }}
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kuberay-operator.fullname" . }}-priorityclass
+  labels:
+    {{- include "kuberay-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - scheduling.k8s.io
+  resources:
+  - priorityclasses
+  verbs:
+  - get
+  - list
+  - watch
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kuberay-operator.fullname" . }}-priorityclass
+  labels:
+    {{- include "kuberay-operator.labels" . | nindent 4 }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kuberay-operator.serviceAccount.name" . }}
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kuberay-operator.fullname" . }}-priorityclass
+{{- end }}
