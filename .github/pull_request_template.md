@@ -17,6 +17,25 @@
 - [ ] If this PR has user-facing changes that require documentation updates at release time, I have added the `doc-updates-required` label.
 - [ ] If this PR contains breaking changes, I have added the `breaking-change` label.
 
+### User-facing changes
+
+<!--
+One or two sentences, written for users, describing what changes for them.
+This will be used in the release notes. Leave empty if not applicable.
+-->
+```release-note
+
+```
+
+### Breaking changes
+
+<!--
+What breaks, and what users must do to migrate. Leave empty if not applicable.
+-->
+```breaking-change
+
+```
+
 ## AI assistance
 
 <!--
