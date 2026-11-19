@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -177,6 +178,73 @@ func TestGetNodeRayIDWithFQIP_EnvVars(t *testing.T) {
 // A credential that cannot be resolved never becomes valid, so discovery must
 // surface it immediately instead of spending the full 60s retry budget and then
 // reporting a misleading timeout.
+func TestIsCurrentNode(t *testing.T) {
+	const (
+		podIP      = "10.0.0.1"
+		hostname   = "cluster-small-group-worker-abcde"
+		headHost   = "cluster-head-svc.default.svc.cluster.local"
+		workerFQDN = hostname + ".cluster-headless.default.svc.cluster.local"
+	)
+
+	tests := []struct {
+		name     string
+		nodeAddr string
+		role     string
+		want     bool
+	}{
+		{name: "pod IP", nodeAddr: podIP, role: "Worker", want: true},
+		{name: "head registered with the head service FQDN", nodeAddr: headHost, role: "Head", want: true},
+		{name: "worker registered with its per-pod FQDN", nodeAddr: workerFQDN, role: "Worker", want: true},
+		// Workers also get FQ_RAY_IP, so they must not claim the head's node.
+		{name: "worker does not match the head service FQDN", nodeAddr: headHost, role: "Worker", want: false},
+		{name: "worker does not match another worker's FQDN", nodeAddr: "cluster-small-group-worker-zzzzz.cluster-headless.default.svc.cluster.local", role: "Worker", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isCurrentNode(tt.nodeAddr, podIP, hostname, headHost, tt.role))
+		})
+	}
+}
+
+// With mTLS, Ray nodes register with a DNS name, so the node list never contains the Pod IP.
+func TestFetchCurrentNodeID_NodeRegisteredWithFQDN(t *testing.T) {
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		t.Skip("hostname is not available")
+	}
+
+	var headHost string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"data":{"result":{"result":[`+
+			`{"node_id":"head-node-id","node_ip":%q,"state":"ALIVE"},`+
+			`{"node_id":"worker-node-id","node_ip":%q,"state":"ALIVE"}]}}}`,
+			headHost, hostname+".cluster-headless.default.svc.cluster.local")
+	}))
+	defer ts.Close()
+	// FQ_RAY_IP points at the test server, so its host stands in for the head service FQDN.
+	headHost, _, _ = strings.Cut(strings.TrimPrefix(ts.URL, "http://"), ":")
+
+	t.Setenv("POD_IP", "10.0.0.1")
+	t.Setenv("FQ_RAY_IP", ts.URL)
+
+	tests := []struct {
+		role string
+		want string
+	}{
+		{role: "Head", want: "head-node-id"},
+		{role: "Worker", want: "worker-node-id"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.role, func(t *testing.T) {
+			t.Setenv("RAY_ROLE", tt.role)
+			nodeID, err := FetchCurrentNodeID()
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, nodeID)
+		})
+	}
+}
+
 func TestGetNodeRayIDWithFQIP_FailsFastOnAuthConfigError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

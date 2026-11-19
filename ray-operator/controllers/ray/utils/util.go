@@ -812,6 +812,12 @@ func IsK8sAuthEnabled(authOptions *rayv1.AuthOptions) bool {
 	return authOptions != nil && authOptions.EnableK8sTokenAuth != nil && *authOptions.EnableK8sTokenAuth
 }
 
+// IsPodFQDNEnabled returns whether worker pods get per-pod DNS records (hostname/subdomain plus
+// the headless Service). mTLS implies it because certificates rely on DNS SANs instead of pod IPs.
+func IsPodFQDNEnabled(spec *rayv1.RayClusterSpec) bool {
+	return spec != nil && (ptr.Deref(spec.EnablePodFQDN, false) || IsTLSEnabled(spec))
+}
+
 // IsCollectorEnabled returns whether the operator manages the collector container of the
 // RayCluster: the RayClusterHistoryServer feature gate is on and the RayCluster opts in with
 // historyServerOptions.collectorOptions.
@@ -819,6 +825,12 @@ func IsCollectorEnabled(spec *rayv1.RayClusterSpec) bool {
 	return features.Enabled(features.RayClusterHistoryServer) &&
 		spec.HistoryServerOptions != nil &&
 		spec.HistoryServerOptions.CollectorOptions != nil
+}
+
+// IsRayHeadClusterIPServiceEnabled returns whether the operator is configured to create a
+// regular ClusterIP head Service instead of the default headless one.
+func IsRayHeadClusterIPServiceEnabled() bool {
+	return strings.ToLower(os.Getenv(ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE)) == "true"
 }
 
 // IsTLSEnabled returns whether TLS is enabled for the RayCluster.

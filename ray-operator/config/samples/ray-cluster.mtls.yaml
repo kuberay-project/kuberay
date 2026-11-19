@@ -9,6 +9,8 @@ kind: RayCluster
 metadata:
   name: raycluster-mtls
 spec:
+  # To use the autoscaler with mTLS, set rayVersion and the Ray images to 2.60.0 or later
+  # and use autoscaler v2 (autoscalerOptions.version: v2).
   rayVersion: '2.55.1'
   # Enable mTLS for Ray cluster internal communication.
   # This creates a self-signed CA and issues certificates for head and worker pods.

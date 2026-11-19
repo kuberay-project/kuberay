@@ -9,8 +9,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -38,6 +36,11 @@ func NewRayClusterSpecWithMTLS() *rayv1ac.RayClusterSpecApplyConfiguration {
 	return NewRayClusterSpec().
 		WithTLSOptions(rayv1ac.TLSOptions().WithEnabled(true))
 }
+
+// mTLS with autoscaling requires `ray kuberay-autoscaler --gcs-address` (Ray >= 2.60.0),
+// validation rejects older versions.
+// TODO: remove once the default test Ray version (test/support/defaults.go) is >= 2.60.0.
+const mtlsAutoscalerRayImage = "rayproject/ray:2.60.0"
 
 // verifyContainerTLSEnvVars asserts a container has the expected TLS environment variables.
 func verifyContainerTLSEnvVars(g Gomega, container *corev1.Container) {
@@ -388,8 +391,10 @@ func TestRayClusterTLSEdgeCases(t *testing.T) {
 
 		clusterName := "tls-autoscaler"
 		spec := NewRayClusterSpecWithMTLS().
-			WithRayVersion(GetRayVersion()).
+			WithRayVersion("2.60.0").
 			WithEnableInTreeAutoscaling(true)
+		spec.HeadGroupSpec.Template.Spec.Containers[utils.RayContainerIndex].WithImage(mtlsAutoscalerRayImage)
+		spec.WorkerGroupSpecs[0].Template.Spec.Containers[utils.RayContainerIndex].WithImage(mtlsAutoscalerRayImage)
 
 		rayClusterAC := rayv1ac.RayCluster(clusterName, namespace.Name).WithSpec(spec)
 		rayCluster, err := test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), rayClusterAC, TestApplyOptions)
@@ -482,30 +487,15 @@ func TestRayClusterTLSEdgeCases(t *testing.T) {
 
 // --- Test: Autoscaler + mTLS scale-up ---
 
-// workerCertificateIPs returns the IP SANs currently configured on the worker
-// cert-manager Certificate of the given RayCluster. It uses the dynamic client so the
-// test does not need to depend on the cert-manager clientset.
-func workerCertificateIPs(test Test, namespace, clusterName string) ([]string, error) {
-	certGVR := schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}
-	certName := utils.GetTLSCertName(clusterName, rayv1.WorkerNode)
-
-	cert, err := test.Client().Dynamic().Resource(certGVR).Namespace(namespace).Get(test.Ctx(), certName, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	ips, _, err := unstructured.NestedStringSlice(cert.Object, "spec", "ipAddresses")
-	return ips, err
-}
-
 // TestRayClusterTLSAutoscalerScaleUp verifies that the autoscaler and the mTLS controller
-// work together: worker pods added by the autoscaler are covered by the worker certificate
-// IP SANs, and their IPs are dropped again after a scale-down.
+// work together: worker pods added by the autoscaler complete the mTLS handshake and the
+// cluster scales back down afterwards.
 //
 // The existing "mTLS with autoscaler enabled" case pins the worker group to
-// replicas = minReplicas = maxReplicas = 1, so it never triggers a scale-up. Worker pods
-// only reach Running after wait-for-tls-ip-san and wait-gcs-ready succeed, so asserting
-// readiness also covers the mTLS handshake.
+// replicas = minReplicas = maxReplicas = 1, so it never triggers a scale-up. Worker
+// certificates rely on a wildcard DNS SAN rather than per-pod IP SANs, so no certificate
+// update is needed on scale-up; worker pods only reach Running after wait-gcs-ready
+// succeeds, so asserting readiness covers the mTLS handshake.
 func TestRayClusterTLSAutoscalerScaleUp(t *testing.T) {
 	test := With(t)
 
@@ -523,20 +513,25 @@ func TestRayClusterTLSAutoscalerScaleUp(t *testing.T) {
 	LogWithTimestamp(t, "Created ConfigMap %s/%s successfully", scripts.Namespace, scripts.Name)
 
 	clusterName := "tls-autoscaler-scaleup"
+	headTemplate := HeadPodTemplateApplyConfiguration()
+	headTemplate.Spec.Containers[utils.RayContainerIndex].WithImage(mtlsAutoscalerRayImage)
+	workerTemplate := WorkerPodTemplateApplyConfiguration()
+	workerTemplate.Spec.Containers[utils.RayContainerIndex].WithImage(mtlsAutoscalerRayImage)
+
 	specAC := rayv1ac.RayClusterSpec().
-		WithRayVersion(GetRayVersion()).
+		WithRayVersion("2.60.0").
 		WithEnableInTreeAutoscaling(true).
 		WithTLSOptions(rayv1ac.TLSOptions().WithEnabled(true)).
 		WithHeadGroupSpec(rayv1ac.HeadGroupSpec().
 			WithRayStartParams(map[string]string{"num-cpus": "0"}).
-			WithTemplate(HeadPodTemplateApplyConfiguration())).
+			WithTemplate(headTemplate)).
 		WithWorkerGroupSpecs(rayv1ac.WorkerGroupSpec().
 			WithReplicas(0).
 			WithMinReplicas(0).
 			WithMaxReplicas(2).
 			WithGroupName("small-group").
 			WithRayStartParams(map[string]string{"num-cpus": "1"}).
-			WithTemplate(WorkerPodTemplateApplyConfiguration()))
+			WithTemplate(workerTemplate))
 
 	rayClusterAC := rayv1ac.RayCluster(clusterName, namespace.Name).
 		WithSpec(Apply(specAC, MountConfigMap[rayv1ac.RayClusterSpecApplyConfiguration](scripts, "/home/ray/test_scripts")))
@@ -579,33 +574,7 @@ func TestRayClusterTLSAutoscalerScaleUp(t *testing.T) {
 				verifyTLSVolumeMount(gg, &workerPods[j], workerSecretName)
 			}
 		}, TestTimeoutLong).Should(Succeed())
-
-		// The worker certificate must cover the new pod IPs, otherwise the new worker
-		// cannot complete the mTLS handshake with GCS.
-		g.Eventually(func(gg Gomega) {
-			workerPods, err := GetWorkerPods(test, rayCluster)
-			gg.Expect(err).NotTo(HaveOccurred())
-
-			certIPs, err := workerCertificateIPs(test, namespace.Name, clusterName)
-			gg.Expect(err).NotTo(HaveOccurred())
-
-			for j := range workerPods {
-				gg.Expect(certIPs).To(ContainElement(workerPods[j].Status.PodIP),
-					"worker certificate IP SANs should contain the IP of pod %s", workerPods[j].Name)
-			}
-		}, TestTimeoutLong).Should(Succeed())
-		LogWithTimestamp(t, "Worker certificate IP SANs cover all %d worker pod(s)", expectedReplicas)
 	}
-
-	// Record the worker pod IPs before scaling down so the test can verify they are
-	// removed from the worker certificate afterwards.
-	scaledUpWorkerPods, err := GetWorkerPods(test, rayCluster)
-	g.Expect(err).NotTo(HaveOccurred())
-	scaledUpWorkerIPs := make([]string, 0, len(scaledUpWorkerPods))
-	for i := range scaledUpWorkerPods {
-		scaledUpWorkerIPs = append(scaledUpWorkerIPs, scaledUpWorkerPods[i].Status.PodIP)
-	}
-	g.Expect(scaledUpWorkerIPs).To(HaveLen(2), "both worker pod IPs should be recorded before scale-down")
 
 	// Terminating the actors releases the CPUs and the autoscaler scales back down.
 	for _, actorName := range []string{"actor1", "actor2"} {
@@ -615,16 +584,4 @@ func TestRayClusterTLSAutoscalerScaleUp(t *testing.T) {
 	g.Eventually(RayCluster(test, rayCluster.Namespace, rayCluster.Name), TestTimeoutLong).
 		Should(WithTransform(RayClusterDesiredWorkerReplicas, Equal(int32(0))))
 	LogWithTimestamp(t, "Autoscaler scaled the worker group back down to 0 replicas")
-
-	// The worker certificate must drop the IP SANs of the removed worker pods.
-	g.Eventually(func(gg Gomega) {
-		certIPs, err := workerCertificateIPs(test, namespace.Name, clusterName)
-		gg.Expect(err).NotTo(HaveOccurred())
-
-		for _, podIP := range scaledUpWorkerIPs {
-			gg.Expect(certIPs).NotTo(ContainElement(podIP),
-				"worker certificate IP SANs should no longer contain the IP %s of the removed worker pod", podIP)
-		}
-	}, TestTimeoutLong).Should(Succeed())
-	LogWithTimestamp(t, "Worker certificate IP SANs no longer contain the removed worker pod IPs")
 }

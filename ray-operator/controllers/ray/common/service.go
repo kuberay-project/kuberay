@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"os"
 	"sort"
 	"strings"
 
@@ -16,10 +15,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 )
-
-func getEnableRayHeadClusterIPService() bool {
-	return strings.ToLower(os.Getenv(utils.ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE)) == "true"
-}
 
 // HeadServiceLabels returns the default labels for a cluster's head service.
 func HeadServiceLabels(cluster rayv1.RayCluster) map[string]string {
@@ -124,7 +119,7 @@ func BuildServiceForHeadPod(ctx context.Context, cluster rayv1.RayCluster, label
 			Type:     defaultType,
 		},
 	}
-	if !getEnableRayHeadClusterIPService() && (defaultType == "" || defaultType == corev1.ServiceTypeClusterIP) {
+	if !utils.IsRayHeadClusterIPServiceEnabled() && (defaultType == "" || defaultType == corev1.ServiceTypeClusterIP) {
 		// Make the head service headless by default, because a RayCluster should have at most one head Pod.
 		headService.Spec.ClusterIP = corev1.ClusterIPNone
 		headService.Spec.PublishNotReadyAddresses = true // We don't need to hide the Head address if its health checks failed.

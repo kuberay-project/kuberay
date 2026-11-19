@@ -3954,6 +3954,29 @@ func TestValidateRayClusterSpec_NetworkPolicyRequiresFeatureGate(t *testing.T) {
 	assert.Contains(t, err.Error(), "RayClusterNetworkPolicy")
 }
 
+// mTLS needs a headless head Service, but ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE makes the default one a ClusterIP Service.
+func TestValidateTLSOptions_OperatorClusterIPHeadService(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
+	t.Setenv(ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE, "true")
+
+	// With the env var set, mTLS is rejected when the default head Service is used.
+	spec := rayv1.RayClusterSpec{
+		TLSOptions: &rayv1.TLSOptions{Enabled: new(true)},
+		HeadGroupSpec: rayv1.HeadGroupSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head", Image: "rayproject/ray:latest"}}},
+			},
+		},
+	}
+	require.ErrorContains(t, validateTLSOptions(&spec), ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE)
+
+	// A custom headless headService is still accepted.
+	spec.HeadGroupSpec.HeadService = &corev1.Service{
+		Spec: corev1.ServiceSpec{ClusterIP: corev1.ClusterIPNone, PublishNotReadyAddresses: true},
+	}
+	require.NoError(t, validateTLSOptions(&spec))
+}
+
 func TestValidateTLSOptions(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
 	baseSpec := func() rayv1.RayClusterSpec {
@@ -3984,6 +4007,84 @@ func TestValidateTLSOptions(t *testing.T) {
 			modify: func(s *rayv1.RayClusterSpec) {
 				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
 			},
+		},
+		{
+			name: "TLS with autoscaling on Ray 2.60.0 - valid",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.EnableInTreeAutoscaling = new(true)
+				s.RayVersion = "2.60.0"
+			},
+		},
+		{
+			name: "TLS with autoscaling on Ray 2.59.0 - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.EnableInTreeAutoscaling = new(true)
+				s.RayVersion = "2.59.0"
+			},
+			expectError: true,
+			errorMsg:    "requires Ray 2.60.0 or later",
+		},
+		{
+			name: "TLS with autoscaling without rayVersion - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.EnableInTreeAutoscaling = new(true)
+			},
+			expectError: true,
+			errorMsg:    "requires rayVersion to be set",
+		},
+		{
+			name: "TLS with autoscaler v1 - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.EnableInTreeAutoscaling = new(true)
+				s.RayVersion = "2.60.0"
+				s.AutoscalerOptions = &rayv1.AutoscalerOptions{Version: new(rayv1.AutoscalerVersionV1)}
+			},
+			expectError: true,
+			errorMsg:    "requires autoscaler v2",
+		},
+		{
+			name: "TLS with enablePodFQDN false - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.EnablePodFQDN = new(false)
+			},
+			expectError: true,
+			errorMsg:    "enablePodFQDN cannot be false",
+		},
+		{
+			name: "TLS with NodePort head service - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.HeadGroupSpec.ServiceType = corev1.ServiceTypeNodePort
+			},
+			expectError: true,
+			errorMsg:    "requires a headless head Service",
+		},
+		{
+			name: "TLS with custom head service that is not headless - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.HeadGroupSpec.HeadService = &corev1.Service{
+					Spec: corev1.ServiceSpec{PublishNotReadyAddresses: true},
+				}
+			},
+			expectError: true,
+			errorMsg:    "clusterIP: None and publishNotReadyAddresses: true",
+		},
+		{
+			name: "TLS with custom head service that hides not-ready addresses - error",
+			modify: func(s *rayv1.RayClusterSpec) {
+				s.TLSOptions = &rayv1.TLSOptions{Enabled: new(true)}
+				s.HeadGroupSpec.HeadService = &corev1.Service{
+					Spec: corev1.ServiceSpec{ClusterIP: corev1.ClusterIPNone},
+				}
+			},
+			expectError: true,
+			errorMsg:    "clusterIP: None and publishNotReadyAddresses: true",
 		},
 		{
 			name: "tlsOptions set but enabled is false - valid (disables TLS)",
@@ -4139,6 +4240,50 @@ func TestValidateTLSOptions(t *testing.T) {
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidatePodFQDN(t *testing.T) {
+	workerWith := func(hostname, subdomain string) []rayv1.WorkerGroupSpec {
+		return []rayv1.WorkerGroupSpec{{
+			GroupName: "wg",
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Hostname:   hostname,
+					Subdomain:  subdomain,
+					Containers: []corev1.Container{{Name: "ray-worker", Image: "rayproject/ray:latest"}},
+				},
+			},
+		}}
+	}
+
+	tests := map[string]struct {
+		spec        rayv1.RayClusterSpec
+		expectError bool
+	}{
+		"preset subdomain - error": {
+			spec:        rayv1.RayClusterSpec{EnablePodFQDN: new(true), WorkerGroupSpecs: workerWith("", "my-svc")},
+			expectError: true,
+		},
+		"preset hostname - error": {
+			spec:        rayv1.RayClusterSpec{EnablePodFQDN: new(true), WorkerGroupSpecs: workerWith("fixed", "")},
+			expectError: true,
+		},
+		"preset subdomain with per-pod DNS disabled - valid": {
+			spec: rayv1.RayClusterSpec{WorkerGroupSpecs: workerWith("", "my-svc")},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := validatePodFQDN(&tt.spec)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "cannot set spec.hostname or spec.subdomain")
 			} else {
 				require.NoError(t, err)
 			}

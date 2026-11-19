@@ -209,7 +209,24 @@ var (
 	ErrFQRayIPNotSet = errors.New("FQ_RAY_IP environment variable is not set")
 )
 
-// FetchCurrentNodeID performs a single non-blocking query to discover the active Ray NodeID for the current Pod IP.
+// isCurrentNode reports whether a Ray node's registered address belongs to this Pod.
+//
+// Ray nodes normally register with the Pod IP. When the KubeRay operator enables mTLS they
+// register with a DNS name instead:
+//   - the head registers with the head service FQDN, which is the host in FQ_RAY_IP;
+//   - a worker registers with its per-pod FQDN <hostname>.<subdomain>.<namespace>.svc.<domain>,
+//     whose first label is the Pod hostname.
+func isCurrentNode(nodeAddr, podIP, hostname, headHost, role string) bool {
+	if nodeAddr == podIP {
+		return true
+	}
+	if strings.EqualFold(role, "head") {
+		return nodeAddr == headHost
+	}
+	return hostname != "" && strings.HasPrefix(nodeAddr, hostname+".")
+}
+
+// FetchCurrentNodeID performs a single non-blocking query to discover the active Ray NodeID for the current Pod.
 func FetchCurrentNodeID() (string, error) {
 	podIP := os.Getenv("POD_IP")
 	if podIP == "" {
@@ -225,6 +242,7 @@ func FetchCurrentNodeID() (string, error) {
 		scheme, addr = "https://", after
 	}
 	addr = strings.TrimPrefix(addr, "http://")
+	headHost, _, _ := strings.Cut(strings.TrimRight(addr, "/"), ":")
 	if !strings.Contains(addr, ":") {
 		port := os.Getenv("RAY_DASHBOARD_PORT")
 		if port == "" {
@@ -259,8 +277,10 @@ func FetchCurrentNodeID() (string, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return "", err
 	}
+	hostname, _ := os.Hostname()
+	role := os.Getenv("RAY_ROLE")
 	for _, node := range payload.Data.Result.Result {
-		if node.NodeIP == podIP && node.NodeID != "" && node.State == "ALIVE" {
+		if node.NodeID != "" && node.State == "ALIVE" && isCurrentNode(node.NodeIP, podIP, hostname, headHost, role) {
 			return node.NodeID, nil
 		}
 	}
