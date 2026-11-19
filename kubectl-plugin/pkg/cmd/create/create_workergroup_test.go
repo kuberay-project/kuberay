@@ -264,3 +264,73 @@ func TestCreateWorkerGroupCommandComplete(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateWorkerGroupValidate(t *testing.T) {
+	validOptions := func() *CreateWorkerGroupOptions {
+		return &CreateWorkerGroupOptions{
+			workerCPU:    "2",
+			workerGPU:    "0",
+			workerTPU:    "0",
+			workerMemory: "4Gi",
+		}
+	}
+
+	tests := []struct {
+		modify        func(*CreateWorkerGroupOptions)
+		name          string
+		expectedError string
+	}{
+		{
+			name:   "default quantities",
+			modify: func(*CreateWorkerGroupOptions) {},
+		},
+		{
+			name: "fractional CPU and binary memory",
+			modify: func(o *CreateWorkerGroupOptions) {
+				o.workerCPU = "500m"
+				o.workerMemory = "512Mi"
+			},
+		},
+		{
+			name:          "malformed CPU",
+			modify:        func(o *CreateWorkerGroupOptions) { o.workerCPU = "abc" },
+			expectedError: "worker-cpu is not a valid resource quantity",
+		},
+		{
+			name:          "empty memory",
+			modify:        func(o *CreateWorkerGroupOptions) { o.workerMemory = "" },
+			expectedError: "worker-memory is not a valid resource quantity",
+		},
+		{
+			name:          "negative memory",
+			modify:        func(o *CreateWorkerGroupOptions) { o.workerMemory = "-4Gi" },
+			expectedError: "worker-memory cannot be negative",
+		},
+		{
+			name:          "malformed GPU",
+			modify:        func(o *CreateWorkerGroupOptions) { o.workerGPU = "one" },
+			expectedError: "worker-gpu is not a valid resource quantity",
+		},
+		{
+			name:          "negative TPU",
+			modify:        func(o *CreateWorkerGroupOptions) { o.workerTPU = "-1" },
+			expectedError: "worker-tpu cannot be negative",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			options := validOptions()
+			tc.modify(options)
+
+			err := options.Validate()
+			if tc.expectedError == "" {
+				require.NoError(t, err)
+				// Validate guards createWorkerGroupSpec, which calls resource.MustParse on these values.
+				assert.NotPanics(t, func() { createWorkerGroupSpec(options) })
+				return
+			}
+			require.ErrorContains(t, err, tc.expectedError)
+		})
+	}
+}
