@@ -423,5 +423,21 @@ def test_submission():
        }
     }
     """
-    job_info = RayJobInfo(json.loads(info_json))
+    info = json.loads(info_json)
+    job_info = RayJobInfo(info)
     print(job_info.to_string())
+    assert job_info.error_type is None
+    assert job_info.metadata is None
+
+    failed_info = {
+        **info,
+        "status": "FAILED",
+        "message": "Job entrypoint command failed with exit code 17.",
+        "errorType": "JOB_ENTRYPOINT_COMMAND_ERROR",
+        "metadata": {"owner": "batch"},
+    }
+    job_info = RayJobInfo(failed_info)
+    assert job_info.error_type == "JOB_ENTRYPOINT_COMMAND_ERROR"
+    assert job_info.metadata == {"owner": "batch"}
+    assert "error type = JOB_ENTRYPOINT_COMMAND_ERROR" in job_info.to_string()
+    assert "metadata = {'owner': 'batch'}" in job_info.to_string()
