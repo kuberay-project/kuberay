@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/utils/lru"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -44,9 +45,11 @@ import (
 )
 
 const (
-	ServiceDefaultRequeueDuration   = 2 * time.Second
-	RayClusterDeletionDelayDuration = 60 * time.Second
-	ENABLE_ZERO_DOWNTIME            = "ENABLE_ZERO_DOWNTIME"
+	ServiceDefaultRequeueDuration        = 2 * time.Second
+	RayClusterDeletionDelayDuration      = 60 * time.Second
+	ENABLE_ZERO_DOWNTIME                 = "ENABLE_ZERO_DOWNTIME"
+	ServeDeployFailedRetryInitialBackoff = 30 * time.Second
+	ServeDeployFailedRetryMaxBackoff     = 10 * time.Minute
 )
 
 // RayServiceReconciler reconciles a RayService object
@@ -60,8 +63,10 @@ type RayServiceReconciler struct {
 	// Cache value is map of RayCluster name to Serve application config.
 	ServeConfigs                 *lru.Cache
 	RayClusterDeletionTimestamps cmap.ConcurrentMap[string, time.Time]
-	dashboardClientFunc          func(rayCluster *rayv1.RayCluster, url string) (dashboardclient.RayDashboardClientInterface, error)
-	httpProxyClientFunc          func(hostIp, podNamespace, podName string, port int) utils.RayHttpProxyClientInterface
+	// Retry backoff per RayService and RayCluster UID.
+	ServeDeployFailedRetryBackoff *flowcontrol.Backoff
+	dashboardClientFunc           func(rayCluster *rayv1.RayCluster, url string) (dashboardclient.RayDashboardClientInterface, error)
+	httpProxyClientFunc           func(hostIp, podNamespace, podName string, port int) utils.RayHttpProxyClientInterface
 }
 
 // NewRayServiceReconciler returns a new reconcile.Reconciler
@@ -74,6 +79,8 @@ func NewRayServiceReconciler(ctx context.Context, mgr manager.Manager, provider 
 		Recorder:                     mgr.GetEventRecorder("rayservice-controller"),
 		ServeConfigs:                 lru.New(utils.ServeConfigLRUSize),
 		RayClusterDeletionTimestamps: cmap.New[time.Time](),
+		ServeDeployFailedRetryBackoff: flowcontrol.NewBackOff(
+			ServeDeployFailedRetryInitialBackoff, ServeDeployFailedRetryMaxBackoff),
 
 		dashboardClientFunc: dashboardClientFunc,
 		httpProxyClientFunc: httpProxyClientFunc,
@@ -1361,6 +1368,10 @@ func (r *RayServiceReconciler) cleanUpServeConfigCache(ctx context.Context, rayS
 	activeRayClusterName := rayServiceInstance.Status.ActiveServiceStatus.RayClusterName
 	pendingRayClusterName := rayServiceInstance.Status.PendingServiceStatus.RayClusterName
 
+	if r.ServeDeployFailedRetryBackoff != nil {
+		r.ServeDeployFailedRetryBackoff.GC()
+	}
+
 	cacheKey := rayServiceInstance.Namespace + "/" + rayServiceInstance.Name
 	cacheValue, exist := r.ServeConfigs.Get(cacheKey)
 	if !exist {
@@ -1922,6 +1933,43 @@ func getAndCheckServeStatus(ctx context.Context, dashboardClient dashboardclient
 	return isReady, newApplications, nil
 }
 
+// shouldRetryDeployFailedServeApplications returns true if an application is DEPLOY_FAILED and none is DEPLOYING.
+// Resubmitting can cancel in-progress builds, so retries wait for DEPLOYING to clear.
+func shouldRetryDeployFailedServeApplications(serveApplications map[string]rayv1.AppStatus) bool {
+	hasDeployFailed := false
+	for _, app := range serveApplications {
+		switch app.Status {
+		case rayv1.ApplicationStatusEnum.DEPLOYING:
+			return false
+		case rayv1.ApplicationStatusEnum.DEPLOY_FAILED:
+			hasDeployFailed = true
+		}
+	}
+	return hasDeployFailed
+}
+
+// serveDeployFailedRetryKey uses the UID so a recreated RayCluster doesn't inherit the old backoff.
+func serveDeployFailedRetryKey(rayServiceInstance *rayv1.RayService, rayClusterInstance *rayv1.RayCluster) string {
+	clusterID := string(rayClusterInstance.UID)
+	if clusterID == "" {
+		clusterID = rayClusterInstance.Name
+	}
+	return rayServiceInstance.Namespace + "/" + rayServiceInstance.Name + "/" + clusterID
+}
+
+func (r *RayServiceReconciler) canRetryServeDeployFailed(retryKey string) bool {
+	if r.ServeDeployFailedRetryBackoff == nil {
+		return false
+	}
+	return !r.ServeDeployFailedRetryBackoff.IsInBackOffSinceUpdate(retryKey, r.ServeDeployFailedRetryBackoff.Clock.Now())
+}
+
+func (r *RayServiceReconciler) resetServeDeployFailedRetry(retryKey string) {
+	if r.ServeDeployFailedRetryBackoff != nil {
+		r.ServeDeployFailedRetryBackoff.Reset(retryKey)
+	}
+}
+
 func (r *RayServiceReconciler) getServeConfigFromCache(rayServiceInstance *rayv1.RayService, clusterName string) string {
 	cacheKey := rayServiceInstance.Namespace + "/" + rayServiceInstance.Name
 	cacheValue, exist := r.ServeConfigs.Get(cacheKey)
@@ -2075,14 +2123,39 @@ func (r *RayServiceReconciler) reconcileServe(ctx context.Context, rayServiceIns
 		return false, serveApplications, err
 	}
 	shouldUpdate, reason := checkIfNeedSubmitServeApplications(cachedServeConfigV2, rayServiceInstance.Spec.ServeConfigV2, serveApplications)
+
+	// Resubmit the unchanged config to the pending RayCluster when an application is DEPLOY_FAILED, with backoff,
+	// so a failed build (e.g. OOM-killed) gets rebuilt instead of blocking the upgrade.
+	isPendingCluster := rayClusterInstance.Name == rayServiceInstance.Status.PendingServiceStatus.RayClusterName
+	retryKey := serveDeployFailedRetryKey(rayServiceInstance, rayClusterInstance)
+	isDeployFailedRetry := false
+	// Reset the backoff once all Serve applications are running.
+	if isReady {
+		r.resetServeDeployFailedRetry(retryKey)
+	} else if isPendingCluster && !shouldUpdate && shouldRetryDeployFailedServeApplications(serveApplications) && r.canRetryServeDeployFailed(retryKey) {
+		shouldUpdate, isDeployFailedRetry = true, true
+		reason = "Serve application is DEPLOY_FAILED and the retry backoff has elapsed."
+	}
 	logger.Info("checkIfNeedSubmitServeApplications", "shouldUpdate", shouldUpdate, "reason", reason)
 
 	if shouldUpdate && !skipConfigUpdate {
+		if isDeployFailedRetry {
+			// Advance before the request so failed requests are backed off too.
+			r.ServeDeployFailedRetryBackoff.Next(retryKey, r.ServeDeployFailedRetryBackoff.Clock.Now())
+		}
 		if err = r.updateServeDeployment(ctx, rayServiceInstance, rayDashboardClient, rayClusterInstance.Name); err != nil {
 			r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeWarning, string(utils.FailedToUpdateServeApplications), string(utils.UpdateAction), "Failed to update serve applications to the RayCluster %s/%s: %v", rayClusterInstance.Namespace, rayClusterInstance.Name, err)
 			return false, serveApplications, err
 		}
-		r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeNormal, string(utils.UpdatedServeApplications), string(utils.UpdateAction), "Updated serve applications to the RayCluster %s/%s", rayClusterInstance.Namespace, rayClusterInstance.Name)
+		if isDeployFailedRetry {
+			r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeWarning, string(utils.RetriedServeApplications), string(utils.UpdateAction),
+				"Resubmitted serve applications to the RayCluster %s/%s because at least one application is DEPLOY_FAILED; next retry in at least %s",
+				rayClusterInstance.Namespace, rayClusterInstance.Name, r.ServeDeployFailedRetryBackoff.Get(retryKey))
+		} else {
+			// Any other successful submission resets the backoff.
+			r.resetServeDeployFailedRetry(retryKey)
+			r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeNormal, string(utils.UpdatedServeApplications), string(utils.UpdateAction), "Updated serve applications to the RayCluster %s/%s", rayClusterInstance.Namespace, rayClusterInstance.Name)
+		}
 	}
 	if isIncrementalUpgradeInProgress {
 		incrementalUpgradeUpdate, reason := r.checkIfNeedTargetCapacityUpdate(ctx, rayServiceInstance)
