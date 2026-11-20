@@ -57,7 +57,7 @@ tests:
               - update
               - watch
 
-  - it: Should grant nodes get for the pods/binding webhook
+  - it: Should grant nodes get, list, and watch for the pods/binding webhook and controller cache
     set:
       rbacEnable: true
       singleNamespaceInstall: false
@@ -71,3 +71,5 @@ tests:
               - nodes
             verbs:
               - get
+              - list
+              - watch
