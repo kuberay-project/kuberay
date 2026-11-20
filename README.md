@@ -19,34 +19,34 @@ KubeRay is a powerful, open-source Kubernetes operator that simplifies the deplo
 
 * **Kubectl Plugin** (Beta): Starting from KubeRay v1.3.0, you can use the `kubectl ray` plugin to simplify
 common workflows when deploying Ray on Kubernetes. If you aren’t familiar with Kubernetes, this
-plugin simplifies running Ray on Kubernetes. See [kubectl-plugin](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/kubectl-plugin.html#kubectl-plugin) for more details.
+plugin simplifies running Ray on Kubernetes. See [kubectl-plugin](https://docs.ray.io/en/latest/kuberay/user-guides/kubectl-plugin.html#kubectl-plugin) for more details.
 
 * **KubeRay APIServer** (Alpha): It provides a layer of simplified configuration for KubeRay resources. The KubeRay API server is used internally
 by some organizations to back user interfaces for KubeRay resource management. See [KubeRay APIServer V2](https://github.com/ray-project/kuberay/blob/master/apiserversdk/README.md) for more details.
 
 * **KubeRay Dashboard** (Experimental): Starting from KubeRay v1.4.0, we have introduced a new dashboard that enables users to view and manage KubeRay resources.
-While it is not yet production-ready, we welcome your feedback. See [KubeRay Dashboard](https://docs.ray.io/en/master/cluster/kubernetes/user-guides/kuberay-dashboard.html) for more details.
+While it is not yet production-ready, we welcome your feedback. See [KubeRay Dashboard](https://docs.ray.io/en/latest/kuberay/user-guides/dashboard.html) for more details.
 
 ## Documentation
 
-From September 2023, all user-facing KubeRay documentation will be hosted on the [Ray documentation](https://docs.ray.io/en/latest/cluster/kubernetes/index.html).
+From September 2023, all user-facing KubeRay documentation will be hosted on the [Ray documentation](https://docs.ray.io/en/latest/kuberay/index.html).
 The KubeRay repository only contains documentation related to the development and maintenance of KubeRay.
 
 ## Quick Start
 
-* [RayCluster Quickstart](https://docs.ray.io/en/master/cluster/kubernetes/getting-started/raycluster-quick-start.html)
-* [RayJob Quickstart](https://docs.ray.io/en/master/cluster/kubernetes/getting-started/rayjob-quick-start.html)
-* [RayService Quickstart](https://docs.ray.io/en/master/cluster/kubernetes/getting-started/rayservice-quick-start.html)
+* [RayCluster Quickstart](https://docs.ray.io/en/latest/kuberay/getting-started/raycluster-quick-start.html)
+* [RayJob Quickstart](https://docs.ray.io/en/latest/kuberay/getting-started/rayjob-quick-start.html)
+* [RayService Quickstart](https://docs.ray.io/en/latest/kuberay/getting-started/rayservice-quick-start.html)
 
 ## Examples
 
-KubeRay examples are hosted on the [Ray documentation](https://docs.ray.io/en/latest/cluster/kubernetes/examples.html).
+KubeRay examples are hosted on the [Ray documentation](https://docs.ray.io/en/latest/kuberay/examples/index.html).
 Examples span a wide range of use cases, including training, LLM online inference, batch inference, and more.
 
 ## Kubernetes Ecosystem
 
 KubeRay integrates with the Kubernetes ecosystem, including observability tools (e.g., Prometheus, Grafana, py-spy), queuing systems (e.g., Volcano, Apache YuniKorn, Kueue), ingress controllers (e.g., Nginx), and more.
-See [KubeRay Ecosystem](https://docs.ray.io/en/latest/cluster/kubernetes/k8s-ecosystem.html) for more details.
+See [KubeRay Ecosystem](https://docs.ray.io/en/latest/kuberay/ecosystem/index.html) for more details.
 
 ## Blog Posts
 
