@@ -28,13 +28,6 @@ spec:
             capabilities:
               add:
               - SYS_PTRACE
-          ports:
-          - containerPort: 6379
-            name: gcs-server
-          - containerPort: 8265 # Ray Dashboard
-            name: dashboard
-          - containerPort: 10001
-            name: client
           volumeMounts:
           - mountPath: /home/ray/samples
             name: profiling-example-configmap
