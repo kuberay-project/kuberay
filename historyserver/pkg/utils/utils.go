@@ -51,6 +51,12 @@ func EndpointPathToStorageKey(endpointPath string) string {
 	return "restful__" + strings.ReplaceAll(trimmed, "/", "__")
 }
 
+// IsDirectoryMarker reports whether key is an empty directory placeholder
+// rather than a real object.
+func IsDirectoryMarker(key string) bool {
+	return strings.HasSuffix(key, "/")
+}
+
 const (
 	// connector is the separator for creating flat storage keys.
 	//
