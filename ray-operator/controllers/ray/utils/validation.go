@@ -122,6 +122,15 @@ func ValidateRayClusterSpec(spec *rayv1.RayClusterSpec, annotations map[string]s
 			return fmt.Errorf("workerGroupSpec should have at least one container")
 		}
 
+		// GroupName is used verbatim as the value of the ray.io/group label on this group's Pods
+		// (see labelPod in common/pod.go). An invalid label value is only rejected by the apiserver
+		// at Pod creation time, so validate it up front to fail fast with a clear message instead of
+		// silently failing to create worker Pods.
+		if errs := validation.IsValidLabelValue(workerGroup.GroupName); len(errs) > 0 {
+			return fmt.Errorf("worker group name %q must be a valid value for the %q label set on its Pods: %s",
+				workerGroup.GroupName, RayNodeGroupLabelKey, strings.Join(errs, "; "))
+		}
+
 		// When autoscaling is enabled, MinReplicas and MaxReplicas are optional
 		// as users can manually update them and the autoscaler will handle the adjustment.
 		if !isAutoscalingEnabled && (workerGroup.MinReplicas == nil || workerGroup.MaxReplicas == nil) {
@@ -461,12 +470,11 @@ func validateNetworkPolicy(spec *rayv1.RayClusterSpec) error {
 	// an existing worker group.
 	//
 	// Group names are embedded in NetworkPolicy object names ({cluster}-workers-{group}),
-	// so they must be valid DNS1123 labels when NetworkPolicy is enabled. This is only
-	// enforced here to avoid breaking existing clusters that don't use NetworkPolicy.
-	//
-	// TODO(machichima): consider validating group name format for all clusters under
-	// ValidateRayClusterSpec. Note this is a breaking change: uppercase group names
-	// currently work because pod names are lowercased in PodName().
+	// so they must be valid DNS1123 labels when NetworkPolicy is enabled. ValidateRayClusterSpec
+	// already rejects group names that are not valid label values for all clusters; the DNS1123
+	// check below is stricter (it additionally forbids uppercase) and stays scoped to NetworkPolicy
+	// to avoid breaking existing clusters whose uppercase group names work because pod names are
+	// lowercased in PodName().
 	groupNames := make(map[string]struct{}, len(spec.WorkerGroupSpecs))
 	for i := range spec.WorkerGroupSpecs {
 		groupName := spec.WorkerGroupSpecs[i].GroupName
