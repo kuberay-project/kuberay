@@ -1465,6 +1465,15 @@ func generateRayStartCommand(ctx context.Context, nodeType rayv1.RayNodeType, ra
 		log.Error(err, "failed to add accelerator resources to rayStartParams")
 	}
 
+	// Without --num-gpus, Ray counts every GPU visible in the container. GPU images commonly set
+	// NVIDIA_VISIBLE_DEVICES=all, so a container that requests no GPU can still see all GPUs on
+	// the node and Ray would schedule GPU work on devices assigned to other Pods.
+	if features.Enabled(features.DefaultNumGPUsZero) {
+		if _, ok := rayStartParams["num-gpus"]; !ok && !requestsDevices(resource) {
+			rayStartParams["num-gpus"] = "0"
+		}
+	}
+
 	rayStartCmd := ""
 	switch nodeType {
 	case rayv1.HeadNode:
@@ -1476,6 +1485,24 @@ func generateRayStartCommand(ctx context.Context, nodeType rayv1.RayNodeType, ra
 	}
 	log.Info("generateRayStartCommand", "rayStartCmd", rayStartCmd)
 	return rayStartCmd
+}
+
+// requestsDevices reports whether the container may be given devices by Kubernetes: a DRA
+// resource claim, or a non-zero extended resource such as nvidia.com/gpu or gpu.intel.com/i915.
+// Any extended resource counts, not only names KubeRay recognizes as GPUs, so that Ray keeps
+// auto-detecting devices that KubeRay cannot map to --num-gpus.
+func requestsDevices(resource corev1.ResourceRequirements) bool {
+	if len(resource.Claims) > 0 {
+		return true
+	}
+	for _, list := range []corev1.ResourceList{resource.Limits, resource.Requests} {
+		for name, quantity := range list {
+			if strings.Contains(string(name), "/") && !quantity.IsZero() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func addWellKnownAcceleratorResources(rayStartParams map[string]string, resourceLimits corev1.ResourceList) error {
