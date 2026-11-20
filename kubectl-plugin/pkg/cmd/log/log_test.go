@@ -4,7 +4,9 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -482,6 +484,94 @@ func TestDownloadRayLogFiles(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, curr.Body, string(actualContent))
 	}
+}
+
+// createTarFileWithModes creates a tar archive containing one regular file per
+// supplied mode, so extraction of out-of-range modes can be exercised.
+func createTarFileWithModes(modes []int64) (*bytes.Buffer, error) {
+	tarbuff := new(bytes.Buffer)
+	tw := tar.NewWriter(tarbuff)
+
+	// Leading directory entry, matching the layout produced by the real archive.
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     "/",
+		Mode:     0o755,
+		ModTime:  time.Now(),
+		Typeflag: tar.TypeDir,
+	}); err != nil {
+		return nil, err
+	}
+
+	for ind, mode := range modes {
+		body := "content\n"
+		hdr := &tar.Header{
+			Name:     fmt.Sprintf("file%d.txt", ind),
+			Mode:     mode,
+			ModTime:  time.Now(),
+			Size:     int64(len(body)),
+			Typeflag: tar.TypeReg,
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return nil, err
+		}
+		if _, err := tw.Write([]byte(body)); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	return tarbuff, nil
+}
+
+// TestDownloadRayLogFilesSkipsOutOfRangeMode verifies that a tar entry whose mode
+// cannot be represented as an os.FileMode is skipped rather than being created
+// with a truncated mode, and that skipping it does not stall extraction of the
+// remaining entries.
+func TestDownloadRayLogFilesSkipsOutOfRangeMode(t *testing.T) {
+	fakeDir, err := os.MkdirTemp("", "fake-directory")
+	require.NoError(t, err)
+	defer os.RemoveAll(fakeDir)
+
+	testStreams, _, _, _ := genericiooptions.NewTestIOStreams()
+	cmdFactory := cmdutil.NewFactory(genericclioptions.NewConfigFlags(true))
+
+	fakeClusterLogOptions := NewClusterLogOptions(cmdFactory, testStreams)
+	fakeClusterLogOptions.ResourceName = "test-cluster"
+	fakeClusterLogOptions.outputDir = fakeDir
+
+	// file0 has a mode outside the range representable by os.FileMode and must be
+	// skipped; file1 is valid and must still be extracted afterwards.
+	fakeTar, err := createTarFileWithModes([]int64{math.MaxUint32 + 1, 0o644})
+	require.NoError(t, err)
+
+	rayHead := v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-cluster-kuberay-head-1",
+			Namespace: "test",
+		},
+		Status: v1.PodStatus{Phase: v1.PodRunning, PodIP: "10.0.0.1"},
+	}
+
+	executor, _ := fakeNewSPDYExecutor("GET", &url.URL{}, fakeTar)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- fakeClusterLogOptions.downloadRayLogFiles(context.Background(), executor, rayHead)
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("downloadRayLogFiles did not return; extraction is not advancing past the skipped entry")
+	}
+
+	files, err := os.ReadDir(filepath.Join(fakeDir, rayHead.Name))
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	assert.Equal(t, "file1.txt", files[0].Name())
 }
 
 // createTempKubeConfigFile creates a temporary kubeconfig file with the given current context.
