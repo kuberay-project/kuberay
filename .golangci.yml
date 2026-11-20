@@ -114,11 +114,6 @@ linters:
       - linters: [gosec]
         path: historyserver/
         text: 'G117:.*"SessionKey"'
-      # The history server S3 backend and its e2e tests still use aws-sdk-go v1.
-      # TODO: drop this once the S3 storage backend migrates to aws-sdk-go-v2.
-      - linters: [staticcheck]
-        path: historyserver/
-        text: "SA1019:.*aws-sdk-go is deprecated"
       # TODO: handle these properly instead of ignoring them.
       - linters: [errcheck]
         path: historyserver/
