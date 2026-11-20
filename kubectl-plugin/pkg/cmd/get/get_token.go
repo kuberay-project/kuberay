@@ -81,7 +81,7 @@ func (options *GetTokenOptions) Run(ctx context.Context, k8sClient client.Client
 	if token, ok := secret.Data[utils.RAY_AUTH_TOKEN_SECRET_KEY]; ok {
 		_, err = fmt.Fprint(options.ioStreams.Out, string(token))
 	} else {
-		err = fmt.Errorf("secret %s/%s does not have an auth_token", options.namespace, options.cluster)
+		err = fmt.Errorf("secret %s/%s does not have an %s", options.namespace, options.cluster, utils.RAY_AUTH_TOKEN_SECRET_KEY)
 	}
 	return err
 }
