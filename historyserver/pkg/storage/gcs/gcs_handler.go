@@ -20,6 +20,7 @@ import (
 
 	"github.com/ray-project/kuberay/historyserver/pkg/collector/types"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage"
+	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/clustermetadata"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 )
@@ -181,26 +182,68 @@ func contentMatchGlob(rootDir string, prefix string, fileName string) string {
 	return strings.TrimPrefix(path.Join(rootDir, "**", prefix+"*", "**", fileName), "/")
 }
 
+// isCanonicalContentPath identifies complete paths from the current collector
+// layout. Partial cluster prefixes and basenames are legacy search arguments,
+// not object keys: probing them can fail IAM checks before an allowed legacy
+// object is discovered.
+func isCanonicalContentPath(prefix, fileName string) bool {
+	parts := strings.Split(prefix, "/")
+	if len(parts) < 4 || parts[0] != clusterlogs.ClusterHistoryDir || path.Clean(prefix) != prefix {
+		return false
+	}
+	switch parts[1] {
+	case utils.RayClusterKind:
+		if len(parts) != 4 {
+			return false
+		}
+	case utils.RayJobKind, utils.RayServiceKind:
+		if len(parts) != 5 {
+			return false
+		}
+	default:
+		return false
+	}
+	for _, part := range parts[2:] {
+		if part == "" || strings.ContainsAny(part, "*?[]{}") {
+			return false
+		}
+	}
+	session, relativePath, found := strings.Cut(fileName, "/")
+	return found && strings.HasPrefix(session, "session_") && relativePath != "" && path.Clean(fileName) == fileName
+}
+
 func (h *RayLogsHandler) GetContent(prefix string, fileName string) io.Reader {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	bucket := h.StorageClient.Bucket(h.GCSBucket)
-	query := &gstorage.Query{
-		MatchGlob: contentMatchGlob(h.RootDir, prefix, fileName),
+	var reader *gstorage.Reader
+	var err error
+	direct := isCanonicalContentPath(prefix, fileName)
+	if direct {
+		// Canonical session readers know the complete key. A MatchGlob-only
+		// search can scan the entire bucket once per file before finding it.
+		objectPath := strings.TrimPrefix(path.Join(h.RootDir, prefix, fileName), "/")
+		reader, err = bucket.Object(objectPath).NewReader(ctx)
 	}
-	objectIterator := bucket.Objects(ctx, query)
-	fileAttrs, err := objectIterator.Next()
-	if errors.Is(err, gIterator.Done) {
-		logrus.Errorf("File %s was not found in bucket for prefix %s", fileName, prefix)
-		return nil
+	if !direct || errors.Is(err, gstorage.ErrObjectNotExist) {
+		// Legacy search arguments retain their original listing-first behavior.
+		// Canonical keys still fall back when the exact object is absent.
+		query := &gstorage.Query{
+			MatchGlob: contentMatchGlob(h.RootDir, prefix, fileName),
+		}
+		objectIterator := bucket.Objects(ctx, query)
+		fileAttrs, listErr := objectIterator.Next()
+		if errors.Is(listErr, gIterator.Done) {
+			logrus.Errorf("File %s was not found in bucket for prefix %s", fileName, prefix)
+			return nil
+		}
+		if listErr != nil {
+			logrus.Errorf("Failed when searching for file %v", listErr)
+			return nil
+		}
+		reader, err = bucket.Object(fileAttrs.Name).NewReader(ctx)
 	}
-	if err != nil {
-		logrus.Errorf("Failed when searching for file %v", err)
-		return nil
-	}
-
-	reader, err := h.StorageClient.Bucket(h.GCSBucket).Object(fileAttrs.Name).NewReader(ctx)
 	if err != nil {
 		logrus.Errorf("Failed to create reader for file: %s in prefix: %s", fileName, prefix)
 		return nil
