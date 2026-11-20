@@ -38,7 +38,9 @@ type RayJobSpecApplyConfiguration struct {
 	// DeletionStrategy automates post-completion cleanup.
 	// Choose one style or omit:
 	// - Legacy: both onSuccess & onFailure (deprecated; may combine with shutdownAfterJobFinishes and TTLSecondsAfterFinished).
-	// - Rules: deletionRules (non-empty) — incompatible with shutdownAfterJobFinishes, legacy fields, and global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds).
+	// - Rules: deletionRules (non-empty) with per-rule condition.ttlSeconds; incompatible with legacy fields.
+	// With shutdownAfterJobFinishes=true, only DeleteSelf rules are allowed, with TTLs >= TTLSecondsAfterFinished.
+	// The RayCluster is deleted after TTLSecondsAfterFinished, independently of RayJob retention.
 	// Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true.
 	// Feature gate RayJobDeletionPolicy must be enabled when this field is set.
 	DeletionStrategy *DeletionStrategyApplyConfiguration `json:"deletionStrategy,omitempty"`
