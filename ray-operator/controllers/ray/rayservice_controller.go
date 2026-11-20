@@ -1867,21 +1867,25 @@ func (r *RayServiceReconciler) reconcileServeTargetCapacity(ctx context.Context,
 }
 
 // `getAndCheckServeStatus` gets Serve applications' and deployments' statuses and check whether the
-// Serve applications are ready to serve incoming traffic or not. It returns three values:
+// Serve applications are ready to serve incoming traffic or not. It returns four values:
 //
 // (1) `isReady`: Whether the Serve applications are ready to serve incoming traffic or not.
 // (2) `newApplications`: The Serve applications' statuses.
-// (3) `err`: If `err` is not nil, it means that KubeRay failed to get Serve application statuses from the dashboard.
-func getAndCheckServeStatus(ctx context.Context, dashboardClient dashboardclient.RayDashboardClientInterface) (bool, map[string]rayv1.AppStatus, error) {
+// (3) `proxies`: The Serve proxies, keyed by Ray node ID.
+// (4) `err`: If `err` is not nil, it means that KubeRay failed to get Serve application statuses from the dashboard.
+func getAndCheckServeStatus(ctx context.Context, dashboardClient dashboardclient.RayDashboardClientInterface) (bool, map[string]rayv1.AppStatus, map[string]utiltypes.ServeProxyDetails, error) {
 	logger := ctrl.LoggerFrom(ctx)
 	var serveAppStatuses map[string]*utiltypes.ServeApplicationStatus
-	var err error
-	if serveAppStatuses, err = dashboardClient.GetMultiApplicationStatus(ctx); err != nil {
+	serveDetails, err := dashboardClient.GetServeDetails(ctx)
+	if err == nil {
+		serveAppStatuses, err = dashboardclient.ConvertServeDetailsToApplicationStatuses(serveDetails)
+	}
+	if err != nil {
 		err = fmt.Errorf(
 			"failed to get Serve application statuses from the dashboard. "+
 				"If you observe this error consistently, please check https://docs.ray.io/en/latest/cluster/kubernetes/troubleshooting/rayservice-troubleshooting.html for more details. "+
 				"err: %v", err)
-		return false, nil, err
+		return false, nil, nil, err
 	}
 
 	isReady := true
@@ -1919,7 +1923,7 @@ func getAndCheckServeStatus(ctx context.Context, dashboardClient dashboardclient
 		logger.Info("No Serve application found. The RayCluster is not ready to serve requests. Set 'isReady' to false")
 		isReady = false
 	}
-	return isReady, newApplications, nil
+	return isReady, newApplications, serveDetails.Proxies, nil
 }
 
 func (r *RayServiceReconciler) getServeConfigFromCache(rayServiceInstance *rayv1.RayService, clusterName string) string {
@@ -2070,8 +2074,13 @@ func (r *RayServiceReconciler) reconcileServe(ctx context.Context, rayServiceIns
 	}
 
 	cachedServeConfigV2 := r.getServeConfigFromCache(rayServiceInstance, rayClusterInstance.Name)
-	isReady, serveApplications, err := getAndCheckServeStatus(ctx, rayDashboardClient)
+	isReady, serveApplications, serveProxies, err := getAndCheckServeStatus(ctx, rayDashboardClient)
 	if err != nil {
+		return false, serveApplications, err
+	}
+	// Reuse the Serve details from the request above, so keeping the worker Pods' serve label in sync with
+	// the Serve proxies does not send any extra request to the dashboard.
+	if err = r.updateWorkerPodsServeLabel(ctx, rayServiceInstance, rayClusterInstance, serveProxies); err != nil {
 		return false, serveApplications, err
 	}
 	shouldUpdate, reason := checkIfNeedSubmitServeApplications(cachedServeConfigV2, rayServiceInstance.Spec.ServeConfigV2, serveApplications)
@@ -2142,6 +2151,75 @@ func (r *RayServiceReconciler) updateHeadPodServeLabel(ctx context.Context, rayS
 			return updateErr
 		}
 		r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeNormal, string(utils.UpdatedHeadPodServeLabel), string(utils.UpdateAction), "Updated the serve label to %q for the Head Pod %s/%s", newLabel, headPod.Namespace, headPod.Name)
+	}
+
+	return nil
+}
+
+// updateWorkerPodsServeLabel sets the serve label of each worker Pod based on the Serve proxy on it, so that the serve
+// service only selects worker Pods that run a healthy proxy. Worker Pods are created with the label set to true and
+// still rely on the readiness probe, which checks the local proxy. The label only adds a second guard that does not
+// depend on the readiness probe, which users can override.
+//
+// A label that becomes stale while the operator is down is safe in the false direction: other proxies still route
+// requests to the Serve replicas on that Pod. In the true direction, the readiness probe still guards the Pod.
+func (r *RayServiceReconciler) updateWorkerPodsServeLabel(ctx context.Context, rayServiceInstance *rayv1.RayService, rayClusterInstance *rayv1.RayCluster, proxies map[string]utiltypes.ServeProxyDetails) error {
+	logger := ctrl.LoggerFrom(ctx)
+	// Serve has not started any proxy yet, e.g. the Serve config has not been submitted. Keep the current labels.
+	if len(proxies) == 0 {
+		return nil
+	}
+
+	// Ray 2.52 and later report the Pod name as the node instance ID. Older versions only report the node IP.
+	proxyStatusByPodName := make(map[string]string, len(proxies))
+	proxyStatusByPodIP := make(map[string]string, len(proxies))
+	for _, proxy := range proxies {
+		if proxy.NodeInstanceID != "" {
+			proxyStatusByPodName[proxy.NodeInstanceID] = proxy.Status
+		} else if proxy.NodeIP != "" {
+			proxyStatusByPodIP[proxy.NodeIP] = proxy.Status
+		}
+	}
+
+	workerPods := corev1.PodList{}
+	if err := r.List(ctx, &workerPods, common.RayClusterWorkerPodsAssociationOptions(rayClusterInstance).ToListOptions()...); err != nil {
+		return err
+	}
+
+	for i := range workerPods.Items {
+		workerPod := &workerPods.Items[i]
+		// A Pod without an IP has not started Ray yet, so Serve cannot report a proxy for it.
+		if workerPod.Status.PodIP == "" || !workerPod.DeletionTimestamp.IsZero() {
+			continue
+		}
+		proxyStatus, hasProxy := proxyStatusByPodName[workerPod.Name]
+		if !hasProxy {
+			proxyStatus, hasProxy = proxyStatusByPodIP[workerPod.Status.PodIP]
+		}
+		// The proxy is starting. Keep the current label and let the readiness probe decide when the Pod is ready.
+		if hasProxy && proxyStatus == utiltypes.ServeProxyStatusStarting {
+			continue
+		}
+		newLabel := strconv.FormatBool(hasProxy && proxyStatus == utiltypes.ServeProxyStatusHealthy)
+		if workerPod.Labels[utils.RayClusterServingServiceLabelKey] == newLabel {
+			continue
+		}
+
+		patch := client.MergeFrom(workerPod.DeepCopy())
+		if workerPod.Labels == nil {
+			workerPod.Labels = make(map[string]string)
+		}
+		workerPod.Labels[utils.RayClusterServingServiceLabelKey] = newLabel
+		if err := r.Patch(ctx, workerPod, patch); err != nil {
+			if errors.IsNotFound(err) {
+				continue
+			}
+			r.Recorder.Eventf(rayServiceInstance, workerPod, corev1.EventTypeWarning, string(utils.FailedToUpdateWorkerServeLabel), string(utils.UpdateAction), "Failed to update the serve label to %q for the worker Pod %s/%s: %v", newLabel, workerPod.Namespace, workerPod.Name, err)
+			return err
+		}
+		logger.Info("Updated the serve label of the worker Pod", "pod", workerPod.Name, "label", newLabel, "proxyStatus", proxyStatus)
+		// Pass the Pod as the related object. Otherwise, events with the same reason on the same RayService are merged into one series.
+		r.Recorder.Eventf(rayServiceInstance, workerPod, corev1.EventTypeNormal, string(utils.UpdatedWorkerServeLabel), string(utils.UpdateAction), "Updated the serve label to %q for the worker Pod %s/%s", newLabel, workerPod.Namespace, workerPod.Name)
 	}
 
 	return nil

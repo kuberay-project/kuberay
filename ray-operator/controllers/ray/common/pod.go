@@ -862,8 +862,9 @@ func initLivenessAndReadinessProbe(rayContainer *corev1.Container, rayNodeType r
 func BuildPod(ctx context.Context, podTemplateSpec corev1.PodTemplateSpec, rayNodeType rayv1.RayNodeType, rayStartParams map[string]string, headPort string, enableRayAutoscaler bool, creatorCRDType utils.CRDType, fqdnRayIP string, defaultContainerEnvs []corev1.EnvVar, rayVersion string) (aPod corev1.Pod) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// For Worker Pod: Traffic readiness is determined by the readiness probe.
-	// Therefore, the RayClusterServingServiceLabelKey label is not utilized and should always be set to true.
+	// For Worker Pod: Traffic readiness is determined by the readiness probe, so the RayClusterServingServiceLabelKey
+	// label is initially set to true. The rayservice controller sets it to false for the worker Pods that have no
+	// healthy Serve proxy, which keeps them out of the serve service even if the user overrides the readiness probe.
 	// For Head Pod: Traffic readiness is determined by the value of the RayClusterServingServiceLabelKey label.
 	// Initially, set the label to false and let the rayservice controller to manage its value.
 	if creatorCRDType == utils.RayServiceCRD {
