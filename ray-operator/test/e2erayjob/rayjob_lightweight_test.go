@@ -27,7 +27,9 @@ func TestRayJobLightWeightMode(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	LogWithTimestamp(test.T(), "Created ConfigMap %s/%s successfully", jobs.Namespace, jobs.Name)
 
-	test.T().Run("Successful RayJob", func(_ *testing.T) {
+	test.T().Run("Successful RayJob", func(t *testing.T) {
+		g := NewWithT(t)
+
 		rayJobAC := rayv1ac.RayJob("counter", namespace.Name).
 			WithSpec(rayv1ac.RayJobSpec().
 				WithSubmissionMode(rayv1.HTTPMode).
@@ -61,8 +63,13 @@ env_vars:
 			Should(WithTransform(RayJobStatus, Satisfy(rayv1.IsJobTerminal)))
 
 		// Assert the RayJob has completed successfully
-		g.Expect(GetRayJob(test, rayJob.Namespace, rayJob.Name)).
-			To(WithTransform(RayJobStatus, Equal(rayv1.JobStatusSucceeded)))
+		result, err := GetRayJob(test, rayJob.Namespace, rayJob.Name)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		g.Expect(result.Status.JobStatus).To(
+			Equal(rayv1.JobStatusSucceeded),
+			"RayJob failed: %s", result.Status.Message,
+		)
 
 		// And the RayJob deployment status is updated accordingly
 		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name)).
@@ -72,13 +79,18 @@ env_vars:
 		rayJob, err = GetRayJob(test, rayJob.Namespace, rayJob.Name)
 		g.Expect(err).NotTo(HaveOccurred())
 
-		// TODO (kevin85421): We may need to use `Eventually` instead if the assertion is flaky.
-		// Assert the RayCluster has been torn down
-		_, err = GetRayCluster(test, namespace.Name, rayJob.Status.RayClusterName)
-		g.Expect(k8serrors.IsNotFound(err)).To(BeTrue())
+		g.Expect(rayJob.Status.RayClusterName).NotTo(BeEmpty())
+
+		g.Eventually(func() error {
+			_, err := GetRayCluster(test, namespace.Name, rayJob.Status.RayClusterName)
+			return err
+		}, TestTimeoutMedium).Should(
+			WithTransform(k8serrors.IsNotFound, BeTrue()),
+		)
 	})
 
-	test.T().Run("Failing RayJob without cluster shutdown after finished", func(_ *testing.T) {
+	test.T().Run("Failing RayJob without cluster shutdown after finished", func(t *testing.T) {
+		g := NewWithT(t)
 		rayJobAC := rayv1ac.RayJob("fail", namespace.Name).
 			WithSpec(rayv1ac.RayJobSpec().
 				WithSubmissionMode(rayv1.HTTPMode).
@@ -123,9 +135,10 @@ env_vars:
 		}).Should(WithTransform(k8serrors.IsNotFound, BeTrue()))
 	})
 
-	test.T().Run("Should transition to 'Complete' if the Ray job has stopped.", func(_ *testing.T) {
+	test.T().Run("Should transition to 'Complete' if the Ray job has stopped.", func(t *testing.T) {
 		// `stop.py` will sleep for 20 seconds so that the RayJob has enough time to transition to `RUNNING`
 		// and then stop the Ray job. If the Ray job is stopped, the RayJob should transition to `Complete`.
+		g := NewWithT(t)
 		rayJobAC := rayv1ac.RayJob("stop", namespace.Name).
 			WithSpec(rayv1ac.RayJobSpec().
 				WithSubmissionMode(rayv1.HTTPMode).
@@ -153,7 +166,10 @@ env_vars:
 		LogWithTimestamp(test.T(), "Deleted RayJob %s/%s successfully", rayJob.Namespace, rayJob.Name)
 	})
 
-	test.T().Run("Successful RayJob in HTTP mode with auth token", func(_ *testing.T) {
+	test.T().Run("Successful RayJob in HTTP mode with auth token", func(t *testing.T) {
+		authTest := With(t)
+		g := NewWithT(t)
+
 		rayJobAC := rayv1ac.RayJob("counter-auth", namespace.Name).
 			WithSpec(rayv1ac.RayJobSpec().
 				WithSubmissionMode(rayv1.HTTPMode).
@@ -195,14 +211,14 @@ env_vars:
 		g.Expect(headPod).NotTo(BeNil())
 
 		// Verify Ray container has auth token env vars
-		VerifyContainerAuthTokenEnvVars(test, rayCluster, &headPod.Spec.Containers[utils.RayContainerIndex])
+		VerifyContainerAuthTokenEnvVars(authTest, rayCluster, &headPod.Spec.Containers[utils.RayContainerIndex])
 
 		// Verify worker pods have auth token env vars
 		workerPods, err := GetWorkerPods(test, rayCluster)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(workerPods).ToNot(BeEmpty())
 		for _, workerPod := range workerPods {
-			VerifyContainerAuthTokenEnvVars(test, rayCluster, &workerPod.Spec.Containers[utils.RayContainerIndex])
+			VerifyContainerAuthTokenEnvVars(authTest, rayCluster, &workerPod.Spec.Containers[utils.RayContainerIndex])
 		}
 
 		LogWithTimestamp(test.T(), "Waiting for RayJob %s/%s to complete", rayJob.Namespace, rayJob.Name)
