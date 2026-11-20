@@ -431,13 +431,6 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			}
 		}()
 
-		// The RayJob has reached a terminal state. Handle the cleanup and deletion logic.
-		// If the RayJob uses an existing RayCluster, we must not delete it.
-		if len(rayJobInstance.Spec.ClusterSelector) > 0 {
-			logger.Info("RayJob is using an existing RayCluster via clusterSelector; skipping resource deletion.", "RayClusterSelector", rayJobInstance.Spec.ClusterSelector)
-			return ctrl.Result{}, nil
-		}
-
 		if features.Enabled(features.RayJobDeletionPolicy) && rayJobInstance.Spec.DeletionStrategy != nil {
 			// The previous validation logic ensures that either DeletionRules or the legacy policies are set, but not both.
 			if rayJobInstance.Spec.DeletionStrategy.DeletionRules != nil {
@@ -842,6 +835,11 @@ func (r *RayJobReconciler) deleteClusterResources(ctx context.Context, rayJobIns
 
 func (r *RayJobReconciler) suspendWorkerGroups(ctx context.Context, rayJobInstance *rayv1.RayJob) error {
 	logger := ctrl.LoggerFrom(ctx)
+	if len(rayJobInstance.Spec.ClusterSelector) > 0 {
+		logger.Info("RayJob is using an existing RayCluster via clusterSelector; skipping worker suspension.", "RayClusterSelector", rayJobInstance.Spec.ClusterSelector)
+		return nil
+	}
+
 	clusterIdentifier := common.RayJobRayClusterNamespacedName(rayJobInstance)
 
 	cluster := rayv1.RayCluster{}
@@ -1309,7 +1307,11 @@ func clearJobStatusCheckFailureTimer(rayJob *rayv1.RayJob) bool {
 	return true
 }
 
-// reconcileHTTPModeJobNotFound handles GetJobInfo 404 in HTTP mode by resubmitting the job.
+// reconcileHTTPModeJobNotFound handles GetJobInfo 404 in HTTPMode. If the job has not been
+// observed on the cluster yet, this performs the initial submission. If the job was already
+// observed, the 404 means the cluster lost the job state (e.g. the head Pod was recreated),
+// so the RayJob transitions to Failed and retries are governed by spec.backoffLimit, consistent
+// with the other submission modes.
 // Returns whether status should be persisted.
 func reconcileHTTPModeJobNotFound(
 	ctx context.Context,
@@ -1317,6 +1319,16 @@ func reconcileHTTPModeJobNotFound(
 	rayDashboardClient dashboardclient.RayDashboardClientInterface,
 ) bool {
 	logger := ctrl.LoggerFrom(ctx)
+
+	if rayJob.Status.JobStatus != rayv1.JobStatusNew {
+		logger.Info("The Ray job was previously submitted but no longer exists in the RayCluster. Marking the RayJob as Failed.",
+			"JobId", rayJob.Status.JobId, "JobStatus", rayJob.Status.JobStatus)
+		rayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusFailed
+		rayJob.Status.Reason = rayv1.AppFailed
+		rayJob.Status.Message = "The Ray job was previously submitted but no longer exists in the RayCluster, possibly because the head Pod was recreated."
+		return true
+	}
+
 	logger.Info("The Ray job was not found. Submit a Ray job via an HTTP request.", "JobId", rayJob.Status.JobId)
 
 	if _, submitErr := rayDashboardClient.SubmitJob(ctx, rayJob); submitErr != nil {
@@ -1542,6 +1554,7 @@ func (r *RayJobReconciler) handleShutdownAfterJobFinishes(ctx context.Context, r
 
 	var err error
 	if s := os.Getenv(utils.DELETE_RAYJOB_CR_AFTER_JOB_FINISHES); strings.ToLower(s) == "true" {
+		logger.Info("The DELETE_RAYJOB_CR_AFTER_JOB_FINISHES environment variable is deprecated and will be removed in release 1.10.0. Use the RayJob DeletionStrategy API instead.")
 		err = r.Client.Delete(ctx, rayJob)
 		if err == nil {
 			logger.Info("RayJob is deleted", "RayJob", rayJob.Name)

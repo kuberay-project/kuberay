@@ -37,6 +37,24 @@ _Appears in:_
 | `retryPeriodSeconds` _integer_ | RetryPeriodSeconds is the duration clients wait between sequential resource acquisition attempts. | 2 | Minimum: 1 <br /> |
 
 
+#### AppStatus
+
+
+
+
+
+
+
+_Appears in:_
+- [RayServiceStatus](#rayservicestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `serveDeploymentStatuses` _object (keys:string, values:[ServeDeploymentStatus](#servedeploymentstatus))_ |  |  |  |
+| `status` _string_ |  |  |  |
+| `message` _string_ |  |  |  |
+
+
 #### AuthMode
 
 _Underlying type:_ _string_
@@ -117,6 +135,24 @@ _Appears in:_
 | `v2` |  |
 
 
+#### ClusterState
+
+_Underlying type:_ _string_
+
+The overall state of the Ray cluster.
+
+
+
+_Appears in:_
+- [RayClusterStatus](#rayclusterstatus)
+
+| Field | Description |
+| --- | --- |
+| `ready` |  |
+| `failed` | Failed is deprecated, but we keep it to avoid compilation errors in projects that import the KubeRay Golang module.<br /> |
+| `suspended` |  |
+
+
 #### ClusterUpgradeOptions
 
 
@@ -173,6 +209,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `jobStatus` _[JobStatus](#jobstatus)_ | JobStatus is the terminal status of the RayJob that triggers this condition.<br />For the initial implementation, only "SUCCEEDED" and "FAILED" are supported. |  | Enum: [SUCCEEDED FAILED] <br /> |
+| `jobDeploymentStatus` _[JobDeploymentStatus](#jobdeploymentstatus)_ | JobDeploymentStatus is the terminal status of the RayJob deployment that triggers this condition.<br />For the initial implementation, only "Failed" is supported. |  | Enum: [Failed] <br /> |
 | `ttlSeconds` _integer_ | TTLSeconds is the time in seconds from when the JobStatus or JobDeploymentStatus<br />reaches the specified terminal state to when this deletion action should be triggered.<br />The value must be a non-negative integer. | 0 | Minimum: 0 <br /> |
 
 
@@ -396,6 +434,25 @@ _Appears in:_
 | `serviceType` _[ServiceType](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#servicetype-v1-core)_ | ServiceType is Kubernetes service type of the head service. it will be used by the workers to connect to the head pod |  |  |
 
 
+#### HeadInfo
+
+
+
+HeadInfo gives info about head
+
+
+
+_Appears in:_
+- [RayClusterStatus](#rayclusterstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `podIP` _string_ |  |  |  |
+| `serviceIP` _string_ |  |  |  |
+| `podName` _string_ |  |  |  |
+| `serviceName` _string_ |  |  |  |
+
+
 #### HistoryServerOptions
 
 
@@ -485,6 +542,74 @@ _Appears in:_
 | `ImplementationSpecific` |  |
 
 
+#### JobDeploymentStatus
+
+_Underlying type:_ _string_
+
+JobDeploymentStatus indicates RayJob status including RayCluster lifecycle management and Job submission
+
+
+
+_Appears in:_
+- [DeletionCondition](#deletioncondition)
+- [RayJobStatus](#rayjobstatus)
+
+| Field | Description |
+| --- | --- |
+| `` |  |
+| `Initializing` |  |
+| `Running` |  |
+| `Complete` |  |
+| `Failed` |  |
+| `ValidationFailed` |  |
+| `Suspending` |  |
+| `Suspended` |  |
+| `Retrying` |  |
+| `Waiting` |  |
+
+
+#### JobFailedReason
+
+_Underlying type:_ _string_
+
+JobFailedReason indicates the reason the RayJob changes its JobDeploymentStatus to 'Failed'
+
+
+
+_Appears in:_
+- [RayJobStatus](#rayjobstatus)
+
+| Field | Description |
+| --- | --- |
+| `SubmissionFailed` |  |
+| `DeadlineExceeded` |  |
+| `PreRunningDeadlineExceeded` |  |
+| `AppFailed` |  |
+| `JobDeploymentStatusTransitionGracePeriodExceeded` |  |
+| `JobStatusCheckTimeoutExceeded` |  |
+| `ValidationFailed` |  |
+
+
+#### JobStatus
+
+_Underlying type:_ _string_
+
+JobStatus is the Ray Job Status.
+
+
+
+_Appears in:_
+- [DeletionCondition](#deletioncondition)
+- [RayJobStatus](#rayjobstatus)
+
+| Field | Description |
+| --- | --- |
+| `` |  |
+| `PENDING` |  |
+| `RUNNING` |  |
+| `STOPPED` |  |
+| `SUCCEEDED` |  |
+| `FAILED` |  |
 
 
 #### JobSubmissionMode
@@ -630,6 +755,7 @@ RayCluster is the Schema for the RayClusters API
 | `kind` _string_ | `RayCluster` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[RayClusterSpec](#rayclusterspec)_ | Specification of the desired behavior of the RayCluster. |  |  |
+| `status` _[RayClusterStatus](#rayclusterstatus)_ | Status is the most recently observed state of the RayCluster. |  |  |
 
 
 
@@ -665,6 +791,40 @@ _Appears in:_
 | `headGroupSpec` _[HeadGroupSpec](#headgroupspec)_ | HeadGroupSpec is the spec for the head pod |  |  |
 | `rayVersion` _string_ | RayVersion is used to determine the command for the Kubernetes Job managed by RayJob |  |  |
 | `workerGroupSpecs` _[WorkerGroupSpec](#workergroupspec) array_ | WorkerGroupSpecs are the specs for the worker pods |  |  |
+
+
+#### RayClusterStatus
+
+
+
+RayClusterStatus defines the observed state of RayCluster
+
+
+
+_Appears in:_
+- [RayCluster](#raycluster)
+- [RayJobStatus](#rayjobstatus)
+- [RayServiceStatus](#rayservicestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `state` _[ClusterState](#clusterstate)_ | INSERT ADDITIONAL STATUS FIELD - define observed state of cluster<br />Important: Run "make" to regenerate code after modifying this file<br />Status reflects the status of the cluster<br />Deprecated: the State field is replaced by the Conditions field. |  |  |
+| `desiredCPU` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#quantity-resource-api)_ | DesiredCPU indicates total desired CPUs for the cluster |  |  |
+| `desiredMemory` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#quantity-resource-api)_ | DesiredMemory indicates total desired memory for the cluster |  |  |
+| `desiredGPU` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#quantity-resource-api)_ | DesiredGPU indicates total desired GPUs for the cluster |  |  |
+| `desiredTPU` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#quantity-resource-api)_ | DesiredTPU indicates total desired TPUs for the cluster |  |  |
+| `lastUpdateTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ | LastUpdateTime indicates last update timestamp for this cluster status. |  |  |
+| `stateTransitionTimes` _object (keys:[ClusterState](#clusterstate), values:[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta))_ | StateTransitionTimes indicates the time of the last state transition for each state. |  |  |
+| `endpoints` _object (keys:string, values:string)_ | Service Endpoints |  |  |
+| `head` _[HeadInfo](#headinfo)_ | Head info |  |  |
+| `reason` _string_ | Reason provides more information about current State |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta) array_ | Represents the latest available observations of a RayCluster's current state. |  |  |
+| `readyWorkerReplicas` _integer_ | ReadyWorkerReplicas indicates the number of worker pods currently in the Ready state in the cluster.<br />It actually reflects the number of Ready pods, although it is named "replicas" to maintain backward compatibility. |  |  |
+| `availableWorkerReplicas` _integer_ | AvailableWorkerReplicas indicates how many worker pods are currently available (i.e., running).<br />It is named "replicas" to maintain backward compatibility. |  |  |
+| `desiredWorkerReplicas` _integer_ | DesiredWorkerReplicas indicates the desired total number of worker Pods at the cluster level,<br />calculated as the sum of `replicas * numOfHosts` for each worker group.<br />It is named "replicas" to maintain backward compatibility. |  |  |
+| `minWorkerReplicas` _integer_ | MinWorkerReplicas indicates the minimum number of worker pods across all worker groups,<br />calculated as the sum of `minReplicas * numOfHosts` for each worker group.<br />It is named "replicas" to maintain backward compatibility. |  |  |
+| `maxWorkerReplicas` _integer_ | MaxWorkerReplicas indicates the maximum number of worker pods across all worker groups,<br />calculated as the sum of `maxReplicas * numOfHosts` for each worker group.<br />It is named "replicas" to maintain backward compatibility. |  |  |
+| `observedGeneration` _integer_ | observedGeneration is the most recent generation observed for this RayCluster. It corresponds to the<br />RayCluster's generation, which is updated on mutation by the API Server. |  |  |
 
 
 #### RayClusterUpgradeStrategy
@@ -717,6 +877,7 @@ RayCronJob is the Schema for the raycronjobs API
 | `kind` _string_ | `RayCronJob` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[RayCronJobSpec](#raycronjobspec)_ |  |  |  |
+| `status` _[RayCronJobStatus](#raycronjobstatus)_ | Status is the most recently observed state of the RayCronJob. |  |  |
 
 
 #### RayCronJobSpec
@@ -738,6 +899,22 @@ _Appears in:_
 | `suspend` _boolean_ | Suspend tells the controller to suspend the scheduling, it does not apply to<br />scheduled RayJob. |  |  |
 
 
+#### RayCronJobStatus
+
+
+
+RayCronJobStatus defines the observed state of RayCronJob
+
+
+
+_Appears in:_
+- [RayCronJob](#raycronjob)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `lastScheduleTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ |  |  |  |
+
+
 #### RayJob
 
 
@@ -754,6 +931,7 @@ RayJob is the Schema for the rayjobs API
 | `kind` _string_ | `RayJob` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[RayJobSpec](#rayjobspec)_ |  |  |  |
+| `status` _[RayJobStatus](#rayjobstatus)_ | Status is the most recently observed state of the RayJob. |  |  |
 
 
 #### RayJobSpec
@@ -792,6 +970,54 @@ _Appears in:_
 | `suspend` _boolean_ | suspend specifies whether the RayJob controller should create a RayCluster instance<br />If a job is applied with the suspend field set to true,<br />the RayCluster will not be created and will wait for the transition to false.<br />If the RayCluster is already created, it will be deleted.<br />In case of transition to false a new RayCluster will be created. |  |  |
 
 
+#### RayJobStatus
+
+
+
+RayJobStatus defines the observed state of RayJob
+
+
+
+_Appears in:_
+- [RayJob](#rayjob)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `rayJobInfo` _[RayJobStatusInfo](#rayjobstatusinfo)_ | INSERT ADDITIONAL STATUS FIELD - define observed state of cluster<br />Important: Run "make" to regenerate code after modifying this file<br />RayJobStatusInfo contains information about the Ray job retrieved from the Ray dashboard. |  |  |
+| `jobId` _string_ |  |  |  |
+| `rayClusterName` _string_ |  |  |  |
+| `dashboardURL` _string_ |  |  |  |
+| `jobStatus` _[JobStatus](#jobstatus)_ |  |  |  |
+| `jobDeploymentStatus` _[JobDeploymentStatus](#jobdeploymentstatus)_ |  |  |  |
+| `reason` _[JobFailedReason](#jobfailedreason)_ |  |  |  |
+| `message` _string_ |  |  |  |
+| `startTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ | StartTime is the time when JobDeploymentStatus transitioned from 'New' to 'Initializing'. |  |  |
+| `endTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ | EndTime is the time when JobDeploymentStatus transitioned to 'Complete' status.<br />This occurs when the Ray job reaches a terminal state (SUCCEEDED, FAILED, STOPPED)<br />or the submitter Job has failed. |  |  |
+| `succeeded` _integer_ | Succeeded is the number of times this job succeeded. | 0 |  |
+| `failed` _integer_ | Failed is the number of times this job failed. | 0 |  |
+| `rayClusterStatus` _[RayClusterStatus](#rayclusterstatus)_ | RayClusterStatus is the status of the RayCluster running the job. |  |  |
+| `jobStatusCheckFailureStartTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ | JobStatusCheckFailureStartTime is set when job status checks via the Ray Dashboard started failing.<br />Reset on a successful check. JobDeploymentStatus transitions to 'Failed' after RAYJOB_STATUS_CHECK_TIMEOUT_SECONDS |  |  |
+| `observedGeneration` _integer_ | observedGeneration is the most recent generation observed for this RayJob. It corresponds to the<br />RayJob's generation, which is updated on mutation by the API Server. |  |  |
+
+
+#### RayJobStatusInfo
+
+
+
+`RayJobStatusInfo` is a subset of `RayJobInfo` from `dashboard_httpclient.py`.
+This subset is used to store information in the CR status.
+
+after careful consideration. In that case, we can remove `RayJobStatusInfo`.
+
+
+
+_Appears in:_
+- [RayJobStatus](#rayjobstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `startTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ |  |  |  |
+| `endTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ |  |  |  |
 
 
 #### RayJobTemplateSpec
@@ -829,6 +1055,7 @@ RayService is the Schema for the rayservices API
 | `kind` _string_ | `RayService` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[RayServiceSpec](#rayservicespec)_ |  |  |  |
+| `status` _[RayServiceStatuses](#rayservicestatuses)_ | Status is the most recently observed state of the RayService. |  |  |
 
 
 
@@ -860,6 +1087,47 @@ _Appears in:_
 | `suspend` _boolean_ | Suspend indicates whether the RayService should suspend its execution. When set to true,<br />all Kubernetes resources owned by the RayService controller will be deleted. Setting it<br />back to false will allow the RayService controller to recreate the resources. |  |  |
 
 
+#### RayServiceStatus
+
+
+
+
+
+
+
+_Appears in:_
+- [RayServiceStatuses](#rayservicestatuses)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `applicationStatuses` _object (keys:string, values:[AppStatus](#appstatus))_ | Important: Run "make" to regenerate code after modifying this file |  |  |
+| `targetCapacity` _integer_ | TargetCapacity is the `target_capacity` percentage for all Serve replicas<br />across the cluster for this RayService. The `num_replicas`, `min_replicas`, `max_replicas`,<br />and `initial_replicas` for each deployment will be scaled by this percentage." |  |  |
+| `trafficRoutedPercent` _integer_ | TrafficRoutedPercent is the percentage of traffic that is routed to the Serve service<br />for this RayService. TrafficRoutedPercent is updated to reflect the weight on the HTTPRoute<br />created for this RayService during incremental upgrades to a new cluster. |  |  |
+| `lastTrafficMigratedTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ | LastTrafficMigratedTime is the last time that TrafficRoutedPercent was updated to a new value<br />for this RayService. |  |  |
+| `rayClusterName` _string_ |  |  |  |
+| `rayClusterStatus` _[RayClusterStatus](#rayclusterstatus)_ |  |  |  |
+
+
+#### RayServiceStatuses
+
+
+
+RayServiceStatuses defines the observed state of RayService
+
+
+
+_Appears in:_
+- [RayService](#rayservice)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta) array_ | Represents the latest available observations of a RayService's current state. |  |  |
+| `lastUpdateTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ | LastUpdateTime represents the timestamp when the RayService status was last updated. |  |  |
+| `serviceStatus` _[ServiceStatus](#servicestatus)_ | Deprecated: `ServiceStatus` is deprecated - use `Conditions` instead. `Running` means the RayService is ready to<br />serve requests. An empty `ServiceStatus` means the RayService is not ready to serve requests. The definition of<br />`ServiceStatus` is equivalent to the `RayServiceReady` condition. |  |  |
+| `activeServiceStatus` _[RayServiceStatus](#rayservicestatus)_ |  |  |  |
+| `pendingServiceStatus` _[RayServiceStatus](#rayservicestatus)_ | Pending Service Status indicates a RayCluster will be created or is being created. |  |  |
+| `numServeEndpoints` _integer_ | NumServeEndpoints indicates the number of Ray Pods that are actively serving or have been selected by the serve service.<br />Ray Pods without a proxy actor or those that are unhealthy will not be counted. |  |  |
+| `observedGeneration` _integer_ | observedGeneration is the most recent generation observed for this RayService. It corresponds to the<br />RayService's generation, which is updated on mutation by the API Server. |  |  |
 
 
 #### RayServiceUpgradeStrategy
@@ -948,6 +1216,40 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `workersToDelete` _string array_ | WorkersToDelete workers to be deleted |  |  |
 | `scaleGate` _[ScaleGate](#scalegate) array_ | ScaleGate is a signal written by an external controller to indicate that<br />this worker group cannot currently be scaled up. KubeRay preserves the<br />field across reconciles but never reads or writes it; the Ray Autoscaler<br />consumes it and falls back to another worker group while it is non-empty.<br />Each gate is keyed by its type. A writer must add or remove only its own<br />gates via Server-Side Apply under a distinct field manager; replacing the<br />list wholesale, or using read-modify-write Update, drops gates owned by<br />others. |  |  |
+
+
+#### ServeDeploymentStatus
+
+
+
+ServeDeploymentStatus defines the current state of a Serve deployment
+
+
+
+_Appears in:_
+- [AppStatus](#appstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `status` _string_ |  |  |  |
+| `message` _string_ |  |  |  |
+
+
+#### ServiceStatus
+
+_Underlying type:_ _string_
+
+
+
+
+
+_Appears in:_
+- [RayServiceStatuses](#rayservicestatuses)
+
+| Field | Description |
+| --- | --- |
+| `Running` | `Running` means the RayService is ready to serve requests. `NotRunning` means it is not ready.<br />The naming is a bit confusing, but to maintain backward compatibility, we use `Running` instead of `Ready`.<br />Since KubeRay v1.3.0, `ServiceStatus` is equivalent to the `RayServiceReady` condition.<br />`ServiceStatus` is deprecated - please use conditions instead.<br /> |
+| `` |  |
 
 
 #### SubmitterConfig
@@ -1064,6 +1366,25 @@ frozen at its December 2023 feature set, and will be unavailable in KubeRay
 
 
 
+#### AppStatus
+
+
+
+
+
+
+
+_Appears in:_
+- [RayServiceStatus](#rayservicestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `healthLastUpdateTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ | Keep track of how long the service is healthy.<br />Update when Serve deployment is healthy or first time convert to unhealthy from healthy. |  |  |
+| `serveDeploymentStatuses` _object (keys:string, values:[ServeDeploymentStatus](#servedeploymentstatus))_ |  |  |  |
+| `status` _string_ |  |  |  |
+| `message` _string_ |  |  |  |
+
+
 #### AutoscalerOptions
 
 
@@ -1088,6 +1409,25 @@ _Appears in:_
 | `volumeMounts` _[VolumeMount](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#volumemount-v1-core) array_ | Optional list of volumeMounts.  This is needed for enabling TLS for the autoscaler container. |  |  |
 
 
+#### ClusterState
+
+_Underlying type:_ _string_
+
+The overall state of the Ray cluster.
+
+
+
+_Appears in:_
+- [RayClusterStatus](#rayclusterstatus)
+
+| Field | Description |
+| --- | --- |
+| `ready` |  |
+| `unhealthy` |  |
+| `failed` |  |
+| `suspended` |  |
+
+
 
 
 #### HeadGroupSpec
@@ -1108,6 +1448,64 @@ _Appears in:_
 | `enableIngress` _boolean_ | EnableIngress indicates whether operator should create ingress object for head service or not. |  |  |
 | `rayStartParams` _object (keys:string, values:string)_ | RayStartParams are the params of the start command: node-manager-port, object-store-memory, ... |  |  |
 | `serviceType` _[ServiceType](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#servicetype-v1-core)_ | ServiceType is Kubernetes service type of the head service. it will be used by the workers to connect to the head pod |  |  |
+
+
+#### HeadInfo
+
+
+
+HeadInfo gives info about head
+
+
+
+_Appears in:_
+- [RayClusterStatus](#rayclusterstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `podIP` _string_ |  |  |  |
+| `serviceIP` _string_ |  |  |  |
+
+
+#### JobDeploymentStatus
+
+_Underlying type:_ _string_
+
+JobDeploymentStatus indicates RayJob status including RayCluster lifecycle management and Job submission
+
+
+
+_Appears in:_
+- [RayJobStatus](#rayjobstatus)
+
+| Field | Description |
+| --- | --- |
+| `` |  |
+| `Initializing` |  |
+| `Running` |  |
+| `Complete` |  |
+| `Suspended` |  |
+
+
+#### JobStatus
+
+_Underlying type:_ _string_
+
+JobStatus is the Ray Job Status.
+
+
+
+_Appears in:_
+- [RayJobStatus](#rayjobstatus)
+
+| Field | Description |
+| --- | --- |
+| `` |  |
+| `PENDING` |  |
+| `RUNNING` |  |
+| `STOPPED` |  |
+| `SUCCEEDED` |  |
+| `FAILED` |  |
 
 
 #### RayCluster
@@ -1131,6 +1529,7 @@ and existing RayClusters.
 | `kind` _string_ | `RayCluster` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[RayClusterSpec](#rayclusterspec)_ | Specification of the desired behavior of the RayCluster. |  |  |
+| `status` _[RayClusterStatus](#rayclusterstatus)_ |  |  |  |
 
 
 #### RayClusterSpec
@@ -1157,6 +1556,38 @@ _Appears in:_
 | `workerGroupSpecs` _[WorkerGroupSpec](#workergroupspec) array_ | WorkerGroupSpecs are the specs for the worker pods |  |  |
 
 
+#### RayClusterStatus
+
+
+
+RayClusterStatus defines the observed state of RayCluster
+
+
+
+_Appears in:_
+- [RayCluster](#raycluster)
+- [RayJobStatus](#rayjobstatus)
+- [RayServiceStatus](#rayservicestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `lastUpdateTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ | LastUpdateTime indicates last update timestamp for this cluster status. |  |  |
+| `endpoints` _object (keys:string, values:string)_ | Service Endpoints |  |  |
+| `desiredCPU` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#quantity-resource-api)_ | DesiredCPU indicates total desired CPUs for the cluster |  |  |
+| `desiredMemory` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#quantity-resource-api)_ | DesiredMemory indicates total desired memory for the cluster |  |  |
+| `desiredGPU` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#quantity-resource-api)_ | DesiredGPU indicates total desired GPUs for the cluster |  |  |
+| `desiredTPU` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#quantity-resource-api)_ | DesiredTPU indicates total desired TPUs for the cluster |  |  |
+| `head` _[HeadInfo](#headinfo)_ | Head info |  |  |
+| `state` _[ClusterState](#clusterstate)_ | INSERT ADDITIONAL STATUS FIELD - define observed state of cluster<br />Important: Run "make" to regenerate code after modifying this file<br />Status reflects the status of the cluster<br />Deprecated: the State field is replaced by the Conditions field. |  |  |
+| `reason` _string_ | Reason provides more information about current State |  |  |
+| `readyWorkerReplicas` _integer_ | ReadyWorkerReplicas indicates how many worker replicas are ready in the cluster |  |  |
+| `availableWorkerReplicas` _integer_ | AvailableWorkerReplicas indicates how many replicas are available in the cluster |  |  |
+| `desiredWorkerReplicas` _integer_ | DesiredWorkerReplicas indicates overall desired replicas claimed by the user at the cluster level. |  |  |
+| `minWorkerReplicas` _integer_ | MinWorkerReplicas indicates sum of minimum replicas of each node group. |  |  |
+| `maxWorkerReplicas` _integer_ | MaxWorkerReplicas indicates sum of maximum replicas of each node group. |  |  |
+| `observedGeneration` _integer_ | observedGeneration is the most recent generation observed for this RayCluster. It corresponds to the<br />RayCluster's generation, which is updated on mutation by the API Server. |  |  |
+
+
 #### RayJob
 
 
@@ -1178,6 +1609,7 @@ and existing RayJobs.
 | `kind` _string_ | `RayJob` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[RayJobSpec](#rayjobspec)_ |  |  |  |
+| `status` _[RayJobStatus](#rayjobstatus)_ |  |  |  |
 
 
 #### RayJobSpec
@@ -1208,6 +1640,31 @@ _Appears in:_
 | `suspend` _boolean_ | Suspend specifies whether the RayJob controller should create a RayCluster instance<br />If a job is applied with the suspend field set to true,<br />the RayCluster will not be created and will wait for the transition to false.<br />If the RayCluster is already created, it will be deleted.<br />In case of transition to false a new RayCluster will be created. |  |  |
 
 
+#### RayJobStatus
+
+
+
+RayJobStatus defines the observed state of RayJob
+
+
+
+_Appears in:_
+- [RayJob](#rayjob)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `jobId` _string_ | INSERT ADDITIONAL STATUS FIELD - define observed state of cluster<br />Important: Run "make" to regenerate code after modifying this file |  |  |
+| `rayClusterName` _string_ |  |  |  |
+| `dashboardURL` _string_ |  |  |  |
+| `jobStatus` _[JobStatus](#jobstatus)_ |  |  |  |
+| `jobDeploymentStatus` _[JobDeploymentStatus](#jobdeploymentstatus)_ |  |  |  |
+| `message` _string_ |  |  |  |
+| `startTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ | Represents time when the job was acknowledged by the Ray cluster.<br />It is not guaranteed to be set in happens-before order across separate operations.<br />It is represented in RFC3339 form |  |  |
+| `endTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ | Represents time when the job was ended. |  |  |
+| `rayClusterStatus` _[RayClusterStatus](#rayclusterstatus)_ |  |  |  |
+| `observedGeneration` _integer_ | observedGeneration is the most recent generation observed for this RayJob. It corresponds to the<br />RayJob's generation, which is updated on mutation by the API Server. |  |  |
+
+
 
 
 #### RayService
@@ -1231,6 +1688,7 @@ and existing RayServices.
 | `kind` _string_ | `RayService` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[RayServiceSpec](#rayservicespec)_ |  |  |  |
+| `status` _[RayServiceStatuses](#rayservicestatuses)_ |  |  |  |
 
 
 #### RayServiceSpec
@@ -1253,6 +1711,42 @@ _Appears in:_
 | `rayClusterConfig` _[RayClusterSpec](#rayclusterspec)_ |  |  |  |
 
 
+#### RayServiceStatus
+
+
+
+
+
+
+
+_Appears in:_
+- [RayServiceStatuses](#rayservicestatuses)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `applicationStatuses` _object (keys:string, values:[AppStatus](#appstatus))_ | Important: Run "make" to regenerate code after modifying this file |  |  |
+| `rayClusterName` _string_ |  |  |  |
+| `rayClusterStatus` _[RayClusterStatus](#rayclusterstatus)_ |  |  |  |
+
+
+#### RayServiceStatuses
+
+
+
+RayServiceStatuses defines the observed state of RayService
+
+
+
+_Appears in:_
+- [RayService](#rayservice)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `lastUpdateTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ | LastUpdateTime represents the timestamp when the RayService status was last updated. |  |  |
+| `serviceStatus` _[ServiceStatus](#servicestatus)_ | ServiceStatus indicates the current RayService status. |  |  |
+| `activeServiceStatus` _[RayServiceStatus](#rayservicestatus)_ |  |  |  |
+| `pendingServiceStatus` _[RayServiceStatus](#rayservicestatus)_ | Pending Service Status indicates a RayCluster will be created or is being created. |  |  |
+| `observedGeneration` _integer_ | observedGeneration is the most recent generation observed for this RayService. It corresponds to the<br />RayService's generation, which is updated on mutation by the API Server. |  |  |
 
 
 #### ScaleStrategy
@@ -1269,6 +1763,40 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `workersToDelete` _string array_ | WorkersToDelete workers to be deleted |  |  |
+
+
+#### ServeDeploymentStatus
+
+
+
+ServeDeploymentStatus defines the current state of a Serve deployment
+
+
+
+_Appears in:_
+- [AppStatus](#appstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `healthLastUpdateTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta)_ | Keep track of how long the service is healthy.<br />Update when Serve deployment is healthy or first time convert to unhealthy from healthy. |  |  |
+| `status` _string_ | Name, Status, Message are from Ray Dashboard and represent a Serve deployment's state. |  |  |
+| `message` _string_ |  |  |  |
+
+
+#### ServiceStatus
+
+_Underlying type:_ _string_
+
+
+
+
+
+_Appears in:_
+- [RayServiceStatuses](#rayservicestatuses)
+
+| Field | Description |
+| --- | --- |
+| `Running` |  |
 
 
 #### UpscalingMode
