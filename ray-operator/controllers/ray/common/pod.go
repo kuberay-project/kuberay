@@ -620,6 +620,26 @@ func getEnableProbesInjection() bool {
 	return true
 }
 
+func buildInitContainerResources(rayContainerResources corev1.ResourceRequirements) corev1.ResourceRequirements {
+	extractResource := func(resourceList corev1.ResourceList) corev1.ResourceList {
+		result := corev1.ResourceList{}
+		for _, key := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+			if value, ok := resourceList[key]; ok {
+				result[key] = value
+			}
+		}
+		if len(result) == 0 {
+			return nil
+		}
+		return result
+	}
+
+	return corev1.ResourceRequirements{
+		Limits:   extractResource(rayContainerResources.Limits),
+		Requests: extractResource(rayContainerResources.Requests),
+	}
+}
+
 // DefaultWorkerPodTemplate sets the config values
 func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, workerSpec rayv1.WorkerGroupSpec, podName string, fqdnRayIP string, headPort string, replicaGrpName string, replicaIndex int, numHostIndex int) corev1.PodTemplateSpec {
 	podTemplate := workerSpec.Template
@@ -668,20 +688,9 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 			Env:          deepCopyRayContainer.Env,
 			VolumeMounts: deepCopyRayContainer.VolumeMounts,
 			// If users specify a ResourceQuota for the namespace, the init container needs to specify resources explicitly.
-			// GKE's Autopilot does not support GPU-using init containers, so we explicitly specify the resources for the
-			// init container instead of reusing the resources of the Ray container.
-			Resources: corev1.ResourceRequirements{
-				// The init container's resource consumption remains constant, as it solely sends requests to check the GCS status at a fixed frequency.
-				// Therefore, hard-coding the resources is acceptable.
-				Limits: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("200m"),
-					corev1.ResourceMemory: resource.MustParse("256Mi"),
-				},
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("200m"),
-					corev1.ResourceMemory: resource.MustParse("256Mi"),
-				},
-			},
+			// GKE's Autopilot does not support GPU-using init containers, so we explicitly extract the needed resources from
+			// the Ray container and apply them to the init container.
+			Resources: buildInitContainerResources(deepCopyRayContainer.Resources),
 		}
 		podTemplate.Spec.InitContainers = append(podTemplate.Spec.InitContainers, initContainer)
 	}
