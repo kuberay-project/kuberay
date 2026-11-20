@@ -264,3 +264,57 @@ func TestCreateWorkerGroupCommandComplete(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateWorkerGroupValidate(t *testing.T) {
+	tests := map[string]struct {
+		options     *CreateWorkerGroupOptions
+		expectError string
+	}{
+		"should error when TPU node selectors are missing": {
+			options: &CreateWorkerGroupOptions{
+				workerTPU:  "4",
+				numOfHosts: 1,
+			},
+			expectError: "is not set",
+		},
+		"should error when numOfHosts does not match TPU topology": {
+			options: &CreateWorkerGroupOptions{
+				workerTPU:  "4",
+				numOfHosts: 1,
+				workerNodeSelectors: map[string]string{
+					util.NodeSelectorGKETPUAccelerator: "tpu-v6e-slice",
+					util.NodeSelectorGKETPUTopology:    "4x4",
+				},
+			},
+			expectError: "--num-of-hosts must be 4",
+		},
+		"should not error when TPU validation is skipped": {
+			options: &CreateWorkerGroupOptions{
+				workerTPU:         "4",
+				numOfHosts:        1,
+				skipTPUValidation: true,
+			},
+		},
+		"should not error for a valid TPU config": {
+			options: &CreateWorkerGroupOptions{
+				workerTPU:  "1",
+				numOfHosts: 1,
+				workerNodeSelectors: map[string]string{
+					util.NodeSelectorGKETPUAccelerator: "tpu-v5-lite-podslice",
+					util.NodeSelectorGKETPUTopology:    "1x1",
+				},
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := tt.options.Validate()
+			if tt.expectError != "" {
+				require.ErrorContains(t, err, tt.expectError)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

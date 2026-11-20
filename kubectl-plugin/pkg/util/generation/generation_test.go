@@ -1009,8 +1009,9 @@ gke:
 
 func TestValidateConfig(t *testing.T) {
 	tests := map[string]struct {
-		config      *RayClusterConfig
-		expectedErr string
+		config            *RayClusterConfig
+		expectedErr       string
+		skipTPUValidation bool
 	}{
 		"invalid config": {
 			config: &RayClusterConfig{
@@ -1038,11 +1039,59 @@ func TestValidateConfig(t *testing.T) {
 				},
 			},
 		},
+		"valid TPU worker group": {
+			config: &RayClusterConfig{
+				Head: &Head{
+					CPU:    new("2"),
+					Memory: new("4Gi"),
+				},
+				WorkerGroups: []WorkerGroup{
+					{
+						TPU:        new("1"),
+						NumOfHosts: new(int32(1)),
+						NodeSelectors: map[string]string{
+							util.NodeSelectorGKETPUAccelerator: "tpu-v5-lite-podslice",
+							util.NodeSelectorGKETPUTopology:    "1x1",
+						},
+					},
+				},
+			},
+		},
+		"TPU worker group missing node selectors": {
+			config: &RayClusterConfig{
+				Head: &Head{
+					CPU:    new("2"),
+					Memory: new("4Gi"),
+				},
+				WorkerGroups: []WorkerGroup{
+					{
+						TPU:        new("1"),
+						NumOfHosts: new(int32(1)),
+					},
+				},
+			},
+			expectedErr: "is not set",
+		},
+		"TPU worker group missing node selectors with skip flag": {
+			config: &RayClusterConfig{
+				Head: &Head{
+					CPU:    new("2"),
+					Memory: new("4Gi"),
+				},
+				WorkerGroups: []WorkerGroup{
+					{
+						TPU:        new("1"),
+						NumOfHosts: new(int32(1)),
+					},
+				},
+			},
+			skipTPUValidation: true,
+		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := ValidateConfig(test.config)
+			err := ValidateConfig(test.config, test.skipTPUValidation)
 			if test.expectedErr != "" {
 				assert.Contains(t, err.Error(), test.expectedErr)
 			} else {

@@ -49,6 +49,7 @@ type CreateClusterOptions struct {
 	workerReplicas         int32
 	dryRun                 bool
 	wait                   bool
+	skipTPUValidation      bool
 }
 
 var (
@@ -73,12 +74,18 @@ var (
 		# Create a Ray cluster with TPU in default worker group
 		kubectl ray create cluster sample-cluster --worker-tpu 1 --worker-node-selectors %s=tpu-v5-lite-podslice,%s=1x1
 
-		# For more details on TPU-related node selectors like %s and %s, refer to:
+		# Create a Ray cluster with a multi-host TPU slice (4x4 requires 4 hosts)
+		kubectl ray create cluster sample-cluster --worker-tpu 4 --num-of-hosts 4 --worker-node-selectors %s=tpu-v6e-slice,%s=4x4
+
+		# Create a Ray cluster with a 3D TPU topology (2x2x2 requires 2 hosts)
+		kubectl ray create cluster sample-cluster --worker-tpu 4 --num-of-hosts 2 --worker-node-selectors %s=tpu-v4-podslice,%s=2x2x2
+
+		# For more details on TPU-related node selectors, refer to:
 		# https://cloud.google.com/kubernetes-engine/docs/concepts/plan-tpus#availability
 
 		# Create a Ray cluster from a YAML configuration file
 		kubectl ray create cluster sample-cluster --file ray-cluster-config.yaml
-	`, util.RayVersion, util.RayImage, util.NodeSelectorGKETPUAccelerator, util.NodeSelectorGKETPUTopology, util.NodeSelectorGKETPUAccelerator, util.NodeSelectorGKETPUTopology))
+	`, util.RayVersion, util.RayImage, util.NodeSelectorGKETPUAccelerator, util.NodeSelectorGKETPUTopology, util.NodeSelectorGKETPUAccelerator, util.NodeSelectorGKETPUTopology, util.NodeSelectorGKETPUAccelerator, util.NodeSelectorGKETPUTopology))
 )
 
 func NewCreateClusterOptions(cmdFactory cmdutil.Factory, streams genericclioptions.IOStreams) *CreateClusterOptions {
@@ -123,7 +130,7 @@ func NewCreateClusterCommand(cmdFactory cmdutil.Factory, streams genericclioptio
 	cmd.Flags().StringVar(&options.headGPU, "head-gpu", util.DefaultHeadGPU, "number of GPUs in the Ray head")
 	cmd.Flags().StringVar(&options.headEphemeralStorage, "head-ephemeral-storage", util.DefaultHeadEphemeralStorage, "amount of ephemeral storage in the Ray head")
 	cmd.Flags().StringToStringVar(&options.headRayStartParams, "head-ray-start-params", make(map[string]string), "a map of arguments to the Ray head's 'ray start' entrypoint, e.g. '--head-ray-start-params dashboard-host=0.0.0.0,num-cpus=2'")
-	cmd.Flags().StringToStringVar(&options.headNodeSelectors, "head-node-selectors", make(map[string]string), "Node selectors to apply to all head pods in the cluster (e.g. --head-node-selector=cloud.google.com/gke-accelerator=nvidia-l4,cloud.google.com/gke-nodepool=my-node-pool)")
+	cmd.Flags().StringToStringVar(&options.headNodeSelectors, "head-node-selectors", make(map[string]string), "Node selectors to apply to all head pods in the cluster (e.g. --head-node-selectors=cloud.google.com/gke-accelerator=nvidia-l4,cloud.google.com/gke-nodepool=my-node-pool)")
 	cmd.Flags().Int32Var(&options.workerReplicas, "worker-replicas", util.DefaultWorkerReplicas, "desired worker group replicas")
 	cmd.Flags().StringVar(&options.workerCPU, "worker-cpu", util.DefaultWorkerCPU, "number of CPUs in each worker group replica")
 	cmd.Flags().StringVar(&options.workerMemory, "worker-memory", util.DefaultWorkerMemory, "amount of memory in each worker group replica")
@@ -137,13 +144,14 @@ func NewCreateClusterCommand(cmdFactory cmdutil.Factory, streams genericclioptio
 		),
 	)
 	cmd.Flags().StringToStringVar(&options.workerRayStartParams, "worker-ray-start-params", make(map[string]string), "a map of arguments to the Ray workers' 'ray start' entrypoint, e.g. '--worker-ray-start-params metrics-export-port=8080,num-cpus=2'")
-	cmd.Flags().StringToStringVar(&options.workerNodeSelectors, "worker-node-selectors", make(map[string]string), "Node selectors to apply to all worker pods in the cluster (e.g. --worker-node-selector=cloud.google.com/gke-accelerator=nvidia-l4,cloud.google.com/gke-nodepool=my-node-pool)")
+	cmd.Flags().StringToStringVar(&options.workerNodeSelectors, "worker-node-selectors", make(map[string]string), "Node selectors to apply to all worker pods in the cluster (e.g. --worker-node-selectors=cloud.google.com/gke-accelerator=nvidia-l4,cloud.google.com/gke-nodepool=my-node-pool)")
 	cmd.Flags().Int32Var(&options.numOfHosts, "num-of-hosts", util.DefaultNumOfHosts, "number of hosts in default worker group per replica")
 	cmd.Flags().Var(&options.autoscaler, "autoscaler", fmt.Sprintf("autoscaler to use, supports: %q, %q", generation.AutoscalerV1, generation.AutoscalerV2))
 	cmd.Flags().StringVar(&options.configFile, "file", "", "path to a YAML file containing Ray cluster configuration")
 	cmd.Flags().BoolVar(&options.dryRun, "dry-run", false, "print the generated YAML instead of creating the cluster")
 	cmd.Flags().BoolVar(&options.wait, "wait", false, "wait for the cluster to be provisioned before returning. Returns an error if the cluster is not provisioned by the timeout specified")
 	cmd.Flags().DurationVar(&options.timeout, "timeout", defaultProvisionedTimeout, "the timeout for --wait")
+	cmd.Flags().BoolVar(&options.skipTPUValidation, "skip-tpu-validation", false, "skip validation of --worker-tpu, --worker-node-selectors, and --num-of-hosts")
 
 	return cmd
 }
@@ -184,7 +192,7 @@ func (options *CreateClusterOptions) Validate(cmd *cobra.Command) error {
 			return fmt.Errorf("failed to parse config file: %w", err)
 		}
 
-		if err := generation.ValidateConfig(rayClusterConfig); err != nil {
+		if err := generation.ValidateConfig(rayClusterConfig, options.skipTPUValidation); err != nil {
 			return fmt.Errorf("failed to validate config file: %w", err)
 		}
 
@@ -212,8 +220,8 @@ func (options *CreateClusterOptions) Validate(cmd *cobra.Command) error {
 		}
 	}
 
-	if err := util.ValidateTPU(&options.workerTPU, &options.numOfHosts, options.workerNodeSelectors); err != nil {
-		return fmt.Errorf("%w", err)
+	if !options.skipTPUValidation {
+		return util.ValidateTPU(&options.workerTPU, &options.numOfHosts, options.workerNodeSelectors)
 	}
 
 	return nil
@@ -358,12 +366,13 @@ func flagsIncompatibleWithConfigFilePresent(cmd *cobra.Command) error {
 	// Define which flags are allowed to be used with --file.
 	// These are typically flags that modify the command's behavior but not the cluster configuration.
 	allowedWithFile := map[string]bool{
-		"file":      true,
-		"context":   true,
-		"namespace": true,
-		"dry-run":   true,
-		"wait":      true,
-		"timeout":   true,
+		"file":                true,
+		"context":             true,
+		"namespace":           true,
+		"dry-run":             true,
+		"wait":                true,
+		"timeout":             true,
+		"skip-tpu-validation": true,
 	}
 
 	// Check all flags to see if any incompatible flags are set
