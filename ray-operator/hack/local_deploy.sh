@@ -9,7 +9,7 @@ RAY_OPERATOR_PATH="${PROJECT_ROOT}/ray-operator"
 # --- Configuration Variables ---
 IMAGE_TAG="${IMAGE_TAG:=kuberay-dev}"
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:=kuberay-dev}"
-KIND_NODE_IMAGE="${KIND_NODE_IMAGE:=kindest/node:v1.29.0}"
+KIND_NODE_IMAGE="${KIND_NODE_IMAGE:=kindest/node:v1.35.0}"
 
 delete_kind_cluster() {
   echo "--- Deleting Kind Cluster ---"
