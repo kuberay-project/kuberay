@@ -56,6 +56,7 @@ export interface RayJobItem {
 
 export interface CreateRayJobConfig {
   jobName: string;
+  namespace: string;
   dockerImage: string;
   entrypoint: string;
   headResources: {

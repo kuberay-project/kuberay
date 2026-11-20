@@ -10,6 +10,7 @@ import "./globals.css";
 import { SnackBarProvider } from "@/components/SnackBarProvider";
 import { NamespaceProvider } from "@/components/NamespaceProvider";
 import { FirstVisitProvider } from "@/components/FirstVisitContext";
+import { NamespaceSelector } from "@/components/NamespaceSelector";
 
 export default function RootLayout({
   children,
@@ -25,7 +26,18 @@ export default function RootLayout({
             <FirstVisitProvider>
               <SnackBarProvider>
                 <Box component="main" sx={{ px: 4, py: 2 }}>
-                  <Breadcrumb />
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 2,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <Breadcrumb />
+                    <NamespaceSelector />
+                  </Box>
                   {children}
                 </Box>
               </SnackBarProvider>

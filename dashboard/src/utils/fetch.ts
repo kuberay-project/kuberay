@@ -28,6 +28,24 @@ export async function apiServerFetcher(
   return res.json();
 }
 
+// a fetcher for the Kubernetes core API (e.g. namespaces) proxied by the
+// apiserver. Returns null when the core API is unavailable (v1 mode).
+export async function coreApiFetcher(endpoint: string, ...args: RequestInit[]) {
+  const baseUrl = await config.getCoreApiUrl();
+  if (!baseUrl) {
+    return null;
+  }
+  const res = await fetch(`${baseUrl}${endpoint}`, ...args);
+  if (!res.ok) {
+    const error = new FetchError("An error occurred while fetching the data");
+    // Attach extra info to the error object.
+    error.info = await res.json();
+    error.status = res.status;
+    throw error;
+  }
+  return res.json();
+}
+
 export async function historyServerFetcher(
   endpoint: string,
   ...args: RequestInit[]
