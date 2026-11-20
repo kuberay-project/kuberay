@@ -161,6 +161,12 @@ var autoscalerContainer = corev1.Container{
 	Name:            "autoscaler",
 	Image:           "repo/image:custom",
 	ImagePullPolicy: corev1.PullIfNotPresent,
+	Ports: []corev1.ContainerPort{
+		{
+			Name:          "as-metrics",
+			ContainerPort: 44217,
+		},
+	},
 	Env: []corev1.EnvVar{
 		{
 			Name: utils.RAY_CLUSTER_NAME,
@@ -836,6 +842,11 @@ func TestBuildAutoscalerContainer(t *testing.T) {
 	const autoscalerImage = "rayproject/ray:2.52.0"
 	const expectedCmd = "ray kuberay-autoscaler --cluster-name $(RAY_CLUSTER_NAME) --cluster-namespace $(RAY_CLUSTER_NAMESPACE)"
 
+	t.Run("metrics port is discoverable by PodMonitor", func(t *testing.T) {
+		container := BuildAutoscalerContainer(autoscalerImage)
+		assert.Equal(t, []corev1.ContainerPort{{Name: "as-metrics", ContainerPort: 44217}}, container.Ports)
+	})
+
 	t.Run("KUBERAY_GEN_AUTOSCALER_START_CMD is always injected with the generated command", func(t *testing.T) {
 		container := BuildAutoscalerContainer(autoscalerImage)
 
@@ -1129,6 +1140,50 @@ func TestBuildPod_WithOverwriteCommand(t *testing.T) {
 	workerContainer := workerPod.Spec.Containers[utils.RayContainerIndex]
 	assert.Equal(t, []string{"I am worker"}, workerContainer.Command)
 	assert.Equal(t, []string{"I am worker again"}, workerContainer.Args)
+}
+
+func TestBuildPod_AutoscalerMetricsPort(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		enabled  bool
+		version  rayv1.AutoscalerVersion
+		existing bool
+	}{
+		{name: "disabled"},
+		{name: "v1", enabled: true, version: rayv1.AutoscalerVersionV1},
+		{name: "v2", enabled: true, version: rayv1.AutoscalerVersionV2},
+		{name: "existing head port", enabled: true, existing: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			cluster := instance.DeepCopy()
+			cluster.Spec.EnableInTreeAutoscaling = new(tc.enabled)
+			if tc.version != "" {
+				cluster.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{Version: new(tc.version)}
+			}
+			if tc.existing {
+				cluster.Spec.HeadGroupSpec.Template.Spec.Containers[0].Ports = []corev1.ContainerPort{
+					{Name: "as-metrics", ContainerPort: 44217},
+				}
+			}
+			template := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, "test-head", "6379")
+			pod := BuildPod(ctx, template, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", tc.enabled, utils.RayClusterCRD, "", nil, "")
+			var ports []corev1.ContainerPort
+			for _, container := range pod.Spec.Containers {
+				for _, port := range container.Ports {
+					if port.Name == "as-metrics" {
+						ports = append(ports, port)
+					}
+				}
+			}
+			if tc.enabled {
+				require.Len(t, ports, 1)
+				assert.Equal(t, int32(44217), ports[0].ContainerPort)
+			} else {
+				assert.Empty(t, ports)
+			}
+		})
+	}
 }
 
 func TestBuildPod_WithAutoscalerEnabled(t *testing.T) {
