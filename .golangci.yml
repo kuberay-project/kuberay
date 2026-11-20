@@ -119,10 +119,6 @@ linters:
       - linters: [staticcheck]
         path: historyserver/
         text: "SA1019:.*aws-sdk-go is deprecated"
-      # TODO: handle these properly instead of ignoring them.
-      - linters: [errcheck]
-        path: historyserver/
-        text: 'Error return value of `(resp|r2|w)\.Write(AsJson|Error|ErrorString|HeaderAndEntity|Json)?` is not checked'
       # Ray spells it this way in its ErrorType enum and raylet debug_state output.
       - linters: [misspell]
         path: historyserver/
