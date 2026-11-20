@@ -58,7 +58,7 @@ type WorkerGroup struct {
 	EphemeralStorage *string           `yaml:"ephemeral-storage,omitempty"`
 	RayStartParams   map[string]string `yaml:"ray-start-params,omitempty"`
 	NodeSelectors    map[string]string `yaml:"node-selectors,omitempty"`
-	Replicas         int32             `yaml:"replicas"`
+	Replicas         *int32            `yaml:"replicas,omitempty"`
 }
 
 type AutoscalerVersion string
@@ -246,10 +246,15 @@ func (rayClusterConfig *RayClusterConfig) generateRayClusterSpec() *rayv1ac.RayC
 		workerRequestResources := generateRequestResources(workerGroup.CPU, workerGroup.Memory, workerGroup.EphemeralStorage, workerGroup.GPU, workerGroup.TPU)
 		workerLimitResources := generateLimitResources(workerGroup.Memory, workerGroup.EphemeralStorage, workerGroup.GPU, workerGroup.TPU)
 
+		var replicas int32
+		if workerGroup.Replicas != nil {
+			replicas = *workerGroup.Replicas
+		}
+
 		workerGroupSpecs[i] = rayv1ac.WorkerGroupSpec().
 			WithRayStartParams(workerGroup.RayStartParams).
 			WithGroupName(*workerGroup.Name).
-			WithReplicas(workerGroup.Replicas).
+			WithReplicas(replicas).
 			WithTemplate(corev1ac.PodTemplateSpec().
 				WithSpec(corev1ac.PodSpec().
 					WithNodeSelector(workerGroup.NodeSelectors).
@@ -425,7 +430,7 @@ func newRayClusterConfigWithDefaults() *RayClusterConfig {
 		WorkerGroups: []WorkerGroup{
 			{
 				Name:     new("default-group"),
-				Replicas: util.DefaultWorkerReplicas,
+				Replicas: ptr.To(util.DefaultWorkerReplicas),
 				CPU:      ptr.To(util.DefaultWorkerCPU),
 				Memory:   ptr.To(util.DefaultWorkerMemory),
 			},
@@ -449,7 +454,38 @@ func ParseConfigFile(filePath string) (*RayClusterConfig, error) {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
+	config.applyDefaults()
+
 	return config, nil
+}
+
+// applyDefaults fills in default values for fields that were not set in the config file.
+// This is needed because YAML unmarshaling replaces slices entirely, so worker group
+// entries lose the defaults that were set in newRayClusterConfigWithDefaults.
+// It also propagates ray-version to the container image when the image was not explicitly set.
+func (config *RayClusterConfig) applyDefaults() {
+	// Apply defaults to worker groups whose fields were lost during YAML slice replacement
+	for i := range config.WorkerGroups {
+		wg := &config.WorkerGroups[i]
+		if wg.Replicas == nil {
+			wg.Replicas = ptr.To(util.DefaultWorkerReplicas)
+		}
+		if wg.CPU == nil {
+			wg.CPU = ptr.To(util.DefaultWorkerCPU)
+		}
+		if wg.Memory == nil {
+			wg.Memory = ptr.To(util.DefaultWorkerMemory)
+		}
+	}
+
+	// Propagate ray-version to the container image when the image is still the built-in default.
+	// This matches the behavior of the CLI flag path in create_cluster.go Complete().
+	if config.RayVersion != nil && config.Image != nil {
+		defaultImage := fmt.Sprintf("rayproject/ray:%s", util.RayVersion)
+		if *config.Image == defaultImage && *config.RayVersion != util.RayVersion {
+			config.Image = ptr.To(fmt.Sprintf("rayproject/ray:%s", *config.RayVersion))
+		}
+	}
 }
 
 // ValidateConfig validates the RayClusterConfig object
