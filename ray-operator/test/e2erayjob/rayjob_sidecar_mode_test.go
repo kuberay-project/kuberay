@@ -76,10 +76,11 @@ env_vars:
 		rayJob, err = GetRayJob(test, rayJob.Namespace, rayJob.Name)
 		g.Expect(err).NotTo(HaveOccurred())
 
-		// TODO (kevin85421): We may need to use `Eventually` instead if the assertion is flaky.
-		// Assert the RayCluster has been torn down
-		_, err = GetRayCluster(test, namespace.Name, rayJob.Status.RayClusterName)
-		g.Expect(k8serrors.IsNotFound(err)).To(BeTrue())
+		g.Eventually(func() error {
+			_, err := GetRayCluster(test, namespace.Name, rayJob.Status.RayClusterName)
+			return err
+		}).Should(WithTransform(k8serrors.IsNotFound, BeTrue()))
+		LogWithTimestamp(test.T(), "RayCluster %s/%s is no longer present", namespace.Name, rayJob.Status.RayClusterName)
 	})
 
 	test.T().Run("Failing RayJob without cluster shutdown after finished", func(_ *testing.T) {

@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"slices"
 	"strconv"
 	"testing"
 
@@ -15,13 +16,23 @@ import (
 	. "github.com/ray-project/kuberay/ray-operator/test/support"
 )
 
+func getActiveWorkerPods(test Test, rayCluster *rayv1.RayCluster) ([]corev1.Pod, error) {
+	pods, err := GetWorkerPods(test, rayCluster)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(pods, func(pod corev1.Pod) bool {
+		return !pod.DeletionTimestamp.IsZero()
+	}), nil
+}
+
 // verifyWorkerGroupIndices is a helper function to check that pods in a worker group
 // have the correct and unique replica/host index labels.
 func verifyWorkerGroupIndices(t *testing.T, rayCluster *rayv1.RayCluster, workerGroupName string, expectedHosts int, expectedReplicas int, expectedIndices []int) {
 	test := With(t)
 	g := NewWithT(t)
 
-	allWorkerPods, err := GetWorkerPods(test, rayCluster)
+	allWorkerPods, err := getActiveWorkerPods(test, rayCluster)
 	g.Expect(err).NotTo(HaveOccurred())
 	groupPods := []corev1.Pod{}
 	for _, pod := range allWorkerPods {
@@ -155,7 +166,7 @@ func TestRayClusterSingleHostMultiSlice(t *testing.T) {
 		Should(WithTransform(RayClusterState, Equal(rayv1.Ready)))
 
 	g.Eventually(func() ([]corev1.Pod, error) {
-		return GetWorkerPods(test, rayCluster)
+		return getActiveWorkerPods(test, rayCluster)
 	}, TestTimeoutShort).Should(HaveLen(initialReplicas))
 
 	// Verify that all pods are correctly labeled with indices 0 to replicas-1.
@@ -164,7 +175,7 @@ func TestRayClusterSingleHostMultiSlice(t *testing.T) {
 
 	// Manually delete the pod with replica index 1.
 	LogWithTimestamp(t, "Deleting pod with replica index 1 for %s/%s", rayCluster.Namespace, rayCluster.Name)
-	workerPods, err := GetWorkerPods(test, rayCluster)
+	workerPods, err := getActiveWorkerPods(test, rayCluster)
 	g.Expect(err).NotTo(HaveOccurred())
 
 	var podToDelete *corev1.Pod
@@ -183,7 +194,7 @@ func TestRayClusterSingleHostMultiSlice(t *testing.T) {
 	// Wait for the controller to reconcile. The pod count should return to 3.
 	LogWithTimestamp(t, "Waiting for controller to reconcile and fill the gap")
 	g.Eventually(func() ([]corev1.Pod, error) {
-		return GetWorkerPods(test, rayCluster)
+		return getActiveWorkerPods(test, rayCluster)
 	}, TestTimeoutShort).Should(HaveLen(initialReplicas), "Controller should restore pod count to %d", initialReplicas)
 
 	// Verify that the controller replaced the missing index by creating a new pod with index 1.
@@ -198,7 +209,7 @@ func TestRayClusterSingleHostMultiSlice(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 
 	g.Eventually(func() ([]corev1.Pod, error) {
-		return GetWorkerPods(test, rayCluster)
+		return getActiveWorkerPods(test, rayCluster)
 	}, TestTimeoutShort).Should(HaveLen(scaleUpReplicas), "Should scale up to %d pods", scaleUpReplicas)
 
 	// Verify the new pod got the next available index, 3.
@@ -249,7 +260,7 @@ func TestRayClusterMultiHostMultiSlice(t *testing.T) {
 
 	expectedPodCount := initialReplicas * numOfHosts
 	g.Eventually(func() ([]corev1.Pod, error) {
-		return GetWorkerPods(test, rayCluster)
+		return getActiveWorkerPods(test, rayCluster)
 	}, TestTimeoutShort).Should(HaveLen(expectedPodCount))
 
 	// Verify that all pods are correctly labeled during replica group scale up.
@@ -265,7 +276,7 @@ func TestRayClusterMultiHostMultiSlice(t *testing.T) {
 
 	expectedPodCount = scaleDownReplicas * numOfHosts
 	g.Eventually(func() ([]corev1.Pod, error) {
-		return GetWorkerPods(test, rayCluster)
+		return getActiveWorkerPods(test, rayCluster)
 	}, TestTimeoutShort).Should(HaveLen(expectedPodCount), "Should scale down to 1 multi-host group (4 pods)")
 
 	// Verify labels again after replica group scale down.
@@ -281,7 +292,7 @@ func TestRayClusterMultiHostMultiSlice(t *testing.T) {
 
 	expectedPodCount = scaleUpReplicas * numOfHosts
 	g.Eventually(func() ([]corev1.Pod, error) {
-		return GetWorkerPods(test, rayCluster)
+		return getActiveWorkerPods(test, rayCluster)
 	}, TestTimeoutShort).Should(HaveLen(expectedPodCount), "Should scale up to 3 multi-host groups (12 pods)")
 
 	// Verify labels are set with expected values after scale up again.
@@ -290,7 +301,7 @@ func TestRayClusterMultiHostMultiSlice(t *testing.T) {
 
 	// Manually delete a single pod and verify the controller atomically re-creates the slice.
 	LogWithTimestamp(t, "Testing atomic multi-host group recreation for RayCluster %s/%s", rayCluster.Namespace, rayCluster.Name)
-	workerPods, err := GetWorkerPods(test, rayCluster)
+	workerPods, err := getActiveWorkerPods(test, rayCluster)
 	g.Expect(err).NotTo(HaveOccurred())
 	podToDelete := workerPods[0]
 	err = test.Client().Core().CoreV1().Pods(namespace.Name).Delete(test.Ctx(), podToDelete.Name, metav1.DeleteOptions{})
@@ -301,7 +312,7 @@ func TestRayClusterMultiHostMultiSlice(t *testing.T) {
 	// Reconciliation happens too quickly to catch the state where expectedPodCount-NumOfHosts, but we can test
 	// that externally deleted Pods will be re-created to satisfy the expected number.
 	g.Eventually(func() ([]corev1.Pod, error) {
-		return GetWorkerPods(test, rayCluster)
+		return getActiveWorkerPods(test, rayCluster)
 	}, TestTimeoutShort).Should(HaveLen(expectedPodCount), "Controller restored cluster to the correct number of pods.")
 
 	// Verify labels are still set correctly after atomic re-creation due to unhealthy Pod.
