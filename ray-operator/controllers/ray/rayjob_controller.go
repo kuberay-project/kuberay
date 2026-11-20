@@ -794,6 +794,66 @@ func (r *RayJobReconciler) deleteSubmitterJob(ctx context.Context, rayJobInstanc
 	return isJobDeleted, nil
 }
 
+// getHeadServiceForRayJob returns the head Service controlled by this RayJob,
+// or nil if it is absent, unrelated, or the RayJob uses clusterSelector.
+func (r *RayJobReconciler) getHeadServiceForRayJob(ctx context.Context, rayJobInstance *rayv1.RayJob) (*corev1.Service, error) {
+	if len(rayJobInstance.Spec.ClusterSelector) > 0 {
+		return nil, nil
+	}
+
+	svcKey, err := common.RayJobHeadServiceNamespacedName(rayJobInstance)
+	if err != nil {
+		return nil, err
+	}
+
+	svc := &corev1.Service{}
+	if err := r.Get(ctx, svcKey, svc); err != nil {
+		if errors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	// Names and labels can survive a RayJob being deleted and recreated;
+	// the controller reference must identify this RayJob's UID as well.
+	if !metav1.IsControlledBy(svc, rayJobInstance) ||
+		svc.Labels[utils.RayOriginatedFromCRDLabelKey] != utils.RayOriginatedFromCRDLabelValue(utils.RayJobCRD) ||
+		svc.Labels[utils.RayOriginatedFromCRNameLabelKey] != rayJobInstance.Name {
+		ctrl.LoggerFrom(ctx).Info("Skipping head Service cleanup: ownership or origin labels do not match this RayJob",
+			"Service", svc.Name, "RayJob", rayJobInstance.Name)
+		return nil, nil
+	}
+	return svc, nil
+}
+
+// deleteHeadService releases the stable head Service only during terminal
+// cleanup. Retry and suspend must retain it for the next RayCluster.
+func (r *RayJobReconciler) deleteHeadService(ctx context.Context, rayJobInstance *rayv1.RayJob) error {
+	svc, err := r.getHeadServiceForRayJob(ctx, rayJobInstance)
+	if err != nil || svc == nil {
+		return err
+	}
+	logger := ctrl.LoggerFrom(ctx)
+
+	if !svc.DeletionTimestamp.IsZero() {
+		logger.Info("The deletion of the head Service for RayJob is ongoing.", "Service", svc.Name)
+		return nil
+	}
+
+	if err := r.Delete(ctx, svc, client.Preconditions{UID: &svc.UID}); err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		r.Recorder.Eventf(rayJobInstance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteService), string(utils.DeleteAction),
+			"Failed to delete head Service %s/%s: %v", svc.Namespace, svc.Name, err)
+		return err
+	}
+	logger.Info("The head Service for RayJob is deleted", "Service", svc.Name)
+	r.Recorder.Eventf(rayJobInstance, nil, corev1.EventTypeNormal, string(utils.DeletedService), string(utils.DeleteAction),
+		"Deleted head Service %s/%s", svc.Namespace, svc.Name)
+	return nil
+}
+
 // deleteClusterResources deletes the RayCluster associated with the RayJob to release the compute resources.
 func (r *RayJobReconciler) deleteClusterResources(ctx context.Context, rayJobInstance *rayv1.RayJob) (bool, error) {
 	logger := ctrl.LoggerFrom(ctx)
@@ -1565,6 +1625,13 @@ func (r *RayJobReconciler) handleShutdownAfterJobFinishes(ctx context.Context, r
 		_, err = r.deleteClusterResources(ctx, rayJob)
 		if err == nil {
 			logger.Info("RayCluster is deleted", "RayCluster", rayJob.Status.RayClusterName)
+			// The RayJob-owned head Service keeps a stable DNS name across
+			// RayCluster switches, but this RayJob is terminal and will not
+			// create another RayCluster. Drop the Service so it does not linger
+			// with a selector pointing at the deleted cluster.
+			if svcErr := r.deleteHeadService(ctx, rayJob); svcErr != nil {
+				err = svcErr
+			}
 		}
 	}
 
@@ -1585,6 +1652,17 @@ func (r *RayJobReconciler) executeDeletionPolicy(ctx context.Context, rayJob *ra
 	case rayv1.DeleteCluster:
 		logger.Info("Executing deletion policy: DeleteCluster", "RayCluster", rayJob.Status.RayClusterName)
 		_, err = r.deleteClusterResources(ctx, rayJob)
+		if err == nil {
+			// Reaching this branch implies the RayJob is in a terminal
+			// JobDeploymentStatus (Complete/Failed) with retries exhausted, so the
+			// RayJob-owned head Service no longer serves any purpose (its selector
+			// will be pointing at a cluster we just deleted). Removing it here
+			// prevents it from lingering with stale selectors until DeleteSelf TTL
+			// fires.
+			if svcErr := r.deleteHeadService(ctx, rayJob); svcErr != nil {
+				err = svcErr
+			}
+		}
 	case rayv1.DeleteWorkers:
 		logger.Info("Executing deletion policy: DeleteWorkers", "RayCluster", rayJob.Status.RayClusterName)
 		err = r.suspendWorkerGroups(ctx, rayJob)
@@ -1648,19 +1726,20 @@ func (r *RayJobReconciler) isDeletionActionCompleted(ctx context.Context, rayJob
 
 	case rayv1.DeleteCluster:
 		if err := r.Get(ctx, clusterIdentifier, cluster); err != nil {
-			if errors.IsNotFound(err) {
-				return true, nil
+			if !errors.IsNotFound(err) {
+				return false, err
 			}
-			// For any other error, we can't be sure of the state, so report the error.
+		} else if cluster.DeletionTimestamp.IsZero() {
+			return false, nil
+		}
+
+		// Cluster deletion alone is insufficient: a failed head Service
+		// deletion must remain eligible for retry, including existing orphans.
+		svc, err := r.getHeadServiceForRayJob(ctx, rayJob)
+		if err != nil {
 			return false, err
 		}
-
-		if !cluster.DeletionTimestamp.IsZero() {
-			// If the cluster is being deleted, we consider the action complete.
-			return true, nil
-		}
-
-		return false, nil
+		return svc == nil || !svc.DeletionTimestamp.IsZero(), nil
 
 	case rayv1.DeleteSelf:
 		// This action is terminal. If this function is running, the RayJob still exists,
