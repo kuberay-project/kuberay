@@ -238,3 +238,87 @@ func TestFormatTaskForResponseTaskLogInfo(t *testing.T) {
 	response = formatTaskForResponse(eventtypes.Task{}, true)
 	assert.Nil(t, response["task_log_info"])
 }
+
+func TestSummarizeTasksByFuncName(t *testing.T) {
+	pythonFunc := func(name string) *eventtypes.FunctionDescriptor {
+		return &eventtypes.FunctionDescriptor{
+			PythonFunctionDescriptor: &eventtypes.PythonFunctionDescriptor{FunctionName: name},
+		}
+	}
+
+	tests := map[string]struct {
+		tasks          []eventtypes.Task
+		wantSummary    map[string]map[string]int
+		wantTotalTasks int
+	}{
+		"custom task name": {
+			tasks: []eventtypes.Task{{
+				TaskType: eventtypes.NORMAL_TASK,
+				TaskName: "preprocess",
+				TaskFunc: pythonFunc("work"),
+				State:    eventtypes.FINISHED,
+			}},
+			wantSummary: map[string]map[string]int{
+				"preprocess": {string(eventtypes.FINISHED): 1},
+			},
+			wantTotalTasks: 1,
+		},
+		"function name fallback": {
+			tasks: []eventtypes.Task{{
+				TaskType: eventtypes.NORMAL_TASK,
+				TaskFunc: pythonFunc("work"),
+				State:    eventtypes.RUNNING,
+			}},
+			wantSummary: map[string]map[string]int{
+				"work": {string(eventtypes.RUNNING): 1},
+			},
+			wantTotalTasks: 1,
+		},
+		"missing function descriptor": {
+			tasks: []eventtypes.Task{{
+				TaskType: eventtypes.NORMAL_TASK,
+				TaskName: "preprocess",
+				State:    eventtypes.RUNNING,
+			}},
+		},
+		"custom names remain separate": {
+			tasks: []eventtypes.Task{
+				{
+					TaskType: eventtypes.NORMAL_TASK,
+					TaskName: "preprocess",
+					TaskFunc: pythonFunc("work"),
+					State:    eventtypes.FINISHED,
+				},
+				{
+					TaskType: eventtypes.NORMAL_TASK,
+					TaskName: "postprocess",
+					TaskFunc: pythonFunc("work"),
+					State:    eventtypes.RUNNING,
+				},
+			},
+			wantSummary: map[string]map[string]int{
+				"preprocess":  {string(eventtypes.FINISHED): 1},
+				"postprocess": {string(eventtypes.RUNNING): 1},
+			},
+			wantTotalTasks: 2,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := summarizeTasksByFuncName(test.tasks)
+			assert.Equal(t, "func_name", got.SummaryBy)
+			assert.Equal(t, test.wantTotalTasks, got.TotalTasks)
+			assert.Zero(t, got.TotalActorTasks)
+			assert.Zero(t, got.TotalActorScheduled)
+			assert.Len(t, got.Summary, len(test.wantSummary))
+			for name, wantStateCounts := range test.wantSummary {
+				require.Contains(t, got.Summary, name)
+				entry := got.Summary[name]
+				assert.Equal(t, name, entry.FuncOrClassName)
+				assert.Equal(t, string(eventtypes.NORMAL_TASK), entry.Type)
+				assert.Equal(t, wantStateCounts, entry.StateCounts)
+			}
+		})
+	}
+}

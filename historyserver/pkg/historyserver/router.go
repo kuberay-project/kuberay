@@ -1823,7 +1823,7 @@ func (s *ServerHandler) getTaskSummarize(req *restful.Request, resp *restful.Res
 	resp.Write(respData)
 }
 
-// summarizeTasksByFuncName groups tasks by function name and counts by state.
+// summarizeTasksByFuncName groups tasks by custom task name, falling back to function name, and counts by state.
 //
 // The Ray Dashboard frontend always calls this API with a job_id filter
 // (e.g. filter_keys=job_id&filter_predicates=%3D&filter_values={jobId}),
@@ -1855,6 +1855,10 @@ func summarizeTasksByFuncName(tasks []eventtypes.Task) *utils.TaskSummariesByFun
 			// Dashboard frontend, which does not expect such a synthetic key.
 			// Ref: https://github.com/ray-project/ray/blob/777f37f002c14bd4c587f4d095b85c62690647de/python/ray/util/state/common.py#L1049
 			continue
+		}
+
+		if taskName := task.GetTaskName(); taskName != "" {
+			funcName = taskName
 		}
 
 		if _, ok := summary[funcName]; !ok {
