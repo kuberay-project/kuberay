@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -270,6 +271,21 @@ func TestCheckRouteName(t *testing.T) {
 		routeName: "acceptable-name-head-12345",
 		namespace: "development-namespace",
 		want:      "acceptable-name-head-12345",
+	}, {
+		name:      "namespace of 50 characters leaves one character",
+		routeName: "cv-traffic-training-202402090958",
+		namespace: strings.Repeat("n", 50),
+		want:      "c",
+	}, {
+		name:      "namespace of 51 characters does not panic",
+		routeName: "cv-traffic-training-202402090958",
+		namespace: strings.Repeat("n", 51),
+		want:      "c",
+	}, {
+		name:      "namespace of 63 characters does not panic",
+		routeName: "cv-traffic-training-202402090958",
+		namespace: strings.Repeat("n", 63),
+		want:      "c",
 	}}
 
 	for _, tc := range tests {

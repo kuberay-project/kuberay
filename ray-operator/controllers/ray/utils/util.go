@@ -195,6 +195,12 @@ func CheckRouteName(ctx context.Context, s string, n string) string {
 	// => 52 - (length of namespace name + 1)
 	// => 51 - (length of namespace name)
 	maxLength := 51 - len(n)
+	// A namespace of 51 or more characters leaves no room at all. Keep one
+	// character so that the slice below and CheckName's s[0] cannot panic; the
+	// API server then rejects the oversized host instead of the operator crashing.
+	if maxLength < 1 {
+		maxLength = 1
+	}
 
 	if len(s) > maxLength {
 		// shorten the name
