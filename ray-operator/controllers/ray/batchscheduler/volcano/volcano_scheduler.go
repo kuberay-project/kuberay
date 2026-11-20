@@ -265,7 +265,7 @@ func calculateSubGroupPolicy(owner metav1.Object, rayClusterSpec *rayv1.RayClust
 		if autoscalingEnabled {
 			minSubGroups = ptr.Deref(workerGroupSpec.MinReplicas, int32(0))
 		} else {
-			minSubGroups = utils.GetWorkerGroupDesiredReplicas(workerGroupSpec) / numOfHosts
+			minSubGroups = utils.GetWorkerGroupDesiredReplicaGroups(workerGroupSpec)
 		}
 		if minSubGroups < 0 {
 			continue
