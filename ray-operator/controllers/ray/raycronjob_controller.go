@@ -140,7 +140,7 @@ func (r *RayCronJobReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 	// This is the only place where we update the RayCronJob status. This will only update the RayCronJob status if LastScheduleTime has changed.
 	if err = r.updateRayCronJobStatus(ctx, originalRayCronJobInstance, rayCronJobInstance); err != nil {
 		logger.Info("Failed to update RayCronJob status", "error", err)
-		return ctrl.Result{RequeueAfter: RayCronJobDefaultRequeueDuration}, err
+		return ctrl.Result{RequeueAfter: RayCronJobDefaultRequeueDuration}, utils.IgnoreConflict(err)
 	}
 
 	return ctrl.Result{RequeueAfter: requeueAt}, nil

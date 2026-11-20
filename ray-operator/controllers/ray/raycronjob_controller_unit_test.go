@@ -574,3 +574,39 @@ func TestConstructRayJob_CopiesTemplateMetadata(t *testing.T) {
 	assert.Equal(t, scheduledTime.UTC().Format(time.RFC3339), rayJob.Annotations[utils.RayCronJobTimestampAnnotationKey])
 	assert.Equal(t, "python test.py", rayJob.Spec.Entrypoint)
 }
+
+// See TestRayClusterReconcile_StatusUpdateConflict and https://github.com/ray-project/kuberay/issues/745.
+func TestRayCronJobReconcile_StatusUpdateConflict(t *testing.T) {
+	// Same timing as TestRayCronJobReconcile_FirstSchedule: one tick is due, so Reconcile
+	// creates a RayJob and then writes LastScheduleTime to the status.
+	creationTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	fakeCurrTime := time.Date(2024, 1, 1, 0, 5, 30, 0, time.UTC)
+	rayCronJob := rayCronJobTemplate("test-cronjob", "default", "*/5 * * * *")
+	rayCronJob.CreationTimestamp = metav1.NewTime(creationTime)
+
+	newScheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(newScheme))
+	require.NoError(t, corev1.AddToScheme(newScheme))
+
+	calls := 0
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(newScheme).
+		WithRuntimeObjects(rayCronJob).
+		WithStatusSubresource(rayCronJob).
+		WithInterceptorFuncs(failStatusUpdates(statusConflict("raycronjobs", rayCronJob.Name), &calls)).
+		Build()
+	reconciler := &RayCronJobReconciler{
+		Client:   fakeClient,
+		Scheme:   newScheme,
+		Recorder: &events.FakeRecorder{},
+		clock:    clocktesting.NewFakeClock(fakeCurrTime),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: rayCronJob.Name, Namespace: rayCronJob.Namespace},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls, "Reconcile should try to update the status once")
+	assert.Equal(t, RayCronJobDefaultRequeueDuration, result.RequeueAfter)
+}
