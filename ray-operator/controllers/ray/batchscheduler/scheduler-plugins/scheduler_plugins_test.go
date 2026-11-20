@@ -5,12 +5,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 )
 
 func createTestRayCluster(numOfHosts int32) rayv1.RayCluster {
@@ -115,6 +121,30 @@ func TestCreatePodGroupWithMultipleHosts(t *testing.T) {
 
 	// 1 head and 4 workers
 	a.Equal(int32(5), podGroup.Spec.MinMember)
+}
+
+func TestDoBatchSchedulingOnSubmissionUpdatesExistingPodGroup(t *testing.T) {
+	cluster := createTestRayCluster(1)
+	cluster.Labels = map[string]string{utils.RayGangSchedulingEnabled: "true"}
+
+	// Create the PodGroup for the original replica count, then scale the cluster
+	// down before the next reconciliation.
+	stalePodGroup := createPodGroup(&cluster)
+	cluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](1)
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(scheme))
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(stalePodGroup).Build()
+	scheduler := &KubeScheduler{cli: fakeClient}
+
+	require.NoError(t, scheduler.DoBatchSchedulingOnSubmission(context.Background(), &cluster))
+
+	updatedPodGroup := &v1alpha1.PodGroup{}
+	require.NoError(t, fakeClient.Get(context.Background(), client.ObjectKeyFromObject(stalePodGroup), updatedPodGroup))
+	assert.Equal(t, int32(2), updatedPodGroup.Spec.MinMember)
+	assert.Equal(t, "512m", updatedPodGroup.Spec.MinResources.Cpu().String())
+	assert.Equal(t, "512Mi", updatedPodGroup.Spec.MinResources.Memory().String())
 }
 
 func TestAddMetadataToChildResource(t *testing.T) {
