@@ -274,12 +274,19 @@ func TestSummarizeTasksByFuncName(t *testing.T) {
 			},
 			wantTotalTasks: 1,
 		},
-		"missing function descriptor": {
+		"named task without a function descriptor": {
 			tasks: []eventtypes.Task{{
 				TaskType: eventtypes.NORMAL_TASK,
-				TaskName: "preprocess",
-				State:    eventtypes.RUNNING,
+				TaskName: "bench_task",
+				State:    eventtypes.FINISHED,
 			}},
+			wantSummary: map[string]map[string]int{
+				"bench_task": {string(eventtypes.FINISHED): 1},
+			},
+			wantTotalTasks: 1,
+		},
+		"lifecycle event before definition": {
+			tasks: []eventtypes.Task{{State: eventtypes.RUNNING}},
 		},
 		"custom names remain separate": {
 			tasks: []eventtypes.Task{
@@ -321,4 +328,16 @@ func TestSummarizeTasksByFuncName(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("actor task name", func(t *testing.T) {
+		got := summarizeTasksByFuncName([]eventtypes.Task{{
+			TaskType:      eventtypes.ACTOR_TASK,
+			ActorTaskName: "predict",
+			ActorFunc:     pythonFunc("work"),
+			State:         eventtypes.FINISHED,
+		}})
+		require.Contains(t, got.Summary, "predict")
+		assert.Equal(t, 1, got.Summary["predict"].StateCounts[string(eventtypes.FINISHED)])
+		assert.Equal(t, 1, got.TotalActorTasks)
+	})
 }

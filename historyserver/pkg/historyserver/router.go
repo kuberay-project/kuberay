@@ -1840,25 +1840,13 @@ func summarizeTasksByFuncName(tasks []eventtypes.Task) *utils.TaskSummariesByFun
 	totalActorScheduled := 0
 
 	for _, task := range tasks {
-		key := task.GetFuncName()
+		key := task.GetTaskName()
 		if key == "" {
-			// Skip tasks without a function name. This can happen when we've received
-			// a TASK_LIFECYCLE_EVENT but not yet the corresponding TASK_DEFINITION_EVENT,
-			// since only the definition event carries the FunctionDescriptor (TaskFunc/ActorFunc).
-			//
-			// Unlike the live Ray Dashboard (which reads complete TaskInfo from GCS in a single object),
-			// the history server ingests definition and lifecycle as separate events that may arrive
-			// out of order. A task missing its definition also lacks TaskType, so it cannot contribute
-			// to totalTasks/totalActorTasks/totalActorScheduled counts either.
-			//
-			// We skip rather than using a fallback like "unknown" to keep the summary clean for the
-			// Dashboard frontend, which does not expect such a synthetic key.
-			// Ref: https://github.com/ray-project/ray/blob/777f37f002c14bd4c587f4d095b85c62690647de/python/ray/util/state/common.py#L1049
-			continue
+			key = task.GetFuncName()
 		}
-
-		if taskName := task.GetTaskName(); taskName != "" {
-			key = taskName
+		if key == "" {
+			// Lifecycle events can arrive before the definition that supplies the names.
+			continue
 		}
 
 		if _, ok := summary[key]; !ok {
