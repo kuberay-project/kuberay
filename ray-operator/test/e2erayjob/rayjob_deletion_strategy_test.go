@@ -9,6 +9,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	rayv1ac "github.com/ray-project/kuberay/ray-operator/pkg/client/applyconfiguration/ray/v1"
 	. "github.com/ray-project/kuberay/ray-operator/test/support"
 )
@@ -32,6 +33,10 @@ func TestDeletionStrategy(t *testing.T) {
 		{
 			name:     "DeletionRules with DeleteSelf policy should delete RayJob and cluster",
 			testFunc: testDeletionRulesWithDeleteSelfPolicy,
+		},
+		{
+			name:     "DeletionRules with DeleteSelf policy should preserve an existing cluster",
+			testFunc: testDeletionRulesWithDeleteSelfAndClusterSelector,
 		},
 		{
 			name:     "DeletionRules with DeleteNone policy should preserve all resources",
@@ -73,6 +78,58 @@ func TestDeletionStrategy(t *testing.T) {
 			tt.testFunc(test, g, namespace, cm)
 		})
 	}
+}
+
+func testDeletionRulesWithDeleteSelfAndClusterSelector(test Test, g *WithT, namespace *corev1.Namespace, cm *corev1.ConfigMap) {
+	clusterAC := rayv1ac.RayCluster("shared-cluster", namespace.Name).
+		WithSpec(NewRayClusterSpec(MountConfigMap[rayv1ac.RayClusterSpecApplyConfiguration](cm, "/home/ray/jobs")))
+	cluster, err := test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), clusterAC, TestApplyOptions)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Eventually(RayCluster(test, namespace.Name, cluster.Name), TestTimeoutMedium).
+		Should(WithTransform(RayClusterState, Equal(rayv1.Ready)))
+	cluster, err = GetRayCluster(test, namespace.Name, cluster.Name)
+	g.Expect(err).NotTo(HaveOccurred())
+	headPod, err := GetHeadPod(test, cluster)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(headPod).NotTo(BeNil())
+	workerPods, err := GetWorkerPods(test, cluster)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(workerPods).To(HaveLen(1))
+
+	jobAC := rayv1ac.RayJob("delete-self-shared", namespace.Name).
+		WithSpec(rayv1ac.RayJobSpec().
+			WithClusterSelector(map[string]string{utils.RayJobClusterSelectorKey: cluster.Name}).
+			WithEntrypoint("python /home/ray/jobs/counter.py").
+			WithRuntimeEnvYAML("env_vars:\n  counter_name: test_counter\n").
+			WithDeletionStrategy(rayv1ac.DeletionStrategy().WithDeletionRules(
+				rayv1ac.DeletionRule().WithPolicy(rayv1.DeleteSelf).
+					WithCondition(rayv1ac.DeletionCondition().WithJobStatus(rayv1.JobStatusSucceeded).WithTTLSeconds(10)))).
+			WithSubmitterPodTemplate(JobSubmitterPodTemplateApplyConfiguration()))
+	job := applyRayJobAndWaitForCompletion(test, g, namespace, jobAC)
+	g.Eventually(func() error {
+		_, err := GetRayJob(test, namespace.Name, job.Name)
+		return err
+	}, TestTimeoutMedium).Should(WithTransform(k8serrors.IsNotFound, BeTrue()))
+
+	// The shared cluster and its pods must survive RayJob cleanup.
+	g.Consistently(func(gg Gomega) {
+		gotCluster, err := GetRayCluster(test, namespace.Name, cluster.Name)
+		gg.Expect(err).NotTo(HaveOccurred())
+		gg.Expect(gotCluster.UID).To(Equal(cluster.UID))
+		gg.Expect(gotCluster.Spec).To(Equal(cluster.Spec))
+		gg.Expect(gotCluster.DeletionTimestamp.IsZero()).To(BeTrue())
+		gg.Expect(gotCluster.OwnerReferences).To(BeEmpty())
+		gotHeadPod, err := GetHeadPod(test, gotCluster)
+		gg.Expect(err).NotTo(HaveOccurred())
+		gg.Expect(gotHeadPod).NotTo(BeNil())
+		gg.Expect(gotHeadPod.UID).To(Equal(headPod.UID))
+		gg.Expect(gotHeadPod.DeletionTimestamp.IsZero()).To(BeTrue())
+		gotWorkerPods, err := GetWorkerPods(test, gotCluster)
+		gg.Expect(err).NotTo(HaveOccurred())
+		gg.Expect(gotWorkerPods).To(HaveLen(1))
+		gg.Expect(gotWorkerPods[0].UID).To(Equal(workerPods[0].UID))
+		gg.Expect(gotWorkerPods[0].DeletionTimestamp.IsZero()).To(BeTrue())
+	}, 10*time.Second, time.Second).Should(Succeed())
 }
 
 func testDeletionRulesWithDeleteWorkersPolicy(test Test, g *WithT, namespace *corev1.Namespace, cm *corev1.ConfigMap) {
