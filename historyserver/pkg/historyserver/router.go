@@ -1832,7 +1832,7 @@ func (s *ServerHandler) getTaskSummarize(req *restful.Request, resp *restful.Res
 // job and are excluded by the filter before reaching this function.
 // Ref: https://github.com/ray-project/ray/blob/777f37f002c14bd4c587f4d095b85c62690647de/python/ray/dashboard/client/src/service/job.ts
 //
-// Ray API source code: https://github.com/ray-project/ray/blob/777f37f002c14bd4c587f4d095b85c62690647de/python/ray/util/state/common.py#L1035-L1064
+// Ray API source code: https://github.com/ray-project/ray/blob/32e512021b9679f11c4f37d452cc9e133de88403/python/ray/util/state/common.py#L1066-L1102
 func summarizeTasksByFuncName(tasks []eventtypes.Task) *utils.TaskSummariesByFuncName {
 	summary := make(map[string]*utils.TaskSummaryPerFuncOrClassName)
 	totalTasks := 0
@@ -1840,8 +1840,8 @@ func summarizeTasksByFuncName(tasks []eventtypes.Task) *utils.TaskSummariesByFun
 	totalActorScheduled := 0
 
 	for _, task := range tasks {
-		funcName := task.GetFuncName()
-		if funcName == "" {
+		key := task.GetFuncName()
+		if key == "" {
 			// Skip tasks without a function name. This can happen when we've received
 			// a TASK_LIFECYCLE_EVENT but not yet the corresponding TASK_DEFINITION_EVENT,
 			// since only the definition event carries the FunctionDescriptor (TaskFunc/ActorFunc).
@@ -1858,12 +1858,12 @@ func summarizeTasksByFuncName(tasks []eventtypes.Task) *utils.TaskSummariesByFun
 		}
 
 		if taskName := task.GetTaskName(); taskName != "" {
-			funcName = taskName
+			key = taskName
 		}
 
-		if _, ok := summary[funcName]; !ok {
-			summary[funcName] = &utils.TaskSummaryPerFuncOrClassName{
-				FuncOrClassName: funcName,
+		if _, ok := summary[key]; !ok {
+			summary[key] = &utils.TaskSummaryPerFuncOrClassName{
+				FuncOrClassName: key,
 				Type:            string(task.TaskType),
 				StateCounts:     make(map[string]int),
 			}
@@ -1876,7 +1876,7 @@ func summarizeTasksByFuncName(tasks []eventtypes.Task) *utils.TaskSummariesByFun
 		if state == "" {
 			state = "NIL"
 		}
-		summary[funcName].StateCounts[state]++
+		summary[key].StateCounts[state]++
 
 		// Count by task type
 		switch task.TaskType {
