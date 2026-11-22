@@ -4,7 +4,6 @@ updates:
   # Maintain go dependencies for sub-projects
   - package-ecosystem: "gomod"
     directories:
-      - "/experimental"
       - "/ray-operator"
       - "/apiserver"
       - "/kubectl-plugin"
@@ -23,5 +22,15 @@ updates:
         patterns:
           - "github.com/*"
       all-dependencies: # for all other dependencies not listed above
+        patterns:
+          - "*"
+
+  # Maintain GitHub Actions referenced in .github/workflows/
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-actions:
         patterns:
           - "*"

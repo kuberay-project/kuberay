@@ -1,5 +1,5 @@
 # Generate client code (go & json) from API protocol buffers
-FROM golang:1.25-bookworm AS generator
+FROM golang:1.26-bookworm AS generator
 
 ENV PROTOC_VERSION 29.2
 ENV GOLANG_PROTOBUF_VERSION v1.36.1

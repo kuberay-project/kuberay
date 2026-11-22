@@ -1,6 +1,8 @@
 package e2erayjob
 
 import (
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -300,5 +302,129 @@ env_vars:
 			Should(WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusComplete)))
 
 		LogWithTimestamp(test.T(), "RayJob %s/%s completed successfully with auth token", rayJob.Namespace, rayJob.Name)
+	})
+
+	test.T().Run("RayJob Sidecar Mode should restart submitter container on non-zero exit", func(t *testing.T) {
+		// Check if the SidecarSubmitterRestart feature gate is enabled by inspecting the operator's args directly, rather than inferring from the container spec.
+		// The k8s version >= 1.35 is already verified at operator startup (see main.go), so we only need to check the feature gate here.
+		var sidecarSubmitterRestartEnabled bool
+		// Search all namespaces since the operator may be deployed in any namespace
+		operatorDeploymentList, err := test.Client().Core().AppsV1().Deployments("").List(t.Context(), metav1.ListOptions{
+			LabelSelector: "app.kubernetes.io/component=kuberay-operator",
+		})
+		g.Expect(err).NotTo(HaveOccurred())
+		// Assuming there should only be one kuberay-operator in the cluster
+		g.Expect(operatorDeploymentList.Items).To(HaveLen(1), "expected exactly one kuberay-operator deployment during the test")
+
+		for _, container := range operatorDeploymentList.Items[0].Spec.Template.Spec.Containers {
+			if container.Name != "kuberay-operator" {
+				continue
+			}
+			for _, arg := range container.Args {
+				if strings.Contains(arg, "SidecarSubmitterRestart=true") {
+					sidecarSubmitterRestartEnabled = true
+					break
+				}
+			}
+
+			if sidecarSubmitterRestartEnabled {
+				break
+			}
+		}
+
+		if !sidecarSubmitterRestartEnabled {
+			t.Skip("SidecarSubmitterRestart feature gate is not active. SidecarSubmitterRestart is not set to true")
+		}
+
+		rayJobAC := rayv1ac.RayJob("submitter-container-should-restart", namespace.Name).
+			WithSpec(rayv1ac.RayJobSpec().
+				WithSubmissionMode(rayv1.SidecarMode).
+				WithRayClusterSpec(NewRayClusterSpec()).
+				WithEntrypoint("python -c \"import time; time.sleep(60)\"").
+				WithShutdownAfterJobFinishes(true))
+
+		rayJob, err := test.Client().Ray().RayV1().RayJobs(namespace.Name).Apply(test.Ctx(), rayJobAC, TestApplyOptions)
+		g.Expect(err).NotTo(HaveOccurred())
+		LogWithTimestamp(test.T(), "Created RayJob %s/%s successfully", rayJob.Namespace, rayJob.Name)
+
+		// Wait until the RayJob to become Running
+		LogWithTimestamp(test.T(), "Waiting for RayJob %s/%s to be 'Running'", rayJob.Namespace, rayJob.Name)
+		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
+			Should(WithTransform(RayJobStatus, Equal(rayv1.JobStatusRunning)))
+
+		// Get RayCluster name
+		rayJob, err = GetRayJob(test, rayJob.Namespace, rayJob.Name)
+		g.Expect(err).NotTo(HaveOccurred())
+		rayClusterName := rayJob.Status.RayClusterName
+
+		// Get RayCluster
+		rayCluster, err := GetRayCluster(test, namespace.Name, rayClusterName)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		// Get headPod
+		headPod, err := GetHeadPod(test, rayCluster)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(headPod).NotTo(BeNil())
+
+		// Get Submitter Container id
+		var containerID string
+		for _, containerStatus := range headPod.Status.ContainerStatuses {
+			if containerStatus.Name == utils.SubmitterContainerName {
+				containerID = strings.TrimPrefix(containerStatus.ContainerID, "containerd://")
+				break
+			}
+		}
+		g.Expect(containerID).ToNot(BeEmpty(), "Submitter's container ID should not be empty")
+		LogWithTimestamp(test.T(), "Found submitter container ID: %s", containerID)
+
+		// Record job id before restart
+		initialJobID := rayJob.Status.JobId
+
+		// stop the container with docker exec
+		kindNodeName := headPod.Spec.NodeName
+		cmd := exec.CommandContext(test.Ctx(), "docker", "exec", kindNodeName, "crictl", "stop", containerID)
+		err = cmd.Run()
+		g.Expect(err).NotTo(HaveOccurred())
+
+		// Verify RayJob is still running
+		g.Expect(GetRayJob(test, rayJob.Namespace, rayJob.Name)).
+			To(WithTransform(RayJobStatus, Equal(rayv1.JobStatusRunning)))
+
+		// Verify the restart count should > 0
+		g.Eventually(func() int32 {
+			headPod, err = GetHeadPod(test, rayCluster)
+			if err != nil || headPod == nil {
+				return 0
+			}
+			for _, cs := range headPod.Status.ContainerStatuses {
+				if cs.Name == utils.SubmitterContainerName {
+					return cs.RestartCount
+				}
+			}
+			return 0
+		}, TestTimeoutMedium, 2*time.Second).Should(BeNumerically(">", 0))
+
+		// Verify RayJob is still running
+		rayJob, err = GetRayJob(test, rayJob.Namespace, rayJob.Name)
+		g.Expect(err).NotTo(HaveOccurred())
+		LogWithTimestamp(test.T(), "RayJob status after stopping submitter: jobStatus=%s deploymentStatus=%s", rayJob.Status.JobStatus, rayJob.Status.JobDeploymentStatus)
+
+		// Verify there is no duplicate submission by checking the job id with initialJobID
+		g.Consistently(func() string {
+			rayjob, err := GetRayJob(test, rayJob.Namespace, rayJob.Name)
+			g.Expect(err).NotTo(HaveOccurred())
+			return rayjob.Status.JobId
+		}, TestTimeoutShort, 2*time.Second).Should(Equal(initialJobID))
+		LogWithTimestamp(test.T(), "RayJob JobID remains %s, there is no duplicate submission", initialJobID)
+
+		// Verify RayJob does not transition to Failed
+		g.Consistently(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutShort, 2*time.Second).
+			Should(WithTransform(RayJobDeploymentStatus, Not(Equal(rayv1.JobDeploymentStatusFailed))))
+
+		// Verify RayJob eventually completed.
+		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutLong).
+			Should(WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusComplete)))
+
+		LogWithTimestamp(test.T(), "RayJob %s/%s completed successfully", rayJob.Namespace, rayJob.Name)
 	})
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubernetesfake "k8s.io/client-go/kubernetes/fake"
 
@@ -56,7 +57,7 @@ func TestGetRayClusterURL(t *testing.T) {
 
 	tests := []struct {
 		rayCluster          *rayv1.RayCluster
-		rayEvent            *corev1.Event
+		rayEvent            *eventsv1.Event
 		name                string
 		expectedURL         string
 		expectedErrorString string
@@ -106,7 +107,7 @@ func TestGetRayClusterURL(t *testing.T) {
 				Namespace: tc.rayCluster.Namespace,
 			}
 
-			expectedEvent := &corev1.Event{
+			expectedEvent := &eventsv1.Event{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "ray-event-1",
 					Namespace: tc.rayCluster.Namespace,
@@ -130,7 +131,7 @@ func TestGetRayClusterURL(t *testing.T) {
 			mockKubeClient := client.NewMockKubernetesClientInterface(ctrl)
 			// create fake events
 			fakeClientset := kubernetesfake.NewClientset(expectedEvent)
-			fakeEvents := fakeClientset.CoreV1().Events(tc.rayCluster.Namespace)
+			fakeEvents := fakeClientset.EventsV1().Events(tc.rayCluster.Namespace)
 			mockKubeClient.EXPECT().EventsClient(tc.rayCluster.Namespace).Return(fakeEvents).MaxTimes(1)
 			mockClientManager.EXPECT().KubernetesClient().Return(mockKubeClient).MaxTimes(1)
 

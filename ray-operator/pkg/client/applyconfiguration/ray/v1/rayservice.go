@@ -13,10 +13,11 @@ import (
 //
 // RayService is the Schema for the rayservices API
 type RayServiceApplyConfiguration struct {
-	metav1.TypeMetaApplyConfiguration    `json:",inline"`
+	metav1.TypeMetaApplyConfiguration    `json:""`
 	*metav1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                                 *RayServiceSpecApplyConfiguration     `json:"spec,omitempty"`
-	Status                               *RayServiceStatusesApplyConfiguration `json:"status,omitempty"`
+	Spec                                 *RayServiceSpecApplyConfiguration `json:"spec,omitempty"`
+	// Status is the most recently observed state of the RayService.
+	Status *RayServiceStatusesApplyConfiguration `json:"status,omitempty"`
 }
 
 // RayService constructs a declarative configuration of the RayService type for use with

@@ -40,7 +40,7 @@ func NewGetTokenCommand(cmdFactory cmdutil.Factory, streams genericclioptions.IO
 		ValidArgsFunction: completion.RayClusterCompletionFunc(cmdFactory),
 		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := options.Complete(args, cmd); err != nil {
+			if err := options.Complete(args); err != nil {
 				return err
 			}
 			// running cmd.Execute or cmd.ExecuteE sets the context, which will be done by root
@@ -54,15 +54,12 @@ func NewGetTokenCommand(cmdFactory cmdutil.Factory, streams genericclioptions.IO
 	return cmd
 }
 
-func (options *GetTokenOptions) Complete(args []string, cmd *cobra.Command) error {
-	namespace, err := cmd.Flags().GetString("namespace")
+func (options *GetTokenOptions) Complete(args []string) error {
+	namespace, _, err := options.cmdFactory.ToRawKubeConfigLoader().Namespace()
 	if err != nil {
 		return fmt.Errorf("failed to get namespace: %w", err)
 	}
 	options.namespace = namespace
-	if options.namespace == "" {
-		options.namespace = "default"
-	}
 	// guarded by cobra.ExactArgs(1)
 	options.cluster = args[0]
 	return nil

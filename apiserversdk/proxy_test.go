@@ -17,10 +17,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	k8sclient "k8s.io/client-go/kubernetes/typed/core/v1"
+	eventsv1client "k8s.io/client-go/kubernetes/typed/events/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
@@ -37,6 +39,7 @@ var (
 	rayClient             *rayclient.RayV1Client
 	k8sClient             *k8sclient.CoreV1Client
 	k8sClientWithoutProxy *k8sclient.CoreV1Client
+	eventsClient          *eventsv1client.EventsV1Client
 	testEnv               *envtest.Environment
 	lastReq               atomic.Pointer[http.Request]
 )
@@ -87,6 +90,7 @@ var _ = BeforeSuite(func(_ SpecContext) {
 	rayClient = rayclient.NewForConfigOrDie(proxyCfg)
 	k8sClient = k8sclient.NewForConfigOrDie(proxyCfg)
 	k8sClientWithoutProxy = k8sclient.NewForConfigOrDie(cfg)
+	eventsClient = eventsv1client.NewForConfigOrDie(proxyCfg)
 })
 
 var _ = AfterSuite(func() {
@@ -256,15 +260,15 @@ var _ = Describe("RayService", Ordered, func() {
 
 var _ = Describe("events", Ordered, func() {
 	It("List events", func() {
-		events, err := k8sClient.Events("default").List(context.Background(), metav1.ListOptions{})
+		events, err := eventsClient.Events("default").List(context.Background(), metav1.ListOptions{})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(events.Items).To(BeEmpty())
 		Expect(lastReq.Load().Method).To(Equal(http.MethodGet))
-		Expect(lastReq.Load().RequestURI).To(Equal("/api/v1/namespaces/default/events"))
+		Expect(lastReq.Load().RequestURI).To(Equal("/apis/events.k8s.io/v1/namespaces/default/events"))
 	})
 	It("Only GET method is allowed for events endpoint", func() {
-		event := &corev1.Event{}
-		_, err := k8sClient.Events("default").Create(context.Background(), event, metav1.CreateOptions{})
+		event := &eventsv1.Event{}
+		_, err := eventsClient.Events("default").Create(context.Background(), event, metav1.CreateOptions{})
 		Expect(err).To(HaveOccurred())
 		Expect(err).To(MatchError(ContainSubstring("the server does not allow this method on the requested resource")))
 	})
@@ -289,18 +293,20 @@ var _ = Describe("events", Ordered, func() {
 		}
 		testEvent2 := testEvent.DeepCopy()
 		testEvent2.InvolvedObject.APIVersion = ""
+		// Events created through the core API are readable through events.k8s.io/v1
+		// since both APIs are backed by the same storage.
 		_, err := k8sClientWithoutProxy.Events("default").Create(context.Background(), testEvent, metav1.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred())
 		_, err = k8sClientWithoutProxy.Events("default").Create(context.Background(), testEvent2, metav1.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred())
-		events, err := k8sClient.Events("default").List(context.Background(), metav1.ListOptions{})
+		events, err := eventsClient.Events("default").List(context.Background(), metav1.ListOptions{})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(events.Items).To(HaveLen(1))
 		Expect(events.Items[0].ObjectMeta.GenerateName).To(Equal(testEvent.ObjectMeta.GenerateName))
-		Expect(events.Items[0].InvolvedObject.APIVersion).To(Equal("ray.io/v1"))
-		// Test the user selector won't override "involvedObject.apiVersion=ray.io/v1"
-		fieldSelectorString := "involvedObject.apiVersion="
-		events, err = k8sClient.Events("default").List(context.Background(), metav1.ListOptions{FieldSelector: fieldSelectorString})
+		Expect(events.Items[0].Regarding.APIVersion).To(Equal("ray.io/v1"))
+		// Test the user selector won't override "regarding.apiVersion=ray.io/v1"
+		fieldSelectorString := "regarding.apiVersion="
+		events, err = eventsClient.Events("default").List(context.Background(), metav1.ListOptions{FieldSelector: fieldSelectorString})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(events.Items).To(BeEmpty())
 	})

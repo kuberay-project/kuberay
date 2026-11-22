@@ -27,16 +27,20 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/common"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/expectations"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 	"github.com/ray-project/kuberay/ray-operator/test/support"
@@ -53,7 +57,7 @@ func rayClusterTemplate(name string, namespace string) *rayv1.RayCluster {
 		VolumeSource: corev1.VolumeSource{
 			EmptyDir: &corev1.EmptyDirVolumeSource{
 				Medium:    corev1.StorageMediumMemory,
-				SizeLimit: ptr.To(resource.MustParse("1Gi")),
+				SizeLimit: new(resource.MustParse("1Gi")),
 			},
 		},
 	}
@@ -440,7 +444,7 @@ var _ = Context("Inside the default namespace", func() {
 		ctx := context.Background()
 		namespace := "default"
 		rayCluster := rayClusterTemplate("raycluster-autoscaler", namespace)
-		rayCluster.Spec.EnableInTreeAutoscaling = ptr.To(true)
+		rayCluster.Spec.EnableInTreeAutoscaling = new(true)
 		workerPods := corev1.PodList{}
 		workerFilter := common.RayClusterGroupPodsAssociationOptions(rayCluster, rayCluster.Spec.WorkerGroupSpecs[0].GroupName).ToListOptions()
 
@@ -881,7 +885,7 @@ var _ = Context("Inside the default namespace", func() {
 			ctx := context.Background()
 			namespace := "default"
 			rayCluster := rayClusterTemplate("raycluster-suspend-workergroup-autoscaler", namespace)
-			rayCluster.Spec.EnableInTreeAutoscaling = ptr.To(true)
+			rayCluster.Spec.EnableInTreeAutoscaling = new(true)
 			allPods := corev1.PodList{}
 			allFilters := common.RayClusterAllPodsAssociationOptions(rayCluster).ToListOptions()
 			workerFilters := common.RayClusterGroupPodsAssociationOptions(rayCluster, rayCluster.Spec.WorkerGroupSpecs[0].GroupName).ToListOptions()
@@ -932,7 +936,7 @@ var _ = Context("Inside the default namespace", func() {
 		rayCluster := rayClusterTemplate("raycluster-multihost", namespace)
 		numOfHosts := int32(4)
 		rayCluster.Spec.WorkerGroupSpecs[0].NumOfHosts = numOfHosts
-		rayCluster.Spec.EnableInTreeAutoscaling = ptr.To(true)
+		rayCluster.Spec.EnableInTreeAutoscaling = new(true)
 		headPods := corev1.PodList{}
 		headFilters := common.RayClusterHeadPodsAssociationOptions(rayCluster).ToListOptions()
 		numHeadPods := 1
@@ -1616,6 +1620,267 @@ var _ = Context("Inside the default namespace", func() {
 			Eventually(
 				getClusterState(ctx, namespace, rayCluster.Name),
 				time.Second*3, time.Millisecond*500).Should(Equal(rayv1.Ready))
+		})
+	})
+
+	Describe("Manager cache Pod label selectors", Ordered, func() {
+		ctx := context.Background()
+		namespace := "ray-mgr-cache-test"
+		rayClusterName := "raycluster-cache-label-selectors"
+		unrelatedPodName := "unrelated-pod-for-cache-test"
+
+		rayCluster := rayClusterTemplate(rayClusterName, namespace)
+		rayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](1)
+		rayCluster.Spec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](1)
+		rayCluster.Spec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](0)
+
+		unrelatedPod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      unrelatedPodName,
+				Namespace: namespace,
+				Labels:    map[string]string{"app": "unrelated-to-ray"},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  "pause",
+						Image: support.GetRayImage(),
+					},
+				},
+			},
+		}
+
+		headPods := corev1.PodList{}
+		workerPods := corev1.PodList{}
+		workerFilters := common.RayClusterGroupPodsAssociationOptions(rayCluster, rayCluster.Spec.WorkerGroupSpecs[0].GroupName).ToListOptions()
+		headFilters := common.RayClusterHeadPodsAssociationOptions(rayCluster).ToListOptions()
+
+		BeforeAll(func() {
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
+			err := k8sClient.Create(ctx, ns)
+			if !apierrors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred(), "create test namespace for cache selector test")
+			}
+		})
+
+		It("Create RayCluster and unrelated Pod", func() {
+			err := k8sClient.Create(ctx, rayCluster)
+			Expect(err).NotTo(HaveOccurred(), "create RayCluster")
+			Eventually(
+				getResourceFunc(ctx, client.ObjectKey{Name: rayCluster.Name, Namespace: namespace}, rayCluster),
+				time.Second*10, time.Millisecond*200).Should(Succeed())
+
+			err = k8sClient.Create(ctx, unrelatedPod)
+			Expect(err).NotTo(HaveOccurred(), "create unrelated pod")
+
+			Eventually(
+				listResourceFunc(ctx, &headPods, headFilters...),
+				time.Second*10, time.Millisecond*200).Should(Equal(1))
+			Eventually(
+				listResourceFunc(ctx, &workerPods, workerFilters...),
+				time.Second*10, time.Millisecond*200).Should(Equal(1))
+
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: unrelatedPodName}, unrelatedPod)).Should(Succeed())
+		})
+
+		It("The direct API client should list head, worker, and unrelated Pod", func() {
+			Eventually(
+				listResourceFunc(ctx, &headPods, headFilters...),
+				time.Second*3, time.Millisecond*200).Should(Equal(1))
+			Eventually(
+				listResourceFunc(ctx, &workerPods, workerFilters...),
+				time.Second*3, time.Millisecond*200).Should(Equal(1))
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: unrelatedPodName}, unrelatedPod)).Should(Succeed(), "unrelated pod visible to API")
+		})
+
+		It("The manager cache should only include Ray node Pods (ray.io/node-type in head|worker|redis-cleanup), not the unrelated Pod", func() {
+			cacheClient := mgr.GetClient()
+			clusterListOpts := []client.ListOption{
+				client.InNamespace(namespace),
+				client.MatchingLabels{utils.RayClusterLabelKey: rayClusterName},
+			}
+			Eventually(func(g Gomega) {
+				var cachedRayPods corev1.PodList
+				g.Expect(cacheClient.List(ctx, &cachedRayPods, clusterListOpts...)).To(Succeed())
+				var names []string
+				for _, p := range cachedRayPods.Items {
+					names = append(names, p.Name)
+					g.Expect(p.Labels[utils.RayNodeTypeLabelKey]).To(Or(
+						Equal(string(rayv1.HeadNode)),
+						Equal(string(rayv1.WorkerNode)),
+						Equal(string(rayv1.RedisCleanupNode)),
+					), "informer only watches Pods with a Ray node type; pod %q has labels %v", p.Name, p.Labels)
+				}
+				g.Expect(names).To(ContainElements(headPods.Items[0].Name, workerPods.Items[0].Name), "cache should list this cluster's Ray head and worker: got %v", names)
+				g.Expect(names).NotTo(ContainElement(unrelatedPodName), "unrelated pod must not appear in the manager's Pod store; got: %v", names)
+				g.Expect(cachedRayPods.Items).To(HaveLen(2), "this RayCluster has one head and one worker Pod in cache")
+			}, time.Second*10, time.Millisecond*300).Should(Succeed(), "wait for the manager informer to sync listed Pods")
+		})
+	})
+
+	Describe("RayCluster Redis cleanup finalizer timeout and auto-deletion", func() {
+		var (
+			ctx       = context.Background()
+			namespace = "default"
+		)
+
+		newReconciler := func() *RayClusterReconciler {
+			return &RayClusterReconciler{
+				Client:                     k8sClient,
+				Scheme:                     k8sClient.Scheme(),
+				Recorder:                   events.NewFakeRecorder(10),
+				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(k8sClient),
+			}
+		}
+
+		Describe("Helper function tests", func() {
+			It("Should return correct deletion timeout from annotation", func() {
+				cluster := rayClusterTemplate("helper-timeout-test", namespace)
+
+				// No annotation: returns default
+				Expect(getGCSFTDeletionTimeout(cluster)).To(Equal(
+					time.Duration(utils.RAYCLUSTER_GCS_FT_DELETION_TIMEOUT_DEFAULT) * time.Second))
+
+				// Valid annotation
+				cluster.Annotations = map[string]string{
+					utils.RayClusterGCSFTDeletionTimeoutAnnotation: "120",
+				}
+				Expect(getGCSFTDeletionTimeout(cluster)).To(Equal(120 * time.Second))
+
+				// Non-numeric annotation falls back to default
+				cluster.Annotations[utils.RayClusterGCSFTDeletionTimeoutAnnotation] = "not-a-number"
+				Expect(getGCSFTDeletionTimeout(cluster)).To(Equal(
+					time.Duration(utils.RAYCLUSTER_GCS_FT_DELETION_TIMEOUT_DEFAULT) * time.Second))
+
+				// Zero annotation falls back to default (zero is not a valid timeout)
+				cluster.Annotations[utils.RayClusterGCSFTDeletionTimeoutAnnotation] = "0"
+				Expect(getGCSFTDeletionTimeout(cluster)).To(Equal(
+					time.Duration(utils.RAYCLUSTER_GCS_FT_DELETION_TIMEOUT_DEFAULT) * time.Second))
+			})
+		})
+
+		Describe("Auto-deletion for clusters with stuck GCS FT finalizer", Ordered, func() {
+			clusterKey := client.ObjectKey{Name: "raycluster-redis-cleanup", Namespace: namespace}
+
+			BeforeAll(func() {
+				cluster := rayClusterTemplate(clusterKey.Name, namespace)
+				cluster.Finalizers = []string{utils.GCSFaultToleranceRedisCleanupFinalizer}
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+				Eventually(
+					getResourceFunc(ctx, clusterKey, cluster),
+					time.Second*3, time.Millisecond*500).Should(Succeed())
+			})
+
+			It("Should have GCS FT finalizer after creation", func() {
+				cluster := &rayv1.RayCluster{}
+				Expect(k8sClient.Get(ctx, clusterKey, cluster)).To(Succeed())
+				Expect(cluster.Finalizers).To(ContainElement(utils.GCSFaultToleranceRedisCleanupFinalizer))
+			})
+
+			It("Should NOT auto-delete cluster before timeout", func() {
+				cluster := &rayv1.RayCluster{}
+				Expect(k8sClient.Get(ctx, clusterKey, cluster)).To(Succeed())
+
+				// Trigger real deletion — the server sets DeletionTimestamp to "now"
+				Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+
+				// Wait for the server to stamp DeletionTimestamp
+				Eventually(func() bool {
+					c := &rayv1.RayCluster{}
+					return k8sClient.Get(ctx, clusterKey, c) == nil && !c.DeletionTimestamp.IsZero()
+				}, time.Second*3, time.Millisecond*500).Should(BeTrue())
+
+				// DeletionTimestamp is ~now, well under the 5-minute default timeout;
+				// finalizer should still be present.
+				Expect(k8sClient.Get(ctx, clusterKey, cluster)).To(Succeed())
+				Expect(cluster.Finalizers).To(ContainElement(utils.GCSFaultToleranceRedisCleanupFinalizer))
+			})
+
+			It("Should auto-delete cluster after timeout", func() {
+				// Cluster is already in deleting state (DeletionTimestamp set by previous test).
+				// Override in-memory only to simulate age past the 5-minute default.
+				cluster := &rayv1.RayCluster{}
+				Expect(k8sClient.Get(ctx, clusterKey, cluster)).To(Succeed())
+				Expect(cluster.DeletionTimestamp).NotTo(BeNil())
+
+				pastTime := metav1.NewTime(time.Now().Add(-20 * time.Minute))
+				cluster.DeletionTimestamp = &pastTime
+
+				result, err := newReconciler().forceRemoveGCSFTFinalizer(ctx, cluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Eventually(func() []string {
+					c := &rayv1.RayCluster{}
+					if err := k8sClient.Get(ctx, clusterKey, c); err != nil {
+						return nil
+					}
+					return c.Finalizers
+				}, time.Second*3, time.Millisecond*500).ShouldNot(
+					ContainElement(utils.GCSFaultToleranceRedisCleanupFinalizer))
+			})
+		})
+
+		Describe("Auto-deletion safety for clusters without the GCS FT finalizer", func() {
+			It("Should NOT trigger force-delete when the GCS FT finalizer is absent", func() {
+				cluster := rayClusterTemplate("raycluster-no-finalizer", namespace)
+				// No GCS FT finalizer — hasGCSFTFinalizer must return false
+				Expect(hasGCSFTFinalizer(cluster)).To(BeFalse())
+
+				// Even with a very old in-memory timestamp, the missing finalizer guards the path
+				pastTime := metav1.NewTime(time.Now().Add(-2 * time.Hour))
+				cluster.DeletionTimestamp = &pastTime
+				Expect(hasGCSFTFinalizer(cluster)).To(BeFalse())
+			})
+		})
+
+		Describe("Integration with Redis cleanup flow", func() {
+			It("Should detect timeout and force-delete via Reconcile when annotation timeout elapses", func() {
+				cluster := rayClusterTemplate("raycluster-integration", namespace)
+				// 1-second timeout so the test doesn't need to wait long
+				cluster.Annotations = map[string]string{
+					utils.RayFTEnabledAnnotationKey:                "true",
+					utils.RayClusterGCSFTDeletionTimeoutAnnotation: "1",
+				}
+				cluster.Finalizers = []string{utils.GCSFaultToleranceRedisCleanupFinalizer}
+
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+				clusterKey := client.ObjectKey{Name: cluster.Name, Namespace: namespace}
+
+				DeferCleanup(func() {
+					c := &rayv1.RayCluster{}
+					if err := k8sClient.Get(ctx, clusterKey, c); err != nil {
+						return
+					}
+					c.Finalizers = nil
+					_ = k8sClient.Update(ctx, c)
+					_ = k8sClient.Delete(ctx, c)
+				})
+
+				Eventually(
+					getResourceFunc(ctx, clusterKey, cluster),
+					time.Second*3, time.Millisecond*500).Should(Succeed())
+
+				// Trigger deletion; server stamps DeletionTimestamp = now
+				Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+
+				// Wait for the 1-second annotation timeout to elapse
+				time.Sleep(2 * time.Second)
+
+				req := ctrl.Request{NamespacedName: clusterKey}
+				result, err := newReconciler().Reconcile(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Eventually(func() []string {
+					c := &rayv1.RayCluster{}
+					if err := k8sClient.Get(ctx, clusterKey, c); err != nil {
+						return nil
+					}
+					return c.Finalizers
+				}, time.Second*3, time.Millisecond*500).ShouldNot(
+					ContainElement(utils.GCSFaultToleranceRedisCleanupFinalizer))
+			})
 		})
 	})
 })

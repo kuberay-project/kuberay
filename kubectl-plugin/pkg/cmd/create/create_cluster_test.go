@@ -13,8 +13,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	kubefake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/clientcmd/api"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
-	"k8s.io/utils/ptr"
 
 	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util"
 	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util/client"
@@ -23,48 +24,94 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 )
 
+func createTempKubeConfigFile(t *testing.T, currentNamespace string) (string, error) {
+	tmpDir := t.TempDir()
+
+	// Set up fake config for kubeconfig
+	config := &api.Config{
+		Clusters: map[string]*api.Cluster{
+			"test-cluster": {
+				Server:                "https://fake-kubernetes-cluster.example.com",
+				InsecureSkipTLSVerify: true, // For testing purposes
+			},
+		},
+		Contexts: map[string]*api.Context{
+			"test-context": {
+				Cluster:   "test-cluster",
+				AuthInfo:  "my-fake-user",
+				Namespace: currentNamespace,
+			},
+		},
+		CurrentContext: "test-context",
+		AuthInfos: map[string]*api.AuthInfo{
+			"my-fake-user": {
+				Token: "", // Empty for testing without authentication
+			},
+		},
+	}
+
+	fakeFile := filepath.Join(tmpDir, ".kubeconfig")
+
+	return fakeFile, clientcmd.WriteToFile(*config, fakeFile)
+}
+
 func TestRayCreateClusterComplete(t *testing.T) {
+	kubeConfigWithCurrentContext, err := createTempKubeConfigFile(t, "test-namespace")
+	require.NoError(t, err)
 	testStreams, _, _, _ := genericclioptions.NewTestIOStreams()
 
 	tests := map[string]struct {
-		image         string
-		rayVersion    string
-		expectedError string
-		expectedImage string
-		args          []string
+		image             string
+		namespace         string
+		rayVersion        string
+		expectedError     string
+		expectedImage     string
+		expectedNamespace string
+		args              []string
 	}{
 		"should error when there are no args": {
-			args:          []string{},
-			expectedError: "See 'cluster -h' for help and examples",
+			args:              []string{},
+			expectedError:     "See 'cluster -h' for help and examples",
+			expectedNamespace: "test-namespace",
 		},
 		"should error when too many args": {
-			args:          []string{"testRayClusterName", "extra-arg"},
-			expectedError: "See 'cluster -h' for help and examples",
+			args:              []string{"testRayClusterName", "extra-arg"},
+			expectedError:     "See 'cluster -h' for help and examples",
+			expectedNamespace: "test-namespace",
 		},
 		"should succeed with default image when no image is specified": {
-			args:          []string{"testRayClusterName"},
-			rayVersion:    util.RayVersion,
-			expectedImage: defaultImageWithTag,
+			args:              []string{"testRayClusterName"},
+			rayVersion:        util.RayVersion,
+			expectedImage:     defaultImageWithTag,
+			expectedNamespace: "test-namespace",
 		},
 		"should succeed with provided image when provided": {
-			args:          []string{"testRayClusterName"},
-			image:         "DEADBEEF",
-			expectedImage: "DEADBEEF",
+			args:              []string{"testRayClusterName"},
+			image:             "DEADBEEF",
+			expectedImage:     "DEADBEEF",
+			expectedNamespace: "test-namespace",
 		},
 		"should set the image to the same version as the ray version when the image is the default and the ray version is not the default": {
-			args:          []string{"testRayClusterName"},
-			image:         defaultImageWithTag,
-			rayVersion:    "2.52.0",
-			expectedImage: fmt.Sprintf("%s:2.52.0", defaultImage),
+			args:              []string{"testRayClusterName"},
+			image:             defaultImageWithTag,
+			namespace:         "foo",
+			rayVersion:        "2.52.0",
+			expectedImage:     fmt.Sprintf("%s:2.52.0", defaultImage),
+			expectedNamespace: "foo",
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			cmdFactory := cmdutil.NewFactory(genericclioptions.NewConfigFlags(true))
+			configFlags := &genericclioptions.ConfigFlags{KubeConfig: &kubeConfigWithCurrentContext}
+			if tc.namespace != "" {
+				configFlags.Namespace = &tc.namespace
+			}
+
+			cmdFactory := cmdutil.NewFactory(configFlags)
 			fakeCreateClusterOptions := NewCreateClusterOptions(cmdFactory, testStreams)
 			cmd := &cobra.Command{Use: "cluster"}
-			cmd.Flags().StringVarP(&fakeCreateClusterOptions.namespace, "namespace", "n", "", "")
+			configFlags.AddFlags(cmd.Flags())
 			fakeCreateClusterOptions.rayVersion = tc.rayVersion
 
 			if tc.image != "" {
@@ -78,6 +125,7 @@ func TestRayCreateClusterComplete(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tc.expectedImage, fakeCreateClusterOptions.image)
+				require.Equal(t, tc.expectedNamespace, fakeCreateClusterOptions.namespace)
 			}
 		})
 	}
@@ -307,8 +355,9 @@ func TestNewCreateClusterCommand(t *testing.T) {
 }
 
 func TestResolveNamespace(t *testing.T) {
+	kubeConfigWithCurrentContext, err := createTempKubeConfigFile(t, "")
+	require.NoError(t, err)
 	testStreams, _, _, _ := genericclioptions.NewTestIOStreams()
-	cmdFactory := cmdutil.NewFactory(genericclioptions.NewConfigFlags(true))
 
 	tests := map[string]struct {
 		cliNamespace      string  // namespace from the CLI flag
@@ -323,7 +372,7 @@ func TestResolveNamespace(t *testing.T) {
 		},
 		"should use the config namespace when no CLI namespace is provided": {
 			cliNamespace:      "",
-			configNamespace:   ptr.To("config-namespace"),
+			configNamespace:   new("config-namespace"),
 			expectedNamespace: "config-namespace",
 		},
 		"should use the CLI namespace when no config namespace is provided": {
@@ -333,18 +382,24 @@ func TestResolveNamespace(t *testing.T) {
 		},
 		"should error when the config namespace doesn't match the CLI namespace": {
 			cliNamespace:    "cli-namespace",
-			configNamespace: ptr.To("config-namespace"),
+			configNamespace: new("config-namespace"),
 			expectedError:   "the namespace in the config file \"config-namespace\" does not match the namespace \"cli-namespace\". You must pass --namespace=config-namespace to perform this operation",
 		},
 		"should use the specified namespace when it's provided in both the CLI and the config file and is the same": {
 			cliNamespace:      "my-namespace",
-			configNamespace:   ptr.To("my-namespace"),
+			configNamespace:   new("my-namespace"),
 			expectedNamespace: "my-namespace",
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			configFlags := &genericclioptions.ConfigFlags{KubeConfig: &kubeConfigWithCurrentContext}
+			if tc.cliNamespace != "" {
+				configFlags.Namespace = &tc.cliNamespace
+			}
+
+			cmdFactory := cmdutil.NewFactory(configFlags)
 			options := NewCreateClusterOptions(cmdFactory, testStreams)
 			options.namespace = tc.cliNamespace
 			options.rayClusterConfig = &generation.RayClusterConfig{
@@ -380,7 +435,7 @@ func TestResolveClusterName(t *testing.T) {
 		},
 		"should use the config cluster name when no CLI cluster name is provided": {
 			cliClusterName:      "",
-			configClusterName:   ptr.To("config-cluster-name"),
+			configClusterName:   new("config-cluster-name"),
 			expectedClusterName: "config-cluster-name",
 		},
 		"should use the CLI cluster name when no config cluster name is provided": {
@@ -390,12 +445,12 @@ func TestResolveClusterName(t *testing.T) {
 		},
 		"should error when the config cluster name doesn't match the CLI cluster name": {
 			cliClusterName:    "cli-cluster-name",
-			configClusterName: ptr.To("config-cluster-name"),
+			configClusterName: new("config-cluster-name"),
 			expectedError:     "the cluster name in the config file \"config-cluster-name\" does not match the cluster name \"cli-cluster-name\". You must use the same name to perform this operation",
 		},
 		"should use the specified cluster name when it's provided in both the CLI and the config file and is the same": {
 			cliClusterName:      "my-cluster-name",
-			configClusterName:   ptr.To("my-cluster-name"),
+			configClusterName:   new("my-cluster-name"),
 			expectedClusterName: "my-cluster-name",
 		},
 	}

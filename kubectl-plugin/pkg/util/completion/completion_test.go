@@ -9,7 +9,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	kubefake "k8s.io/client-go/kubernetes/fake"
+	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 
 	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util"
 	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util/client"
@@ -335,16 +337,21 @@ func TestWorkerGroupCompletionFunc(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			configFlags := genericclioptions.NewConfigFlags(true)
+			cmdFactory := cmdutil.NewFactory(configFlags)
 			kubeClientSet := kubefake.NewClientset()
 			rayClient := clienttesting.NewRayClientset(tc.rayClusters...)
 			k8sClient := client.NewClientForTesting(kubeClientSet, rayClient)
 
 			cmd := &cobra.Command{}
-			cmd.Flags().String("namespace", tc.namespace, "")
+			configFlags.AddFlags(cmd.Flags())
+			if tc.namespace != "" {
+				configFlags.Namespace = &tc.namespace
+			}
 			cmd.Flags().String("ray-cluster", tc.clusterName, "")
 			cmd.Flags().Bool("all-namespaces", tc.allNamespaces, "")
 
-			comps, directive := workerGroupCompletionFunc(cmd, tc.args, tc.toComplete, k8sClient)
+			comps, directive := workerGroupCompletionFunc(cmd, tc.args, tc.toComplete, k8sClient, cmdFactory)
 			checkCompletion(t, comps, tc.expectedComps, directive, cobra.ShellCompDirectiveNoFileComp)
 		})
 	}
@@ -611,16 +618,21 @@ func TestNodeCompletionFunc(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			configFlags := genericclioptions.NewConfigFlags(true)
+			cmdFactory := cmdutil.NewFactory(configFlags)
 			kubeClientSet := kubefake.NewClientset(tc.pods...)
 			rayClient := rayClientFake.NewClientset()
 			k8sClient := client.NewClientForTesting(kubeClientSet, rayClient)
 
 			cmd := &cobra.Command{}
-			cmd.Flags().String("namespace", tc.namespace, "")
+			configFlags.AddFlags(cmd.Flags())
+			if tc.namespace != "" {
+				configFlags.Namespace = &tc.namespace
+			}
 			cmd.Flags().String("ray-cluster", tc.clusterName, "")
 			cmd.Flags().Bool("all-namespaces", tc.allNamespaces, "")
 
-			comps, directive := nodeCompletionFunc(cmd, tc.args, tc.toComplete, k8sClient)
+			comps, directive := nodeCompletionFunc(cmd, tc.args, tc.toComplete, k8sClient, cmdFactory)
 			checkCompletion(t, comps, tc.expectedComps, directive, cobra.ShellCompDirectiveNoFileComp)
 		})
 	}

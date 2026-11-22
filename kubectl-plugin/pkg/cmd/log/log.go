@@ -148,7 +148,7 @@ func NewClusterLogCommand(cmdFactory cmdutil.Factory, streams genericclioptions.
 			return options.Run(cmd.Context(), cmdFactory)
 		},
 	}
-	cmd.Flags().StringVar(&options.outputDir, "out-dir", options.outputDir, "directory to save the logs to")
+	cmd.Flags().StringVar(&options.outputDir, "out-dir", "", "directory to save the logs to")
 	cmd.Flags().Var(&options.nodeType, "node-type", "type of Ray node from which to download logs, supports: 'worker', 'head', or 'all'")
 	cmd.Flags().StringVar(&options.link, "link", "", "print a link to a cloud console to view logs, supports: 'gke'")
 
@@ -161,15 +161,11 @@ func NewClusterLogCommand(cmdFactory cmdutil.Factory, streams genericclioptions.
 }
 
 func (options *ClusterLogOptions) Complete(cmd *cobra.Command, args []string) error {
-	namespace, err := cmd.Flags().GetString("namespace")
+	namespace, _, err := options.cmdFactory.ToRawKubeConfigLoader().Namespace()
 	if err != nil {
 		return fmt.Errorf("failed to get namespace: %w", err)
 	}
 	options.namespace = namespace
-
-	if options.namespace == "" {
-		options.namespace = "default"
-	}
 
 	typeAndName := strings.Split(args[0], "/")
 	if len(typeAndName) == 1 {
@@ -436,10 +432,10 @@ func (options *ClusterLogOptions) downloadRayLogFiles(ctx context.Context, exec 
 		case tar.TypeReg:
 			// Check for overflow: G115
 			if header.Mode < 0 || header.Mode > math.MaxUint32 {
-				fmt.Fprintf(options.ioStreams.Out, "file mode out side of accceptable value %d skipping file", header.Mode)
+				fmt.Fprintf(options.ioStreams.Out, "file mode out side of acceptable value %d skipping file\n", header.Mode)
 			}
 			// Create file and write contents
-			outFile, err := os.OpenFile(localFilePath, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
+			outFile, err := os.OpenFile(localFilePath, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode)) //nolint:gosec // overflow is guarded by bounds check above
 			if err != nil {
 				return fmt.Errorf("Error creating file: %w", err)
 			}

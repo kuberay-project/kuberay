@@ -14,7 +14,10 @@ import { Pagination } from "./Pagination";
 interface IFrontendTableProps<T extends { name: string }> {
   data: T[];
   isLoading: boolean;
-  error: { message: string; info?: { message: string } } | null;
+  error: {
+    message: string;
+    info?: unknown;
+  } | null;
   headCells: readonly HeadCell<T>[];
   deleteItems: (names: readonly string[]) => Promise<void>;
   deleting: boolean;
@@ -286,7 +289,17 @@ export const FrontendTable = <T extends { name: string }>(
               <tr>
                 <td colSpan={numColumns + 1} style={{ textAlign: "center" }}>
                   <Typography level="body-sm" color="neutral">
-                    {error.message}: {error.info?.message}
+                    {(() => {
+                      const detail =
+                        typeof error.info === "string"
+                          ? error.info
+                          : error.info !== undefined && error.info !== null
+                            ? JSON.stringify(error.info)
+                            : undefined;
+                      return detail
+                        ? `${error.message}: ${detail}`
+                        : error.message;
+                    })()}
                   </Typography>
                 </td>
               </tr>

@@ -2,21 +2,46 @@
 
 package v1
 
+import (
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+)
+
 // GcsFaultToleranceOptionsApplyConfiguration represents a declarative configuration of the GcsFaultToleranceOptions type for use
 // with apply.
 //
 // GcsFaultToleranceOptions contains configs for GCS FT
 type GcsFaultToleranceOptionsApplyConfiguration struct {
+	// Backend selects the GCS FT persistence backend. Defaults to "redis" for
+	// backward compatibility. Immutable: the backend cannot be switched on an
+	// existing RayCluster (doing so would swap the entire GCS store and head-Pod
+	// wiring, losing fault-tolerance state).
+	Backend                  *rayv1.GcsFaultToleranceBackend    `json:"backend,omitempty"`
 	RedisUsername            *RedisCredentialApplyConfiguration `json:"redisUsername,omitempty"`
 	RedisPassword            *RedisCredentialApplyConfiguration `json:"redisPassword,omitempty"`
 	ExternalStorageNamespace *string                            `json:"externalStorageNamespace,omitempty"`
-	RedisAddress             *string                            `json:"redisAddress,omitempty"`
+	// RedisAddress is the address of the external Redis service. Required when
+	// Backend is "redis"; must be empty for "rocksdb".
+	RedisAddress *string `json:"redisAddress,omitempty"`
+	// Storage configures the persistent volume backing the embedded RocksDB
+	// store. Only used when Backend is "rocksdb".
+	Storage *GcsEmbeddedStorageApplyConfiguration `json:"storage,omitempty"`
+	// ActivePassiveHeadOptions configures active-passive high availability for the GCS.
+	// It is only supported with the "redis" backend, not with "rocksdb".
+	ActivePassiveHeadOptions *ActivePassiveHeadOptionsApplyConfiguration `json:"activePassiveHeadOptions,omitempty"`
 }
 
 // GcsFaultToleranceOptionsApplyConfiguration constructs a declarative configuration of the GcsFaultToleranceOptions type for use with
 // apply.
 func GcsFaultToleranceOptions() *GcsFaultToleranceOptionsApplyConfiguration {
 	return &GcsFaultToleranceOptionsApplyConfiguration{}
+}
+
+// WithBackend sets the Backend field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Backend field is set to the value of the last call.
+func (b *GcsFaultToleranceOptionsApplyConfiguration) WithBackend(value rayv1.GcsFaultToleranceBackend) *GcsFaultToleranceOptionsApplyConfiguration {
+	b.Backend = &value
+	return b
 }
 
 // WithRedisUsername sets the RedisUsername field in the declarative configuration to the given value
@@ -48,5 +73,21 @@ func (b *GcsFaultToleranceOptionsApplyConfiguration) WithExternalStorageNamespac
 // If called multiple times, the RedisAddress field is set to the value of the last call.
 func (b *GcsFaultToleranceOptionsApplyConfiguration) WithRedisAddress(value string) *GcsFaultToleranceOptionsApplyConfiguration {
 	b.RedisAddress = &value
+	return b
+}
+
+// WithStorage sets the Storage field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Storage field is set to the value of the last call.
+func (b *GcsFaultToleranceOptionsApplyConfiguration) WithStorage(value *GcsEmbeddedStorageApplyConfiguration) *GcsFaultToleranceOptionsApplyConfiguration {
+	b.Storage = value
+	return b
+}
+
+// WithActivePassiveHeadOptions sets the ActivePassiveHeadOptions field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ActivePassiveHeadOptions field is set to the value of the last call.
+func (b *GcsFaultToleranceOptionsApplyConfiguration) WithActivePassiveHeadOptions(value *ActivePassiveHeadOptionsApplyConfiguration) *GcsFaultToleranceOptionsApplyConfiguration {
+	b.ActivePassiveHeadOptions = value
 	return b
 }

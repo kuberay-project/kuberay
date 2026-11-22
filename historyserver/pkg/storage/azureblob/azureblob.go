@@ -20,6 +20,7 @@ import (
 
 	"github.com/ray-project/kuberay/historyserver/pkg/collector/types"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage"
+	"github.com/ray-project/kuberay/historyserver/pkg/storage/clustermetadata"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 )
 
@@ -46,7 +47,7 @@ type RayLogsHandler struct {
 	PushInterval        time.Duration
 }
 
-func (r *RayLogsHandler) CreateDirectory(d string) error {
+func (r *RayLogsHandler) CreateDirectory(_ string) error {
 	// Azure Blob Storage doesn't require explicit directory markers.
 	// Virtual directories are automatically inferred from blob paths.
 	// Creating empty marker blobs causes "<no name>" display issues
@@ -80,7 +81,7 @@ func (r *RayLogsHandler) listBlobs(prefix string, delimiter string, onlyBase boo
 		// Hierarchical listing (directory-like)
 		pager := r.ContainerClient.NewListBlobsHierarchyPager(delimiter, &container.ListBlobsHierarchyOptions{
 			Prefix:     &prefixWithSlash,
-			MaxResults: to32(100),
+			MaxResults: new(int32(100)),
 		})
 
 		for pager.More() {
@@ -113,7 +114,7 @@ func (r *RayLogsHandler) listBlobs(prefix string, delimiter string, onlyBase boo
 		// Flat listing
 		pager := r.ContainerClient.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{
 			Prefix:     &prefixWithSlash,
-			MaxResults: to32(100),
+			MaxResults: new(int32(100)),
 		})
 
 		for pager.More() {
@@ -139,16 +140,16 @@ func (r *RayLogsHandler) listBlobs(prefix string, delimiter string, onlyBase boo
 	return files
 }
 
-func (r *RayLogsHandler) ListFiles(clusterId string, dir string) []string {
+func (r *RayLogsHandler) ListFiles(prefix string, dir string) []string {
 	defer func() {
 		if r := recover(); r != nil {
 			logrus.Errorf("Recovered from panic: %v", r)
 		}
 	}()
 
-	prefix := path.Join(r.RootDir, clusterId, dir)
+	fullPrefix := path.Join(r.RootDir, prefix, dir)
 	logrus.Debugf("Prepare to list files ...")
-	return r.listBlobs(prefix, "/", true)
+	return r.listBlobs(fullPrefix, "/", true)
 }
 
 func (r *RayLogsHandler) List() (res []utils.ClusterInfo) {
@@ -164,52 +165,30 @@ func (r *RayLogsHandler) List() (res []utils.ClusterInfo) {
 	ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
 	defer cancel()
 
-	metadirPrefix := path.Join(r.RootDir, "metadir") + "/"
+	prefix := clustermetadata.Prefix(r.RootDir)
 
 	pager := r.ContainerClient.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{
-		Prefix:     &metadirPrefix,
-		MaxResults: to32(100),
+		Prefix:     &prefix,
+		MaxResults: new(int32(100)),
 	})
 
 	for pager.More() {
 		resp, err := pager.NextPage(ctx)
 		if err != nil {
-			logrus.Errorf("Failed to list blobs from %s: %v", metadirPrefix, err)
+			logrus.Errorf("Failed to list blobs from %s: %v", prefix, err)
 			break
 		}
 
 		logrus.Infof("[List]Returned blobs in %v. length of Segment.BlobItems: %v",
-			metadirPrefix, len(resp.Segment.BlobItems))
+			prefix, len(resp.Segment.BlobItems))
 
 		for _, blob := range resp.Segment.BlobItems {
-			c := &utils.ClusterInfo{}
-			metaInfo := strings.Trim(strings.TrimPrefix(*blob.Name, path.Join(r.RootDir, "metadir/")), "/")
-			metas := strings.Split(metaInfo, "/")
-			if len(metas) < 2 {
-				continue
-			}
-			logrus.Infof("Process %++v", metas)
-			namespaceName := strings.Split(metas[0], "_")
-			if len(namespaceName) < 2 {
-				continue
-			}
-			c.Name = namespaceName[0]
-			c.Namespace = namespaceName[1]
-			c.SessionName = metas[1]
-			sessionInfo := strings.Split(metas[1], "_")
-			if len(sessionInfo) < 3 {
-				continue
-			}
-			date := sessionInfo[1]
-			dataTime := sessionInfo[2]
-			createTime, err := time.Parse("2006-01-02_15-04-05", date+"_"+dataTime)
+			c, err := clustermetadata.DecodePath(*blob.Name, r.RootDir)
 			if err != nil {
-				logrus.Errorf("Failed to parse time %s: %v", date+"_"+dataTime, err)
+				logrus.Errorf("Failed to parse meta file path: %s, error: %v", *blob.Name, err)
 				continue
 			}
-			c.CreateTimeStamp = createTime.Unix()
-			c.CreateTime = createTime.UTC().Format("2006-01-02T15:04:05Z")
-			clusters = append(clusters, *c)
+			clusters = append(clusters, c)
 		}
 	}
 
@@ -217,8 +196,8 @@ func (r *RayLogsHandler) List() (res []utils.ClusterInfo) {
 	return clusters
 }
 
-func (r *RayLogsHandler) GetContent(clusterId string, fileName string) io.Reader {
-	fullPath := path.Join(r.RootDir, clusterId, fileName)
+func (r *RayLogsHandler) GetContent(prefix string, fileName string) io.Reader {
+	fullPath := path.Join(r.RootDir, prefix, fileName)
 	logrus.Infof("Prepare to get blob %s info ...", fullPath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), downloadTimeout)
@@ -253,7 +232,7 @@ func (r *RayLogsHandler) GetContent(clusterId string, fileName string) io.Reader
 					logrus.Errorf("Failed to get blob %s: %v", f, err)
 					return nil
 				}
-				// Read body before cancelling context to avoid incomplete stream
+				// Read body before canceling context to avoid incomplete stream
 				defer retryCancel()
 				defer resp.Body.Close()
 				data, err := io.ReadAll(resp.Body)
@@ -277,13 +256,13 @@ func (r *RayLogsHandler) GetContent(clusterId string, fileName string) io.Reader
 	return bytes.NewReader(data)
 }
 
-func NewReader(c *types.RayHistoryServerConfig, jd map[string]interface{}) (storage.StorageReader, error) {
+func NewReader(c *types.RayHistoryServerConfig, jd map[string]any) (storage.StorageReader, error) {
 	cfg := &config{}
 	cfg.completeHSConfig(c, jd)
 	return New(cfg)
 }
 
-func NewWriter(c *types.RayCollectorConfig, jd map[string]interface{}) (storage.StorageWriter, error) {
+func NewWriter(c *types.RayCollectorConfig, jd map[string]any) (storage.StorageWriter, error) {
 	cfg := &config{}
 	cfg.complete(c, jd)
 	return New(cfg)
@@ -392,10 +371,4 @@ func New(c *config) (*RayLogsHandler, error) {
 		LogBatching:         c.LogBatching,
 		PushInterval:        c.PushInterval,
 	}, nil
-}
-
-// Helper function to convert int to *int32
-func to32(n int) *int32 {
-	v := int32(n)
-	return &v
 }

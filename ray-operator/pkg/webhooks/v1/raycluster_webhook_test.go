@@ -7,7 +7,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	//+kubebuilder:scaffold:imports
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
 
@@ -115,7 +114,7 @@ var _ = Describe("RayCluster validating webhook", func() {
 			err := k8sClient.Create(context.TODO(), &rayCluster)
 			Expect(err).To(HaveOccurred())
 
-			Expect(err.Error()).To(ContainSubstring("worker group names must be unique"))
+			Expect(err.Error()).To(ContainSubstring("Duplicate value: {\"groupName\":\"group1\"}"))
 		})
 	})
 })

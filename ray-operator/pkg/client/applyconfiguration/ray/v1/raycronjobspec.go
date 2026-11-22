@@ -4,14 +4,15 @@ package v1
 
 // RayCronJobSpecApplyConfiguration represents a declarative configuration of the RayCronJobSpec type for use
 // with apply.
-//
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 type RayCronJobSpecApplyConfiguration struct {
-	// JobTemplate defines the job spec that will be created by cron scheduling
-	JobTemplate *RayJobSpecApplyConfiguration `json:"jobTemplate,omitempty"`
+	// JobTemplate defines the RayJob that will be created by cron scheduling
+	JobTemplate *RayJobTemplateSpecApplyConfiguration `json:"jobTemplate,omitempty"`
 	// Schedule is the cron schedule string
 	Schedule *string `json:"schedule,omitempty"`
+	// TimeZone is the time zone name for the given schedule. If not specified, default to the local time zone of the
+	// KubeRay operator. Empty string is not allowed.
+	// The bundled version of the time zone database is used.
+	TimeZone *string `json:"timeZone,omitempty"`
 	// Suspend tells the controller to suspend the scheduling, it does not apply to
 	// scheduled RayJob.
 	Suspend *bool `json:"suspend,omitempty"`
@@ -26,7 +27,7 @@ func RayCronJobSpec() *RayCronJobSpecApplyConfiguration {
 // WithJobTemplate sets the JobTemplate field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the JobTemplate field is set to the value of the last call.
-func (b *RayCronJobSpecApplyConfiguration) WithJobTemplate(value *RayJobSpecApplyConfiguration) *RayCronJobSpecApplyConfiguration {
+func (b *RayCronJobSpecApplyConfiguration) WithJobTemplate(value *RayJobTemplateSpecApplyConfiguration) *RayCronJobSpecApplyConfiguration {
 	b.JobTemplate = value
 	return b
 }
@@ -36,6 +37,14 @@ func (b *RayCronJobSpecApplyConfiguration) WithJobTemplate(value *RayJobSpecAppl
 // If called multiple times, the Schedule field is set to the value of the last call.
 func (b *RayCronJobSpecApplyConfiguration) WithSchedule(value string) *RayCronJobSpecApplyConfiguration {
 	b.Schedule = &value
+	return b
+}
+
+// WithTimeZone sets the TimeZone field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the TimeZone field is set to the value of the last call.
+func (b *RayCronJobSpecApplyConfiguration) WithTimeZone(value string) *RayCronJobSpecApplyConfiguration {
+	b.TimeZone = &value
 	return b
 }
 

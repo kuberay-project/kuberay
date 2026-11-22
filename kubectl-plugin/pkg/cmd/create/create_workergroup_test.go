@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
+	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	"k8s.io/utils/ptr"
 
 	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util"
@@ -87,12 +89,15 @@ func TestCreateWorkerGroupCommandComplete(t *testing.T) {
 		flags         map[string]string
 		expected      *CreateWorkerGroupOptions
 		name          string
+		image         string
+		rayVersion    string
 		expectedError string
 		args          []string
 	}{
 		{
-			name: "Valid input with namespace",
-			args: []string{"example-group"},
+			name:       "Valid input with namespace",
+			args:       []string{"example-group"},
+			rayVersion: "latest",
 			flags: map[string]string{
 				"namespace": "test-namespace",
 			},
@@ -104,22 +109,29 @@ func TestCreateWorkerGroupCommandComplete(t *testing.T) {
 			},
 		},
 		{
-			name:          "Valid input without namespace flag",
-			args:          []string{"example-group"},
-			flags:         map[string]string{},
-			expectedError: "failed to get namespace: flag accessed but not defined: namespace",
+			name:       "Valid input without namespace flag",
+			args:       []string{"example-group"},
+			rayVersion: "latest",
+			expected: &CreateWorkerGroupOptions{
+				namespace:  "default",
+				groupName:  "example-group",
+				image:      "rayproject/ray:latest",
+				rayVersion: "latest",
+			},
 		},
 		{
-			name: "mMissing group name",
-			args: []string{},
+			name:       "Missing group name",
+			args:       []string{},
+			rayVersion: "latest",
 			flags: map[string]string{
 				"namespace": "",
 			},
 			expectedError: "See ' -h' for help and examples",
 		},
 		{
-			name: "Empty namespace flag",
-			args: []string{"example-group"},
+			name:       "Empty namespace flag",
+			args:       []string{"example-group"},
+			rayVersion: "latest",
 			flags: map[string]string{
 				"namespace": "",
 			},
@@ -131,8 +143,9 @@ func TestCreateWorkerGroupCommandComplete(t *testing.T) {
 			},
 		},
 		{
-			name: "Valid input with rayStartParams",
-			args: []string{"example-group"},
+			name:       "Valid input with rayStartParams",
+			args:       []string{"example-group"},
+			rayVersion: "latest",
 			flags: map[string]string{
 				"namespace":               "test-namespace",
 				"worker-ray-start-params": "dashboard-host=0.0.0.0,num-cpus=2",
@@ -149,8 +162,9 @@ func TestCreateWorkerGroupCommandComplete(t *testing.T) {
 			},
 		},
 		{
-			name: "Empty rayStartParams",
-			args: []string{"example-group"},
+			name:       "Empty rayStartParams",
+			args:       []string{"example-group"},
+			rayVersion: "latest",
 			flags: map[string]string{
 				"namespace":               "test-namespace",
 				"worker-ray-start-params": "",
@@ -164,8 +178,9 @@ func TestCreateWorkerGroupCommandComplete(t *testing.T) {
 			},
 		},
 		{
-			name: "Not assign rayStartParams",
-			args: []string{"example-group"},
+			name:       "Not assign rayStartParams",
+			args:       []string{"example-group"},
+			rayVersion: "latest",
 			flags: map[string]string{
 				"namespace": "test-namespace",
 			},
@@ -177,17 +192,61 @@ func TestCreateWorkerGroupCommandComplete(t *testing.T) {
 				rayStartParams: map[string]string{},
 			},
 		},
+		{
+			name:       "Custom Ray version",
+			args:       []string{"example-group"},
+			image:      defaultImageWithTag,
+			rayVersion: "custom",
+			flags: map[string]string{
+				"namespace": "test-namespace",
+			},
+			expected: &CreateWorkerGroupOptions{
+				namespace:  "test-namespace",
+				groupName:  "example-group",
+				image:      "rayproject/ray:custom",
+				rayVersion: "custom",
+			},
+		},
+		{
+			name:       "Custom Ray version with non-default custom image",
+			args:       []string{"example-group"},
+			image:      "custom-image",
+			rayVersion: "custom",
+			flags: map[string]string{
+				"namespace": "test-namespace",
+			},
+			expected: &CreateWorkerGroupOptions{
+				namespace:  "test-namespace",
+				groupName:  "example-group",
+				image:      "custom-image",
+				rayVersion: "custom",
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			configFlags := genericclioptions.NewConfigFlags(true)
 			cmd := &cobra.Command{}
-			for key, value := range tt.flags {
-				cmd.Flags().String(key, value, "")
+			configFlags.AddFlags(cmd.Flags())
+			cmd.Flags().String(
+				"worker-ray-start-params",
+				"",
+				"ray start parameters for worker",
+			)
+
+			factory := cmdutil.NewFactory(configFlags)
+			options := &CreateWorkerGroupOptions{
+				cmdFactory: factory,
+				image:      tt.image,
+				rayVersion: tt.rayVersion,
 			}
 
-			options := &CreateWorkerGroupOptions{
-				rayVersion: "latest",
+			for key, value := range tt.flags {
+				err := cmd.Flags().Set(key, value)
+				if err != nil {
+					require.NoError(t, err)
+				}
 			}
 
 			err := options.Complete(cmd, tt.args)
@@ -200,6 +259,7 @@ func TestCreateWorkerGroupCommandComplete(t *testing.T) {
 				assert.Equal(t, tt.expected.namespace, options.namespace)
 				assert.Equal(t, tt.expected.groupName, options.groupName)
 				assert.Equal(t, tt.expected.image, options.image)
+				assert.Equal(t, tt.expected.rayVersion, options.rayVersion)
 			}
 		})
 	}

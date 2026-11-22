@@ -26,6 +26,10 @@ type WorkerGroupSpecApplyConfiguration struct {
 	// IdleTimeoutSeconds denotes the number of seconds to wait before the v2 autoscaler terminates an idle worker pod of this type.
 	// This value is only used with the Ray Autoscaler enabled and defaults to the value set by the AutoscalingConfig if not specified for this worker group.
 	IdleTimeoutSeconds *int32 `json:"idleTimeoutSeconds,omitempty"`
+	// Priority influences which worker group the autoscaler prefers when multiple
+	// groups can satisfy the same resource demand. Higher priority groups are
+	// preferred for scale-up. Only honored by Ray Autoscaler v2 (Ray >= 2.56).
+	Priority *int32 `json:"priority,omitempty"`
 	// Resources specifies the resource quantities for this worker group.
 	// These values override the resources passed to `rayStartParams` for the group, but
 	// have no effect on the resources set at the K8s Pod container level.
@@ -38,10 +42,17 @@ type WorkerGroupSpecApplyConfiguration struct {
 	RayStartParams map[string]string `json:"rayStartParams,omitempty"`
 	// Template is a pod template for the worker
 	Template *corev1.PodTemplateSpecApplyConfiguration `json:"template,omitempty"`
-	// ScaleStrategy defines which pods to remove
+	// ScaleStrategy controls scaling of this worker group: which pods to remove,
+	// and whether the group can currently be scaled up.
 	ScaleStrategy *ScaleStrategyApplyConfiguration `json:"scaleStrategy,omitempty"`
 	// NumOfHosts denotes the number of hosts to create per replica. The default value is 1.
 	NumOfHosts *int32 `json:"numOfHosts,omitempty"`
+	// LabelRefs delivers labels of the node each worker pod is bound to as Ray node labels.
+	// This enables Ray scheduling based on node attributes, such as topology placement (e.g., rack, zone, or topology domain).
+	// Only allowlisted node labels can be delivered. Every referenced label must exist on the node or pod startup fails.
+	// Empty means no labels are delivered.
+	// Requires the `NodeLabelDelivery` feature gate and `ENABLE_WEBHOOKS` enabled on the operator, and Ray 2.45.0 or later (`--labels-file`).
+	LabelRefs []LabelRefApplyConfiguration `json:"labelRefs,omitempty"`
 }
 
 // WorkerGroupSpecApplyConfiguration constructs a declarative configuration of the WorkerGroupSpec type for use with
@@ -95,6 +106,14 @@ func (b *WorkerGroupSpecApplyConfiguration) WithMaxReplicas(value int32) *Worker
 // If called multiple times, the IdleTimeoutSeconds field is set to the value of the last call.
 func (b *WorkerGroupSpecApplyConfiguration) WithIdleTimeoutSeconds(value int32) *WorkerGroupSpecApplyConfiguration {
 	b.IdleTimeoutSeconds = &value
+	return b
+}
+
+// WithPriority sets the Priority field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Priority field is set to the value of the last call.
+func (b *WorkerGroupSpecApplyConfiguration) WithPriority(value int32) *WorkerGroupSpecApplyConfiguration {
+	b.Priority = &value
 	return b
 }
 
@@ -161,5 +180,18 @@ func (b *WorkerGroupSpecApplyConfiguration) WithScaleStrategy(value *ScaleStrate
 // If called multiple times, the NumOfHosts field is set to the value of the last call.
 func (b *WorkerGroupSpecApplyConfiguration) WithNumOfHosts(value int32) *WorkerGroupSpecApplyConfiguration {
 	b.NumOfHosts = &value
+	return b
+}
+
+// WithLabelRefs adds the given value to the LabelRefs field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the LabelRefs field.
+func (b *WorkerGroupSpecApplyConfiguration) WithLabelRefs(values ...*LabelRefApplyConfiguration) *WorkerGroupSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithLabelRefs")
+		}
+		b.LabelRefs = append(b.LabelRefs, *values[i])
+	}
 	return b
 }

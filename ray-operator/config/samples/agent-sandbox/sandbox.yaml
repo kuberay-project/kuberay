@@ -1,0 +1,73 @@
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: python-runtime-sandbox
+spec:
+  envVarsInjectionPolicy: Disallowed
+  # Unmanaged because we apply our own NetworkPolicy below.
+  networkPolicyManagement: Unmanaged
+  podTemplate:
+    metadata:
+      labels:
+        app: python-runtime-pool
+    spec:
+      automountServiceAccountToken: false
+      runtimeClassName: gvisor
+      containers:
+      - name: runtime
+        image: registry.k8s.io/agent-sandbox/python-runtime-sandbox:v0.4.6
+        imagePullPolicy: Always
+---
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxWarmPool
+metadata:
+  name: python-runtime-pool
+spec:
+  replicas: 6
+  sandboxTemplateRef:
+    name: python-runtime-sandbox
+---
+# Default-deny egress for every sandbox pod in this pool. With this in
+# place, the only outbound traffic a sandbox can initiate is DNS — every
+# other packet (HTTP, raw TCP, the GKE metadata server, the public
+# internet, lateral cluster pods) is dropped by the CNI before it leaves
+# the node. This is what gives the "dangerous" demo snippets in Step 7
+# their TCP timeouts, and it's what makes the doc's containment claims
+# concrete instead of cluster-dependent.
+#
+# Ingress is left unrestricted (policyTypes only lists Egress) because
+# the Ray worker needs to reach the sandbox pod on port 8888 via the
+# Agent Sandbox SDK.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: python-runtime-pool-restrict-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: python-runtime-pool
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # GKE NodeLocal DNSCache (link-local) — present on Autopilot,
+  # optional on Standard. Harmless to ship either way.
+  - to:
+    - ipBlock:
+        cidr: 169.254.20.10/32
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53

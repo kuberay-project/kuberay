@@ -13,10 +13,11 @@ import (
 //
 // RayCronJob is the Schema for the raycronjobs API
 type RayCronJobApplyConfiguration struct {
-	metav1.TypeMetaApplyConfiguration    `json:",inline"`
+	metav1.TypeMetaApplyConfiguration    `json:""`
 	*metav1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                                 *RayCronJobSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                               *RayCronJobStatusApplyConfiguration `json:"status,omitempty"`
+	Spec                                 *RayCronJobSpecApplyConfiguration `json:"spec,omitempty"`
+	// Status is the most recently observed state of the RayCronJob.
+	Status *RayCronJobStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // RayCronJob constructs a declarative configuration of the RayCronJob type for use with

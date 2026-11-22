@@ -69,7 +69,7 @@ func NewScaleClusterCommand(cmdFactory cmdutil.Factory, streams genericclioption
 		SilenceUsage: true,
 		Args:         cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := options.Complete(args, cmd); err != nil {
+			if err := options.Complete(args); err != nil {
 				return err
 			}
 			if err := options.Validate(); err != nil {
@@ -91,16 +91,12 @@ func NewScaleClusterCommand(cmdFactory cmdutil.Factory, streams genericclioption
 	return cmd
 }
 
-func (options *ScaleClusterOptions) Complete(args []string, cmd *cobra.Command) error {
-	namespace, err := cmd.Flags().GetString("namespace")
+func (options *ScaleClusterOptions) Complete(args []string) error {
+	namespace, _, err := options.cmdFactory.ToRawKubeConfigLoader().Namespace()
 	if err != nil {
 		return fmt.Errorf("failed to get namespace: %w", err)
 	}
 	options.namespace = namespace
-	if options.namespace == "" {
-		options.namespace = "default"
-	}
-
 	options.cluster = args[0]
 
 	return nil

@@ -1,7 +1,0 @@
-FROM scratch
-ARG TARGETARCH
-WORKDIR /workspace
-COPY ./experimental/security_proxy-${TARGETARCH} /usr/local/bin/security_proxy
-USER 65532:65532
-
-ENTRYPOINT ["/usr/local/bin/security_proxy"]

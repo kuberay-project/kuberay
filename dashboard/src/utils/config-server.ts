@@ -31,6 +31,11 @@ export function getServerConfig(): RuntimeConfig {
 
   const historyserver = getHistoryServerConfig();
 
+  const defaultNamespace =
+    process.env.NEXT_PUBLIC_DEFAULT_NAMESPACE ||
+    process.env.DEFAULT_NAMESPACE ||
+    defaultConfig.defaultNamespace;
+
   if (legacyApiUrl) {
     // Parse legacy URL format
     try {
@@ -42,6 +47,7 @@ export function getServerConfig(): RuntimeConfig {
           coreApiPath: apiVersion === "v2" ? "/api/v1" : undefined,
         },
         historyserver,
+        defaultNamespace,
       };
     } catch {
       // If not a valid URL, return as domain
@@ -52,6 +58,7 @@ export function getServerConfig(): RuntimeConfig {
           coreApiPath: defaultConfig.apiserver.coreApiPath,
         },
         historyserver,
+        defaultNamespace,
       };
     }
   }
@@ -73,5 +80,6 @@ export function getServerConfig(): RuntimeConfig {
         defaultConfig.apiserver.coreApiPath,
     },
     historyserver,
+    defaultNamespace,
   };
 }

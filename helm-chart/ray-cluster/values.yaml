@@ -23,6 +23,23 @@ fullnameOverride: ""
 imagePullSecrets: []
   # - name: an-existing-secret
 
+# -- Recreate all Pods on RayCluster spec change. Intended for GitOps; running workloads are lost.
+upgradeStrategy: {}
+  # Recreate | None
+  # type: Recreate
+
+# See https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/kuberay-auth.html
+# for more details.
+# -- Token authentication for the RayCluster.
+authOptions: {}
+  # disabled | token
+  # mode: token
+  # Kubernetes RBAC via client's own ServiceAccount tokens.
+  # Required Ray >= 2.55.0. Mutually exclusive with secretName.
+  # enableK8sTokenAuth: true
+  # Existing Secret with data key `auth_token`.
+  # secretName: ray-cluster-token
+
 # gcsFaultTolerance specifies configuration for GCS fault tolerance.
 # See https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/kuberay-gcs-ft.html#kuberay-gcs-ft
 # for more details.
@@ -48,7 +65,6 @@ gcsFaultTolerance:
     #     name: redis-username-secret
     #     key: username
 
-
 # common defined values shared between the head and worker
 common:
   # -- containerEnv specifies environment variables for the Ray head and worker containers.
@@ -56,6 +72,12 @@ common:
   containerEnv: []
   #  - name: BLAH
   #    value: VAL
+
+  # -- envFrom specifies sources used to populate environment variables in the main Ray head and worker containers.
+  # Common sources are rendered before group-specific sources. Referenced ConfigMaps and Secrets must already exist.
+  envFrom: []
+  # - secretRef:
+  #     name: my-env-secret
 head:
   # rayVersion determines the autoscaler's image version.
   # It should match the Ray version in the image of the containers.
@@ -178,6 +200,26 @@ head:
     # metadata:
     #   annotations:
     #     prometheus.io/scrape: "true"
+
+  # enableIngress tells the operator to create an Ingress for the head dashboard service.
+  # The ingress class comes from the RayCluster annotations, so set it in the top-level
+  # `annotations` value, for example `kubernetes.io/ingress.class: nginx`.
+  # All other RayCluster annotations are copied to the Ingress, so use them to customize ingress behavior
+  # WARNING: The Ray Dashboard provides read and write access to the cluster. Anyone who can
+  # reach this Ingress can launch arbitrary code execution on the Ray Cluster. Do not expose
+  # it publicly without additional authentication/authorization at the ingress controller.
+  # enableIngress: true
+
+  # ingressOptions customizes the Ingress created when enableIngress is true.
+  # host defaults to matching any host, path defaults to "/", pathType defaults to Prefix.
+  # ingressOptions:
+    # host: ray.example.com
+    # path: /
+    # pathType: Prefix
+    # tls:
+    #   - hosts:
+    #       - ray.example.com
+    #     secretName: ray-tls
 
   # Custom pod DNS configuration
   # See https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-dns-config

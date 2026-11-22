@@ -9,6 +9,7 @@ export interface RuntimeConfig {
     apiPath: string;
     proxyEndpoint: string;
   };
+  defaultNamespace?: string;
 }
 
 // apiserver config defaults

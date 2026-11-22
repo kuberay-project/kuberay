@@ -29,16 +29,16 @@ func TestGenerateRayClusterApplyConfig(t *testing.T) {
 	}
 
 	testRayClusterConfig := RayClusterConfig{
-		Name:        ptr.To("test-ray-cluster"),
-		Namespace:   ptr.To("default"),
+		Name:        new("test-ray-cluster"),
+		Namespace:   new("default"),
 		Labels:      labels,
 		Annotations: annotations,
 		RayVersion:  ptr.To(util.RayVersion),
 		Image:       ptr.To(util.RayImage),
 		Head: &Head{
-			CPU:    ptr.To("1"),
-			Memory: ptr.To("5Gi"),
-			GPU:    ptr.To("1"),
+			CPU:    new("1"),
+			Memory: new("5Gi"),
+			GPU:    new("1"),
 			RayStartParams: map[string]string{
 				"dashboard-host": "1.2.3.4",
 				"num-cpus":       "0",
@@ -47,11 +47,11 @@ func TestGenerateRayClusterApplyConfig(t *testing.T) {
 		WorkerGroups: []WorkerGroup{
 			{
 				Replicas:   int32(3),
-				NumOfHosts: ptr.To(int32(2)),
-				CPU:        ptr.To("2"),
-				Memory:     ptr.To("10Gi"),
-				GPU:        ptr.To("1"),
-				TPU:        ptr.To("1"),
+				NumOfHosts: new(int32(2)),
+				CPU:        new("2"),
+				Memory:     new("10Gi"),
+				GPU:        new("1"),
+				TPU:        new("1"),
 				RayStartParams: map[string]string{
 					"dagon":    "azathoth",
 					"shoggoth": "cthulhu",
@@ -71,17 +71,17 @@ func TestGenerateRayClusterApplyConfig(t *testing.T) {
 
 	expected := rayv1ac.RayClusterApplyConfiguration{
 		TypeMetaApplyConfiguration: metav1.TypeMetaApplyConfiguration{
-			APIVersion: ptr.To("ray.io/v1"),
-			Kind:       ptr.To("RayCluster"),
+			APIVersion: new("ray.io/v1"),
+			Kind:       new("RayCluster"),
 		},
 		ObjectMetaApplyConfiguration: &metav1.ObjectMetaApplyConfiguration{
-			Name:        ptr.To("test-ray-cluster"),
-			Namespace:   ptr.To("default"),
+			Name:        new("test-ray-cluster"),
+			Namespace:   new("default"),
 			Labels:      labels,
 			Annotations: annotations,
 		},
 		Spec: &rayv1ac.RayClusterSpecApplyConfiguration{
-			EnableInTreeAutoscaling: ptr.To(true),
+			EnableInTreeAutoscaling: new(true),
 			AutoscalerOptions: &rayv1ac.AutoscalerOptionsApplyConfiguration{
 				Version: ptr.To(rayv1.AutoscalerVersionV2),
 			},
@@ -92,7 +92,7 @@ func TestGenerateRayClusterApplyConfig(t *testing.T) {
 					Spec: &corev1ac.PodSpecApplyConfiguration{
 						Containers: []corev1ac.ContainerApplyConfiguration{
 							{
-								Name:  ptr.To("ray-head"),
+								Name:  new("ray-head"),
 								Image: ptr.To(util.RayImage),
 								Resources: &corev1ac.ResourceRequirementsApplyConfiguration{
 									Requests: &corev1.ResourceList{
@@ -107,16 +107,16 @@ func TestGenerateRayClusterApplyConfig(t *testing.T) {
 								},
 								Ports: []corev1ac.ContainerPortApplyConfiguration{
 									{
-										ContainerPort: ptr.To(int32(6379)),
-										Name:          ptr.To("gcs-server"),
+										ContainerPort: new(int32(6379)),
+										Name:          new("gcs-server"),
 									},
 									{
-										ContainerPort: ptr.To(int32(8265)),
-										Name:          ptr.To("dashboard"),
+										ContainerPort: new(int32(8265)),
+										Name:          new("dashboard"),
 									},
 									{
-										ContainerPort: ptr.To(int32(10001)),
-										Name:          ptr.To("client"),
+										ContainerPort: new(int32(10001)),
+										Name:          new("client"),
 									},
 								},
 							},
@@ -126,15 +126,15 @@ func TestGenerateRayClusterApplyConfig(t *testing.T) {
 			},
 			WorkerGroupSpecs: []rayv1ac.WorkerGroupSpecApplyConfiguration{
 				{
-					GroupName:      ptr.To("default-group"),
-					Replicas:       ptr.To(int32(3)),
-					NumOfHosts:     ptr.To(int32(2)),
+					GroupName:      new("default-group"),
+					Replicas:       new(int32(3)),
+					NumOfHosts:     new(int32(2)),
 					RayStartParams: map[string]string{"dagon": "azathoth", "shoggoth": "cthulhu"},
 					Template: &corev1ac.PodTemplateSpecApplyConfiguration{
 						Spec: &corev1ac.PodSpecApplyConfiguration{
 							Containers: []corev1ac.ContainerApplyConfiguration{
 								{
-									Name:  ptr.To("ray-worker"),
+									Name:  new("ray-worker"),
 									Image: ptr.To(util.RayImage),
 									Resources: &corev1ac.ResourceRequirementsApplyConfiguration{
 										Requests: &corev1.ResourceList{
@@ -173,18 +173,18 @@ func TestGenerateRayJobApplyConfig(t *testing.T) {
 			RayVersion: ptr.To(util.RayVersion),
 			Image:      ptr.To(util.RayImage),
 			Head: &Head{
-				CPU:    ptr.To("1"),
-				GPU:    ptr.To("1"),
-				Memory: ptr.To("5Gi"),
+				CPU:    new("1"),
+				GPU:    new("1"),
+				Memory: new("5Gi"),
 			},
 			WorkerGroups: []WorkerGroup{
 				{
 					Replicas:   int32(3),
-					NumOfHosts: ptr.To(int32(2)),
-					CPU:        ptr.To("2"),
-					Memory:     ptr.To("10Gi"),
-					GPU:        ptr.To("0"),
-					TPU:        ptr.To("0"),
+					NumOfHosts: new(int32(2)),
+					CPU:        new("2"),
+					Memory:     new("10Gi"),
+					GPU:        new("0"),
+					TPU:        new("0"),
 					RayStartParams: map[string]string{
 						"dagon":    "azathoth",
 						"shoggoth": "cthulhu",
@@ -198,18 +198,18 @@ func TestGenerateRayJobApplyConfig(t *testing.T) {
 
 	expected := rayv1ac.RayJobApplyConfiguration{
 		TypeMetaApplyConfiguration: metav1.TypeMetaApplyConfiguration{
-			APIVersion: ptr.To("ray.io/v1"),
-			Kind:       ptr.To("RayJob"),
+			APIVersion: new("ray.io/v1"),
+			Kind:       new("RayJob"),
 		},
 		ObjectMetaApplyConfiguration: &metav1.ObjectMetaApplyConfiguration{
-			Name:      ptr.To("test-ray-job"),
-			Namespace: ptr.To("default"),
+			Name:      new("test-ray-job"),
+			Namespace: new("default"),
 		},
 		Spec: &rayv1ac.RayJobSpecApplyConfiguration{
-			SubmissionMode:           ptr.To(rayv1.JobSubmissionMode(testRayJobYamlObject.SubmissionMode)),
-			Entrypoint:               ptr.To(""),
-			TTLSecondsAfterFinished:  ptr.To(int32(100)),
-			ShutdownAfterJobFinishes: ptr.To(true),
+			SubmissionMode:           new(rayv1.JobSubmissionMode(testRayJobYamlObject.SubmissionMode)),
+			Entrypoint:               new(""),
+			TTLSecondsAfterFinished:  new(int32(100)),
+			ShutdownAfterJobFinishes: new(true),
 			RayClusterSpec: &rayv1ac.RayClusterSpecApplyConfiguration{
 				RayVersion: ptr.To(util.RayVersion),
 				HeadGroupSpec: &rayv1ac.HeadGroupSpecApplyConfiguration{
@@ -217,7 +217,7 @@ func TestGenerateRayJobApplyConfig(t *testing.T) {
 						Spec: &corev1ac.PodSpecApplyConfiguration{
 							Containers: []corev1ac.ContainerApplyConfiguration{
 								{
-									Name:  ptr.To("ray-head"),
+									Name:  new("ray-head"),
 									Image: ptr.To(util.RayImage),
 									Resources: &corev1ac.ResourceRequirementsApplyConfiguration{
 										Requests: &corev1.ResourceList{
@@ -232,16 +232,16 @@ func TestGenerateRayJobApplyConfig(t *testing.T) {
 									},
 									Ports: []corev1ac.ContainerPortApplyConfiguration{
 										{
-											ContainerPort: ptr.To(int32(6379)),
-											Name:          ptr.To("gcs-server"),
+											ContainerPort: new(int32(6379)),
+											Name:          new("gcs-server"),
 										},
 										{
-											ContainerPort: ptr.To(int32(8265)),
-											Name:          ptr.To("dashboard"),
+											ContainerPort: new(int32(8265)),
+											Name:          new("dashboard"),
 										},
 										{
-											ContainerPort: ptr.To(int32(10001)),
-											Name:          ptr.To("client"),
+											ContainerPort: new(int32(10001)),
+											Name:          new("client"),
 										},
 									},
 								},
@@ -251,15 +251,15 @@ func TestGenerateRayJobApplyConfig(t *testing.T) {
 				},
 				WorkerGroupSpecs: []rayv1ac.WorkerGroupSpecApplyConfiguration{
 					{
-						GroupName:      ptr.To("default-group"),
-						Replicas:       ptr.To(int32(3)),
-						NumOfHosts:     ptr.To(int32(2)),
+						GroupName:      new("default-group"),
+						Replicas:       new(int32(3)),
+						NumOfHosts:     new(int32(2)),
 						RayStartParams: map[string]string{"dagon": "azathoth", "shoggoth": "cthulhu"},
 						Template: &corev1ac.PodTemplateSpecApplyConfiguration{
 							Spec: &corev1ac.PodSpecApplyConfiguration{
 								Containers: []corev1ac.ContainerApplyConfiguration{
 									{
-										Name:  ptr.To("ray-worker"),
+										Name:  new("ray-worker"),
 										Image: ptr.To(util.RayImage),
 										Resources: &corev1ac.ResourceRequirementsApplyConfiguration{
 											Requests: &corev1.ResourceList{
@@ -285,8 +285,8 @@ func TestGenerateRayJobApplyConfig(t *testing.T) {
 
 func TestConvertRayClusterApplyConfigToYaml(t *testing.T) {
 	testRayClusterConfig := RayClusterConfig{
-		Name:      ptr.To("test-ray-cluster"),
-		Namespace: ptr.To("default"),
+		Name:      new("test-ray-cluster"),
+		Namespace: new("default"),
 		Labels: map[string]string{
 			"purple":     "finch",
 			"red-tailed": "hawk",
@@ -301,9 +301,9 @@ func TestConvertRayClusterApplyConfigToYaml(t *testing.T) {
 		RayVersion: ptr.To(util.RayVersion),
 		Image:      ptr.To(util.RayImage),
 		Head: &Head{
-			CPU:    ptr.To("1"),
-			Memory: ptr.To("5Gi"),
-			GPU:    ptr.To("1"),
+			CPU:    new("1"),
+			Memory: new("5Gi"),
+			GPU:    new("1"),
 			RayStartParams: map[string]string{
 				"num-cpus": "0",
 			},
@@ -311,11 +311,11 @@ func TestConvertRayClusterApplyConfigToYaml(t *testing.T) {
 		WorkerGroups: []WorkerGroup{
 			{
 				Replicas:   int32(3),
-				NumOfHosts: ptr.To(int32(2)),
-				CPU:        ptr.To("2"),
-				Memory:     ptr.To("10Gi"),
-				GPU:        ptr.To("0"),
-				TPU:        ptr.To("0"),
+				NumOfHosts: new(int32(2)),
+				CPU:        new("2"),
+				Memory:     new("10Gi"),
+				GPU:        new("0"),
+				TPU:        new("0"),
 			},
 		},
 	}
@@ -395,11 +395,11 @@ func TestGenerateResources(t *testing.T) {
 	}{
 		{
 			name:             "should generate resources with CPU, memory, ephemeral storage, and GPU",
-			cpu:              ptr.To("1"),
-			memory:           ptr.To("5Gi"),
-			ephemeralStorage: ptr.To("10Gi"),
-			gpu:              ptr.To("1"),
-			tpu:              ptr.To("0"),
+			cpu:              new("1"),
+			memory:           new("5Gi"),
+			ephemeralStorage: new("10Gi"),
+			gpu:              new("1"),
+			tpu:              new("0"),
 			expectedRequestResources: corev1.ResourceList{
 				corev1.ResourceCPU:                          resource.MustParse("1"),
 				corev1.ResourceMemory:                       resource.MustParse("5Gi"),
@@ -414,8 +414,8 @@ func TestGenerateResources(t *testing.T) {
 		},
 		{
 			name:   "should only generate resources with CPU and memory if ephemeral storage isn't set and GPUs are 0",
-			cpu:    ptr.To("1"),
-			memory: ptr.To("5Gi"),
+			cpu:    new("1"),
+			memory: new("5Gi"),
 			expectedRequestResources: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("5Gi"),
@@ -426,11 +426,11 @@ func TestGenerateResources(t *testing.T) {
 		},
 		{
 			name:             "should generate resources with CPU, memory, ephemeral storage, and TPU",
-			cpu:              ptr.To("1"),
-			memory:           ptr.To("5Gi"),
-			ephemeralStorage: ptr.To("10Gi"),
-			gpu:              ptr.To("0"),
-			tpu:              ptr.To("4"),
+			cpu:              new("1"),
+			memory:           new("5Gi"),
+			ephemeralStorage: new("10Gi"),
+			gpu:              new("0"),
+			tpu:              new("4"),
 			expectedRequestResources: corev1.ResourceList{
 				corev1.ResourceCPU:                          resource.MustParse("1"),
 				corev1.ResourceMemory:                       resource.MustParse("5Gi"),
@@ -458,14 +458,14 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 		Autoscaler: &Autoscaler{
 			Version: AutoscalerV2,
 		},
-		RayVersion:     ptr.To("1.2.3"),
-		Image:          ptr.To("rayproject/ray:2.52.0"),
-		ServiceAccount: ptr.To("my-service-account"),
+		RayVersion:     new("1.2.3"),
+		Image:          new("rayproject/ray:2.52.0"),
+		ServiceAccount: new("my-service-account"),
 		Head: &Head{
-			CPU:              ptr.To("1"),
-			Memory:           ptr.To("5Gi"),
-			GPU:              ptr.To("1"),
-			EphemeralStorage: ptr.To("10Gi"),
+			CPU:              new("1"),
+			Memory:           new("5Gi"),
+			GPU:              new("1"),
+			EphemeralStorage: new("10Gi"),
 			RayStartParams: map[string]string{
 				"softmax": "GELU",
 			},
@@ -477,11 +477,11 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 		WorkerGroups: []WorkerGroup{
 			{
 				Replicas:   int32(3),
-				NumOfHosts: ptr.To(int32(1)),
-				CPU:        ptr.To("2"),
-				Memory:     ptr.To("10Gi"),
-				GPU:        ptr.To("0"),
-				TPU:        ptr.To("0"),
+				NumOfHosts: new(int32(1)),
+				CPU:        new("2"),
+				Memory:     new("10Gi"),
+				GPU:        new("0"),
+				TPU:        new("0"),
 				RayStartParams: map[string]string{
 					"dagon":    "azathoth",
 					"shoggoth": "cthulhu",
@@ -492,27 +492,27 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 				},
 			},
 			{
-				Name: ptr.To("worker-group-2"),
-				GPU:  ptr.To("1"),
+				Name: new("worker-group-2"),
+				GPU:  new("1"),
 			},
 		},
 	}
 
 	expected := &rayv1ac.RayClusterSpecApplyConfiguration{
-		EnableInTreeAutoscaling: ptr.To(true),
+		EnableInTreeAutoscaling: new(true),
 		AutoscalerOptions: &rayv1ac.AutoscalerOptionsApplyConfiguration{
 			Version: ptr.To(rayv1.AutoscalerVersionV2),
 		},
-		RayVersion: ptr.To("1.2.3"),
+		RayVersion: new("1.2.3"),
 		HeadGroupSpec: &rayv1ac.HeadGroupSpecApplyConfiguration{
 			RayStartParams: map[string]string{"softmax": "GELU"},
 			Template: &corev1ac.PodTemplateSpecApplyConfiguration{
 				Spec: &corev1ac.PodSpecApplyConfiguration{
-					ServiceAccountName: ptr.To("my-service-account"),
+					ServiceAccountName: new("my-service-account"),
 					Containers: []corev1ac.ContainerApplyConfiguration{
 						{
-							Name:  ptr.To("ray-head"),
-							Image: ptr.To("rayproject/ray:2.52.0"),
+							Name:  new("ray-head"),
+							Image: new("rayproject/ray:2.52.0"),
 							Resources: &corev1ac.ResourceRequirementsApplyConfiguration{
 								Requests: &corev1.ResourceList{
 									corev1.ResourceCPU:                          resource.MustParse("1"),
@@ -528,16 +528,16 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 							},
 							Ports: []corev1ac.ContainerPortApplyConfiguration{
 								{
-									ContainerPort: ptr.To(int32(6379)),
-									Name:          ptr.To("gcs-server"),
+									ContainerPort: new(int32(6379)),
+									Name:          new("gcs-server"),
 								},
 								{
-									ContainerPort: ptr.To(int32(8265)),
-									Name:          ptr.To("dashboard"),
+									ContainerPort: new(int32(8265)),
+									Name:          new("dashboard"),
 								},
 								{
-									ContainerPort: ptr.To(int32(10001)),
-									Name:          ptr.To("client"),
+									ContainerPort: new(int32(10001)),
+									Name:          new("client"),
 								},
 							},
 						},
@@ -551,20 +551,20 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 		},
 		WorkerGroupSpecs: []rayv1ac.WorkerGroupSpecApplyConfiguration{
 			{
-				GroupName:  ptr.To("default-group"),
-				NumOfHosts: ptr.To(int32(1)),
-				Replicas:   ptr.To(int32(3)),
+				GroupName:  new("default-group"),
+				NumOfHosts: new(int32(1)),
+				Replicas:   new(int32(3)),
 				RayStartParams: map[string]string{
 					"dagon":    "azathoth",
 					"shoggoth": "cthulhu",
 				},
 				Template: &corev1ac.PodTemplateSpecApplyConfiguration{
 					Spec: &corev1ac.PodSpecApplyConfiguration{
-						ServiceAccountName: ptr.To("my-service-account"),
+						ServiceAccountName: new("my-service-account"),
 						Containers: []corev1ac.ContainerApplyConfiguration{
 							{
-								Name:  ptr.To("ray-worker"),
-								Image: ptr.To("rayproject/ray:2.52.0"),
+								Name:  new("ray-worker"),
+								Image: new("rayproject/ray:2.52.0"),
 								Resources: &corev1ac.ResourceRequirementsApplyConfiguration{
 									Requests: &corev1.ResourceList{
 										corev1.ResourceCPU:    resource.MustParse("2"),
@@ -584,15 +584,15 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 				},
 			},
 			{
-				GroupName: ptr.To("worker-group-2"),
-				Replicas:  ptr.To(int32(0)),
+				GroupName: new("worker-group-2"),
+				Replicas:  new(int32(0)),
 				Template: &corev1ac.PodTemplateSpecApplyConfiguration{
 					Spec: &corev1ac.PodSpecApplyConfiguration{
-						ServiceAccountName: ptr.To("my-service-account"),
+						ServiceAccountName: new("my-service-account"),
 						Containers: []corev1ac.ContainerApplyConfiguration{
 							{
-								Name:  ptr.To("ray-worker"),
-								Image: ptr.To("rayproject/ray:2.52.0"),
+								Name:  new("ray-worker"),
+								Image: new("rayproject/ray:2.52.0"),
 								Resources: &corev1ac.ResourceRequirementsApplyConfiguration{
 									Requests: &corev1.ResourceList{
 										corev1.ResourceName(util.ResourceNvidiaGPU): resource.MustParse("1"),
@@ -618,15 +618,15 @@ func TestSetGCSFuseOptions(t *testing.T) {
 	gcsFuse := &GCSFuse{
 		BucketName:   "my-bucket",
 		MountPath:    "/mnt/my-data",
-		MountOptions: ptr.To("uid=1234,gid=5678"),
+		MountOptions: new("uid=1234,gid=5678"),
 		Resources: &GCSFuseResources{
-			CPU:              ptr.To("1"),
-			Memory:           ptr.To("5Gi"),
-			EphemeralStorage: ptr.To("10Gi"),
+			CPU:              new("1"),
+			Memory:           new("5Gi"),
+			EphemeralStorage: new("10Gi"),
 		},
-		DisableMetrics:                 ptr.To(false),
-		GCSFuseMetadataPrefetchOnMount: ptr.To(true),
-		SkipCSIBucketAccessCheck:       ptr.To(true),
+		DisableMetrics:                 new(false),
+		GCSFuseMetadataPrefetchOnMount: new(true),
+		SkipCSIBucketAccessCheck:       new(true),
 	}
 
 	expected := &rayv1ac.RayClusterSpecApplyConfiguration{
@@ -644,21 +644,21 @@ func TestSetGCSFuseOptions(t *testing.T) {
 				Spec: &corev1ac.PodSpecApplyConfiguration{
 					Containers: []corev1ac.ContainerApplyConfiguration{
 						{
-							Name: ptr.To("ray-head"),
+							Name: new("ray-head"),
 							VolumeMounts: []corev1ac.VolumeMountApplyConfiguration{
 								{
-									Name:      ptr.To("cluster-storage"),
-									MountPath: ptr.To("/mnt/my-data"),
+									Name:      new("cluster-storage"),
+									MountPath: new("/mnt/my-data"),
 								},
 							},
 						},
 					},
 					Volumes: []corev1ac.VolumeApplyConfiguration{
 						{
-							Name: ptr.To("cluster-storage"),
+							Name: new("cluster-storage"),
 							VolumeSourceApplyConfiguration: corev1ac.VolumeSourceApplyConfiguration{
 								CSI: &corev1ac.CSIVolumeSourceApplyConfiguration{
-									Driver: ptr.To(gcsFuseCSIDriver),
+									Driver: new(gcsFuseCSIDriver),
 									VolumeAttributes: map[string]string{
 										"bucketName":                     "my-bucket",
 										"mountOptions":                   "uid=1234,gid=5678",
@@ -688,21 +688,21 @@ func TestSetGCSFuseOptions(t *testing.T) {
 					Spec: &corev1ac.PodSpecApplyConfiguration{
 						Containers: []corev1ac.ContainerApplyConfiguration{
 							{
-								Name: ptr.To("ray-worker"),
+								Name: new("ray-worker"),
 								VolumeMounts: []corev1ac.VolumeMountApplyConfiguration{
 									{
-										Name:      ptr.To("cluster-storage"),
-										MountPath: ptr.To("/mnt/my-data"),
+										Name:      new("cluster-storage"),
+										MountPath: new("/mnt/my-data"),
 									},
 								},
 							},
 						},
 						Volumes: []corev1ac.VolumeApplyConfiguration{
 							{
-								Name: ptr.To("cluster-storage"),
+								Name: new("cluster-storage"),
 								VolumeSourceApplyConfiguration: corev1ac.VolumeSourceApplyConfiguration{
 									CSI: &corev1ac.CSIVolumeSourceApplyConfiguration{
-										Driver: ptr.To(gcsFuseCSIDriver),
+										Driver: new(gcsFuseCSIDriver),
 										VolumeAttributes: map[string]string{
 											"bucketName":                     "my-bucket",
 											"mountOptions":                   "uid=1234,gid=5678",
@@ -731,21 +731,21 @@ func TestSetGCSFuseOptions(t *testing.T) {
 					Spec: &corev1ac.PodSpecApplyConfiguration{
 						Containers: []corev1ac.ContainerApplyConfiguration{
 							{
-								Name: ptr.To("ray-worker"),
+								Name: new("ray-worker"),
 								VolumeMounts: []corev1ac.VolumeMountApplyConfiguration{
 									{
-										Name:      ptr.To("cluster-storage"),
-										MountPath: ptr.To("/mnt/my-data"),
+										Name:      new("cluster-storage"),
+										MountPath: new("/mnt/my-data"),
 									},
 								},
 							},
 						},
 						Volumes: []corev1ac.VolumeApplyConfiguration{
 							{
-								Name: ptr.To("cluster-storage"),
+								Name: new("cluster-storage"),
 								VolumeSourceApplyConfiguration: corev1ac.VolumeSourceApplyConfiguration{
 									CSI: &corev1ac.CSIVolumeSourceApplyConfiguration{
-										Driver: ptr.To(gcsFuseCSIDriver),
+										Driver: new(gcsFuseCSIDriver),
 										VolumeAttributes: map[string]string{
 											"bucketName":                     "my-bucket",
 											"mountOptions":                   "uid=1234,gid=5678",
@@ -769,7 +769,7 @@ func TestSetGCSFuseOptions(t *testing.T) {
 				Spec: &corev1ac.PodSpecApplyConfiguration{
 					Containers: []corev1ac.ContainerApplyConfiguration{
 						{
-							Name: ptr.To("ray-head"),
+							Name: new("ray-head"),
 						},
 					},
 				},
@@ -781,7 +781,7 @@ func TestSetGCSFuseOptions(t *testing.T) {
 					Spec: &corev1ac.PodSpecApplyConfiguration{
 						Containers: []corev1ac.ContainerApplyConfiguration{
 							{
-								Name: ptr.To("ray-worker"),
+								Name: new("ray-worker"),
 							},
 						},
 					},
@@ -792,7 +792,7 @@ func TestSetGCSFuseOptions(t *testing.T) {
 					Spec: &corev1ac.PodSpecApplyConfiguration{
 						Containers: []corev1ac.ContainerApplyConfiguration{
 							{
-								Name: ptr.To("ray-worker"),
+								Name: new("ray-worker"),
 							},
 						},
 					},
@@ -809,17 +809,17 @@ func TestSetGCSFuseOptions(t *testing.T) {
 func TestNewRayClusterConfigWithDefaults(t *testing.T) {
 	result := newRayClusterConfigWithDefaults()
 	expected := &RayClusterConfig{
-		Image:      ptr.To(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
+		Image:      new(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
 		RayVersion: ptr.To(util.RayVersion),
 		Head: &Head{
-			CPU:    ptr.To("2"),
-			Memory: ptr.To("4Gi"),
+			CPU:    new("2"),
+			Memory: new("4Gi"),
 		},
 		WorkerGroups: []WorkerGroup{
 			{
-				Name:     ptr.To("default-group"),
-				CPU:      ptr.To("2"),
-				Memory:   ptr.To("4Gi"),
+				Name:     new("default-group"),
+				CPU:      new("2"),
+				Memory:   new("4Gi"),
 				Replicas: int32(1),
 			},
 		},
@@ -838,7 +838,7 @@ func TestParseConfigFile(t *testing.T) {
 			config: `foo: bar`,
 			expected: &RayClusterConfig{
 				RayVersion: ptr.To(util.RayVersion),
-				Image:      ptr.To(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
+				Image:      new(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
 			},
 			expectedErr: "field foo not found in type generation.RayClusterConfig",
 		},
@@ -846,17 +846,17 @@ func TestParseConfigFile(t *testing.T) {
 			config: "",
 			expected: &RayClusterConfig{
 				RayVersion: ptr.To(util.RayVersion),
-				Image:      ptr.To(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
+				Image:      new(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
 				Head: &Head{
-					CPU:    ptr.To("2"),
-					Memory: ptr.To("4Gi"),
+					CPU:    new("2"),
+					Memory: new("4Gi"),
 				},
 				WorkerGroups: []WorkerGroup{
 					{
-						Name:     ptr.To("default-group"),
+						Name:     new("default-group"),
 						Replicas: int32(1),
-						CPU:      ptr.To("2"),
-						Memory:   ptr.To("4Gi"),
+						CPU:      new("2"),
+						Memory:   new("4Gi"),
 					},
 				},
 			},
@@ -868,15 +868,15 @@ func TestParseConfigFile(t *testing.T) {
 `,
 			expected: &RayClusterConfig{
 				RayVersion: ptr.To(util.RayVersion),
-				Image:      ptr.To(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
+				Image:      new(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
 				Head: &Head{
-					CPU:    ptr.To("2"),
-					Memory: ptr.To("4Gi"),
+					CPU:    new("2"),
+					Memory: new("4Gi"),
 				},
 				WorkerGroups: []WorkerGroup{
 					{
 						Replicas: int32(1),
-						GPU:      ptr.To("1"),
+						GPU:      new("1"),
 					},
 				},
 			},
@@ -934,36 +934,36 @@ gke:
     skip-csi-bucket-access-check: false
 `,
 			expected: &RayClusterConfig{
-				Namespace:   ptr.To("hyperkube"),
-				Name:        ptr.To("dxia-test"),
+				Namespace:   new("hyperkube"),
+				Name:        new("dxia-test"),
 				Labels:      map[string]string{"foo": "bar"},
 				Annotations: map[string]string{"dead": "beef"},
-				RayVersion:  ptr.To("2.52.0"),
-				Image:       ptr.To("rayproject/ray:2.52.0"),
+				RayVersion:  new("2.52.0"),
+				Image:       new("rayproject/ray:2.52.0"),
 				Head: &Head{
-					CPU:              ptr.To("3"),
-					Memory:           ptr.To("5Gi"),
-					GPU:              ptr.To("0"),
+					CPU:              new("3"),
+					Memory:           new("5Gi"),
+					GPU:              new("0"),
 					RayStartParams:   map[string]string{"metrics-export-port": "8082"},
-					EphemeralStorage: ptr.To("8Gi"),
+					EphemeralStorage: new("8Gi"),
 				},
 				WorkerGroups: []WorkerGroup{
 					{
-						Name:             ptr.To("cpu-workers"),
+						Name:             new("cpu-workers"),
 						Replicas:         int32(1),
-						CPU:              ptr.To("2"),
-						Memory:           ptr.To("4Gi"),
-						GPU:              ptr.To("0"),
-						EphemeralStorage: ptr.To("12Gi"),
+						CPU:              new("2"),
+						Memory:           new("4Gi"),
+						GPU:              new("0"),
+						EphemeralStorage: new("12Gi"),
 						RayStartParams:   map[string]string{"metrics-export-port": "8081"},
 					},
 					{
-						Name:             ptr.To("gpu-workers"),
+						Name:             new("gpu-workers"),
 						Replicas:         int32(1),
-						CPU:              ptr.To("3"),
-						Memory:           ptr.To("6Gi"),
-						GPU:              ptr.To("1"),
-						EphemeralStorage: ptr.To("13Gi"),
+						CPU:              new("3"),
+						Memory:           new("6Gi"),
+						GPU:              new("1"),
+						EphemeralStorage: new("13Gi"),
 						RayStartParams:   map[string]string{"metrics-export-port": "8081"},
 					},
 				},
@@ -971,15 +971,15 @@ gke:
 					GCSFuse: &GCSFuse{
 						BucketName:   "my-bucket",
 						MountPath:    "/mnt/cluster_storage",
-						MountOptions: ptr.To("implicit-dirs,uid=1000,gid=100"),
+						MountOptions: new("implicit-dirs,uid=1000,gid=100"),
 						Resources: &GCSFuseResources{
-							CPU:              ptr.To("250m"),
-							Memory:           ptr.To("256Mi"),
-							EphemeralStorage: ptr.To("5Gi"),
+							CPU:              new("250m"),
+							Memory:           new("256Mi"),
+							EphemeralStorage: new("5Gi"),
 						},
-						DisableMetrics:                 ptr.To(true),
-						GCSFuseMetadataPrefetchOnMount: ptr.To(false),
-						SkipCSIBucketAccessCheck:       ptr.To(false),
+						DisableMetrics:                 new(true),
+						GCSFuseMetadataPrefetchOnMount: new(false),
+						SkipCSIBucketAccessCheck:       new(false),
 					},
 				},
 			},
@@ -1015,7 +1015,7 @@ func TestValidateConfig(t *testing.T) {
 		"invalid config": {
 			config: &RayClusterConfig{
 				Head: &Head{
-					CPU: ptr.To("invalid"),
+					CPU: new("invalid"),
 				},
 			},
 			expectedErr: "cpu is not a valid resource quantity",
@@ -1023,17 +1023,17 @@ func TestValidateConfig(t *testing.T) {
 		"valid config": {
 			config: &RayClusterConfig{
 				Head: &Head{
-					CPU:              ptr.To("2"),
-					Memory:           ptr.To("4Gi"),
-					GPU:              ptr.To("0"),
-					EphemeralStorage: ptr.To("8Gi"),
+					CPU:              new("2"),
+					Memory:           new("4Gi"),
+					GPU:              new("0"),
+					EphemeralStorage: new("8Gi"),
 				},
 				WorkerGroups: []WorkerGroup{
 					{
-						CPU:              ptr.To("2"),
-						Memory:           ptr.To("4Gi"),
-						GPU:              ptr.To("0"),
-						EphemeralStorage: ptr.To("8Gi"),
+						CPU:              new("2"),
+						Memory:           new("4Gi"),
+						GPU:              new("0"),
+						EphemeralStorage: new("8Gi"),
 					},
 				},
 			},
@@ -1091,10 +1091,10 @@ func TestGetGCSFuseVolumeAttributes(t *testing.T) {
 	config := &GCSFuse{
 		BucketName:                     "my-bucket",
 		MountPath:                      "/mnt/cluster_storage",
-		MountOptions:                   ptr.To("implicit-dirs,uid=1000,gid=100"),
-		DisableMetrics:                 ptr.To(true),
-		GCSFuseMetadataPrefetchOnMount: ptr.To(false),
-		SkipCSIBucketAccessCheck:       ptr.To(false),
+		MountOptions:                   new("implicit-dirs,uid=1000,gid=100"),
+		DisableMetrics:                 new(true),
+		GCSFuseMetadataPrefetchOnMount: new(false),
+		SkipCSIBucketAccessCheck:       new(false),
 	}
 
 	expected := map[string]string{

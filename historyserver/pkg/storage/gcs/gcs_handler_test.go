@@ -10,6 +10,7 @@ import (
 	gstorage "cloud.google.com/go/storage"
 	"github.com/fsouza/fake-gcs-server/fakestorage"
 	"github.com/google/go-cmp/cmp"
+
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 )
 
@@ -75,7 +76,9 @@ func TestCreateDirectory(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			handler.CreateDirectory(tc.path)
+			if err := handler.CreateDirectory(tc.path); err != nil {
+				t.Fatalf("CreateDirectory(%q) failed: %v", tc.path, err)
+			}
 
 			_, err := server.GetObject(bucketName, tc.expectedObj)
 			if err != nil {
@@ -165,37 +168,37 @@ func TestListFiles(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		clusterID string
+		prefix    string
 		directory string
 		expected  []string
 	}{
 		{
 			name:      "list_files",
-			clusterID: "cluster1",
+			prefix:    "cluster1",
 			directory: utils.RAY_SESSIONDIR_LOGDIR_NAME,
 			expected:  []string{"file1.txt", "file2.log", "subdir/"},
 		},
 		{
 			name:      "list_other",
-			clusterID: "cluster1",
+			prefix:    "cluster1",
 			directory: "other",
 			expected:  []string{"file4.txt"},
 		},
 		{
 			name:      "list_nonexistent",
-			clusterID: "cluster1",
+			prefix:    "cluster1",
 			directory: "nonexistent",
 			expected:  nil,
 		},
 		{
 			name:      "list_cluster2",
-			clusterID: "cluster2",
+			prefix:    "cluster2",
 			directory: utils.RAY_SESSIONDIR_LOGDIR_NAME,
 			expected:  []string{"file5.txt", "subdir2/"},
 		},
 		{
 			name:      "list_empty_subdir",
-			clusterID: "cluster2",
+			prefix:    "cluster2",
 			directory: "logs/subdir2",
 			expected:  nil,
 		},
@@ -203,11 +206,11 @@ func TestListFiles(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			files := handler.ListFiles(tc.clusterID, tc.directory)
+			files := handler.ListFiles(tc.prefix, tc.directory)
 			sort.Strings(files)
 			sort.Strings(tc.expected)
 			if diff := cmp.Diff(tc.expected, files); diff != "" {
-				t.Errorf("ListFiles(%q, %q) returned diff (-want +got):\n%s", tc.clusterID, tc.directory, diff)
+				t.Errorf("ListFiles(%q, %q) returned diff (-want +got):\n%s", tc.prefix, tc.directory, diff)
 			}
 		})
 	}
@@ -215,7 +218,7 @@ func TestListFiles(t *testing.T) {
 
 func TestList(t *testing.T) {
 	// RootDir is "ray_historyserver"
-	// Path format: {RootDir}/metadir/{ClusterName}_{Namespace}/{SessionName}
+	// Path format: {RootDir}/cluster-metadata/{ClusterKey}/{SessionName}
 	ts := time.Now().UTC()
 	sessionID := "session_" + ts.Format("2006-01-02_15-04-05_000000")
 
@@ -223,14 +226,28 @@ func TestList(t *testing.T) {
 		{
 			ObjectAttrs: fakestorage.ObjectAttrs{
 				BucketName: "test-bucket",
-				Name:       "ray_historyserver/metadir/mycluster1_default/" + sessionID,
+				Name:       "ray_historyserver/cluster-metadata/raycluster/defaultns_mycluster1/" + sessionID,
 			},
 			Content: []byte(""),
 		},
 		{
 			ObjectAttrs: fakestorage.ObjectAttrs{
 				BucketName: "test-bucket",
-				Name:       "ray_historyserver/metadir/mycluster2_testns/" + sessionID,
+				Name:       "ray_historyserver/cluster-metadata/raycluster/testns_mycluster2/" + sessionID,
+			},
+			Content: []byte(""),
+		},
+		{
+			ObjectAttrs: fakestorage.ObjectAttrs{
+				BucketName: "test-bucket",
+				Name:       "ray_historyserver/cluster-metadata/rayjob/defaultns_myrayjob_mycluster3/" + sessionID,
+			},
+			Content: []byte(""),
+		},
+		{
+			ObjectAttrs: fakestorage.ObjectAttrs{
+				BucketName: "test-bucket",
+				Name:       "ray_historyserver/cluster-metadata/rayservice/defaultns_myraysvc_mycluster4/" + sessionID,
 			},
 			Content: []byte(""),
 		},
@@ -239,8 +256,10 @@ func TestList(t *testing.T) {
 	handler := createRayLogsHandler(client, bucketName)
 
 	expected := []utils.ClusterInfo{
-		{Name: "mycluster1", Namespace: "default", SessionName: sessionID, CreateTimeStamp: ts.Unix(), CreateTime: ts.UTC().Format("2006-01-02T15:04:05Z")},
+		{Name: "mycluster1", Namespace: "defaultns", SessionName: sessionID, CreateTimeStamp: ts.Unix(), CreateTime: ts.UTC().Format("2006-01-02T15:04:05Z")},
 		{Name: "mycluster2", Namespace: "testns", SessionName: sessionID, CreateTimeStamp: ts.Unix(), CreateTime: ts.UTC().Format("2006-01-02T15:04:05Z")},
+		{Name: "mycluster3", OwnerKind: "rayjob", OwnerName: "myrayjob", Namespace: "defaultns", SessionName: sessionID, CreateTimeStamp: ts.Unix(), CreateTime: ts.UTC().Format("2006-01-02T15:04:05Z")},
+		{Name: "mycluster4", OwnerKind: "rayservice", OwnerName: "myraysvc", Namespace: "defaultns", SessionName: sessionID, CreateTimeStamp: ts.Unix(), CreateTime: ts.UTC().Format("2006-01-02T15:04:05Z")},
 	}
 
 	result := handler.List()
@@ -258,8 +277,53 @@ func TestList(t *testing.T) {
 	}
 }
 
+// contentMatchGlob is asserted directly because fake-gcs-server does not
+// implement matchGlob, so no test in this package can observe what the pattern
+// actually selects. This checks the pattern that gets sent, not its effect.
+func TestContentMatchGlobIsRooted(t *testing.T) {
+	tests := []struct {
+		name      string
+		rootDir   string
+		clusterID string
+		fileName  string
+		want      string
+	}{
+		{
+			name:      "rooted",
+			rootDir:   "ray_historyserver",
+			clusterID: "clusters/clusterA_ns",
+			fileName:  "session123/logs/important.log",
+			want:      "ray_historyserver/**/clusters/clusterA_ns*/**/session123/logs/important.log",
+		},
+		{
+			name:      "no root dir keeps the previous unanchored pattern",
+			rootDir:   "",
+			clusterID: "clusters/clusterA_ns",
+			fileName:  "session123/logs/important.log",
+			want:      "**/clusters/clusterA_ns*/**/session123/logs/important.log",
+		},
+		{
+			name:      "leading slash on root dir is trimmed",
+			rootDir:   "/ray_historyserver",
+			clusterID: "clusterA",
+			fileName:  "important.log",
+			want:      "ray_historyserver/**/clusterA*/**/important.log",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := contentMatchGlob(tt.rootDir, tt.clusterID, tt.fileName)
+			if got != tt.want {
+				t.Errorf("contentMatchGlob(%q, %q, %q) = %q, want %q",
+					tt.rootDir, tt.clusterID, tt.fileName, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetContent(t *testing.T) {
-	clusterID := "clusterA"
+	prefix := "clusterA"
 	fileName := "important.log"
 	objPath := "ray_historyserver/clusters/clusterA_ns/sessions/session123/logs/" + fileName
 	fileContent := "Log content here"
@@ -276,9 +340,9 @@ func TestGetContent(t *testing.T) {
 	_, client, bucketName := setupFakeGCS(t, initialObjects...)
 	handler := createRayLogsHandler(client, bucketName)
 
-	reader := handler.GetContent(clusterID, fileName)
+	reader := handler.GetContent(prefix, fileName)
 	if reader == nil {
-		t.Fatalf("GetContent(%q, %q) returned nil reader, expected non-nil", clusterID, fileName)
+		t.Fatalf("GetContent(%q, %q) returned nil reader, expected non-nil", prefix, fileName)
 	}
 
 	content, err := io.ReadAll(reader)
@@ -287,6 +351,6 @@ func TestGetContent(t *testing.T) {
 	}
 
 	if string(content) != fileContent {
-		t.Errorf("GetContent(%q, %q) content mismatch: got %q, want %q", clusterID, fileName, string(content), fileContent)
+		t.Errorf("GetContent(%q, %q) content mismatch: got %q, want %q", prefix, fileName, string(content), fileContent)
 	}
 }

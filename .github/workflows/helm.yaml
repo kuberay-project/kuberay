@@ -43,16 +43,16 @@ jobs:
           echo "BRANCH=$BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4.3.0
+        uses: azure/setup-helm@v5.0.0
         with:
           version: v3.17.3
 
-      - uses: actions/setup-python@v5.3.0
+      - uses: actions/setup-python@v6
         with:
           python-version: 3.13
 
@@ -63,7 +63,7 @@ jobs:
         run: helm unittest ${{ env.CHART_DIR }}/${{ matrix.chart }} --file "tests/**/*_test.yaml" --strict --debug
 
       - name: Set up chart-testing
-        uses: helm/chart-testing-action@v2.7.0
+        uses: helm/chart-testing-action@v2.8.0
 
       - name: Run chart-testing (list-changed)
         id: list-changed
@@ -87,7 +87,7 @@ jobs:
 
       - name: Create kind cluster
         if: steps.list-changed.outputs.changed == 'true'
-        uses: helm/kind-action@v1.12.0
+        uses: helm/kind-action@v1.14.0
         with:
           cluster_name: kind
 
@@ -101,11 +101,6 @@ jobs:
         run: |
           cd apiserver && make docker-image -e IMG=kuberay/apiserver:local
 
-      - name: Build Docker image (security-proxy)
-        if: steps.list-changed.outputs.changed == 'true' && matrix.chart == 'kuberay-apiserver'
-        run: |
-          cd experimental && make docker-image -e IMG=kuberay/security-proxy:local
-
       - name: Load image to kind cluster (kuberay-operator)
         if: steps.list-changed.outputs.changed == 'true' && matrix.chart == 'kuberay-operator'
         run: |
@@ -115,11 +110,6 @@ jobs:
         if: steps.list-changed.outputs.changed == 'true' && matrix.chart == 'kuberay-apiserver'
         run: |
           kind load docker-image kuberay/apiserver:local
-
-      - name: Load image to kind cluster (security-proxy)
-        if: steps.list-changed.outputs.changed == 'true' && matrix.chart == 'kuberay-apiserver'
-        run: |
-          kind load docker-image kuberay/security-proxy:local
 
       - name: Install Custom Resource Definitions to kind cluster
         if: steps.list-changed.outputs.changed == 'true' && matrix.chart == 'ray-cluster'

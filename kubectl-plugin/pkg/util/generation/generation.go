@@ -240,7 +240,7 @@ func (rayClusterConfig *RayClusterConfig) generateRayClusterSpec() *rayv1ac.RayC
 			if i != 0 {
 				name = fmt.Sprintf("default-group-%d", i)
 			}
-			workerGroup.Name = ptr.To(name)
+			workerGroup.Name = new(name)
 		}
 
 		workerRequestResources := generateRequestResources(workerGroup.CPU, workerGroup.Memory, workerGroup.EphemeralStorage, workerGroup.GPU, workerGroup.TPU)
@@ -265,7 +265,7 @@ func (rayClusterConfig *RayClusterConfig) generateRayClusterSpec() *rayv1ac.RayC
 		}
 
 		if rayClusterConfig.ServiceAccount != nil && *rayClusterConfig.ServiceAccount != "" {
-			workerGroupSpecs[i].Template.Spec.ServiceAccountName = ptr.To(*rayClusterConfig.ServiceAccount)
+			workerGroupSpecs[i].Template.Spec.ServiceAccountName = new(*rayClusterConfig.ServiceAccount)
 		}
 	}
 
@@ -293,7 +293,7 @@ func (rayClusterConfig *RayClusterConfig) generateRayClusterSpec() *rayv1ac.RayC
 	}
 
 	if rayClusterConfig.ServiceAccount != nil && *rayClusterConfig.ServiceAccount != "" {
-		rayClusterSpec.HeadGroupSpec.Template.Spec.ServiceAccountName = ptr.To(*rayClusterConfig.ServiceAccount)
+		rayClusterSpec.HeadGroupSpec.Template.Spec.ServiceAccountName = new(*rayClusterConfig.ServiceAccount)
 	}
 
 	if rayClusterConfig.GKE != nil {
@@ -417,14 +417,14 @@ func ConvertRayJobApplyConfigToYaml(rayJobac *rayv1ac.RayJobApplyConfiguration) 
 func newRayClusterConfigWithDefaults() *RayClusterConfig {
 	return &RayClusterConfig{
 		RayVersion: ptr.To(util.RayVersion),
-		Image:      ptr.To(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
+		Image:      new(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
 		Head: &Head{
 			CPU:    ptr.To(util.DefaultHeadCPU),
 			Memory: ptr.To(util.DefaultHeadMemory),
 		},
 		WorkerGroups: []WorkerGroup{
 			{
-				Name:     ptr.To("default-group"),
+				Name:     new("default-group"),
 				Replicas: util.DefaultWorkerReplicas,
 				CPU:      ptr.To(util.DefaultWorkerCPU),
 				Memory:   ptr.To(util.DefaultWorkerMemory),

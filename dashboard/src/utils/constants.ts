@@ -33,6 +33,8 @@ export async function fetchRuntimeConfig(): Promise<RuntimeConfig> {
             data.historyserver?.proxyEndpoint ||
             defaultConfig.historyserver.proxyEndpoint,
         },
+        defaultNamespace:
+          data.defaultNamespace || defaultConfig.defaultNamespace,
       };
       return runtimeConfig;
     }

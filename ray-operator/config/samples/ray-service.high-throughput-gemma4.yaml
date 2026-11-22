@@ -1,0 +1,121 @@
+# This sample Ray Service shows how to configure Ray Serve LLM for high
+# throughput serving.
+# This is enabled by the env vars
+#
+# - RAY_SERVE_ENABLE_HA_PROXY=1
+# - RAY_SERVE_THROUGHPUT_OPTIMIZED=1
+# - RAY_SERVE_LLM_ENABLE_DIRECT_STREAMING=1
+# - VLLM_USE_RAY_V2_EXECUTOR_BACKEND=1
+#
+# This example serves Gemma 4 E2B on NVIDIA B200s, as benchmarked with GKE.
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: ray-gemma4-e2b-it
+spec:
+  serveConfigV2: |
+    applications:
+    - name: llm_app
+      import_path: ray.serve.llm:build_openai_app
+      route_prefix: "/"
+      args:
+        llm_configs:
+          - model_loading_config:
+              model_id: gemma4-e2b-it
+              model_source: google/gemma-4-E2B-it
+            accelerator_type: B200
+            engine_kwargs:
+              enable_auto_tool_choice: true
+              # You may want to set a larger max model len to support caching
+              # longer context windows if needed.
+              max_model_len: 4096
+              reasoning_parser: gemma4
+              tensor_parallel_size: 1
+              tool_call_parser: gemma4
+            deployment_config:
+              num_replicas: 8  # Should match the number of GPUs available.
+  rayClusterConfig:
+    rayVersion: 2.56.0
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: 0.0.0.0
+        num-cpus: '0'
+      template:
+        spec:
+          containers:
+          - name: ray-node
+            image: rayproject/ray-llm:2.56.0-py312-cu130
+            resources:
+              requests:
+                cpu: '4'
+                memory: 16Gi
+                ephemeral-storage: 32Gi
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            - containerPort: 8000
+              name: serve
+            env:
+            - name: RAY_SERVE_ENABLE_HA_PROXY
+              value: '1'
+            - name: RAY_SERVE_THROUGHPUT_OPTIMIZED
+              value: '1'
+            - name: RAY_SERVE_LLM_ENABLE_DIRECT_STREAMING
+              value: '1'
+            - name: VLLM_USE_RAY_V2_EXECUTOR_BACKEND
+              value: '1'
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: hf_api_token
+    workerGroupSpecs:
+    - replicas: 1
+      groupName: gpu-group
+      rayStartParams: {}
+      template:
+        metadata:
+        spec:
+          containers:
+          - name: llm
+            image: rayproject/ray-llm:2.56.0-py312-cu130
+            imagePullPolicy: Always
+            env:
+            - name: RAY_SERVE_ENABLE_HA_PROXY
+              value: '1'
+            - name: RAY_SERVE_THROUGHPUT_OPTIMIZED
+              value: '1'
+            - name: RAY_SERVE_LLM_ENABLE_DIRECT_STREAMING
+              value: '1'
+            - name: VLLM_USE_RAY_V2_EXECUTOR_BACKEND
+              value: '1'
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: hf_api_token
+            resources:
+              limits:
+                nvidia.com/gpu: '8'
+              requests:
+                nvidia.com/gpu: '8'
+                cpu: '128'
+                memory: 512Gi
+                ephemeral-storage: 256Gi
+            volumeMounts:
+            - mountPath: /dev/shm
+              name: dshm
+          nodeSelector:
+            cloud.google.com/gke-accelerator: nvidia-b200
+          tolerations:
+          - key: nvidia.com/gpu
+            operator: Exists
+            effect: NoSchedule
+          volumes:
+          - name: dshm
+            emptyDir:
+              medium: Memory

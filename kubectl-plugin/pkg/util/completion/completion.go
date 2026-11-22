@@ -68,13 +68,13 @@ func WorkerGroupCompletionFunc(f cmdutil.Factory) func(*cobra.Command, []string,
 			return []string{}, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		return workerGroupCompletionFunc(cmd, args, toComplete, k8sClient)
+		return workerGroupCompletionFunc(cmd, args, toComplete, k8sClient, f)
 	}
 }
 
 // workerGroupCompletionFunc Returns completions of:
 // Workergroup names that match the toComplete prefix and respect flag values (--ray-cluster, --namespace, --all-namespaces)
-func workerGroupCompletionFunc(cmd *cobra.Command, args []string, toComplete string, k8sClient client.Client) ([]string, cobra.ShellCompDirective) {
+func workerGroupCompletionFunc(cmd *cobra.Command, args []string, toComplete string, k8sClient client.Client, f cmdutil.Factory) ([]string, cobra.ShellCompDirective) {
 	var comps []string
 	directive := cobra.ShellCompDirectiveNoFileComp
 
@@ -84,15 +84,14 @@ func workerGroupCompletionFunc(cmd *cobra.Command, args []string, toComplete str
 	}
 
 	cluster, _ := cmd.Flags().GetString("ray-cluster")
-	namespace, _ := cmd.Flags().GetString("namespace")
+	namespace, _, err := f.ToRawKubeConfigLoader().Namespace()
+	if err != nil {
+		return comps, directive
+	}
 	allNamespaces, _ := cmd.Flags().GetBool("all-namespaces")
 
 	if allNamespaces {
 		return comps, directive
-	}
-
-	if namespace == "" {
-		namespace = "default"
 	}
 
 	listopts := v1.ListOptions{}
@@ -127,13 +126,13 @@ func NodeCompletionFunc(f cmdutil.Factory) func(*cobra.Command, []string, string
 			return []string{}, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		return nodeCompletionFunc(cmd, args, toComplete, k8sClient)
+		return nodeCompletionFunc(cmd, args, toComplete, k8sClient, f)
 	}
 }
 
 // nodeCompletionFunc Returns completions of:
 // Node names that match the toComplete prefix and respect flag values (--ray-cluster, --namespace)
-func nodeCompletionFunc(cmd *cobra.Command, args []string, toComplete string, k8sClient client.Client) ([]string, cobra.ShellCompDirective) {
+func nodeCompletionFunc(cmd *cobra.Command, args []string, toComplete string, k8sClient client.Client, f cmdutil.Factory) ([]string, cobra.ShellCompDirective) {
 	var comps []string
 	directive := cobra.ShellCompDirectiveNoFileComp
 
@@ -143,15 +142,14 @@ func nodeCompletionFunc(cmd *cobra.Command, args []string, toComplete string, k8
 	}
 
 	cluster, _ := cmd.Flags().GetString("ray-cluster")
-	namespace, _ := cmd.Flags().GetString("namespace")
+	namespace, _, err := f.ToRawKubeConfigLoader().Namespace()
+	if err != nil {
+		return comps, directive
+	}
 	allNamespaces, _ := cmd.Flags().GetBool("all-namespaces")
 
 	if allNamespaces {
 		return comps, directive
-	}
-
-	if namespace == "" {
-		namespace = "default"
 	}
 
 	labelSelectors := createRayNodeLabelSelectors(cluster)

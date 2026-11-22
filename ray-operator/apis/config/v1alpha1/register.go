@@ -5,8 +5,7 @@ import (
 )
 
 func init() {
-	SchemeBuilder.Register(&Configuration{})
-	SchemeBuilder.SchemeBuilder.Register(addDefaultingFuncs)
+	SchemeBuilder.Register(addDefaultingFuncs)
 }
 
 // SchemeGroupVersion is group version used to register these objects.

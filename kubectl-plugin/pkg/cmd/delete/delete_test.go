@@ -14,7 +14,6 @@ import (
 
 func TestComplete(t *testing.T) {
 	testStreams, _, _, _ := genericclioptions.NewTestIOStreams()
-	cmdFactory := cmdutil.NewFactory(genericclioptions.NewConfigFlags(true))
 
 	tests := []struct {
 		name                 string
@@ -102,10 +101,16 @@ func TestComplete(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			fakeDeleteOptions := NewDeleteOptions(cmdFactory, testStreams)
+			configFlags := genericclioptions.NewConfigFlags(true)
+			if tc.namespace != "" {
+				configFlags.Namespace = &tc.namespace
+			}
+			cmdFactory := cmdutil.NewFactory(configFlags)
 
+			fakeDeleteOptions := NewDeleteOptions(cmdFactory, testStreams)
 			cmd := &cobra.Command{}
-			cmd.Flags().StringVarP(&fakeDeleteOptions.namespace, "namespace", "n", tc.namespace, "")
+			flags := cmd.Flags()
+			configFlags.AddFlags(flags)
 
 			err := fakeDeleteOptions.Complete(cmd, tc.args)
 

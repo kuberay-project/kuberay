@@ -80,6 +80,12 @@ func RayServiceSampleYamlApplyConfiguration() *rayv1ac.RayServiceSpecApplyConfig
               price: 2
             ray_actor_options:
               num_cpus: 0.1
+          - name: PearStand
+            num_replicas: 1
+            user_config:
+              price: 4
+            ray_actor_options:
+              num_cpus: 0.1
           - name: FruitMarket
             num_replicas: 1
             ray_actor_options:
@@ -127,7 +133,6 @@ func RayServiceSampleYamlApplyConfiguration() *rayv1ac.RayServiceSpecApplyConfig
 									corev1.ResourceMemory: resource.MustParse("2Gi"),
 								}).
 								WithLimits(corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("2"),
 									corev1.ResourceMemory: resource.MustParse("3Gi"),
 								})))))))
 }

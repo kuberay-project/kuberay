@@ -8,7 +8,7 @@ This section walks through how to build and test the operator in a running Kuber
 | software | version  |                                                                link |
 |:---------|:--------:|--------------------------------------------------------------------:|
 | kubectl  | v1.23.0+ | [download](https://kubernetes.io/docs/tasks/tools/install-kubectl/) |
-| go       |  v1.25   |                                  [download](https://golang.org/dl/) |
+| go       |  v1.26   |                                  [download](https://golang.org/dl/) |
 | docker   |  19.03+  |                        [download](https://docs.docker.com/install/) |
 
 Alternatively, you can use podman (version 4.5+) instead of docker. See [podman.io](https://podman.io/getting-started/installation) for installation instructions. The Makefile allows you to specify the container engine to use via the `ENGINE` variable. For example, to use podman, you can run `ENGINE=podman make docker-build`.
@@ -19,14 +19,14 @@ The instructions assume you have access to a running Kubernetes cluster via `kub
 
 For local development, we recommend using [Kind](https://kind.sigs.k8s.io/) to create a Kubernetes cluster.
 
-### Use go v1.25
+### Use go v1.26
 
-Currently, KubeRay uses go v1.25 for development.
+Currently, KubeRay uses go v1.26 for development.
 
 ```bash
-go install golang.org/dl/go1.25.0@latest
-go1.25.0 download
-export GOROOT=$(go1.25.0 env GOROOT)
+go install golang.org/dl/go1.26.0@latest
+go1.26.0 download
+export GOROOT=$(go1.26.0 env GOROOT)
 export PATH="$GOROOT/bin:$PATH"
 ```
 
@@ -345,3 +345,44 @@ docker buildx build --tag quay.io/<my org>/operator:latest --tag docker.io/<my o
 * Some registry such as Quay.io dashboard displays attestation manifests as unknown platforms. Setting --provenance=false to avoid this issue.
 
 [main-dev-doc]: ../docs/development/development.md#pre-commit-hooks
+
+## Kubernetes Workload-Aware Scheduling v1alpha3
+
+The Kubernetes Workload-Aware Scheduling (WAS) batch scheduler enables gang scheduling of RayClusters through the `scheduling.k8s.io/v1alpha3` Workload and PodGroup APIs, using the Kubernetes default scheduler. It is enabled with the `KubernetesWAS` feature gate (`--feature-gates=KubernetesWAS=true`); do not also set `--batch-scheduler` (the two are mutually exclusive). Each RayCluster opts in with the `ray.io/gang-scheduling-enabled: "true"` label.
+
+For user-facing documentation, see the [Kubernetes WAS guide](../docs/guidance/kubernetes-was.md).
+
+### Testing locally with Kind
+
+> **NOTE:** Change your working directory to `ray-operator` before running the commands below.
+>
+> ```bash
+> cd ray-operator
+> ```
+
+Kubernetes WAS v1alpha3 requires Kubernetes 1.37+ with `GenericWorkload` enabled on the API server, controller manager, and scheduler, and both `scheduling.k8s.io/v1beta1` and `scheduling.k8s.io/v1alpha3` served by the API server. KubeRay uses v1alpha3, while kube-scheduler's GenericWorkload integration requires v1beta1. The kind config uses the published `kindest/node:v1.37.0` image:
+
+Kind v0.32.0 or newer is required.
+
+```bash
+# Create the cluster with the required feature gates and alpha API.
+kind create cluster --name kubernetes-was-v1alpha3 \
+  --config hack/kind-config-kubernetes-was-v1alpha3.yml
+
+# Build and load the operator image.
+make docker-image IMG=kuberay/operator:latest
+kind load docker-image kuberay/operator:latest --name kubernetes-was-v1alpha3
+
+# Deploy with the Kubernetes WAS batch scheduler enabled (via the KubernetesWAS feature gate).
+make deploy-kubernetes-was-v1alpha3 IMG=kuberay/operator:latest
+```
+
+### Running tests
+
+```bash
+# Unit tests.
+make test WHAT='./apis/config/v1alpha1 ./controllers/ray/batchscheduler/... ./controllers/ray'
+
+# E2E tests. Requires the kind cluster above with the operator deployed.
+make test-e2e-kubernetes-was-v1alpha3
+```

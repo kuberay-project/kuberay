@@ -20,13 +20,13 @@ func NewMockReader() *MockReader {
 	clusters := []utils.ClusterInfo{
 		{
 			Name:            "cluster-1",
-			SessionName:     "session-1",
+			SessionName:     "session_2023-01-01_00-00-00_000000",
 			CreateTime:      "2023-01-01T00:00:00Z",
 			CreateTimeStamp: 1672531200000,
 		},
 		{
 			Name:            "cluster-2",
-			SessionName:     "session-2",
+			SessionName:     "session_2023-01-02_00-00-00_000000",
 			CreateTime:      "2023-01-02T00:00:00Z",
 			CreateTimeStamp: 1672617600000,
 		},
@@ -35,11 +35,11 @@ func NewMockReader() *MockReader {
 	data := map[string]map[string]string{
 		"cluster-1": {
 			"log.txt":       "This is log content for cluster-1\nMultiple lines\nof log content",
-			"metadata.json": "{\n  \"name\": \"cluster-1\",\n  \"sessionName\": \"session-1\",\n  \"createTime\": \"2023-01-01T00:00:00Z\"\n}",
+			"metadata.json": "{\n  \"name\": \"cluster-1\",\n  \"sessionName\": \"session_2023-01-01_00-00-00_000000\",\n  \"createTime\": \"2023-01-01T00:00:00Z\"\n}",
 		},
 		"cluster-2": {
 			"log.txt":       "This is log content for cluster-2\nMultiple lines\nof log content",
-			"metadata.json": "{\n  \"name\": \"cluster-2\",\n  \"sessionName\": \"session-2\",\n  \"createTime\": \"2023-01-02T00:00:00Z\"\n}",
+			"metadata.json": "{\n  \"name\": \"cluster-2\",\n  \"sessionName\": \"session_2023-01-02_00-00-00_000000\",\n  \"createTime\": \"2023-01-02T00:00:00Z\"\n}",
 		},
 	}
 
@@ -55,8 +55,8 @@ func (r *MockReader) List() []utils.ClusterInfo {
 }
 
 // GetContent returns content for a specific file
-func (r *MockReader) GetContent(clusterId string, fileName string) io.Reader {
-	if clusterData, ok := r.data[clusterId]; ok {
+func (r *MockReader) GetContent(prefix string, fileName string) io.Reader {
+	if clusterData, ok := r.data[prefix]; ok {
 		if content, ok := clusterData[fileName]; ok {
 			return strings.NewReader(content)
 		}
@@ -64,8 +64,8 @@ func (r *MockReader) GetContent(clusterId string, fileName string) io.Reader {
 	return strings.NewReader("")
 }
 
-func (r *MockReader) ListFiles(clusterId string, dir string) []string {
-	if clusterData, ok := r.data[clusterId]; ok {
+func (r *MockReader) ListFiles(prefix string, _ string) []string {
+	if clusterData, ok := r.data[prefix]; ok {
 		files := make([]string, 0, len(clusterData))
 		for fileName := range clusterData {
 			files = append(files, fileName)
@@ -76,6 +76,6 @@ func (r *MockReader) ListFiles(clusterId string, dir string) []string {
 }
 
 // NewReader creates a new StorageReader
-func NewReader(c *types.RayHistoryServerConfig, jd map[string]interface{}) (storage.StorageReader, error) {
+func NewReader(_ *types.RayHistoryServerConfig, _ map[string]any) (storage.StorageReader, error) {
 	return NewMockReader(), nil
 }

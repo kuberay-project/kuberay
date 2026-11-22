@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -17,6 +18,8 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
 	kubefake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/clientcmd/api"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 
 	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util/client"
@@ -24,17 +27,50 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 )
 
+func createTempKubeConfigFile(t *testing.T, currentNamespace string) (string, error) {
+	tmpDir := t.TempDir()
+
+	// Set up fake config for kubeconfig
+	config := &api.Config{
+		Clusters: map[string]*api.Cluster{
+			"test-cluster": {
+				Server:                "https://fake-kubernetes-cluster.example.com",
+				InsecureSkipTLSVerify: true, // For testing purposes
+			},
+		},
+		Contexts: map[string]*api.Context{
+			"test-context": {
+				Cluster:   "test-cluster",
+				AuthInfo:  "my-fake-user",
+				Namespace: currentNamespace,
+			},
+		},
+		CurrentContext: "test-context",
+		AuthInfos: map[string]*api.AuthInfo{
+			"my-fake-user": {
+				Token: "", // Empty for testing without authentication
+			},
+		},
+	}
+
+	fakeFile := filepath.Join(tmpDir, ".kubeconfig")
+
+	return fakeFile, clientcmd.WriteToFile(*config, fakeFile)
+}
+
 // This is to test Complete() and ensure that it is setting the namespace and cluster correctly
 // No validation test is done here
 func TestRayClusterGetComplete(t *testing.T) {
+	kubeConfigWithCurrentContext, err := createTempKubeConfigFile(t, "test-namespace")
+	require.NoError(t, err)
 	// Initialize members of the cluster get option struct and the struct itself
 	testStreams, _, _, _ := genericclioptions.NewTestIOStreams()
-	cmdFactory := cmdutil.NewFactory(genericclioptions.NewConfigFlags(true))
 
 	tests := []struct {
 		name                  string
 		namespace             string
 		expectedCluster       string
+		expectedNamespace     string
 		args                  []string
 		expectedAllNamespaces bool
 	}{
@@ -44,6 +80,7 @@ func TestRayClusterGetComplete(t *testing.T) {
 			args:                  []string{},
 			expectedAllNamespaces: false,
 			expectedCluster:       "",
+			expectedNamespace:     "test-namespace",
 		},
 		{
 			name:                  "namespace set, args not set",
@@ -51,6 +88,7 @@ func TestRayClusterGetComplete(t *testing.T) {
 			args:                  []string{},
 			expectedAllNamespaces: false,
 			expectedCluster:       "",
+			expectedNamespace:     "foo",
 		},
 		{
 			name:                  "namespace not set, args set",
@@ -58,6 +96,7 @@ func TestRayClusterGetComplete(t *testing.T) {
 			args:                  []string{"foo", "bar"},
 			expectedAllNamespaces: false,
 			expectedCluster:       "foo",
+			expectedNamespace:     "test-namespace",
 		},
 		{
 			name:                  "both namespace and args set",
@@ -65,20 +104,27 @@ func TestRayClusterGetComplete(t *testing.T) {
 			args:                  []string{"bar", "qux"},
 			expectedAllNamespaces: false,
 			expectedCluster:       "bar",
+			expectedNamespace:     "foo",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			configFlags := &genericclioptions.ConfigFlags{KubeConfig: &kubeConfigWithCurrentContext}
+			cmdFactory := cmdutil.NewFactory(configFlags)
 			fakeClusterGetOptions := NewGetClusterOptions(cmdFactory, testStreams)
 
+			if tc.namespace != "" {
+				configFlags.Namespace = &tc.namespace
+			}
 			cmd := &cobra.Command{}
-			cmd.Flags().StringVarP(&fakeClusterGetOptions.namespace, "namespace", "n", tc.namespace, "")
-			err := fakeClusterGetOptions.Complete(tc.args, cmd)
+			configFlags.AddFlags(cmd.Flags())
+			err := fakeClusterGetOptions.Complete(tc.args)
 			require.NoError(t, err)
 
 			assert.Equal(t, tc.expectedAllNamespaces, fakeClusterGetOptions.allNamespaces)
 			assert.Equal(t, tc.expectedCluster, fakeClusterGetOptions.cluster)
+			assert.Equal(t, tc.expectedNamespace, fakeClusterGetOptions.namespace)
 		})
 	}
 }

@@ -33,7 +33,7 @@ type OIDCCredentialsProvider struct {
 }
 
 // GetCredentials implements credentials.CredentialsProvider interface.
-func (p *OIDCCredentialsProvider) GetCredentials(ctx context.Context) (credentials.Credentials, error) {
+func (p *OIDCCredentialsProvider) GetCredentials(_ context.Context) (credentials.Credentials, error) {
 	cred, err := p.provider.GetCredentials()
 	if err != nil {
 		return credentials.Credentials{}, err

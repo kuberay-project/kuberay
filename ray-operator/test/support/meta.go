@@ -12,5 +12,5 @@ func (l labelSelector) applyTo(options *metav1.ListOptions) error {
 }
 
 func LabelSelector(selector string) Option[*metav1.ListOptions] {
-	return Ptr(labelSelector(selector))
+	return new(labelSelector(selector))
 }

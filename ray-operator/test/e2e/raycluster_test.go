@@ -9,7 +9,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -63,7 +62,7 @@ func TestRayClusterManagedBy(t *testing.T) {
 		rayCluster, err = test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), rayClusterAC, TestApplyOptions)
 		g.Expect(err).To(HaveOccurred())
 		g.Eventually(RayCluster(test, *rayClusterAC.Namespace, *rayClusterAC.Name)).
-			Should(WithTransform(RayClusterManagedBy, Equal(ptr.To("kueue.x-k8s.io/multikueue"))))
+			Should(WithTransform(RayClusterManagedBy, Equal(new("kueue.x-k8s.io/multikueue"))))
 	})
 
 	test.T().Run("Failed creation of cluster, managed by external non supported controller", func(t *testing.T) {
@@ -185,21 +184,18 @@ func TestRayClusterScalingDown(t *testing.T) {
 	rayCluster, err = test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), rayClusterAC, TestApplyOptions)
 	g.Expect(err).NotTo(HaveOccurred(), "Failed to scale down RayCluster")
 
-	time.Sleep(5 * time.Second)
+	// Wait until the scale-down marks exactly one worker pod for deletion.
+	g.Eventually(WorkerPods(test, rayCluster), TestTimeoutShort).Should(
+		ConsistOf(
+			HaveField("DeletionTimestamp", BeNil()),
+			HaveField("DeletionTimestamp", Not(BeNil())),
+		),
+		"Should have only one worker pod having deletionTimestamp",
+	)
 
 	headPod, err = GetHeadPod(test, rayCluster)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(headPod.DeletionTimestamp).To(BeNil(), "Head pod should not have deletionTimestamp")
-
-	workerPods, err = GetWorkerPods(test, rayCluster)
-	g.Expect(err).NotTo(HaveOccurred())
-	deletingCount := 0
-	for _, pod := range workerPods {
-		if pod.DeletionTimestamp != nil {
-			deletingCount++
-		}
-	}
-	g.Expect(deletingCount).To(Equal(1), "Should have only one worker pod having deletionTimestamp")
 
 	LogWithTimestamp(test.T(), "Removing finalizers from pods")
 	for _, pod := range allPods {

@@ -1,0 +1,74 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-sandbox
+spec:
+  rayVersion: '2.58.0'
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: '0.0.0.0'
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.58.0-py312
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            seccompProfile:
+              type: Unconfined
+            appArmorProfile:
+              type: Unconfined
+          # A simple postStart hook to install gVisor
+          # In production, runsc should be included in the image
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                - /bin/sh
+                - -c
+                - |
+                  ARCH=$(uname -m)
+                  sudo wget -O /usr/local/bin/runsc "https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}/runsc"
+                  sudo chmod +x /usr/local/bin/runsc
+          resources:
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+  workerGroupSpecs:
+  - groupName: worker-group
+    replicas: 2
+    minReplicas: 1
+    maxReplicas: 5
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.58.0-py312
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            seccompProfile:
+              type: Unconfined
+            appArmorProfile:
+              type: Unconfined
+          # A simple postStart hook to install gVisor
+          # In production, runsc should be included in the image
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                - /bin/sh
+                - -c
+                - |
+                  ARCH=$(uname -m)
+                  sudo wget -O /usr/local/bin/runsc "https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}/runsc"
+                  sudo chmod +x /usr/local/bin/runsc
+          resources:
+            limits:
+              memory: "12Gi"
+            requests:
+              cpu: "4"
+              memory: "12Gi"

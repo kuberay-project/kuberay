@@ -1,0 +1,43 @@
+# RBAC for the Ray workers running the suspend/resume demo.
+#
+# Compared to the base agent-sandbox example, the SDK snapshot extension
+# additionally needs to:
+#   - patch Sandboxes (spec.operatingMode drives suspend/resume),
+#   - read Pods (to wait for pod termination / readiness across the cycle),
+#   - manage podsnapshot.gke.io resources (manual triggers + snapshot listing
+#     and cleanup).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ray-sandbox-snapshot-role
+  namespace: default
+rules:
+- apiGroups: ["extensions.agents.x-k8s.io"]
+  resources: ["sandboxclaims"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["agents.x-k8s.io"]
+  resources: ["sandboxes"]
+  verbs: ["get", "list", "watch", "patch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["podsnapshot.gke.io"]
+  resources: ["podsnapshotmanualtriggers"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+- apiGroups: ["podsnapshot.gke.io"]
+  resources: ["podsnapshots"]
+  verbs: ["get", "list", "watch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ray-sandbox-snapshot-binding
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: default
+roleRef:
+  kind: Role
+  name: ray-sandbox-snapshot-role
+  apiGroup: rbac.authorization.k8s.io

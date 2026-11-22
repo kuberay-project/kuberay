@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM golang:1.25-bookworm AS builder
+FROM golang:1.26-bookworm AS builder
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
@@ -17,6 +17,7 @@ COPY pkg/features pkg/features
 COPY pkg/utils pkg/utils
 COPY pkg/webhooks pkg/webhooks
 COPY rayjob-submitter/ rayjob-submitter/
+COPY internal/ internal/
 
 # Build
 USER root

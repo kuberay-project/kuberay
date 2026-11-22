@@ -6,7 +6,7 @@ $(LOCALBIN):
 REPO_ROOT := $(shell dirname ${PWD})
 REPO_ROOT_BIN := $(REPO_ROOT)/bin
 GOLANGCI_LINT ?= $(REPO_ROOT_BIN)/golangci-lint
-GOLANGCI_LINT_VERSION ?= v2.7.2
+GOLANGCI_LINT_VERSION ?= v2.11.4
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -34,7 +34,7 @@ GOVERSION := $(shell go env GOVERSION)
 export GOTOOLCHAIN := $(GOVERSION)+auto
 
 test: WHAT ?= $(shell go list ./... | grep -v /test/)
-test: ENVTEST_K8S_VERSION ?= 1.34.1
+test: ENVTEST_K8S_VERSION ?= 1.37.0
 test: envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -v $(WHAT) -coverprofile cover.out
 
@@ -43,7 +43,7 @@ test: envtest ## Run tests.
 ENVTEST = $(LOCALBIN)/setup-envtest
 $(ENVTEST): $(LOCALBIN)
 envtest: $(ENVTEST) ## Download envtest locally if necessary.
-	test -s $(ENVTEST) || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.23
+	test -s $(ENVTEST) || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.25
 
 .PHONY: clean
 clean:

@@ -16,15 +16,15 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v6
         with:
           # Use the same go version with build job
-          go-version: v1.25
+          go-version: v1.26
 
       - name: Check golang version
         working-directory: ./ray-operator
@@ -43,15 +43,15 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v6
         with:
           # Use the same go version with build job
-          go-version: v1.25
+          go-version: v1.26
 
       - name: Check golang version
         working-directory: ./ray-operator
@@ -67,15 +67,15 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v6
         with:
           # Use the same go version with build job
-          go-version: v1.25
+          go-version: v1.26
 
       - name: Update CRD/RBAC YAML files
         working-directory: ./ray-operator
@@ -83,7 +83,7 @@ jobs:
 
       - name: Verify Changed files
         id: verify-changed-files
-        uses: tj-actions/verify-changed-files@v17
+        uses: tj-actions/verify-changed-files@v20
         with:
           files: |
             ./config/crd/bases/*.yaml
@@ -91,7 +91,7 @@ jobs:
 
       - name: Check changed files
         if: steps.verify-changed-files.outputs.files_changed == 'true'
-        uses: actions/github-script@v3
+        uses: actions/github-script@v9
         with:
           script: |
             core.setFailed('Please run \"make manifests\" to synchronize CRD and RBAC!')
@@ -102,7 +102,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -113,14 +113,14 @@ jobs:
 
       - name: Verify Changed files
         id: verify-changed-files
-        uses: tj-actions/verify-changed-files@v17
+        uses: tj-actions/verify-changed-files@v20
         with:
           files: |
             ./helm-chart/kuberay-operator/crds/*.yaml
 
       - name: Check changed files
         if: steps.verify-changed-files.outputs.files_changed == 'true'
-        uses: actions/github-script@v3
+        uses: actions/github-script@v9
         with:
           script: |
             core.setFailed('Please run \"make sync\" to synchronize CRDs!')
@@ -131,16 +131,16 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up Helm
-        uses: azure/setup-helm@v3.3
+        uses: azure/setup-helm@v5.0.0
         with:
           version: v3.9.4
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v6
         with:
           python-version: 3.7
 

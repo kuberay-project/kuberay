@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	clientFake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -48,16 +48,16 @@ var _ = Context("RayJob with suspend operation", func() {
 			Expect(err).NotTo(HaveOccurred(), "failed to create test RayJob resource")
 		})
 
-		It("should have deployment status suspended", func() {
-			Eventually(
-				getRayJobDeploymentStatus(ctx, rayJob),
-				time.Second*5, time.Millisecond*500).Should(Equal(rayv1.JobDeploymentStatusSuspended))
-		})
-
-		It("should NOT create a raycluster object", func() {
+		It("should reach Suspended status without ever setting RayClusterName", func() {
 			Consistently(
 				getRayClusterNameForRayJob(ctx, rayJob),
 				time.Second*3, time.Millisecond*500).Should(BeEmpty())
+
+			Eventually(
+				getRayJobDeploymentStatus(ctx, rayJob),
+				time.Second*5, time.Millisecond*500).Should(Equal(rayv1.JobDeploymentStatusSuspended))
+
+			Expect(getRayClusterNameForRayJob(ctx, rayJob)()).To(BeEmpty())
 		})
 
 		It("should unsuspend a rayjob object", func() {
@@ -216,7 +216,7 @@ var _ = Context("RayJob with suspend operation", func() {
 			}
 
 			fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(rayJob).WithStatusSubresource(rayJob).Build()
-			recorder := record.NewFakeRecorder(100)
+			recorder := events.NewFakeRecorder(100)
 
 			reconciler = &RayJobReconciler{
 				Client:   fakeClient,
@@ -267,7 +267,7 @@ var _ = Context("RayJob with suspend operation", func() {
 			}
 
 			client := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(rayJob).WithStatusSubresource(rayJob).Build()
-			recorder := record.NewFakeRecorder(100)
+			recorder := events.NewFakeRecorder(100)
 
 			reconciler = &RayJobReconciler{
 				Client:   client,

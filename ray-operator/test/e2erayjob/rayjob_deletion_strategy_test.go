@@ -9,9 +9,12 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	rayv1ac "github.com/ray-project/kuberay/ray-operator/pkg/client/applyconfiguration/ray/v1"
 	. "github.com/ray-project/kuberay/ray-operator/test/support"
 )
+
+const activeDeadlineAfterRunningSeconds int32 = 1
 
 func TestDeletionStrategy(t *testing.T) {
 	// Note: This test suite requires the RayJobDeletionPolicy feature gate to be enabled
@@ -30,6 +33,10 @@ func TestDeletionStrategy(t *testing.T) {
 		{
 			name:     "DeletionRules with DeleteSelf policy should delete RayJob and cluster",
 			testFunc: testDeletionRulesWithDeleteSelfPolicy,
+		},
+		{
+			name:     "DeletionRules with DeleteSelf policy should preserve an existing cluster",
+			testFunc: testDeletionRulesWithDeleteSelfAndClusterSelector,
 		},
 		{
 			name:     "DeletionRules with DeleteNone policy should preserve all resources",
@@ -67,6 +74,58 @@ func TestDeletionStrategy(t *testing.T) {
 			tt.testFunc(test, g, namespace, cm)
 		})
 	}
+}
+
+func testDeletionRulesWithDeleteSelfAndClusterSelector(test Test, g *WithT, namespace *corev1.Namespace, cm *corev1.ConfigMap) {
+	clusterAC := rayv1ac.RayCluster("shared-cluster", namespace.Name).
+		WithSpec(NewRayClusterSpec(MountConfigMap[rayv1ac.RayClusterSpecApplyConfiguration](cm, "/home/ray/jobs")))
+	cluster, err := test.Client().Ray().RayV1().RayClusters(namespace.Name).Apply(test.Ctx(), clusterAC, TestApplyOptions)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Eventually(RayCluster(test, namespace.Name, cluster.Name), TestTimeoutMedium).
+		Should(WithTransform(RayClusterState, Equal(rayv1.Ready)))
+	cluster, err = GetRayCluster(test, namespace.Name, cluster.Name)
+	g.Expect(err).NotTo(HaveOccurred())
+	headPod, err := GetHeadPod(test, cluster)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(headPod).NotTo(BeNil())
+	workerPods, err := GetWorkerPods(test, cluster)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(workerPods).To(HaveLen(1))
+
+	jobAC := rayv1ac.RayJob("delete-self-shared", namespace.Name).
+		WithSpec(rayv1ac.RayJobSpec().
+			WithClusterSelector(map[string]string{utils.RayJobClusterSelectorKey: cluster.Name}).
+			WithEntrypoint("python /home/ray/jobs/counter.py").
+			WithRuntimeEnvYAML("env_vars:\n  counter_name: test_counter\n").
+			WithDeletionStrategy(rayv1ac.DeletionStrategy().WithDeletionRules(
+				rayv1ac.DeletionRule().WithPolicy(rayv1.DeleteSelf).
+					WithCondition(rayv1ac.DeletionCondition().WithJobStatus(rayv1.JobStatusSucceeded).WithTTLSeconds(10)))).
+			WithSubmitterPodTemplate(JobSubmitterPodTemplateApplyConfiguration()))
+	job := applyRayJobAndWaitForCompletion(test, g, namespace, jobAC)
+	g.Eventually(func() error {
+		_, err := GetRayJob(test, namespace.Name, job.Name)
+		return err
+	}, TestTimeoutMedium).Should(WithTransform(k8serrors.IsNotFound, BeTrue()))
+
+	// The shared cluster and its pods must survive RayJob cleanup.
+	g.Consistently(func(gg Gomega) {
+		gotCluster, err := GetRayCluster(test, namespace.Name, cluster.Name)
+		gg.Expect(err).NotTo(HaveOccurred())
+		gg.Expect(gotCluster.UID).To(Equal(cluster.UID))
+		gg.Expect(gotCluster.Spec).To(Equal(cluster.Spec))
+		gg.Expect(gotCluster.DeletionTimestamp.IsZero()).To(BeTrue())
+		gg.Expect(gotCluster.OwnerReferences).To(BeEmpty())
+		gotHeadPod, err := GetHeadPod(test, gotCluster)
+		gg.Expect(err).NotTo(HaveOccurred())
+		gg.Expect(gotHeadPod).NotTo(BeNil())
+		gg.Expect(gotHeadPod.UID).To(Equal(headPod.UID))
+		gg.Expect(gotHeadPod.DeletionTimestamp.IsZero()).To(BeTrue())
+		gotWorkerPods, err := GetWorkerPods(test, gotCluster)
+		gg.Expect(err).NotTo(HaveOccurred())
+		gg.Expect(gotWorkerPods).To(HaveLen(1))
+		gg.Expect(gotWorkerPods[0].UID).To(Equal(workerPods[0].UID))
+		gg.Expect(gotWorkerPods[0].DeletionTimestamp.IsZero()).To(BeTrue())
+	}, 10*time.Second, time.Second).Should(Succeed())
 }
 
 func testDeletionRulesWithDeleteWorkersPolicy(test Test, g *WithT, namespace *corev1.Namespace, cm *corev1.ConfigMap) {
@@ -143,7 +202,7 @@ env_vars:
 
 	// Verify cluster still exists (head pod should remain)
 	LogWithTimestamp(test.T(), "Verifying cluster still exists (head pod should remain)...")
-	g.Consistently(RayCluster(test, namespace.Name, rayClusterName), 10*time.Second).
+	g.Consistently(RayCluster(test, namespace.Name, rayClusterName), 10*time.Second, 1*time.Second).
 		Should(WithTransform(RayClusterState, Equal(rayv1.Ready)))
 
 	// Verify head pod still exists
@@ -425,12 +484,11 @@ env_vars:
 }
 
 func testDeletionRulesWithJobDeploymentStatusFailedAndDeleteWorkersPolicy(test Test, g *WithT, namespace *corev1.Namespace, cm *corev1.ConfigMap) {
-	// Create a RayJob with DeleteWorkers policy, short activeDeadlineSeconds, and short TTL for faster testing.
+	// Create a RayJob with DeleteWorkers policy and short TTL for faster testing.
 	rayJobAC := rayv1ac.RayJob("delete-workers-after-jobdeploymentstatus-failed", namespace.Name).
 		WithSpec(rayv1ac.RayJobSpec().
 			WithRayClusterSpec(NewRayClusterSpec(MountConfigMap[rayv1ac.RayClusterSpecApplyConfiguration](cm, "/home/ray/jobs"))).
 			WithEntrypoint("python /home/ray/jobs/long_running.py").
-			WithActiveDeadlineSeconds(45).       // Short deadline for failing the JobDeploymentStatus, but making sure the cluster is running
 			WithShutdownAfterJobFinishes(false). // Required when using DeletionStrategy
 			WithDeletionStrategy(rayv1ac.DeletionStrategy().
 				WithDeletionRules(
@@ -495,7 +553,7 @@ func testDeletionRulesWithJobDeploymentStatusFailedAndDeleteWorkersPolicy(test T
 
 	// Verify cluster still exists (head pod should remain).
 	LogWithTimestamp(test.T(), "Verifying cluster still exists (head pod should remain)...")
-	g.Consistently(RayCluster(test, namespace.Name, rayClusterName), 10*time.Second).
+	g.Consistently(RayCluster(test, namespace.Name, rayClusterName), 10*time.Second, 1*time.Second).
 		Should(WithTransform(RayClusterState, Equal(rayv1.Ready)))
 
 	// Verify head pod still exists.
@@ -514,12 +572,11 @@ func testDeletionRulesWithJobDeploymentStatusFailedAndDeleteWorkersPolicy(test T
 }
 
 func testDeletionRulesWithJobDeploymentStatusFailedAndDeleteClusterPolicy(test Test, g *WithT, namespace *corev1.Namespace, cm *corev1.ConfigMap) {
-	// Create a RayJob with DeleteCluster policy, short activeDeadlineSeconds, and short TTL for faster testing.
+	// Create a RayJob with DeleteCluster policy and short TTL for faster testing.
 	rayJobAC := rayv1ac.RayJob("delete-cluster-after-jobdeploymentstatus-failed", namespace.Name).
 		WithSpec(rayv1ac.RayJobSpec().
 			WithRayClusterSpec(NewRayClusterSpec(MountConfigMap[rayv1ac.RayClusterSpecApplyConfiguration](cm, "/home/ray/jobs"))).
 			WithEntrypoint("python /home/ray/jobs/long_running.py").
-			WithActiveDeadlineSeconds(45).       // Short deadline for failing the JobDeploymentStatus, but making sure the cluster is running
 			WithShutdownAfterJobFinishes(false). // Required when using DeletionStrategy
 			WithDeletionStrategy(rayv1ac.DeletionStrategy().
 				WithDeletionRules(
@@ -559,12 +616,11 @@ func testDeletionRulesWithJobDeploymentStatusFailedAndDeleteClusterPolicy(test T
 }
 
 func testDeletionRulesWithJobDeploymentStatusFailedAndDeleteSelfPolicy(test Test, g *WithT, namespace *corev1.Namespace, cm *corev1.ConfigMap) {
-	// Create a RayJob with DeleteSelf policy, short activeDeadlineSeconds, and short TTL for faster testing.
+	// Create a RayJob with DeleteSelf policy and short TTL for faster testing.
 	rayJobAC := rayv1ac.RayJob("delete-self-after-jobdeploymentstatus-failed", namespace.Name).
 		WithSpec(rayv1ac.RayJobSpec().
 			WithRayClusterSpec(NewRayClusterSpec(MountConfigMap[rayv1ac.RayClusterSpecApplyConfiguration](cm, "/home/ray/jobs"))).
 			WithEntrypoint("python /home/ray/jobs/long_running.py").
-			WithActiveDeadlineSeconds(45).       // Short deadline for failing the JobDeploymentStatus, but making sure the cluster is running
 			WithShutdownAfterJobFinishes(false). // Required when using DeletionStrategy
 			WithDeletionStrategy(rayv1ac.DeletionStrategy().
 				WithDeletionRules(
@@ -601,12 +657,11 @@ func testDeletionRulesWithJobDeploymentStatusFailedAndDeleteSelfPolicy(test Test
 }
 
 func testDeletionRulesWithJobDeploymentStatusFailedAndDeleteNonePolicy(test Test, g *WithT, namespace *corev1.Namespace, cm *corev1.ConfigMap) {
-	// Create a RayJob with DeleteNone policy, short activeDeadlineSeconds, and short TTL for faster testing.
+	// Create a RayJob with DeleteNone policy and short TTL for faster testing.
 	rayJobAC := rayv1ac.RayJob("delete-none-after-jobdeploymentstatus-failed", namespace.Name).
 		WithSpec(rayv1ac.RayJobSpec().
 			WithRayClusterSpec(NewRayClusterSpec(MountConfigMap[rayv1ac.RayClusterSpecApplyConfiguration](cm, "/home/ray/jobs"))).
 			WithEntrypoint("python /home/ray/jobs/long_running.py").
-			WithActiveDeadlineSeconds(45).       // Short deadline for failing the JobDeploymentStatus, but making sure the cluster is running
 			WithShutdownAfterJobFinishes(false). // Required when using DeletionStrategy
 			WithDeletionStrategy(rayv1ac.DeletionStrategy().
 				WithDeletionRules(
@@ -670,22 +725,32 @@ func applyRayJobAndWaitForCompletion(test Test, g *WithT, namespace *corev1.Name
 	return rayJob
 }
 
-// applyRayJobAndWaitForJobDeploymentStatusFailed applies the ray job and waits for JobDeploymentStatus to become Failed due to activeDeadlineSeconds timeout.
+// applyRayJobAndWaitForJobDeploymentStatusFailed applies the RayJob, waits until it is running, then
+// sets a short activeDeadlineSeconds and waits for JobDeploymentStatus to become Failed due to timeout.
 func applyRayJobAndWaitForJobDeploymentStatusFailed(test Test, g *WithT, namespace *corev1.Namespace, rayJobAC *rayv1ac.RayJobApplyConfiguration) *rayv1.RayJob {
 	rayJob, err := test.Client().Ray().RayV1().RayJobs(namespace.Name).Apply(test.Ctx(), rayJobAC, TestApplyOptions)
 	g.Expect(err).NotTo(HaveOccurred())
 	LogWithTimestamp(test.T(), "Created RayJob %s/%s successfully", rayJob.Namespace, rayJob.Name)
+
+	LogWithTimestamp(test.T(), "Waiting for RayJob %s/%s to become Running before setting activeDeadlineSeconds...", rayJob.Namespace, rayJob.Name)
+	g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
+		Should(SatisfyAll(
+			WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusRunning)),
+			WithTransform(RayJobStatus, Equal(rayv1.JobStatusRunning)),
+		))
+
+	LogWithTimestamp(test.T(), "Setting activeDeadlineSeconds=%d for RayJob %s/%s", activeDeadlineAfterRunningSeconds, rayJob.Namespace, rayJob.Name)
+	rayJobAC.Spec.WithActiveDeadlineSeconds(activeDeadlineAfterRunningSeconds)
+	rayJob, err = test.Client().Ray().RayV1().RayJobs(namespace.Name).Apply(test.Ctx(), rayJobAC, TestApplyOptions)
+	g.Expect(err).NotTo(HaveOccurred())
 
 	LogWithTimestamp(test.T(), "Waiting for JobDeploymentStatus to become Failed and Reason to be DeadlineExceeded...")
 	g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
 		Should(SatisfyAll(
 			WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusFailed)),
 			WithTransform(RayJobReason, Equal(rayv1.DeadlineExceeded)),
+			WithTransform(RayJobStatus, Equal(rayv1.JobStatusRunning)),
 		))
-
-	LogWithTimestamp(test.T(), "Verifying JobStatus is Running...")
-	g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
-		Should(WithTransform(RayJobStatus, Equal(rayv1.JobStatusRunning)))
 
 	return rayJob
 }

@@ -10,7 +10,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	rayv1ac "github.com/ray-project/kuberay/ray-operator/pkg/client/applyconfiguration/ray/v1"
@@ -98,8 +97,8 @@ func TestOldHeadPodFailDuringUpgrade(t *testing.T) {
 							Command: []string{iptables},
 							Args:    []string{"-A", "INPUT", "-p", "tcp", "--dport", "8000", "-j", "DROP"},
 							SecurityContext: &corev1.SecurityContext{
-								Privileged: ptr.To(true),
-								RunAsUser:  ptr.To(int64(0)),
+								Privileged: new(true),
+								RunAsUser:  new(int64(0)),
 							},
 						},
 					},

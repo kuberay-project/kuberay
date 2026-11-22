@@ -88,17 +88,14 @@ func getWorkerGroupValues(ns, cluster, group string) (minReplicas, maxReplicas, 
 		return regexp.MustCompile(`[^0-9]`).ReplaceAllString(strings.TrimSpace(s), "")
 	}
 
-	//nolint:gosec // G204: group parameter is controlled by test code, not user input
 	minOut, err := exec.CommandContext(context.Background(), "kubectl", "get", "raycluster", cluster, "-n", ns,
 		"-o", "jsonpath={.spec.workerGroupSpecs[?(@.groupName==\""+group+"\")].minReplicas}").Output()
 	Expect(err).ToNot(HaveOccurred())
 
-	//nolint:gosec // G204: group parameter is controlled by test code, not user input
 	maxOut, err := exec.CommandContext(context.Background(), "kubectl", "get", "raycluster", cluster, "-n", ns,
 		"-o", "jsonpath={.spec.workerGroupSpecs[?(@.groupName==\""+group+"\")].maxReplicas}").Output()
 	Expect(err).ToNot(HaveOccurred())
 
-	//nolint:gosec // G204: group parameter is controlled by test code, not user input
 	replicasOut, err := exec.CommandContext(context.Background(), "kubectl", "get", "raycluster", cluster, "-n", ns,
 		"-o", "jsonpath={.spec.workerGroupSpecs[?(@.groupName==\""+group+"\")].replicas}").Output()
 	Expect(err).ToNot(HaveOccurred())

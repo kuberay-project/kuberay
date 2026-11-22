@@ -14,6 +14,7 @@ import (
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 	pkgutils "github.com/ray-project/kuberay/ray-operator/pkg/utils"
 )
 
@@ -60,20 +61,24 @@ func getRuntimeEnvJson(rayJobInstance *rayv1.RayJob) (string, error) {
 	return "", nil
 }
 
-// GetMetadataJson returns the JSON string of the metadata for the Ray job.
-func GetMetadataJson(metadata map[string]string, rayVersion string) (string, error) {
-	// Check that the Ray version is at least 2.6.0.
-	// If it is, we can use the --metadata-json flag.
-	// Otherwise, we need to raise an error.
-	constraint, _ := semver.NewConstraint(">= 2.6.0")
-	v, err := semver.NewVersion(rayVersion)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse Ray version: %v: %w", rayVersion, err)
+// getMetadataJSONForSubmitCommand serializes job metadata for `ray job submit --metadata-json`.
+// Ray added --metadata-json in 2.6.0, so the only rejected case is when
+// RayJob.Spec.RayClusterSpec.RayVersion is explicitly set below 2.6.0. If RayClusterSpec is
+// absent (clusterSelector) or RayVersion is unset, we assume the cluster is >= 2.6.0.
+func getMetadataJSONForSubmitCommand(rayJobInstance *rayv1.RayJob, metadata map[string]string) (string, error) {
+	if rayJobInstance.Spec.RayClusterSpec != nil {
+		rv := rayJobInstance.Spec.RayClusterSpec.RayVersion
+		if len(rv) > 0 {
+			constraint, _ := semver.NewConstraint(">= 2.6.0")
+			v, err := semver.NewVersion(rv)
+			if err != nil {
+				return "", fmt.Errorf("failed to parse Ray version: %v: %w", rv, err)
+			}
+			if !constraint.Check(v) {
+				return "", fmt.Errorf("the Ray version must be at least 2.6.0 to use the metadata field")
+			}
+		}
 	}
-	if !constraint.Check(v) {
-		return "", fmt.Errorf("the Ray version must be at least 2.6.0 to use the metadata field")
-	}
-	// Convert the metadata map to a JSON string.
 	metadataBytes, err := json.Marshal(metadata)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal metadata: %v: %w", metadata, err)
@@ -124,26 +129,40 @@ func BuildJobSubmitCommand(rayJobInstance *rayv1.RayJob, submissionMode rayv1.Jo
 	jobSubmitCommand := []string{"ray", "job", "submit", "--address", address}
 	jobFollowCommand := []string{"ray", "job", "logs", "--address", address, "--follow", jobId}
 
+	// Wait until Ray Dashboard GCS is healthy before proceeding.
+	// In SidecarMode the submitter shares the head Pod's network namespace, so we
+	// probe localhost. In K8sJobMode the submitter probes the dashboard URL from
+	// its environment overrides, falling back to the head Service address.
+	var rayDashboardGCSHealthCommand string
 	if submissionMode == rayv1.SidecarMode {
-		// Wait until Ray Dashboard GCS is healthy before proceeding.
-		rayDashboardGCSHealthCommand := fmt.Sprintf(
+		healthURL := fmt.Sprintf("http://localhost:%d/%s", port, utils.RayDashboardGCSHealthPath)
+		rayDashboardGCSHealthCommand = fmt.Sprintf(
 			utils.BasePythonHealthCommand,
-			port,
-			utils.RayDashboardGCSHealthPath,
-			utils.DefaultReadinessProbeFailureThreshold,
+			healthURL,
+			utils.RayDashboardGCSHealthCheckTimeoutSeconds,
 		)
-
-		waitLoop := []string{
-			"until", rayDashboardGCSHealthCommand, ">/dev/null", "2>&1", ";",
-			"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at " + address + " ..."), ";", "sleep", "2", ";", "done", ";",
-		}
-		cmd = append(cmd, waitLoop...)
+	} else {
+		rayDashboardGCSHealthCommand = fmt.Sprintf(
+			utils.K8sJobDashboardHealthCommand,
+			utils.RayDashboardGCSHealthPath,
+			utils.RayDashboardGCSHealthCheckTimeoutSeconds,
+			address,
+		)
 	}
 
-	// In Sidecar mode, we only support RayJob level retry, which means that the submitter retry won't happen,
+	waitLoop := []string{
+		"until", rayDashboardGCSHealthCommand, ">/dev/null", "2>&1", ";",
+		"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at " + address + " ..."), ";", "sleep", "2", ";", "done", ";",
+	}
+	cmd = append(cmd, waitLoop...)
+
+	// In Sidecar mode without SidecarSubmitterRestart feature gate enabled, we only support RayJob level retry, which means that the submitter retry won't happen,
 	// so we won't have to check if the job has been submitted.
-	if submissionMode == rayv1.K8sJobMode {
-		// Only check job status in K8s mode to handle duplicated submission gracefully
+	// In K8sJobMode (submitter Job may retry) or Sidecar mode with SidecarSubmitterRestart feature gate enabled (submitter container may restart on failure).
+	// we check job status before submitting to handle duplicated submission gracefully.
+	needsStatusCheck := submissionMode == rayv1.K8sJobMode || (submissionMode == rayv1.SidecarMode && features.Enabled(features.SidecarSubmitterRestart))
+
+	if needsStatusCheck {
 		cmd = append(cmd, "if", "!")
 		cmd = append(cmd, jobStatusCommand...)
 		cmd = append(cmd, ";", "then")
@@ -151,7 +170,7 @@ func BuildJobSubmitCommand(rayJobInstance *rayv1.RayJob, submissionMode rayv1.Jo
 
 	cmd = append(cmd, jobSubmitCommand...)
 
-	if submissionMode == rayv1.K8sJobMode {
+	if needsStatusCheck {
 		cmd = append(cmd, "--no-wait")
 	}
 
@@ -163,8 +182,8 @@ func BuildJobSubmitCommand(rayJobInstance *rayv1.RayJob, submissionMode rayv1.Jo
 		cmd = append(cmd, "--runtime-env-json", strconv.Quote(runtimeEnvJson))
 	}
 
-	if len(metadata) > 0 && rayJobInstance.Spec.RayClusterSpec != nil {
-		metadataJson, err := GetMetadataJson(metadata, rayJobInstance.Spec.RayClusterSpec.RayVersion)
+	if len(metadata) > 0 {
+		metadataJson, err := getMetadataJSONForSubmitCommand(rayJobInstance, metadata)
 		if err != nil {
 			return nil, err
 		}
@@ -189,7 +208,7 @@ func BuildJobSubmitCommand(rayJobInstance *rayv1.RayJob, submissionMode rayv1.Jo
 
 	// "--" is used to separate the entrypoint from the Ray Job CLI command and its arguments.
 	cmd = append(cmd, "--", entrypoint, ";")
-	if submissionMode == rayv1.K8sJobMode {
+	if needsStatusCheck {
 		cmd = append(cmd, "fi", ";")
 		cmd = append(cmd, jobFollowCommand...)
 	}

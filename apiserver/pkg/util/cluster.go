@@ -112,9 +112,9 @@ func buildRayClusterSpec(imageVersion string, envs *api.EnvironmentVariables, cl
 
 		workerNodeSpec := rayv1api.WorkerGroupSpec{
 			GroupName:      spec.GroupName,
-			MinReplicas:    intPointer(minReplicas),
-			MaxReplicas:    intPointer(maxReplicas),
-			Replicas:       intPointer(spec.Replicas),
+			MinReplicas:    new(minReplicas),
+			MaxReplicas:    new(maxReplicas),
+			Replicas:       new(spec.Replicas),
 			RayStartParams: spec.RayStartParams,
 			Template:       *workerPodTemplate,
 		}
@@ -819,11 +819,6 @@ func buildSecurityContext(securityCtx *api.SecurityContext) *corev1.SecurityCont
 		}
 	}
 	return result
-}
-
-// Init pointer
-func intPointer(value int32) *int32 {
-	return &value
 }
 
 // Get converts this object to a rayv1api.Workflow.

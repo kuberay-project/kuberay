@@ -1,16 +1,17 @@
 package runtime
 
 import (
-	"fmt"
 	"net/http"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/ray-project/kuberay/historyserver/pkg/collector/logcollector/runtime/logcollector"
 	"github.com/ray-project/kuberay/historyserver/pkg/collector/types"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage"
+	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 )
 
@@ -32,6 +33,8 @@ func NewCollector(config *types.RayCollectorConfig, writer storage.StorageWriter
 		AdditionalEndpoints:  config.AdditionalEndpoints,
 		EndpointPollInterval: config.EndpointPollInterval,
 
+		LogUploadInterval: config.LogUploadInterval,
+
 		HttpClient: &http.Client{
 			Transport: &http.Transport{
 				MaxIdleConns:        100,              // Max idle connections
@@ -42,11 +45,22 @@ func NewCollector(config *types.RayCollectorConfig, writer storage.StorageWriter
 		Writer:       writer,
 		ShutdownChan: make(chan struct{}),
 	}
+
+	handler.OwnerKind = config.OwnerKind
+	handler.OwnerName = config.OwnerName
+	if handler.OwnerKind != "" && handler.OwnerName != "" {
+		logrus.Infof("The associated owner resource is: %s/%s", handler.OwnerKind, handler.OwnerName)
+	}
+
 	logDir := strings.TrimSpace(filepath.Join(config.SessionDir, utils.RAY_SESSIONDIR_LOGDIR_NAME))
 	handler.LogDir = logDir
-	// clusterRootDir uses flat key format (name_id) for S3/OSS performance optimization.
-	// See utils.connector for the design rationale.
-	clusterRootDir := fmt.Sprintf("%s/", path.Clean(path.Join(handler.RootDir, utils.AppendRayClusterNameNamespace(handler.RayClusterName, handler.RayClusterNamespace))))
+	clusterInfo := utils.ClusterInfo{
+		Name:      config.RayClusterName,
+		OwnerKind: config.OwnerKind,
+		OwnerName: config.OwnerName,
+		Namespace: config.RayClusterNamespace,
+	}
+	clusterRootDir := clusterlogs.Prefix(handler.RootDir, clusterInfo)
 	handler.ClusterDir = clusterRootDir
 
 	return &handler

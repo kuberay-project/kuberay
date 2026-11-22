@@ -2,6 +2,7 @@ package ray
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	clocktesting "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	clientFake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -30,16 +31,18 @@ func rayCronJobTemplate(name string, namespace string, schedule string) *rayv1.R
 		},
 		Spec: rayv1.RayCronJobSpec{
 			Schedule: schedule,
-			JobTemplate: rayv1.RayJobSpec{
-				Entrypoint: "python test.py",
-				RayClusterSpec: &rayv1.RayClusterSpec{
-					HeadGroupSpec: rayv1.HeadGroupSpec{
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
-										Name:  "ray-head",
-										Image: "rayproject/ray:2.9.0",
+			JobTemplate: rayv1.RayJobTemplateSpec{
+				Spec: rayv1.RayJobSpec{
+					Entrypoint: "python test.py",
+					RayClusterSpec: &rayv1.RayClusterSpec{
+						HeadGroupSpec: rayv1.HeadGroupSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{
+											Name:  "ray-head",
+											Image: "rayproject/ray:2.52.0",
+										},
 									},
 								},
 							},
@@ -71,7 +74,7 @@ func TestRayCronJobReconcile_InvalidSchedule(t *testing.T) {
 		Build()
 
 	// Create fake event recorder with a channel to capture events
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := events.NewFakeRecorder(10)
 
 	// Create reconciler
 	reconciler := &RayCronJobReconciler{
@@ -108,10 +111,14 @@ func TestRayCronJobReconcile_FirstSchedule(t *testing.T) {
 
 	// Set up test parameters
 	cronSchedule := "*/5 * * * *" // Every 5 minutes
-	fakeCurrTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	// creationTime=00:00, fakeCurrTime=00:05:30; scheduleTime=Next(00:00)=00:05 ≤ now -> job created
+	// nextScheduleTime=Next(00:05)=00:10, requeueAt=00:10-00:05:30=4m30s (positive)
+	fakeCurrTime := time.Date(2024, 1, 1, 0, 5, 30, 0, time.UTC)
+	creationTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	// Create valid RayCronJob
 	rayCronJob := rayCronJobTemplate("test-cronjob", "default", cronSchedule)
+	rayCronJob.CreationTimestamp = metav1.NewTime(creationTime)
 
 	// Create scheme and add types
 	scheme := runtime.NewScheme()
@@ -134,7 +141,7 @@ func TestRayCronJobReconcile_FirstSchedule(t *testing.T) {
 	reconciler := &RayCronJobReconciler{
 		Client:   fakeClient,
 		Scheme:   scheme,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		clock:    fakeClock,
 	}
 
@@ -150,17 +157,18 @@ func TestRayCronJobReconcile_FirstSchedule(t *testing.T) {
 	require.NoError(t, err)
 	assert.Positive(t, result.RequeueAfter, "Should requeue for next schedule")
 
-	// Parse the cron schedule to get the expected next schedule time
-	schedule, err := cron.ParseStandard(cronSchedule)
+	// scheduleTime = Next(creationTime) = 00:05; nextScheduleTime = Next(scheduleTime) = 00:10
+	parsedSchedule, err := cron.ParseStandard(cronSchedule)
 	require.NoError(t, err, "Test cron schedule should be valid")
-	expectedNextSchedule := schedule.Next(fakeCurrTime)
+	expectedScheduleTime := parsedSchedule.Next(creationTime)
+	expectedNextSchedule := parsedSchedule.Next(expectedScheduleTime)
 	expectedRequeueAfter := expectedNextSchedule.Sub(fakeCurrTime)
 
-	// Verify the requeue time matches the cron schedule
+	// Verify the requeue time is Next(scheduleTime) - now, keeping ticks aligned
 	assert.Equal(t, expectedRequeueAfter, result.RequeueAfter,
-		"RequeueAfter should match the time until next schedule based on cron expression")
+		"RequeueAfter should be Next(scheduleTime) - now so the controller wakes at the next tick boundary")
 
-	// Check that LastScheduleTime was set to current time
+	// Check that LastScheduleTime was set to the scheduleTime
 	updatedCronJob := &rayv1.RayCronJob{}
 	err = fakeClient.Get(ctx, types.NamespacedName{
 		Name:      "test-cronjob",
@@ -168,9 +176,9 @@ func TestRayCronJobReconcile_FirstSchedule(t *testing.T) {
 	}, updatedCronJob)
 	require.NoError(t, err)
 	assert.NotNil(t, updatedCronJob.Status.LastScheduleTime)
-	assert.True(t, fakeCurrTime.Equal(updatedCronJob.Status.LastScheduleTime.Time),
-		"LastScheduleTime should be set to current time. Expected: %v, Got: %v",
-		fakeCurrTime, updatedCronJob.Status.LastScheduleTime.Time)
+	assert.True(t, expectedScheduleTime.Equal(updatedCronJob.Status.LastScheduleTime.Time),
+		"LastScheduleTime should be set to the scheduleTime. Expected: %v, Got: %v",
+		expectedScheduleTime, updatedCronJob.Status.LastScheduleTime.Time)
 }
 
 func TestRayCronJobReconcile_CreateRayJob(t *testing.T) {
@@ -178,7 +186,9 @@ func TestRayCronJobReconcile_CreateRayJob(t *testing.T) {
 
 	// Set up test parameters
 	cronSchedule := "*/5 * * * *" // Every 5 minutes
-	fakeCurrTime := time.Date(2024, 1, 1, 0, 10, 0, 0, time.UTC)
+	// lastScheduleTime=00:00, now=00:05:30; scheduleTime=Next(00:00)=00:05 ≤ now -> job created
+	// nextScheduleTime=Next(00:05)=00:10, requeueAt=00:10-00:05:30=4m30s (positive)
+	fakeCurrTime := time.Date(2024, 1, 1, 0, 5, 30, 0, time.UTC)
 	lastScheduleTime := metav1.NewTime(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
 
 	rayCronJob := rayCronJobTemplate("test-cronjob", "default", cronSchedule)
@@ -207,7 +217,7 @@ func TestRayCronJobReconcile_CreateRayJob(t *testing.T) {
 	reconciler := &RayCronJobReconciler{
 		Client:   fakeClient,
 		Scheme:   scheme,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		clock:    fakeClock,
 	}
 
@@ -223,15 +233,16 @@ func TestRayCronJobReconcile_CreateRayJob(t *testing.T) {
 	require.NoError(t, err)
 	assert.Positive(t, result.RequeueAfter, "Should requeue for next schedule")
 
-	// Parse the cron schedule to get the expected next schedule time
-	schedule, err := cron.ParseStandard(cronSchedule)
+	// scheduleTime=Next(lastScheduleTime)=00:05; nextScheduleTime=Next(scheduleTime)=00:10
+	parsedSchedule, err := cron.ParseStandard(cronSchedule)
 	require.NoError(t, err, "Test cron schedule should be valid")
-	expectedNextSchedule := schedule.Next(fakeCurrTime)
+	expectedScheduleTime := parsedSchedule.Next(lastScheduleTime.Time)
+	expectedNextSchedule := parsedSchedule.Next(expectedScheduleTime)
 	expectedRequeueAfter := expectedNextSchedule.Sub(fakeCurrTime)
 
-	// Verify the requeue time matches the cron schedule
+	// Verify the requeue time is Next(scheduleTime) - now
 	assert.Equal(t, expectedRequeueAfter, result.RequeueAfter,
-		"RequeueAfter should match the time until next schedule based on cron expression")
+		"RequeueAfter should be Next(scheduleTime) - now")
 
 	// Verify a RayJob was created
 	rayJobList := &rayv1.RayJobList{}
@@ -244,7 +255,7 @@ func TestRayCronJobReconcile_CreateRayJob(t *testing.T) {
 	assert.Equal(t, "test-cronjob", rayJob.Labels["ray.io/cronjob-name"])
 	assert.Equal(t, "python test.py", rayJob.Spec.Entrypoint)
 
-	// Verify LastScheduleTime was updated to current time
+	// Verify LastScheduleTime was updated to scheduleTime
 	updatedCronJob := &rayv1.RayCronJob{}
 	err = fakeClient.Get(ctx, types.NamespacedName{
 		Name:      "test-cronjob",
@@ -252,9 +263,9 @@ func TestRayCronJobReconcile_CreateRayJob(t *testing.T) {
 	}, updatedCronJob)
 	require.NoError(t, err)
 	assert.NotNil(t, updatedCronJob.Status.LastScheduleTime)
-	assert.True(t, fakeCurrTime.Equal(updatedCronJob.Status.LastScheduleTime.Time),
-		"LastScheduleTime should be updated to current time after creating job. Expected: %v, Got: %v",
-		fakeCurrTime, updatedCronJob.Status.LastScheduleTime.Time)
+	assert.True(t, expectedScheduleTime.Equal(updatedCronJob.Status.LastScheduleTime.Time),
+		"LastScheduleTime should be set to scheduleTime. Expected: %v, Got: %v",
+		expectedScheduleTime, updatedCronJob.Status.LastScheduleTime.Time)
 }
 
 func TestRayCronJobReconcile_Suspend(t *testing.T) {
@@ -262,7 +273,7 @@ func TestRayCronJobReconcile_Suspend(t *testing.T) {
 
 	// Create RayCronJob with suspend=true
 	rayCronJob := rayCronJobTemplate("suspended-cronjob", "default", "*/5 * * * *")
-	rayCronJob.Spec.Suspend = true
+	rayCronJob.Spec.Suspend = new(true)
 
 	// Create scheme and add types
 	scheme := runtime.NewScheme()
@@ -278,7 +289,7 @@ func TestRayCronJobReconcile_Suspend(t *testing.T) {
 		Build()
 
 	// Create fake event recorder with a channel to capture events
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := events.NewFakeRecorder(10)
 
 	// Create reconciler
 	reconciler := &RayCronJobReconciler{
@@ -315,6 +326,75 @@ func TestRayCronJobReconcile_Suspend(t *testing.T) {
 	default:
 		t.Error("Expected a suspend event to be recorded, but none was found")
 	}
+}
+
+func TestGetRayJobName_Deterministic(t *testing.T) {
+	tick := time.Date(2024, 1, 1, 0, 5, 0, 0, time.UTC)
+
+	// The suffix is the whole-minute Unix timestamp, so the same name + tick always yields
+	// the same child name. A duplicate Create for the same tick then collides (AlreadyExists)
+	// instead of producing a second RayJob.
+	name := getRayJobName("test-cronjob", tick)
+	assert.Equal(t, fmt.Sprintf("test-cronjob-%d", tick.Unix()/60), name)
+
+	// Different ticks must yield different names so consecutive scheduled runs don't collide.
+	nextTick := time.Date(2024, 1, 1, 0, 10, 0, 0, time.UTC)
+	assert.NotEqual(t, name, getRayJobName("test-cronjob", nextTick))
+}
+
+// TestRayCronJobReconcile_NoDuplicateOnStaleStatus reproduces the race in
+// https://github.com/ray-project/kuberay/issues/4849: the controller reconciles the same
+// scheduled tick twice before the LastScheduleTime status write is observed (informer-cache
+// lag). The second pass reads a stale LastScheduleTime, passes the schedule gate, and must
+// NOT create a second child RayJob for the same tick.
+func TestRayCronJobReconcile_NoDuplicateOnStaleStatus(t *testing.T) {
+	ctx := context.Background()
+
+	cronSchedule := "*/5 * * * *" // Every 5 minutes
+	staleLastSchedule := metav1.NewTime(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
+	// now is just past the 00:05:00 tick so the tick is due in both passes.
+	fakeCurrTime := time.Date(2024, 1, 1, 0, 5, 30, 0, time.UTC)
+
+	rayCronJob := rayCronJobTemplate("test-cronjob", "default", cronSchedule)
+	rayCronJob.Status = rayv1.RayCronJobStatus{LastScheduleTime: &staleLastSchedule}
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(scheme).
+		WithRuntimeObjects(rayCronJob).
+		WithStatusSubresource(rayCronJob).
+		Build()
+
+	reconciler := &RayCronJobReconciler{
+		Client:   fakeClient,
+		Scheme:   scheme,
+		Recorder: &events.FakeRecorder{},
+		clock:    clocktesting.NewFakeClock(fakeCurrTime),
+	}
+
+	request := ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-cronjob", Namespace: "default"}}
+
+	// Pass 1: schedules the tick and (in the real controller) writes LastScheduleTime.
+	_, err := reconciler.Reconcile(ctx, request)
+	require.NoError(t, err)
+
+	// Simulate informer-cache lag: pass 1's status write is not yet observable, so reset
+	// LastScheduleTime back to its stale value before pass 2 reads it.
+	cronJobForReset := &rayv1.RayCronJob{}
+	require.NoError(t, fakeClient.Get(ctx, request.NamespacedName, cronJobForReset))
+	cronJobForReset.Status.LastScheduleTime = &staleLastSchedule
+	require.NoError(t, fakeClient.Status().Update(ctx, cronJobForReset))
+
+	// Pass 2: reads the stale LastScheduleTime and passes the schedule gate again.
+	_, err = reconciler.Reconcile(ctx, request)
+	require.NoError(t, err)
+
+	rayJobList := &rayv1.RayJobList{}
+	require.NoError(t, fakeClient.List(ctx, rayJobList))
+	assert.Len(t, rayJobList.Items, 1, "the same scheduled tick must produce exactly one child RayJob")
 }
 
 func TestUpdateRayCronJobStatus(t *testing.T) {
@@ -391,7 +471,7 @@ func TestUpdateRayCronJobStatus(t *testing.T) {
 			reconciler := &RayCronJobReconciler{
 				Client:   fakeClient,
 				Scheme:   scheme,
-				Recorder: &record.FakeRecorder{},
+				Recorder: &events.FakeRecorder{},
 			}
 
 			// Fetch the current object from the client to get valid resourceVersion
@@ -430,4 +510,67 @@ func TestUpdateRayCronJobStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFormatSchedule(t *testing.T) {
+	tz := func(s string) *string { return &s }
+	tests := []struct {
+		name     string
+		schedule string
+		timeZone *string
+		expected string
+	}{
+		{
+			name:     "no timezone",
+			schedule: "*/5 * * * *",
+			timeZone: nil,
+			expected: "*/5 * * * *",
+		},
+		{
+			name:     "with timezone",
+			schedule: "0 9 * * *",
+			timeZone: tz("Asia/Taipei"),
+			expected: "TZ=Asia/Taipei 0 9 * * *",
+		},
+		{
+			name:     "with UTC timezone",
+			schedule: "0 0 * * *",
+			timeZone: tz("UTC"),
+			expected: "TZ=UTC 0 0 * * *",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cronJob := rayCronJobTemplate("test", "default", tc.schedule)
+			cronJob.Spec.TimeZone = tc.timeZone
+			assert.Equal(t, tc.expected, formatSchedule(cronJob))
+		})
+	}
+}
+
+func TestConstructRayJob_CopiesTemplateMetadata(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(scheme))
+
+	cronJob := rayCronJobTemplate("test-cronjob", "default", "*/5 * * * *")
+	cronJob.Spec.JobTemplate.Labels = map[string]string{
+		"user-label":                 "copied",
+		utils.RayCronJobNameLabelKey: "user-override",
+	}
+	cronJob.Spec.JobTemplate.Annotations = map[string]string{
+		"user-annotation":                      "copied",
+		utils.RayCronJobTimestampAnnotationKey: "user-override",
+	}
+
+	reconciler := &RayCronJobReconciler{Scheme: scheme}
+	scheduledTime := time.Date(2024, 1, 1, 0, 5, 0, 0, time.UTC)
+	rayJob, err := reconciler.constructRayJob(cronJob, scheduledTime)
+	require.NoError(t, err)
+
+	assert.Equal(t, "copied", rayJob.Labels["user-label"])
+	assert.Equal(t, "copied", rayJob.Annotations["user-annotation"])
+	assert.Equal(t, cronJob.Name, rayJob.Labels[utils.RayCronJobNameLabelKey])
+	assert.Equal(t, scheduledTime.UTC().Format(time.RFC3339), rayJob.Annotations[utils.RayCronJobTimestampAnnotationKey])
+	assert.Equal(t, "python test.py", rayJob.Spec.Entrypoint)
 }

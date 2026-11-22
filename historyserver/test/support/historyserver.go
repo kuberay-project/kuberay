@@ -7,12 +7,11 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	. "github.com/ray-project/kuberay/ray-operator/test/support"
@@ -21,6 +20,9 @@ import (
 const (
 	HistoryServerManifestPath = "../../config/historyserver.yaml"
 	HistoryServerPort         = 30080
+
+	// EnableLiveClustersArg turns on access to live RayClusters
+	EnableLiveClustersArg = "--enable-live-clusters=true"
 
 	// Session name constants
 	LiveSessionName = "live"
@@ -38,7 +40,9 @@ const (
       "serve": "rayServeDashboard",
       "serveDeployment": "rayServeDeploymentDashboard",
       "serveLlm": "rayServeLlmDashboard",
+      "serveLlmSglang": "rayServeLlmSglangDashboard",
       "data": "rayDataDashboard",
+      "dataLlm": "rayDataLlmDashboard",
       "train": "rayTrainDashboard"
     },
     "dashboardDatasource": "Prometheus",
@@ -50,18 +54,10 @@ const (
 // HistoryServerEndpoints defines endpoints that should be proxied to Ray Dashboard
 // Ref: https://github.com/ray-project/kuberay/blob/8fc4e2a0e644db392534927b7c03d15e3ab7bdbc/historyserver/pkg/historyserver/router.go#L66-L128
 //
-// Excluded endpoints that require parameters:
-//   - /nodes/{node_id}
-//   - /api/jobs/{job_id}
-//   - /api/v0/logs (requires node_id)
-//   - /logical/actors/{actor_id}
-//
-// Excluded endpoints that are not yet implemented:
-//   - /api/cluster_status
-//   - /api/data/datasets/{job_id}
-//   - /api/jobs
-//   - /api/serve/applications
-//   - /api/v0/placement_groups
+// This generic smoke-test table only includes endpoints that need no dynamic IDs or
+// workload-specific fixtures. Parameterized endpoints (nodes, jobs, logs, and actors)
+// and endpoints with dedicated coverage (cluster status, jobs, Serve, Ray Data, and
+// placement groups) are intentionally excluded.
 var HistoryServerEndpoints = []string{
 	"/nodes?view=summary",
 	"/api/v0/tasks",
@@ -72,12 +68,14 @@ var HistoryServerEndpoints = []string{
 
 // HistoryServerEndpointPrometheusHealth and HistoryServerEndpointGrafanaHealth are standalone constants
 // because it requires some additional dependencies.
-const HistoryServerEndpointPrometheusHealth = "/api/prometheus_health"
-const HistoryServerEndpointGrafanaHealth = "/api/grafana_health"
+const (
+	HistoryServerEndpointPrometheusHealth = "/api/prometheus_health"
+	HistoryServerEndpointGrafanaHealth    = "/api/grafana_health"
+)
 
 // ApplyHistoryServer deploys the HistoryServer and RBAC resources.
 // If manifestPath is empty, the default HistoryServerManifestPath is used.
-func ApplyHistoryServer(test Test, g *WithT, namespace *corev1.Namespace, manifestPath string) {
+func ApplyHistoryServer(test Test, g *WithT, namespace *corev1.Namespace, manifestPath string, extraArgs ...string) {
 	if manifestPath == "" {
 		manifestPath = HistoryServerManifestPath
 	}
@@ -108,6 +106,8 @@ func ApplyHistoryServer(test Test, g *WithT, namespace *corev1.Namespace, manife
 
 	KubectlApplyYAML(test, manifestPath, namespace.Name)
 
+	appendHistoryServerArgs(test, g, namespace, extraArgs)
+
 	LogWithTimestamp(test.T(), "Waiting for HistoryServer to be ready")
 	g.Eventually(func(gg Gomega) {
 		pods, err := test.Client().Core().CoreV1().Pods(namespace.Name).List(
@@ -117,24 +117,73 @@ func ApplyHistoryServer(test Test, g *WithT, namespace *corev1.Namespace, manife
 		)
 		gg.Expect(err).NotTo(HaveOccurred())
 		gg.Expect(pods.Items).NotTo(BeEmpty())
+		// Also require the args, otherwise the pod from before appendHistoryServerArgs can report
+		// ready and let the test run against a History Server without the requested flags.
+		for _, pod := range pods.Items {
+			gg.Expect(podHasArgs(pod, extraArgs)).To(BeTrue(),
+				"pod %s does not carry the requested args %v", pod.Name, extraArgs)
+		}
 		gg.Expect(AllPodsRunningAndReady(pods.Items)).To(BeTrue())
 	}, TestTimeoutMedium).Should(Succeed())
 	LogWithTimestamp(test.T(), "HistoryServer is ready")
 }
 
-// GetHistoryServerURL sets up port-forwarding to the history server and waits for it to be ready.
-func GetHistoryServerURL(test Test, g *WithT, namespace *corev1.Namespace) string {
-	PortForwardService(test, g, namespace.Name, "historyserver", HistoryServerPort)
+// appendHistoryServerArgs appends args to the History Server.
+func appendHistoryServerArgs(test Test, g *WithT, namespace *corev1.Namespace, args []string) {
+	if len(args) == 0 {
+		return
+	}
 
-	// Wait for port-forward to be ready
-	historyServerURL := fmt.Sprintf("http://localhost:%d", HistoryServerPort)
+	ops := make([]map[string]any, 0, len(args))
+	for _, arg := range args {
+		ops = append(ops, map[string]any{
+			"op":    "add",
+			"path":  "/spec/template/spec/containers/0/args/-",
+			"value": arg,
+		})
+	}
+	patch, err := json.Marshal(ops)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	_, err = test.Client().Core().AppsV1().Deployments(namespace.Name).Patch(
+		test.Ctx(), "historyserver-demo", types.JSONPatchType, patch, metav1.PatchOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	LogWithTimestamp(test.T(), "Appended args %v to the HistoryServer Deployment", args)
+}
+
+// podHasArgs reports whether every arg appears on the pod's first container.
+func podHasArgs(pod corev1.Pod, args []string) bool {
+	if len(pod.Spec.Containers) == 0 {
+		return false
+	}
+	present := make(map[string]bool, len(pod.Spec.Containers[0].Args))
+	for _, arg := range pod.Spec.Containers[0].Args {
+		present[arg] = true
+	}
+	for _, arg := range args {
+		if !present[arg] {
+			return false
+		}
+	}
+	return true
+}
+
+// GetHistoryServerURL waits for the history server to be ready and returns its
+// base URL, which routes through the API server's service proxy. Callers must
+// request it with an API-server-authenticated client.
+func GetHistoryServerURL(test Test, g *WithT, namespace *corev1.Namespace) string {
+	cfg := test.Client().Config()
+	historyServerURL := fmt.Sprintf("%s/api/v1/namespaces/%s/services/historyserver:%d/proxy",
+		cfg.Host, namespace.Name, HistoryServerPort)
+
+	client := CreateHTTPClientWithCookieJar(test, g)
 	g.Eventually(func() error {
-		resp, err := http.Get(historyServerURL + "/readz")
+		resp, err := client.Get(historyServerURL + "/readz")
 		if err != nil {
 			return err
 		}
 		defer func() {
-			io.Copy(io.Discard, resp.Body)
+			_, _ = io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}()
 		if resp.StatusCode != http.StatusOK {
@@ -142,14 +191,14 @@ func GetHistoryServerURL(test Test, g *WithT, namespace *corev1.Namespace) strin
 		}
 		return nil
 	}, TestTimeoutMedium).Should(Succeed(), "HistoryServer should be ready")
-	LogWithTimestamp(test.T(), "Port-forwarded HistoryServer API port to %s successfully", historyServerURL)
+	LogWithTimestamp(test.T(), "HistoryServer reachable through the API server proxy at %s", historyServerURL)
 
 	return historyServerURL
 }
 
 // PrepareTestEnv prepares test environment for each test case, including applying a Ray cluster,
 // checking the collector sidecar container exists in the head pod and an empty S3 bucket exists.
-func PrepareTestEnv(test Test, g *WithT, namespace *corev1.Namespace, s3Client *s3.S3) *rayv1.RayCluster {
+func PrepareTestEnv(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) *rayv1.RayCluster {
 	// Deploy a Ray cluster with the collector.
 	rayCluster := ApplyRayClusterWithCollectorWithEnvs(test, g, namespace, map[string]string{})
 
@@ -161,18 +210,14 @@ func PrepareTestEnv(test Test, g *WithT, namespace *corev1.Namespace, s3Client *
 	))
 
 	// Check an empty S3 bucket is automatically created.
-	_, err = s3Client.HeadBucket(&s3.HeadBucketInput{
-		Bucket: aws.String(S3BucketName),
-	})
-	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(s3Client.StatObject(S3BucketName, "")).To(Succeed())
 
 	return rayCluster
 }
 
 // PrepareTestEnvWithPrometheusAndGrafana prepares test environment with Prometheus and Grafana for each test case, including applying a Ray cluster,
 // checking the collector sidecar container exists in the head pod and an empty S3 bucket exists.
-func PrepareTestEnvWithPrometheusAndGrafana(test Test, g *WithT, namespace *corev1.Namespace, s3Client *s3.S3) *rayv1.RayCluster {
-
+func PrepareTestEnvWithPrometheusAndGrafana(test Test, g *WithT, namespace *corev1.Namespace, s3Client *S3TestClient) *rayv1.RayCluster {
 	InstallGrafanaAndPrometheus(test, g)
 
 	additionalEnvs := map[string]string{
@@ -192,10 +237,7 @@ func PrepareTestEnvWithPrometheusAndGrafana(test Test, g *WithT, namespace *core
 	))
 
 	// Check an empty S3 bucket is automatically created.
-	_, err = s3Client.HeadBucket(&s3.HeadBucketInput{
-		Bucket: aws.String(S3BucketName),
-	})
-	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(s3Client.StatObject(S3BucketName, "")).To(Succeed())
 
 	return rayCluster
 }
@@ -217,7 +259,7 @@ func GetOneOfNodeID(g *WithT, client *http.Client, historyServerURL string, head
 
 	data := result["data"].(map[string]any)
 	summary := data["summary"].([]any)
-	g.Expect(len(summary)).To(BeNumerically(">", 0))
+	g.Expect(summary).ToNot(BeEmpty())
 
 	// Both live and dead clusters return a flat array of node objects.
 	if !headNode {
@@ -269,7 +311,7 @@ func GetOneOfActorID(g *WithT, client *http.Client, historyServerURL string) str
 
 	actors, ok := data["actors"].(map[string]any)
 	g.Expect(ok).To(BeTrue(), "data should have 'actors' field")
-	g.Expect(len(actors)).To(BeNumerically(">", 0), "should have at least one actor")
+	g.Expect(actors).ToNot(BeEmpty(), "should have at least one actor")
 
 	// Get the first actor ID from the map
 	for actorID := range actors {
@@ -293,7 +335,7 @@ func VerifyLogFileEndpointReturnsContent(test Test, g *WithT, client *http.Clien
 
 		body, err := io.ReadAll(resp.Body)
 		gg.Expect(err).NotTo(HaveOccurred())
-		gg.Expect(len(body)).To(BeNumerically(">", 0))
+		gg.Expect(body).ToNot(BeEmpty())
 	}, TestTimeoutShort).Should(Succeed())
 
 	LogWithTimestamp(test.T(), "Log file endpoint returned content successfully")
@@ -309,7 +351,7 @@ func VerifyLogFileEndpointRejectsPathTraversal(test Test, g *WithT, client *http
 			resp, err := client.Get(url)
 			gg.Expect(err).NotTo(HaveOccurred())
 			defer func() {
-				io.Copy(io.Discard, resp.Body)
+				_, _ = io.Copy(io.Discard, resp.Body)
 				resp.Body.Close()
 			}()
 			gg.Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
@@ -343,7 +385,7 @@ func GetOneOfJobID(g *WithT, client *http.Client, historyServerURL string) strin
 	var jobs []map[string]any
 	err = json.Unmarshal(body, &jobs)
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(len(jobs)).To(BeNumerically(">", 0), "expected at least one job from /api/jobs/")
+	g.Expect(jobs).ToNot(BeEmpty(), "expected at least one job from /api/jobs/")
 	for _, j := range jobs {
 		if jid, ok := j["job_id"].(string); ok && jid != "" {
 			return jid

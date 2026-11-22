@@ -7,7 +7,6 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -71,7 +70,7 @@ func TestRayServiceInitializingTimeoutTerminalFailure(t *testing.T) {
 	// This guarantees the RayService stays in Initializing state and will timeout.
 	headPodTemplate := HeadPodTemplateApplyConfiguration()
 	// Override the image with a non-existent one to cause ImagePullBackOff
-	headPodTemplate.Spec.Containers[0].Image = ptr.To("invalid-image-does-not-exist:v1.0.0")
+	headPodTemplate.Spec.Containers[0].Image = new("invalid-image-does-not-exist:v1.0.0")
 
 	rayServiceAC := rayv1ac.RayService(rayServiceName, namespace.Name).
 		WithAnnotations(map[string]string{
@@ -119,8 +118,9 @@ func TestRayServiceInitializingTimeoutTerminalFailure(t *testing.T) {
 		"PendingServiceStatus.RayClusterName should be cleared after timeout")
 
 	// Verify ObservedGeneration is set
-	g.Expect(rayService.Status.ObservedGeneration).To(Equal(initialGeneration),
-		"ObservedGeneration should match the initial generation")
+	expectedGeneration := initialGeneration + 1
+	g.Expect(rayService.Status.ObservedGeneration).To(Equal(expectedGeneration),
+		"ObservedGeneration should be the initial generation + 1 after adding finalizer")
 
 	// Step 3: Update the RayService with valid config to test terminal failure behavior
 	LogWithTimestamp(test.T(), "Updating RayService spec with valid configuration to test terminal failure persistence")

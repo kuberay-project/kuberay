@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -66,7 +67,7 @@ type TaskStatus string
 // The following statuses follow a rough chronological order of transition.
 // For typical order of states, please refer to:
 // https://github.com/ray-project/ray/blob/d0b1d151d8ea964a711e451d0ae736f8bf95b629/src/ray/protobuf/common.proto#L884-L899.
-// TODO(jwj): Each entity (actor, task, job, node) should have its own const def with entity name prepended to avoid conflicts.
+// TODO(jiangjiawei1103): Each entity (actor, task, job, node) should have its own const def with entity name prepended to avoid conflicts.
 const (
 	NIL                                        TaskStatus = "NIL"
 	PENDING_ARGS_AVAIL                         TaskStatus = "PENDING_ARGS_AVAIL"
@@ -93,10 +94,10 @@ type TaskStateTransition struct {
 type TaskLogInfo struct {
 	StdoutFile  string `json:"stdoutFile"`
 	StderrFile  string `json:"stderrFile"`
-	StdoutStart int64  `json:"stdoutStart"`
-	StdoutEnd   int64  `json:"stdoutEnd"`
-	StderrStart int64  `json:"stderrStart"`
-	StderrEnd   int64  `json:"stderrEnd"`
+	StdoutStart int64  `json:"stdoutStart,string"`
+	StdoutEnd   int64  `json:"stdoutEnd,string"`
+	StderrStart int64  `json:"stderrStart,string"`
+	StderrEnd   int64  `json:"stderrEnd,string"`
 }
 
 // Task's fields are populated from the TASK_DEFINITION_EVENT, ACTOR_TASK_DEFINITION_EVENT, and TASK_LIFECYCLE_EVENT.
@@ -153,8 +154,7 @@ type Task struct {
 	// Actor task repr name, if applicable.
 	ActorReprName *string `json:"actorReprName,omitempty"`
 
-	// TaskLogInfo is just added at https://github.com/ray-project/ray/pull/60287.
-	// TODO(jwj): Add support for TaskLogInfo.
+	// TaskLogInfo was added at https://github.com/ray-project/ray/pull/60287.
 	TaskLogInfo *TaskLogInfo `json:"taskLogInfo,omitempty"`
 
 	State        TaskStatus
@@ -332,7 +332,7 @@ func (t *Task) GetLastState() TaskStatus {
 // Ref: https://github.com/ray-project/ray/blob/d0b1d151d8ea964a711e451d0ae736f8bf95b629/src/ray/protobuf/gcs_service.proto#L795-L859.
 // For all filterable fields, please refer to:
 // Ref: https://github.com/ray-project/ray/blob/d0b1d151d8ea964a711e451d0ae736f8bf95b629/python/ray/util/state/common.py#L730-L819.
-// TODO(jwj): Define object-specific filterable fields (e.g., Actor, Node).
+// TODO(jiangjiawei1103): Define object-specific filterable fields (e.g., Actor, Node).
 func (t *Task) GetFilterableFieldValue(filterKey string) string {
 	switch filterKey {
 	case "task_type":
@@ -365,16 +365,12 @@ func (t Task) DeepCopy() Task {
 
 	if len(t.RequiredResources) > 0 {
 		cp.RequiredResources = make(map[string]float64, len(t.RequiredResources))
-		for k, v := range t.RequiredResources {
-			cp.RequiredResources[k] = v
-		}
+		maps.Copy(cp.RequiredResources, t.RequiredResources)
 	}
 
 	if len(t.RefIDs) > 0 {
 		cp.RefIDs = make(map[string]string, len(t.RefIDs))
-		for k, v := range t.RefIDs {
-			cp.RefIDs[k] = v
-		}
+		maps.Copy(cp.RefIDs, t.RefIDs)
 	}
 
 	if t.CallSite != nil {
@@ -384,9 +380,7 @@ func (t Task) DeepCopy() Task {
 
 	if len(t.LabelSelector) > 0 {
 		cp.LabelSelector = make(map[string]string, len(t.LabelSelector))
-		for k, v := range t.LabelSelector {
-			cp.LabelSelector[k] = v
-		}
+		maps.Copy(cp.LabelSelector, t.LabelSelector)
 	}
 
 	if len(t.StateTransitions) > 0 {

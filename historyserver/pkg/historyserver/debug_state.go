@@ -134,7 +134,7 @@ func parseResourceMap(resourceStr string) map[string]float64 {
 			// Sum all instance values. Single-instance resources (e.g., memory: [100000000000000])
 			// have one element; multi-instance resources (e.g., CPU: [10000, 10000]) have multiple.
 			var total float64
-			for _, part := range strings.Split(valueStr, ",") {
+			for part := range strings.SplitSeq(valueStr, ",") {
 				part = strings.TrimSpace(part)
 				if part == "" {
 					continue

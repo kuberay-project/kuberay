@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8sApiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
@@ -140,12 +140,6 @@ func withRayImage() contextOption {
 		if strings.TrimSpace(rayImage) == "" {
 			rayImage = RayImage + "-py310"
 		}
-		// detect if we are running on arm64 machine, most likely apple silicon
-		// the os name is not checked as it also possible that it might be linux
-		// also check if the image does not have the `-aarch64` suffix
-		if runtime.GOARCH == "arm64" && !strings.HasSuffix(rayImage, "-aarch64") {
-			rayImage = rayImage + "-aarch64"
-		}
 		testingContext.rayImage = rayImage
 		return nil
 	}
@@ -251,7 +245,7 @@ func (e2etc *End2EndTestingContext) GetRayAPIServerClient() *kuberayHTTP.Kuberay
 }
 
 func (e2etc *End2EndTestingContext) GetNextName() string {
-	e2etc.currentName = petnames.Name()
+	e2etc.currentName = fmt.Sprintf("%s-%s", petnames.Name(), rand.String(5))
 	return e2etc.currentName
 }
 

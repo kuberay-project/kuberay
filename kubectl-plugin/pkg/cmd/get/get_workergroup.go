@@ -90,7 +90,7 @@ func NewGetWorkerGroupCommand(cmdFactory cmdutil.Factory, streams genericcliopti
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: completion.WorkerGroupCompletionFunc(cmdFactory),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := options.Complete(args, cmd); err != nil {
+			if err := options.Complete(args); err != nil {
 				return err
 			}
 			k8sClient, err := client.NewClient(cmdFactory)
@@ -112,19 +112,15 @@ func NewGetWorkerGroupCommand(cmdFactory cmdutil.Factory, streams genericcliopti
 	return cmd
 }
 
-func (options *GetWorkerGroupsOptions) Complete(args []string, cmd *cobra.Command) error {
+func (options *GetWorkerGroupsOptions) Complete(args []string) error {
 	if options.allNamespaces {
 		options.namespace = ""
 	} else {
-		namespace, err := cmd.Flags().GetString("namespace")
+		namespace, _, err := options.cmdFactory.ToRawKubeConfigLoader().Namespace()
 		if err != nil {
 			return fmt.Errorf("failed to get namespace: %w", err)
 		}
 		options.namespace = namespace
-
-		if options.namespace == "" {
-			options.namespace = "default"
-		}
 	}
 
 	if len(args) > 0 {
@@ -353,7 +349,7 @@ func calculateDesiredResourcesForWorkerGroup(workerGroupSpec rayv1.WorkerGroupSp
 func calculatePodResource(podSpec corev1.PodSpec) corev1.ResourceList {
 	podResource := corev1.ResourceList{}
 	for _, container := range podSpec.Containers {
-		containerResource := container.Resources.Requests
+		containerResource := container.Resources.Requests.DeepCopy()
 		if containerResource == nil {
 			containerResource = corev1.ResourceList{}
 		}

@@ -36,6 +36,10 @@ type RayServiceSpecApplyConfiguration struct {
 	// If the field is set to true, the value of the label `ray.io/serve` on the head Pod should always be false.
 	// Therefore, the head Pod's endpoint will not be added to the Kubernetes Serve service.
 	ExcludeHeadPodFromServeSvc *bool `json:"excludeHeadPodFromServeSvc,omitempty"`
+	// Suspend indicates whether the RayService should suspend its execution. When set to true,
+	// all Kubernetes resources owned by the RayService controller will be deleted. Setting it
+	// back to false will allow the RayService controller to recreate the resources.
+	Suspend *bool `json:"suspend,omitempty"`
 }
 
 // RayServiceSpecApplyConfiguration constructs a declarative configuration of the RayServiceSpec type for use with
@@ -113,5 +117,13 @@ func (b *RayServiceSpecApplyConfiguration) WithRayClusterSpec(value *RayClusterS
 // If called multiple times, the ExcludeHeadPodFromServeSvc field is set to the value of the last call.
 func (b *RayServiceSpecApplyConfiguration) WithExcludeHeadPodFromServeSvc(value bool) *RayServiceSpecApplyConfiguration {
 	b.ExcludeHeadPodFromServeSvc = &value
+	return b
+}
+
+// WithSuspend sets the Suspend field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Suspend field is set to the value of the last call.
+func (b *RayServiceSpecApplyConfiguration) WithSuspend(value bool) *RayServiceSpecApplyConfiguration {
+	b.Suspend = &value
 	return b
 }

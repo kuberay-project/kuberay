@@ -20,3 +20,11 @@ featureGates:
     enabled: true
   - name: RayServiceIncrementalUpgrade
     enabled: true
+  - name: SidecarSubmitterRestart
+    enabled: true
+  - name: RayClusterMTLS
+    enabled: true
+  - name: RayNodeEventForwarder
+    enabled: true
+nodeEventForwarder:
+  enabled: true

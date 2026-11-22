@@ -5,7 +5,8 @@ package v1
 // SubmitterConfigApplyConfiguration represents a declarative configuration of the SubmitterConfig type for use
 // with apply.
 type SubmitterConfigApplyConfiguration struct {
-	// BackoffLimit of the submitter k8s job.
+	// BackoffLimit of the submitter. In K8sJobMode, this is the K8s Job backoffLimit.
+	// In SidecarMode with SidecarSubmitterRestart enabled, this is the maximum container restart count.
 	BackoffLimit *int32 `json:"backoffLimit,omitempty"`
 }
 

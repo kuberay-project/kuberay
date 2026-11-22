@@ -670,7 +670,7 @@ func (krc *KuberayAPIServerClient) executeRequest(httpRequest *http.Request, URL
 			httpRequest.Body = io.NopCloser(bytes.NewBuffer(requestBodyBytes))
 		}
 
-		response, err := krc.httpClient.Do(httpRequest)
+		response, err := krc.httpClient.Do(httpRequest) //nolint:gosec // URL is constructed from internal config, not user input
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to execute http request for url '%s': %w", URL, err)
 		}

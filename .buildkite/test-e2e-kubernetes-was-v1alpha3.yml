@@ -1,0 +1,32 @@
+- label: 'Test Kubernetes WAS v1alpha3 E2E (nightly operator)'
+  instance_size: large
+  image: golang:1.26-bookworm
+  commands:
+    - source .buildkite/setup-env.sh
+
+    # Install a kind version that supports the published Kubernetes 1.37 node image.
+    - echo "--- Installing kind v0.32.0 (required for K8s 1.37 support)"
+    - curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-amd64
+    - chmod +x ./kind
+    - mv ./kind /usr/local/bin/kind
+
+    # Create the kind cluster with the Kubernetes WAS v1alpha3 feature gates.
+    - kind create cluster --wait 900s --config ./ci/kind-config-buildkite-kubernetes-was-v1alpha3.yml
+    - kubectl config set clusters.kind-kind.server https://docker:6443
+
+    # Build nightly KubeRay operator image and deploy with the Kubernetes WAS v1alpha3 batch scheduler.
+    - pushd ray-operator
+    - IMG=kuberay/operator:nightly make docker-image
+    - kind load docker-image kuberay/operator:nightly
+    - IMG=kuberay/operator:nightly make deploy-kubernetes-was-v1alpha3
+    - kubectl wait --timeout=90s --for=condition=Available=true deployment kuberay-operator
+
+    # Run Kubernetes WAS v1alpha3 e2e tests.
+    - echo "--- START:Running Kubernetes WAS v1alpha3 E2E tests"
+    - set -o pipefail
+    - mkdir -p "$(pwd)/tmp" && export KUBERAY_TEST_OUTPUT_DIR=$(pwd)/tmp
+    - echo "KUBERAY_TEST_OUTPUT_DIR=$$KUBERAY_TEST_OUTPUT_DIR"
+    - KUBERAY_TEST_TIMEOUT_SHORT=1m KUBERAY_TEST_TIMEOUT_MEDIUM=5m KUBERAY_TEST_TIMEOUT_LONG=10m bash ../.buildkite/run-gotest.sh 30m ./test/e2ekuberneteswas || TEST_EXIT_CODE=$$?
+    # JUnit results are uploaded to Buildkite Test Engine by .buildkite/hooks/pre-exit
+    - if [ -n "$$TEST_EXIT_CODE" ]; then kubectl logs --tail -1 -l app.kubernetes.io/name=kuberay | tee $$KUBERAY_TEST_OUTPUT_DIR/kuberay-operator.log && cd $$KUBERAY_TEST_OUTPUT_DIR && find . -name "*.log" | tar -cf /artifact-mount/e2e-kubernetes-was-v1alpha3-log.tar -T -; exit 1; fi
+    - echo "--- END:Kubernetes WAS v1alpha3 E2E tests finished"

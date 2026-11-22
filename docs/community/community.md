@@ -1,26 +1,21 @@
-# KubeRay Community Governance
+# KubeRay Community Guidelines
 
-There are 4 roles in the KubeRay community:
+There are 5 roles in the KubeRay community: contributor, triager, reviewer, committer, and technical steering
+committee. For formal descriptions and mechanisms, see [GOVERNANCE.md](../../GOVERNANCE.md).
 
-* **Contributor**: A contributor is a member who contributes to the KubeRay project through code, documentation,
-PR reviews, answering questions, etc.
-* **Triager**: A triager has the permission to triage issues and PRs.
-* **Reviewer**: A reviewer can review PRs but cannot merge them.
-* **Committer**: A committer can merge PRs and is responsible for the KubeRay project.
-
-## Mechanism
+## Guidelines
 
 ### Becoming a Contributor
 
 To become a KubeRay contributor, you can contribute to KubeRay through code, documentation, PR reviews,
 answering questions, and more.
-It's helpful to join the KubeRay channel `#kuberay-questions` on the [Ray Slack workspace](https://github.com/ray-project/ray?tab=readme-ov-file#getting-involved)
+It's helpful to join the KubeRay channel `#kuberay` on the [Ray Slack workspace](https://github.com/ray-project/ray?tab=readme-ov-file#getting-involved)
 to get started. You can also read [ray-project/kuberay#1059](https://github.com/ray-project/kuberay/issues/1059)
 for tips on getting involved in the KubeRay community.
 
 In addition, you can add the
-[Ray / KubeRay OSS community Google calendar](https://calendar.google.com/calendar/u/0?cid=Y19iZWIwYTUxZDQyZTczMTFmZWFmYTY5YjZiOTY1NjAxMTQ3ZTEzOTAxZWE0ZGU5YzA1NjFlZWQ5OTljY2FiOWM4QGdyb3VwLmNhbGVuZGFyLmdvb2dsZS5jb20)
-to your calendar and join the bi-weekly KubeRay community meetings.
+[Ray / KubeRay OSS community LFX calendar](https://zoom-lfx.platform.linuxfoundation.org/meetings/ray?view=week)
+to your calendar and join the weekly KubeRay community meetings.
 
 ### Becoming a Triager
 
@@ -36,8 +31,6 @@ A reviewer should be able to review PRs and provide constructive feedback to hel
 improve the PR. Ideally, committers should feel confident merging a PR if you have approved it.
 
 ### Becoming a Committer
-
-Nothing in this document is guaranteed, but it provides a clear path for contributors toward becoming committers.
 
 A committer is a trusted member of the KubeRay community with a long-term commitment who has the ownership to
 offload the community's workloads and make KubeRay thrive. To elaborate,
@@ -75,12 +68,3 @@ committer, but all of them will be considered together.
   * Help KubeRay releases ensure high-quality and stable KubeRay releases.
 * **Understand user pain points and propose new projects:**
   * Chat with users to understand their pain points and propose new projects or documents to unlock new use cases.
-
-## Contributors
-
-### Committers
-
-* @kevin85421
-* @andrewsykim
-* @rueian
-* @MortalHappiness

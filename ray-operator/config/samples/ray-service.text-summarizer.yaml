@@ -10,7 +10,7 @@ spec:
         runtime_env:
           working_dir: "https://github.com/ray-project/serve_config_examples/archive/607d1264c2c998e4a85eaf5403efcd3bc9ed3039.zip"
   rayClusterConfig:
-    rayVersion: "2.46.0" # Should match the Ray version in the image of the containers
+    rayVersion: "2.49.2" # Should match the Ray version in the image of the containers
     ######################headGroupSpecs#################################
     # Ray head pod template.
     headGroupSpec:
@@ -20,7 +20,7 @@ spec:
         spec:
           containers:
           - name: ray-head
-            image: rayproject/ray-ml:2.46.0.0e19ea-py39-gpu
+            image: rayproject/ray-ml:2.49.2.deprecated-py311-gpu
             volumeMounts:
             - mountPath: /tmp/ray
               name: ray-logs
@@ -46,7 +46,7 @@ spec:
         spec:
           containers:
           - name: ray-worker
-            image: rayproject/ray-ml:2.46.0.0e19ea-py39-gpu
+            image: rayproject/ray-ml:2.49.2.deprecated-py311-gpu
             resources:
               limits:
                 cpu: "4"

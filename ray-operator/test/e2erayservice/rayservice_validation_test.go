@@ -9,7 +9,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -98,7 +97,7 @@ func TestRayServiceManagedBy(t *testing.T) {
 		_, err = test.Client().Ray().RayV1().RayServices(namespace.Name).Apply(test.Ctx(), rayServiceAC, TestApplyOptions)
 		g.Expect(err).To(HaveOccurred())
 		g.Eventually(RayService(test, *rayServiceAC.Namespace, *rayServiceAC.Name)).
-			Should(WithTransform(RayServiceManagedBy, Equal(ptr.To("kueue.x-k8s.io/multikueue"))))
+			Should(WithTransform(RayServiceManagedBy, Equal(new("kueue.x-k8s.io/multikueue"))))
 
 		// Assert the associated RayCluster has not been created
 		rcList, err := test.Client().Ray().RayV1().RayClusters(rayService.Namespace).List(test.Ctx(), metav1.ListOptions{})

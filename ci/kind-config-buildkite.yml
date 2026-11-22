@@ -9,7 +9,7 @@ networking:
 # https://blog.scottlowe.org/2019/07/30/adding-a-name-to-kubernetes-api-server-certificate/
 nodes:
 - role: control-plane
-  image: kindest/node:v1.29.0
+  image: kindest/node:v1.35.0
   kubeadmConfigPatches:
   - |
     kind: ClusterConfiguration

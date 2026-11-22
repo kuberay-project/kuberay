@@ -44,7 +44,7 @@ var (
 	grpcTimeout        = flag.Duration("grpc_timeout", util.GRPCServerDefaultTimeout, "gRPC server timeout duration")
 	enableAPIServerV2  = flag.Bool("enable-api-server-v2", true, "Enable API server V2")
 	corsAllowOrigin    = flag.String("cors-allow-origin", "", "Set the Access-Control-Allow-Origin response header for the HTTP proxy.")
-	healthy            int32
+	healthy            atomic.Int32
 )
 
 func main() {
@@ -61,7 +61,7 @@ func main() {
 	clientManager := manager.NewClientManager()
 	resourceManager := manager.NewResourceManager(&clientManager)
 
-	atomic.StoreInt32(&healthy, 1)
+	healthy.Store(1)
 	klog.Infof("Setting gRPC server timeout to %v", *grpcTimeout)
 	go startRPCServer(resourceManager, *grpcTimeout)
 	startHttpProxy()
@@ -73,7 +73,7 @@ func main() {
 	go func() {
 		<-quit
 		klog.Info("Unexpected interrupt")
-		atomic.StoreInt32(&healthy, 0)
+		healthy.Store(0)
 	}()
 }
 
@@ -214,7 +214,7 @@ func startHttpProxy() {
 }
 
 func serveHealth(w http.ResponseWriter, _ *http.Request) {
-	if atomic.LoadInt32(&healthy) == 1 {
+	if healthy.Load() == 1 {
 		w.WriteHeader(http.StatusOK)
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)

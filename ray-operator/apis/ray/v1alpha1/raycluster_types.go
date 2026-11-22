@@ -24,6 +24,8 @@ type RayClusterSpec struct {
 	// RayVersion is used to determine the command for the Kubernetes Job managed by RayJob
 	RayVersion string `json:"rayVersion,omitempty"`
 	// WorkerGroupSpecs are the specs for the worker pods
+	// +listType=map
+	// +listMapKey=groupName
 	WorkerGroupSpecs []WorkerGroupSpec `json:"workerGroupSpecs,omitempty"`
 }
 
@@ -169,7 +171,13 @@ const (
 )
 
 // RayCluster is the Schema for the RayClusters API
+//
+// Deprecated: ray.io/v1alpha1 is deprecated. It is served for backward
+// compatibility only, is frozen at its December 2023 feature set, and will be
+// unavailable in KubeRay 1.9. Use ray.io/v1, the storage version, for all new
+// and existing RayClusters.
 // +kubebuilder:object:root=true
+// +kubebuilder:deprecatedversion:warning="ray.io/v1alpha1 RayCluster is deprecated; use ray.io/v1 RayCluster. v1alpha1 receives no new fields and will be unavailable in KubeRay 1.9."
 // +kubebuilder:resource:categories=all
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="desired workers",type=integer,JSONPath=".status.desiredWorkerReplicas",priority=0
@@ -200,10 +208,6 @@ type RayClusterList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []RayCluster `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&RayCluster{}, &RayClusterList{})
 }
 
 type EventReason string

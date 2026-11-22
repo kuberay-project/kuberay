@@ -26,7 +26,7 @@ const headCells: readonly HeadCell<ClusterRow>[] = [
   { id: "namespace", label: "Namespace", width: 140, sortable: true },
   { id: "sessionName", label: "Status", width: 100, sortable: true },
   { id: "createTimeStamp", label: "Created", width: 160, sortable: true },
-  { id: "tasks", label: "Actions", width: 120, sortable: false },
+  { id: "tasks", label: "Actions", width: 200, sortable: false },
 ];
 
 function toRow(c: HistoryClusterInfo): ClusterRow {
@@ -84,10 +84,10 @@ export default function HistoryClustersPage() {
     });
   }, [rows, search, statusFilter]);
 
-  const handleViewTasks = async (row: ClusterRow) => {
+  const handleNavigate = async (row: ClusterRow, target: string) => {
     try {
       await enterCluster(row.namespace, row.tasks, row.sessionName);
-      router.push("/history/tasks");
+      router.push(target);
     } catch (e) {
       console.error("Failed to enter cluster", e);
       showSnackBar("Error", `Failed to enter cluster: ${e}`, "danger");
@@ -112,13 +112,22 @@ export default function HistoryClustersPage() {
         </td>
         <td>{row.createTime}</td>
         <td>
-          <Button
-            size="sm"
-            variant="outlined"
-            onClick={() => handleViewTasks(row)}
-          >
-            Tasks →
-          </Button>
+          <Box sx={{ display: "flex", gap: 0.5 }}>
+            <Button
+              size="sm"
+              variant="outlined"
+              onClick={() => handleNavigate(row, "/history/tasks")}
+            >
+              Tasks
+            </Button>
+            <Button
+              size="sm"
+              variant="outlined"
+              onClick={() => handleNavigate(row, "/history/logs")}
+            >
+              Logs
+            </Button>
+          </Box>
         </td>
       </>
     );

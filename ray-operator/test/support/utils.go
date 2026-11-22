@@ -13,8 +13,9 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+//go:fix inline
 func Ptr[T any](v T) *T {
-	return &v
+	return new(v)
 }
 
 type OutputType string

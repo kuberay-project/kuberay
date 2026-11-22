@@ -6,7 +6,8 @@ import torch.nn.functional as F
 import ray.train
 from torch.utils.data import DataLoader, random_split
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from datasets import load_dataset, load_metric
+from datasets import load_dataset
+from torchmetrics.classification import BinaryMatthewsCorrCoef
 from ray.train.lightning import (
     prepare_trainer,
     RayDDPStrategy,
@@ -25,9 +26,7 @@ class SentimentModel(pl.LightningModule):
         self.model = AutoModelForSequenceClassification.from_pretrained(
             "bert-base-cased", num_labels=self.num_classes
         )
-        self.metric = load_metric("glue", "cola")
-        self.predictions = []
-        self.references = []
+        self.metric = BinaryMatthewsCorrCoef()
 
     def forward(self, batch):
         input_ids, attention_mask = batch["input_ids"], batch["attention_mask"]
@@ -46,21 +45,13 @@ class SentimentModel(pl.LightningModule):
         labels = batch["label"]
         logits = self.forward(batch)
         preds = torch.argmax(logits, dim=1)
-        self.predictions.append(preds)
-        self.references.append(labels)
+        self.metric.update(preds, labels)
 
     def on_validation_epoch_end(self):
-        predictions = torch.concat(self.predictions).view(-1)
-        references = torch.concat(self.references).view(-1)
-        matthews_correlation = self.metric.compute(
-            predictions=predictions, references=references
-        )
-
-        # self.metric.compute() returns a dictionary:
-        # e.g. {"matthews_correlation": 0.53}
-        self.log_dict(matthews_correlation, sync_dist=True)
-        self.predictions.clear()
-        self.references.clear()
+        # torchmetrics aggregates state across workers, so compute() returns the
+        # Matthews correlation over the full validation set.
+        self.log("matthews_correlation", self.metric.compute(), sync_dist=True)
+        self.metric.reset()
 
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=self.lr, eps=self.eps)

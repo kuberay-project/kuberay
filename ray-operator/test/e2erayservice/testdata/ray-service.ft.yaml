@@ -49,7 +49,6 @@ spec:
                   cpu: 300m
                   memory: 1G
                 limits:
-                  cpu: 500m
                   memory: 2G
     workerGroupSpecs:
       - replicas: 1
@@ -68,7 +67,6 @@ spec:
                     cpu: 300m
                     memory: 1G
                   limits:
-                    cpu: 500m
                     memory: 1G
 ---
 kind: ConfigMap

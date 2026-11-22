@@ -14,10 +14,11 @@ import (
 // RayCluster is the Schema for the RayClusters API
 type RayClusterApplyConfiguration struct {
 	// Standard object metadata.
-	metav1.TypeMetaApplyConfiguration    `json:",inline"`
+	metav1.TypeMetaApplyConfiguration    `json:""`
 	*metav1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// Specification of the desired behavior of the RayCluster.
-	Spec   *RayClusterSpecApplyConfiguration   `json:"spec,omitempty"`
+	Spec *RayClusterSpecApplyConfiguration `json:"spec,omitempty"`
+	// Status is the most recently observed state of the RayCluster.
 	Status *RayClusterStatusApplyConfiguration `json:"status,omitempty"`
 }
 

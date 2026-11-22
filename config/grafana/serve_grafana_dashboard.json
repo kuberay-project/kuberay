@@ -14,7 +14,7 @@
     },
     "editable": true,
     "gnetId": null,
-    "graphTooltip": 0,
+    "graphTooltip": 1,
     "iteration": 1667344411089,
     "links": [],
     "panels": [
@@ -26,7 +26,9 @@
             "datasource": "${datasource}",
             "description": "Aggregated utilization of all physical resources (CPU, GPU, memory, disk, or etc.) across the cluster. Ignores application variable.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "%"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -41,11 +43,11 @@
             "id": 5,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -86,6 +88,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -192,7 +206,9 @@
             "datasource": "${datasource}",
             "description": "QPS for each selected application.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "qps"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -207,11 +223,11 @@
             "id": 7,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -252,6 +268,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -326,7 +354,9 @@
             "datasource": "${datasource}",
             "description": "Error QPS for each selected application.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "qps"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -341,11 +371,11 @@
             "id": 8,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -386,6 +416,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -460,7 +502,9 @@
             "datasource": "${datasource}",
             "description": "Error QPS for each selected application.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "qps"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -475,11 +519,11 @@
             "id": 17,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -520,6 +564,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -594,7 +650,9 @@
             "datasource": "${datasource}",
             "description": "P50 latency for selected applications.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "ms"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -609,11 +667,11 @@
             "id": 12,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -654,6 +712,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -736,7 +806,9 @@
             "datasource": "${datasource}",
             "description": "P90 latency for selected applications.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "ms"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -751,11 +823,11 @@
             "id": 15,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -796,6 +868,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -878,7 +962,9 @@
             "datasource": "${datasource}",
             "description": "P99 latency for selected applications.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "ms"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -893,11 +979,11 @@
             "id": 16,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -938,6 +1024,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -1020,7 +1118,9 @@
             "datasource": "${datasource}",
             "description": "Number of replicas per deployment. Ignores \"Application\" variable.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "replicas"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -1035,11 +1135,11 @@
             "id": 2,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -1080,6 +1180,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -1146,7 +1258,9 @@
             "datasource": "${datasource}",
             "description": "QPS for each deployment.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "qps"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -1161,11 +1275,11 @@
             "id": 13,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -1206,6 +1320,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -1272,7 +1398,9 @@
             "datasource": "${datasource}",
             "description": "Error QPS for each deplyoment.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "qps"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -1287,11 +1415,11 @@
             "id": 14,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -1332,6 +1460,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -1398,7 +1538,9 @@
             "datasource": "${datasource}",
             "description": "P50 latency per deployment.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "ms"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -1413,11 +1555,11 @@
             "id": 9,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -1458,6 +1600,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -1532,7 +1686,9 @@
             "datasource": "${datasource}",
             "description": "P90 latency per deployment.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "ms"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -1547,11 +1703,11 @@
             "id": 10,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -1592,6 +1748,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -1666,7 +1834,9 @@
             "datasource": "${datasource}",
             "description": "P99 latency per deployment.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "ms"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -1681,11 +1851,11 @@
             "id": 11,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -1726,6 +1896,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -1800,7 +1982,9 @@
             "datasource": "${datasource}",
             "description": "Number of requests queued per deployment. Ignores \"Application\" variable.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "requests"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -1815,11 +1999,11 @@
             "id": 3,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -1860,6 +2044,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -1926,7 +2122,9 @@
             "datasource": "${datasource}",
             "description": "Number of nodes in this cluster. Ignores \"Application\" variable.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "nodes"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -1941,11 +2139,11 @@
             "id": 4,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -1986,6 +2184,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -2068,7 +2278,9 @@
             "datasource": "${datasource}",
             "description": "Network speed per node. Ignores \"Application\" variable.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "Bps"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -2083,11 +2295,11 @@
             "id": 6,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -2128,6 +2340,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -2202,7 +2426,9 @@
             "datasource": "${datasource}",
             "description": "The number of ongoing requests in the HTTP Proxy.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "requests"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -2217,11 +2443,11 @@
             "id": 20,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -2262,6 +2488,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -2328,7 +2566,9 @@
             "datasource": "${datasource}",
             "description": "The number of ongoing requests in the gRPC Proxy.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "requests"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -2343,11 +2583,11 @@
             "id": 21,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -2388,6 +2628,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -2454,7 +2706,9 @@
             "datasource": "${datasource}",
             "description": "The number of request scheduling tasks in the router.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "tasks"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -2469,11 +2723,11 @@
             "id": 22,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -2514,6 +2768,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -2580,7 +2846,9 @@
             "datasource": "${datasource}",
             "description": "The number of request scheduling tasks in the router that are undergoing backoff.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "tasks"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -2595,11 +2863,11 @@
             "id": 23,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -2640,6 +2908,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -2706,7 +2986,9 @@
             "datasource": "${datasource}",
             "description": "The duration of the last control loop.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "seconds"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -2721,11 +3003,11 @@
             "id": 24,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -2766,6 +3048,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -2832,7 +3126,9 @@
             "datasource": "${datasource}",
             "description": "The number of control loops performed by the controller. Increases monotonically over the controller's lifetime.",
             "fieldConfig": {
-                "defaults": {},
+                "defaults": {
+                    "unit": "loops"
+                },
                 "overrides": []
             },
             "gridPos": {
@@ -2847,11 +3143,11 @@
             "id": 25,
             "legend": {
                 "alignAsTable": true,
-                "avg": false,
+                "avg": true,
                 "current": true,
                 "hideEmpty": false,
                 "hideZero": true,
-                "max": false,
+                "max": true,
                 "min": false,
                 "rightSide": false,
                 "show": true,
@@ -2892,6 +3188,18 @@
                     "color": "#777777",
                     "fill": 0,
                     "stack": false
+                },
+                {
+                    "alias": "/Container/",
+                    "hiddenSeries": true
+                },
+                {
+                    "alias": "Container MAX",
+                    "dashes": true,
+                    "color": "#73BF69",
+                    "fill": 0,
+                    "stack": false,
+                    "hiddenSeries": true
                 }
             ],
             "spaceLength": 10,
@@ -2955,7 +3263,7 @@
     "schemaVersion": 27,
     "style": "dark",
     "tags": [
-        "rayVersion:2.49.2"
+        "rayVersion:2.58.0"
     ],
     "templating": {
         "list": [
@@ -3057,7 +3365,7 @@
                     ]
                 },
                 "datasource": "${datasource}",
-                "definition": "label_values(ray_serve_num_grpc_requests{}, method)",
+                "definition": "label_values(ray_serve_num_grpc_requests_total{}, method)",
                 "description": null,
                 "error": null,
                 "hide": 0,
@@ -3067,7 +3375,7 @@
                 "name": "gRPC_Method",
                 "options": [],
                 "query": {
-                    "query": "label_values(ray_serve_num_grpc_requests{}, method)",
+                    "query": "label_values(ray_serve_num_grpc_requests_total{}, method)",
                     "refId": "Prometheus-Instance-Variable-Query"
                 },
                 "refresh": 1,
@@ -3087,7 +3395,7 @@
                 },
                 "datasource": "${datasource}",
                 "definition": "label_values(ray_node_network_receive_speed{}, ray_io_cluster)",
-                "description": "Filter queries to specific Ray clusters for KubeRay. When ingesting metrics across multiple ray clusters, the ray_io_cluster label should be set per cluster. For KubeRay users, this is done automaticaly with Prometheus PodMonitor.",
+                "description": "Filter queries to specific Ray clusters for KubeRay. When ingesting metrics across multiple ray clusters, the ray_io_cluster label should be set per cluster. For KubeRay users, this is done automatically with Prometheus PodMonitor.",
                 "error": null,
                 "hide": 0,
                 "includeAll": true,

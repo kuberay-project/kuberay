@@ -9,8 +9,10 @@ import (
 	"github.com/ray-project/kuberay/ray-operator/apis/config/v1alpha1"
 	schedulerinterface "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/interface"
 	kaischeduler "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/kai-scheduler"
+	kuberneteswas "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/kubernetes-was"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/volcano"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/yunikorn"
+	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
 func TestGetSchedulerFactory(t *testing.T) {
@@ -71,6 +73,16 @@ func TestGetSchedulerFactory(t *testing.T) {
 				},
 			},
 			want: reflect.TypeFor[*kaischeduler.KaiSchedulerFactory](),
+		},
+		{
+			name: "enableBatchScheduler=false, batchScheduler set to kubernetes-was-v1alpha3 is rejected without the gate",
+			args: args{
+				rayConfigs: v1alpha1.Configuration{
+					EnableBatchScheduler: false,
+					BatchScheduler:       "kubernetes-was-v1alpha3",
+				},
+			},
+			expectedErrMsg: "the scheduler is not supported, name=kubernetes-was-v1alpha3",
 		},
 		{
 			name: "enableBatchScheduler not set, batchScheduler set to yunikorn",
@@ -156,4 +168,12 @@ func TestGetSchedulerFactory(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetSchedulerFactoryKubernetesWAS(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KubernetesWAS, true)
+
+	factory, err := getSchedulerFactory(v1alpha1.Configuration{})
+	require.NoError(t, err)
+	require.IsType(t, &kuberneteswas.SchedulerFactory{}, factory)
 }

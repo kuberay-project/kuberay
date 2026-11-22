@@ -17,10 +17,6 @@ There is also a wealth of open-source implementations, for example,
 [oauth2-proxy](https://github.com/oauth2-proxy/oauth2-proxy) and many commercial
 offerings.
 
-## Basic token-based authentication reverse proxy
-
-A simple token-based authentication reverse proxy [implementation](../experimental/cmd/main.go) is provided in the project, along with make targets to build a Docker image for it and push this image to the image repository. There is also a pre-built image `kuberay/security-proxy:nightly` that you can use for experimenting with security.
-
 ## Installation
 
 ### Set `security.proxy.tag`

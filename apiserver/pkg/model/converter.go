@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	klog "k8s.io/klog/v2"
 
 	"github.com/ray-project/kuberay/apiserver/pkg/util"
@@ -84,7 +85,41 @@ func contains(s []string, str string) bool {
 	return slices.Contains(s, str)
 }
 
-func FromCrdToAPIClusters(clusters []*rayv1api.RayCluster, clusterEventsMap map[string][]corev1.Event) []*api.Cluster {
+// An events.k8s.io/v1 Event exposes the same timing/count data through two
+// parallel sets of fields, and which set is populated depends on who wrote it:
+//   - new events API - EventTime, Series{Count, LastObservedTime}
+//   - core v1 API -    DeprecatedFirstTimestamp, DeprecatedLastTimestamp, DeprecatedCount
+// The helpers below ensure that we always return the correct values regardless of which API wrote the event.
+
+// getFirstEventTimestamp returns the event's first-observed time.
+func getFirstEventTimestamp(event eventsv1.Event) *timestamppb.Timestamp {
+	t := event.EventTime.Time // modern: first observed
+	if t.IsZero() {
+		t = event.DeprecatedFirstTimestamp.Time // legacy core v1 events
+	}
+	return &timestamppb.Timestamp{Seconds: t.Unix()}
+}
+
+// getLastEventTimestamp returns the event's last-observed time.
+func getLastEventTimestamp(event eventsv1.Event) *timestamppb.Timestamp {
+	t := event.EventTime.Time // fallback: single, non-aggregated event
+	if event.Series != nil {
+		t = event.Series.LastObservedTime.Time // modern: aggregated last-seen
+	} else if !event.DeprecatedLastTimestamp.Time.IsZero() {
+		t = event.DeprecatedLastTimestamp.Time // legacy core v1 events
+	}
+	return &timestamppb.Timestamp{Seconds: t.Unix()}
+}
+
+// getEventCount returns how many times the event has occurred.
+func getEventCount(event eventsv1.Event) int32 {
+	if event.Series != nil {
+		return event.Series.Count // modern: aggregated occurrence count
+	}
+	return event.DeprecatedCount // legacy core v1 events
+}
+
+func FromCrdToAPIClusters(clusters []*rayv1api.RayCluster, clusterEventsMap map[string][]eventsv1.Event) []*api.Cluster {
 	apiClusters := make([]*api.Cluster, 0, len(clusters))
 	for _, cluster := range clusters {
 		apiClusters = append(apiClusters, FromCrdToAPICluster(cluster, clusterEventsMap[cluster.Name]))
@@ -92,7 +127,7 @@ func FromCrdToAPIClusters(clusters []*rayv1api.RayCluster, clusterEventsMap map[
 	return apiClusters
 }
 
-func FromCrdToAPICluster(cluster *rayv1api.RayCluster, events []corev1.Event) *api.Cluster {
+func FromCrdToAPICluster(cluster *rayv1api.RayCluster, events []eventsv1.Event) *api.Cluster {
 	pbCluster := &api.Cluster{
 		Name:      cluster.Name,
 		Namespace: cluster.Namespace,
@@ -118,12 +153,12 @@ func FromCrdToAPICluster(cluster *rayv1api.RayCluster, events []corev1.Event) *a
 			Id:             event.Name,
 			Name:           fmt.Sprintf("%s-%s", cluster.Labels[util.RayClusterNameLabelKey], event.Name),
 			CreatedAt:      &timestamppb.Timestamp{Seconds: event.ObjectMeta.CreationTimestamp.Unix()},
-			FirstTimestamp: &timestamppb.Timestamp{Seconds: event.FirstTimestamp.Unix()},
-			LastTimestamp:  &timestamppb.Timestamp{Seconds: event.LastTimestamp.Unix()},
+			FirstTimestamp: getFirstEventTimestamp(event),
+			LastTimestamp:  getLastEventTimestamp(event),
 			Reason:         event.Reason,
-			Message:        event.Message,
+			Message:        event.Note,
 			Type:           event.Type,
-			Count:          event.Count,
+			Count:          getEventCount(event),
 		}
 		pbCluster.Events = append(pbCluster.Events, clusterEvent)
 	}
@@ -526,7 +561,7 @@ func FromCrdToAPIJob(job *rayv1api.RayJob) (pbJob *api.RayJob) {
 
 func FromCrdToAPIServices(
 	services []*rayv1api.RayService,
-	serviceEventsMap map[string][]corev1.Event,
+	serviceEventsMap map[string][]eventsv1.Event,
 ) []*api.RayService {
 	apiServices := make([]*api.RayService, 0, len(services))
 	for _, service := range services {
@@ -535,7 +570,7 @@ func FromCrdToAPIServices(
 	return apiServices
 }
 
-func FromCrdToAPIService(service *rayv1api.RayService, events []corev1.Event) *api.RayService {
+func FromCrdToAPIService(service *rayv1api.RayService, events []eventsv1.Event) *api.RayService {
 	defer func() {
 		err := recover()
 		if err != nil {
@@ -577,7 +612,7 @@ func PoplulateUnhealthySecondThreshold(value *int32) int32 {
 func PoplulateRayServiceStatus(
 	serviceName string,
 	serviceStatus rayv1api.RayServiceStatuses,
-	events []corev1.Event,
+	events []eventsv1.Event,
 ) *api.RayServiceStatus {
 	status := &api.RayServiceStatus{
 		RayServiceEvents:       PopulateRayServiceEvent(serviceName, events),
@@ -621,19 +656,19 @@ func PopulateServeDeploymentStatus(
 	return deploymentStatuses
 }
 
-func PopulateRayServiceEvent(serviceName string, events []corev1.Event) []*api.RayServiceEvent {
+func PopulateRayServiceEvent(serviceName string, events []eventsv1.Event) []*api.RayServiceEvent {
 	serviceEvents := make([]*api.RayServiceEvent, 0, len(events))
 	for _, event := range events {
 		serviceEvent := &api.RayServiceEvent{
 			Id:             event.Name,
 			Name:           fmt.Sprintf("%s-%s", serviceName, event.Name),
 			CreatedAt:      &timestamppb.Timestamp{Seconds: event.ObjectMeta.CreationTimestamp.Unix()},
-			FirstTimestamp: &timestamppb.Timestamp{Seconds: event.FirstTimestamp.Unix()},
-			LastTimestamp:  &timestamppb.Timestamp{Seconds: event.LastTimestamp.Unix()},
+			FirstTimestamp: getFirstEventTimestamp(event),
+			LastTimestamp:  getLastEventTimestamp(event),
 			Reason:         event.Reason,
-			Message:        event.Message,
+			Message:        event.Note,
 			Type:           event.Type,
-			Count:          event.Count,
+			Count:          getEventCount(event),
 		}
 		serviceEvents = append(serviceEvents, serviceEvent)
 	}

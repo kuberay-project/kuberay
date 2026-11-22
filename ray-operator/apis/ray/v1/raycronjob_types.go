@@ -7,15 +7,30 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+// RayJobTemplateSpec describes the data a RayJob should have when created from a template
+type RayJobTemplateSpec struct {
+	// Standard object's metadata of the RayJobs created from this template
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	// Specification of the desired behavior of the RayJob
+	Spec RayJobSpec `json:"spec"`
+}
+
 type RayCronJobSpec struct {
-	// JobTemplate defines the job spec that will be created by cron scheduling
-	JobTemplate RayJobSpec `json:"jobTemplate"`
+	// JobTemplate defines the RayJob that will be created by cron scheduling
+	JobTemplate RayJobTemplateSpec `json:"jobTemplate"`
 	// Schedule is the cron schedule string
 	Schedule string `json:"schedule"`
+	// TimeZone is the time zone name for the given schedule. If not specified, default to the local time zone of the
+	// KubeRay operator. Empty string is not allowed.
+	// The bundled version of the time zone database is used.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	TimeZone *string `json:"timeZone,omitempty"`
 	// Suspend tells the controller to suspend the scheduling, it does not apply to
 	// scheduled RayJob.
 	// +optional
-	Suspend bool `json:"suspend,omitempty"`
+	Suspend *bool `json:"suspend,omitempty"`
 }
 
 // RayCronJobStatus defines the observed state of RayCronJob
@@ -26,7 +41,8 @@ type RayCronJobStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="schedule",type=string,JSONPath=".spec.schedule",priority=0
-//+kubebuilder:printcolumn:name="last schedule",type=string,JSONPath=".status.lastScheduleTime",priority=0
+//+kubebuilder:printcolumn:name="timezone",type=string,JSONPath=".spec.timeZone",priority=0
+//+kubebuilder:printcolumn:name="last schedule",type=date,JSONPath=".status.lastScheduleTime",priority=0
 //+kubebuilder:printcolumn:name="age",type="date",JSONPath=".metadata.creationTimestamp",priority=0
 //+kubebuilder:printcolumn:name="suspend",type=boolean,JSONPath=".spec.suspend",priority=0
 
@@ -38,8 +54,9 @@ type RayCronJobStatus struct {
 type RayCronJob struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              RayCronJobSpec   `json:"spec,omitempty"`
-	Status            RayCronJobStatus `json:"status,omitempty"`
+	Spec              RayCronJobSpec `json:"spec,omitempty"`
+	// Status is the most recently observed state of the RayCronJob.
+	Status RayCronJobStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
@@ -49,8 +66,4 @@ type RayCronJobList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []RayCronJob `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&RayCronJob{}, &RayCronJobList{})
 }

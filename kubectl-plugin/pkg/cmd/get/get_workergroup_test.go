@@ -29,9 +29,6 @@ import (
 
 func TestRayWorkerGroupGetComplete(t *testing.T) {
 	cmdFactory := cmdutil.NewFactory(genericclioptions.NewConfigFlags(true))
-	cmd := &cobra.Command{}
-	flags := cmd.Flags()
-	flags.String("namespace", "", "namespace flag")
 
 	tests := []struct {
 		opts                *GetWorkerGroupsOptions
@@ -88,9 +85,15 @@ func TestRayWorkerGroupGetComplete(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := flags.Set("namespace", tc.namespace)
-			require.NoError(t, err)
-			err = tc.opts.Complete(tc.args, cmd)
+			configFlags := genericclioptions.NewConfigFlags(true)
+			if tc.namespace != "" {
+				configFlags.Namespace = &tc.namespace
+			}
+			tc.opts.cmdFactory = cmdutil.NewFactory(configFlags)
+			cmd := &cobra.Command{}
+			flags := cmd.Flags()
+			configFlags.AddFlags(flags)
+			err := tc.opts.Complete(tc.args)
 			require.NoError(t, err)
 			assert.Equal(t, tc.expectedNamespace, tc.opts.namespace)
 			assert.Equal(t, tc.expectedWorkerGroup, tc.opts.workerGroup)
@@ -141,9 +144,9 @@ func TestRayWorkerGroupsGetRun(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName:   "group-1",
-						Replicas:    ptr.To(int32(1)),
-						MinReplicas: ptr.To(int32(1)),
-						MaxReplicas: ptr.To(int32(5)),
+						Replicas:    new(int32(1)),
+						MinReplicas: new(int32(1)),
+						MaxReplicas: new(int32(5)),
 						Template:    podTemplate,
 					},
 				},
@@ -158,8 +161,8 @@ func TestRayWorkerGroupsGetRun(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName:   "group-2",
-						Replicas:    ptr.To(int32(1)),
-						MinReplicas: ptr.To(int32(0)),
+						Replicas:    new(int32(1)),
+						MinReplicas: new(int32(0)),
 						MaxReplicas: ptr.To(int32(math.MaxInt32)),
 						Template:    podTemplate,
 					},
@@ -175,16 +178,16 @@ func TestRayWorkerGroupsGetRun(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName:   "group-1",
-						Replicas:    ptr.To(int32(2)),
-						MinReplicas: ptr.To(int32(1)),
-						MaxReplicas: ptr.To(int32(4)),
+						Replicas:    new(int32(2)),
+						MinReplicas: new(int32(1)),
+						MaxReplicas: new(int32(4)),
 						Template:    podTemplate,
 					},
 					{
 						GroupName:   "group-4",
-						Replicas:    ptr.To(int32(0)),
-						MinReplicas: ptr.To(int32(0)),
-						MaxReplicas: ptr.To(int32(3)),
+						Replicas:    new(int32(0)),
+						MinReplicas: new(int32(0)),
+						MaxReplicas: new(int32(3)),
 						Template:    podTemplate,
 					},
 				},
@@ -589,7 +592,7 @@ func TestGetWorkerGroupDetails(t *testing.T) {
 					cluster:   "cluster-1",
 					spec: rayv1.WorkerGroupSpec{
 						GroupName: "group-1",
-						Replicas:  ptr.To(int32(1)),
+						Replicas:  new(int32(1)),
 					},
 				},
 			},
@@ -604,7 +607,7 @@ func TestGetWorkerGroupDetails(t *testing.T) {
 					cluster:   "cluster-1",
 					spec: rayv1.WorkerGroupSpec{
 						GroupName: "group-1",
-						Replicas:  ptr.To(int32(1)),
+						Replicas:  new(int32(1)),
 						Template:  podTemplate,
 					},
 				},
@@ -613,7 +616,7 @@ func TestGetWorkerGroupDetails(t *testing.T) {
 					cluster:   "cluster-2",
 					spec: rayv1.WorkerGroupSpec{
 						GroupName: "group-2",
-						Replicas:  ptr.To(int32(1)),
+						Replicas:  new(int32(1)),
 						Template:  podTemplate,
 					},
 				},
@@ -622,7 +625,7 @@ func TestGetWorkerGroupDetails(t *testing.T) {
 					cluster:   "cluster-1",
 					spec: rayv1.WorkerGroupSpec{
 						GroupName: "group-1",
-						Replicas:  ptr.To(int32(1)),
+						Replicas:  new(int32(1)),
 						Template:  podTemplate,
 					},
 				},
@@ -808,4 +811,29 @@ namespace-2   pod-2   1     5            3/3        1      1      1      1Gi    
 			assert.Equal(t, tc.expected, output.String())
 		})
 	}
+}
+
+func TestCalculatePodResourceDoesNotMutateInput(t *testing.T) {
+	podSpec := corev1.PodSpec{
+		Containers: []corev1.Container{
+			{
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("200Mi"),
+					},
+				},
+			},
+		},
+	}
+	wantRequests := podSpec.Containers[0].Resources.Requests.DeepCopy()
+
+	got := calculatePodResource(podSpec)
+
+	assert.Equal(t, "1", got.Cpu().String())
+	assert.Equal(t, "200Mi", got.Memory().String())
+	assert.Equal(t, wantRequests, podSpec.Containers[0].Resources.Requests)
 }

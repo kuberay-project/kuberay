@@ -46,7 +46,7 @@ func TestJobEventMap(t *testing.T) {
 		}
 
 		events := em.GetEventsByJobID("01000000")
-		require.Equal(t, MaxEventsPerJob, len(events))
+		require.Len(t, events, MaxEventsPerJob)
 		// Verify oldest events were evicted
 		assert.Equal(t, fmt.Sprintf("%d", 1770635000+numEvents-MaxEventsPerJob), events[0]["timestamp"].(string))
 	})
@@ -82,7 +82,7 @@ func TestLogEventToAPIResponse(t *testing.T) {
 		assert.Equal(t, "JOBS", response["sourceType"])
 		assert.Equal(t, "raycluster-historyserver-head-6gvqk", response["sourceHostname"])
 		assert.Equal(t, 568, response["sourcePid"])
-		assert.Equal(t, "", response["label"])
+		assert.Empty(t, response["label"])
 		assert.Equal(t, "INFO", response["severity"])
 		assert.Equal(t, "1770635705", response["timestamp"])
 		assert.Equal(t, "Started a ray job rayjob-brmng-rhrb7.", response["message"])
@@ -124,6 +124,28 @@ func TestLogEventGetJobID(t *testing.T) {
 			assert.Equal(t, tc.want, event.GetJobID())
 		})
 	}
+}
+
+func TestLogEventStoreGetLogEventsByJobIDDeepCopy(t *testing.T) {
+	store := NewLogEventStore()
+	const clusterSessionKey = "raycluster-test_default_session_2026-04-22_10-00-00_000000_1"
+
+	m := store.GetOrCreateJobEventMap(clusterSessionKey)
+	m.AddEvent(&LogEvent{
+		EventID:      "e1",
+		Timestamp:    "1770635705",
+		CustomFields: map[string]any{"job_id": "01000000"},
+	})
+
+	copied := store.GetLogEventsByJobID(clusterSessionKey)
+	require.Len(t, copied["01000000"], 1)
+
+	copied["01000000"][0].Message = "mutated"
+	copied["01000000"][0].CustomFields["job_id"] = "changed"
+
+	again := store.GetLogEventsByJobID(clusterSessionKey)
+	assert.NotEqual(t, "mutated", again["01000000"][0].Message)
+	assert.Equal(t, "01000000", again["01000000"][0].CustomFields["job_id"])
 }
 
 func TestLogEventRestoreNewline(t *testing.T) {

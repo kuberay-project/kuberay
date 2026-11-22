@@ -3,6 +3,9 @@ package common
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os/exec"
 	"strconv"
 	"testing"
 
@@ -12,6 +15,7 @@ import (
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
 func rayJobTemplate() *rayv1.RayJob {
@@ -68,17 +72,13 @@ pip: ["python-multipart==0.0.6"]
 	assert.Equal(t, expectedMap, actualMap)
 }
 
-func TestGetMetadataJson(t *testing.T) {
-	testRayJob := rayJobTemplate()
-	expected := `{"testKey":"testValue"}`
-	metadataJson, err := GetMetadataJson(testRayJob.Spec.Metadata, testRayJob.Spec.RayClusterSpec.RayVersion)
-	require.NoError(t, err)
-	assert.JSONEq(t, expected, metadataJson)
-}
-
 func TestBuildJobSubmitCommandWithK8sJobMode(t *testing.T) {
 	testRayJob := rayJobTemplate()
 	expected := []string{
+		"until",
+		fmt.Sprintf(utils.K8sJobDashboardHealthCommand, utils.RayDashboardGCSHealthPath, utils.RayDashboardGCSHealthCheckTimeoutSeconds, "http://127.0.0.1:8265"),
+		">/dev/null", "2>&1", ";",
+		"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at http://127.0.0.1:8265 ..."), ";", "sleep", "2", ";", "done", ";",
 		"if",
 		"!", "ray", "job", "status", "--address", "http://127.0.0.1:8265", "testJobId", ">/dev/null", "2>&1",
 		";", "then",
@@ -116,9 +116,8 @@ func TestBuildJobSubmitCommandWithSidecarMode(t *testing.T) {
 		"until",
 		fmt.Sprintf(
 			utils.BasePythonHealthCommand,
-			utils.DefaultDashboardPort,
-			utils.RayDashboardGCSHealthPath,
-			utils.DefaultReadinessProbeFailureThreshold,
+			fmt.Sprintf("http://localhost:%d/%s", utils.DefaultDashboardPort, utils.RayDashboardGCSHealthPath),
+			utils.RayDashboardGCSHealthCheckTimeoutSeconds,
 		),
 		">/dev/null", "2>&1", ";",
 		"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at http://127.0.0.1:8265 ..."), ";", "sleep", "2", ";", "done", ";",
@@ -173,7 +172,6 @@ func TestBuildJobSubmitCommandWithSidecarModeVersionSwitch(t *testing.T) {
 					},
 				},
 			}
-
 			command, err := BuildJobSubmitCommand(testRayJob, rayv1.SidecarMode)
 			require.NoError(t, err)
 			require.GreaterOrEqual(t, len(command), 2)
@@ -198,7 +196,6 @@ func TestBuildJobSubmitCommandWithSidecarModeCustomDashboardPort(t *testing.T) {
 			},
 		},
 	}
-
 	command, err := BuildJobSubmitCommand(testRayJob, rayv1.SidecarMode)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(command), 2)
@@ -208,16 +205,109 @@ func TestBuildJobSubmitCommandWithSidecarModeCustomDashboardPort(t *testing.T) {
 	assert.NotContains(t, command[1], "wget")
 }
 
-func TestBuildJobSubmitCommandWithK8sJobModeNoSidecarHealthWaitLoop(t *testing.T) {
+func TestBuildJobSubmitCommandWithK8sJobModeHealthWaitLoop(t *testing.T) {
 	testRayJob := rayJobTemplate()
 	command, err := BuildJobSubmitCommand(testRayJob, rayv1.K8sJobMode)
 	require.NoError(t, err)
-	assert.NotContains(t, command, "until")
-	for _, token := range command {
-		assert.NotContains(t, token, utils.RayDashboardGCSHealthPath)
-		assert.NotContains(t, token, "python -c")
-		assert.NotContains(t, token, "wget")
+	require.GreaterOrEqual(t, len(command), 2)
+	assert.Equal(t, "until", command[0])
+	assert.Contains(t, command[1], "python -c")
+	assert.Contains(t, command[1], utils.RayDashboardGCSHealthPath)
+	assert.Contains(t, command[1], "127.0.0.1:8265")
+	assert.NotContains(t, command[1], "wget")
+}
+
+func TestBuildJobSubmitCommandWithK8sJobModeDashboardAddressOverrides(t *testing.T) {
+	_, err := exec.LookPath("python")
+	require.NoError(t, err, "python is required to execute the generated health probe")
+
+	tests := []struct {
+		name         string
+		env          map[string]string
+		expectedPath string
+	}{
+		{"fallback", nil, "/fallback/api/gcs_healthz"},
+		{"Ray address", map[string]string{"RAY_ADDRESS": "/ray"}, "/ray/api/gcs_healthz"},
+		{"API server address", map[string]string{"RAY_API_SERVER_ADDRESS": "/api"}, "/api/api/gcs_healthz"},
+		{"API server takes precedence", map[string]string{"RAY_ADDRESS": "/ray", "RAY_API_SERVER_ADDRESS": "/api"}, "/api/api/gcs_healthz"},
 	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc(tt.expectedPath, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte("success"))
+			})
+			server := httptest.NewServer(mux)
+			defer server.Close()
+
+			t.Setenv("RAY_ADDRESS", "")
+			t.Setenv("RAY_API_SERVER_ADDRESS", "")
+			t.Setenv("no_proxy", "*")
+			for name, path := range tt.env {
+				t.Setenv(name, server.URL+path)
+			}
+
+			// Only the expected address returns success; other paths return HTTP 404.
+			rayJob := rayJobTemplate()
+			rayJob.Status.DashboardURL = server.URL + "/fallback"
+			command, err := BuildJobSubmitCommand(rayJob, rayv1.K8sJobMode)
+			require.NoError(t, err)
+			require.GreaterOrEqual(t, len(command), 2)
+			//nolint:gosec // G204: intentionally execute the generated probe using only a fixed template and the local test server URL.
+			cmd := exec.CommandContext(t.Context(), "/bin/bash", "-c", "exec "+command[1])
+			output, err := cmd.CombinedOutput()
+			require.NoError(t, err, "%s", output)
+		})
+	}
+}
+
+func TestBuildJobSubmitCommandWithSidecarModeAndFeatureGate(t *testing.T) {
+	// Enable the SidecarSubmitterRestart feature gate for this test
+	features.SetFeatureGateDuringTest(t, features.SidecarSubmitterRestart, true)
+
+	testRayJob := rayJobTemplate()
+	testRayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers = []corev1.Container{
+		{
+			Ports: []corev1.ContainerPort{
+				{
+					Name:          utils.DashboardPortName,
+					ContainerPort: utils.DefaultDashboardPort,
+				},
+			},
+		},
+	}
+
+	// With SidecarSubmitterRestart enabled, the command should include:
+	// - status check (if ! ray job status ...)
+	// - --no-wait flag
+	// - job logs follow at the end
+	healthURL := fmt.Sprintf("http://localhost:%d/%s", utils.DefaultDashboardPort, utils.RayDashboardGCSHealthPath)
+	expected := []string{
+		"until",
+		fmt.Sprintf(
+			utils.BasePythonHealthCommand,
+			healthURL,
+			utils.RayDashboardGCSHealthCheckTimeoutSeconds,
+		),
+		">/dev/null", "2>&1", ";",
+		"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at http://127.0.0.1:8265 ..."), ";", "sleep", "2", ";", "done", ";",
+		"if", "!", "ray", "job", "status", "--address", "http://127.0.0.1:8265", "testJobId", ">/dev/null", "2>&1", ";", "then",
+		"ray", "job", "submit", "--address", "http://127.0.0.1:8265", "--no-wait",
+		"--runtime-env-json", strconv.Quote(`{"test":"test"}`),
+		"--metadata-json", strconv.Quote(`{"testKey":"testValue"}`),
+		"--submission-id", "testJobId",
+		"--entrypoint-num-cpus", "1.000000",
+		"--entrypoint-num-gpus", "0.500000",
+		"--entrypoint-resources", strconv.Quote(`{"Custom_1": 1, "Custom_2": 5.5}`),
+		"--",
+		"echo no quote 'single quote' \"double quote\"",
+		";", "fi", ";",
+		"ray", "job", "logs", "--address", "http://127.0.0.1:8265", "--follow", "testJobId",
+	}
+	command, err := BuildJobSubmitCommand(testRayJob, rayv1.SidecarMode)
+	require.NoError(t, err)
+	assert.Equal(t, expected, command)
 }
 
 func TestBuildJobSubmitCommandWithK8sJobModeAndYAML(t *testing.T) {
@@ -241,6 +331,10 @@ pip: ["python-multipart==0.0.6"]
 		},
 	}
 	expected := []string{
+		"until",
+		fmt.Sprintf(utils.K8sJobDashboardHealthCommand, utils.RayDashboardGCSHealthPath, utils.RayDashboardGCSHealthCheckTimeoutSeconds, "http://127.0.0.1:8265"),
+		">/dev/null", "2>&1", ";",
+		"do", "echo", strconv.Quote("Waiting for Ray Dashboard GCS to become healthy at http://127.0.0.1:8265 ..."), ";", "sleep", "2", ";", "done", ";",
 		"if",
 		"!", "ray", "job", "status", "--address", "http://127.0.0.1:8265", "testJobId", ">/dev/null", "2>&1",
 		";", "then",
@@ -265,8 +359,10 @@ pip: ["python-multipart==0.0.6"]
 		if expected[i] == "--runtime-env-json" {
 			// Decode the JSON string from the next element.
 			var expectedMap, actualMap map[string]any
+			//nolint:gosec // G602: test invariant guarantees "--runtime-env-json" is followed by a value.
 			unquoteExpected, err1 := strconv.Unquote(expected[i+1])
 			require.NoError(t, err1)
+
 			unquotedCommand, err2 := strconv.Unquote(command[i+1])
 			require.NoError(t, err2)
 			err1 = json.Unmarshal([]byte(unquoteExpected), &expectedMap)
@@ -285,7 +381,73 @@ pip: ["python-multipart==0.0.6"]
 	}
 }
 
-func TestMetadataRaisesErrorBeforeRay26(t *testing.T) {
+// TestBuildJobSubmitCommandWithClusterSelector verifies that metadata is included
+// when submitting a RayJob to an existing cluster via clusterSelector (no RayClusterSpec,
+// so we can't know the Ray version without looking up the RayCluster; we assume >= 2.6).
+func TestBuildJobSubmitCommandWithClusterSelector(t *testing.T) {
+	rayJobWithClusterSelector := &rayv1.RayJob{
+		Spec: rayv1.RayJobSpec{
+			ClusterSelector: map[string]string{
+				"ray.io/cluster": "existing-cluster",
+			},
+			Metadata: map[string]string{
+				"tenant": "tenant1",
+				"team":   "ml-platform",
+			},
+			Entrypoint: "python /app/batch_inference.py",
+		},
+		Status: rayv1.RayJobStatus{
+			DashboardURL: "http://existing-cluster-head-svc:8265",
+			JobId:        "cluster-selector-job-id",
+		},
+	}
+
+	command, err := BuildJobSubmitCommand(rayJobWithClusterSelector, rayv1.K8sJobMode)
+	require.NoError(t, err)
+
+	hasMetadataFlag := false
+	for i, arg := range command {
+		if arg == "--metadata-json" {
+			hasMetadataFlag = true
+			require.Greater(t, len(command), i+1)
+			unquoted, err := strconv.Unquote(command[i+1])
+			require.NoError(t, err)
+			var metadata map[string]string
+			require.NoError(t, json.Unmarshal([]byte(unquoted), &metadata))
+			assert.Equal(t, "tenant1", metadata["tenant"])
+			assert.Equal(t, "ml-platform", metadata["team"])
+			break
+		}
+	}
+	assert.True(t, hasMetadataFlag, "metadata-json flag should be present when using clusterSelector with metadata")
+}
+
+// TestBuildJobSubmitCommandWithUnparseableRayVersion verifies that metadata is
+// rejected when RayJob.Spec.RayClusterSpec.RayVersion is set to a non-semver string. A user
+// who went to the trouble of typing a version should fail fast rather than silently proceed.
+func TestBuildJobSubmitCommandWithUnparseableRayVersion(t *testing.T) {
+	rayJob := &rayv1.RayJob{
+		Spec: rayv1.RayJobSpec{
+			RayClusterSpec: &rayv1.RayClusterSpec{
+				RayVersion: "not-a-version",
+			},
+			Metadata: map[string]string{
+				"testKey": "testValue",
+			},
+			Entrypoint: "echo hello",
+		},
+		Status: rayv1.RayJobStatus{
+			DashboardURL: "http://127.0.0.1:8265",
+			JobId:        "testJobId",
+		},
+	}
+	_, err := BuildJobSubmitCommand(rayJob, rayv1.K8sJobMode)
+	require.Error(t, err)
+}
+
+// TestBuildJobSubmitCommandWithOldRayVersion verifies that metadata is
+// rejected when RayJob.Spec.RayClusterSpec.RayVersion is explicitly set below 2.6.0.
+func TestBuildJobSubmitCommandWithOldRayVersion(t *testing.T) {
 	rayJob := &rayv1.RayJob{
 		Spec: rayv1.RayJobSpec{
 			RayClusterSpec: &rayv1.RayClusterSpec{
@@ -294,10 +456,51 @@ func TestMetadataRaisesErrorBeforeRay26(t *testing.T) {
 			Metadata: map[string]string{
 				"testKey": "testValue",
 			},
+			Entrypoint: "echo hello",
+		},
+		Status: rayv1.RayJobStatus{
+			DashboardURL: "http://127.0.0.1:8265",
+			JobId:        "testJobId",
 		},
 	}
-	_, err := GetMetadataJson(rayJob.Spec.Metadata, rayJob.Spec.RayClusterSpec.RayVersion)
+	_, err := BuildJobSubmitCommand(rayJob, rayv1.K8sJobMode)
 	require.Error(t, err)
+}
+
+// TestBuildJobSubmitCommandWithUnsetRayVersion verifies that
+// metadata is still included when RayClusterSpec is present but RayVersion is empty. We assume
+// the cluster is >= 2.6.0 unless the user explicitly sets a lower version.
+func TestBuildJobSubmitCommandWithUnsetRayVersion(t *testing.T) {
+	rayJob := &rayv1.RayJob{
+		Spec: rayv1.RayJobSpec{
+			RayClusterSpec: &rayv1.RayClusterSpec{},
+			Metadata: map[string]string{
+				"testKey": "testValue",
+			},
+			Entrypoint: "echo hello",
+		},
+		Status: rayv1.RayJobStatus{
+			DashboardURL: "http://127.0.0.1:8265",
+			JobId:        "testJobId",
+		},
+	}
+	command, err := BuildJobSubmitCommand(rayJob, rayv1.K8sJobMode)
+	require.NoError(t, err)
+
+	hasMetadataFlag := false
+	for i, arg := range command {
+		if arg == "--metadata-json" {
+			hasMetadataFlag = true
+			require.Greater(t, len(command), i+1)
+			unquoted, err := strconv.Unquote(command[i+1])
+			require.NoError(t, err)
+			var metadata map[string]string
+			require.NoError(t, json.Unmarshal([]byte(unquoted), &metadata))
+			assert.Equal(t, "testValue", metadata["testKey"])
+			break
+		}
+	}
+	assert.True(t, hasMetadataFlag, "metadata-json flag should be present when RayVersion is unset")
 }
 
 func TestGetSubmitterTemplate(t *testing.T) {

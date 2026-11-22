@@ -1,6 +1,7 @@
 package ray
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -8,11 +9,14 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 )
 
 func TestTrim(t *testing.T) {
-	absoluteLogPathName := " /tmp/ray/test/LLogs/events///aa/a.txt  "
-	logdir := "/tmp/ray/test/lLogs/"
+	tmpRayRoot := utils.GetTmpRayRoot()
+	absoluteLogPathName := fmt.Sprintf(" %s/test/LLogs/events/aa/a.txt  ", tmpRayRoot)
+	logdir := fmt.Sprintf("%s/test/lLogs/", tmpRayRoot)
 
 	absoluteLogPathName = strings.TrimSpace(absoluteLogPathName)
 	absoluteLogPathName = filepath.Clean(absoluteLogPathName)
@@ -24,10 +28,10 @@ func TestTrim(t *testing.T) {
 	// relativePath := strings.TrimPrefix(absoluteLogPathName, logdir)
 	// Split relative path into subdir and filename
 	subdir, filename := filepath.Split(relativePath)
-	test_path_join := path.Join("aa./b/c/d", "e")
+	testPathJoin := path.Join("aa./b/c/d", "e")
 	t.Logf("file [%s] logdir [%s] subdir %s filename %s", absoluteLogPathName,
 		logdir, subdir, filename)
-	t.Logf("test_path_join [%s]", test_path_join)
+	t.Logf("testPathJoin [%s]", testPathJoin)
 }
 
 func TestGetContentPathComparison(t *testing.T) {
@@ -46,8 +50,8 @@ func TestGetContentPathComparison(t *testing.T) {
 }
 
 func TestWalk(t *testing.T) {
-	watchPath := "/tmp/ray/test/LLogs/"
-	filepath.Walk(watchPath, func(path string, info os.FileInfo, err error) error {
+	watchPath := fmt.Sprintf("%s/test/LLogs/", utils.GetTmpRayRoot())
+	if err := filepath.Walk(watchPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			logrus.Errorf("Walk path error %v", err)
 			return err
@@ -57,5 +61,7 @@ func TestWalk(t *testing.T) {
 			logrus.Infof("Find new file %s", path)
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Logf("Walk %s: %v", watchPath, err)
+	}
 }

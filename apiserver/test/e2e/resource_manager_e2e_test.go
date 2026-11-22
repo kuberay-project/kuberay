@@ -126,22 +126,22 @@ func TestListClusters(t *testing.T) {
 	// Create cluster
 	clustersList := []*api.Cluster{
 		{
-			Name:        tCtx.GetNextName(),
+			Name:        "test-cluster-1",
 			Namespace:   tCtx.GetNamespaceName(),
 			ClusterSpec: clusterSpec,
 		},
 		{
-			Name:        tCtx.GetNextName(),
+			Name:        "test-cluster-2",
 			Namespace:   tCtx.GetNamespaceName(),
 			ClusterSpec: clusterSpec,
 		},
 		{
-			Name:        tCtx.GetNextName(),
+			Name:        "test-cluster-3",
 			Namespace:   tCtx.GetNamespaceName(),
 			ClusterSpec: clusterSpec,
 		},
 		{
-			Name:        tCtx.GetNextName(),
+			Name:        "test-cluster-4",
 			Namespace:   tCtx.GetNamespaceName(),
 			ClusterSpec: clusterSpec,
 		},

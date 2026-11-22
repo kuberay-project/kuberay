@@ -8,7 +8,7 @@ This guide covers the purpose, requirements, and deployment of the Kuberay API S
 | Software | Version  |                                                                Link |
 |:---------|:--------:|--------------------------------------------------------------------:|
 | kubectl  | v1.18.3+ | [Download](https://kubernetes.io/docs/tasks/tools/install-kubectl/) |
-| Go       |  v1.20   |                                  [Download](https://golang.org/dl/) |
+| Go       |  v1.26+  |                                  [Download](https://golang.org/dl/) |
 | Docker   |  19.03+  |                        [Download](https://docs.docker.com/install/) |
 | GNU Make |  3.81+   |                                                                     |
 | curl     |  7.88+   |                                                                     |
@@ -22,7 +22,7 @@ Typing `make dev-tools` will download and install all of them. The `make clean-d
 | Software      | Version  |                                                                    Link |
 | :-------      | :------: | -----------------------------------------------------------------------:|
 | kind          | v0.19.0  | [Install](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) |
-| golangci-lint | v2.7.2  | [Install](https://golangci-lint.run/docs/welcome/install/local/)                     |
+| golangci-lint | v2.11.4  | [Install](https://golangci-lint.run/docs/welcome/install/local/)        |
 | kustomize     | v3.8.7   | [install](https://kubectl.docs.kubernetes.io/installation/kustomize/)   |
 | gofumpt       | v0.3.1   | To install `go install mvdan.cc/gofumpt@v0.3.1`                         |
 | goimports     | latest   | To install `go install golang.org/x/tools/cmd/goimports@latest`         |

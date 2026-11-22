@@ -43,7 +43,6 @@ spec:
                   cpu: "1"
                   memory: 1G
                 limits:
-                  cpu: "1"
                   memory: 2G
               ports:
                 - containerPort: 6379

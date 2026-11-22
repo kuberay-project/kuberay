@@ -43,3 +43,32 @@ export interface HistoryTasksResponse {
     };
   };
 }
+
+/** GET /nodes response for the node selector on the logs page */
+export interface HistoryNodeSummary {
+  hostname: string;
+  ip: string;
+  raylet: {
+    nodeId: string;
+    state: string;
+  };
+}
+
+export interface HistoryNodesResponse {
+  result: boolean;
+  msg: string;
+  data: {
+    summary: HistoryNodeSummary[];
+  };
+}
+
+/** GET /api/v0/logs?node_id=... response – log files categorised by component */
+export type LogFilesByCategory = Record<string, string[]>;
+
+export interface HistoryLogsResponse {
+  result: boolean;
+  msg: string;
+  data: {
+    result: LogFilesByCategory;
+  };
+}

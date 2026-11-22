@@ -1,6 +1,6 @@
 package e2eincrementalupgrade
 
-import "k8s.io/utils/ptr"
+const defaultWorkerCPURequest = "2"
 
 // These parameters control capacity scaling and gradual traffic migration during the upgrade.
 type incrementalUpgradeParams struct {
@@ -41,7 +41,7 @@ var incrementalUpgradeCombinations = []incrementalUpgradeParams{
 
 // ptrs returns (*stepSize, *interval, *maxSurge) for use with the RayService bootstrap helper.
 func (p incrementalUpgradeParams) ptrs() (*int32, *int32, *int32) {
-	return ptr.To(p.StepSize), ptr.To(p.Interval), ptr.To(p.MaxSurge)
+	return new(p.StepSize), new(p.Interval), new(p.MaxSurge)
 }
 
 // The following defines the Serve configurations for different types of incremental upgrade tests, including:
@@ -110,11 +110,11 @@ const highRPSServeConfigV2 serveConfigV2 = `applications:
       working_dir: "https://github.com/ray-project/serve_config_examples/archive/530e247ca195530b71b92d7e708048a1bdc02583.zip"
     deployments:
       - name: SimpleDeployment
+        max_ongoing_requests: 6
         autoscaling_config:
           min_replicas: 1
           max_replicas: 2
           target_ongoing_requests: 2
-          max_ongoing_requests: 6
           upscale_delay_s: 0.5
         ray_actor_options:
           num_cpus: 2

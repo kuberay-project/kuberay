@@ -1,0 +1,86 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-embedded-gcs-ft
+spec:
+  rayVersion: "2.57.0"
+  gcsFaultToleranceOptions:
+    # Use the embedded RocksDB backend for GCS fault tolerance. RocksDB is linked
+    # into the GCS process (no external Redis service). KubeRay provisions a PVC,
+    # mounts it on the head Pod, and sets the required env vars automatically.
+    #
+    # NOTE: this backend is alpha and gated behind the KubeRay
+    # `GCSFaultToleranceEmbeddedStorage` feature gate. Enable it on the operator,
+    # e.g. `--feature-gates=GCSFaultToleranceEmbeddedStorage=true`.
+    backend: rocksdb
+    storage:
+      # Operator-managed PVC. KubeRay creates `{cluster}-gcs-pvc` and garbage-collects
+      # it via ownerReferences when the RayCluster is deleted. It is created once and
+      # not reconfigured in place; to change size/class/accessModes, delete the PVC.
+      size: 1Gi
+      # storageClassName: ssd            # optional; defaults to the cluster default StorageClass
+      # accessModes: [ReadWriteOnce]     # optional; default. RocksDB is single-writer:
+      #                                  # ReadWriteOnce suits a standalone RayCluster; use
+      #                                  # ReadWriteMany only when multiple Pods must attach
+      #                                  # concurrently (single-writer coordinated externally).
+      # subPath: clusters/my-ray/gcs     # optional; mount a subdirectory of the volume
+      # deletionPolicy: DeleteWithCluster # optional; default. The operator-managed PVC is owned
+      #                                  # by the RayCluster and garbage-collected with it. Set to
+      #                                  # Retain to keep the PVC (and its data) after the
+      #                                  # RayCluster is deleted, so GCS state can be recovered by
+      #                                  # a new cluster via claimName, or by recreating a cluster
+      #                                  # with the same name (the operator adopts the retained
+      #                                  # {cluster}-gcs-pvc). Delete the leftover PVC for a fresh store.
+      #
+      # To bring your own PVC instead of an operator-managed one, set claimName
+      # (mutually exclusive with size/storageClassName/accessModes). This is also the
+      # path for persisting GCS state across a RayService zero-downtime upgrade: point
+      # every generation at the same claim (see the field docs in the API reference).
+      # claimName: my-gcs-pvc
+  headGroupSpec:
+    rayStartParams:
+      # Setting "num-cpus: 0" to avoid any Ray actors or tasks being scheduled on the Ray head Pod.
+      num-cpus: "0"
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.57.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "5Gi"
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+          ports:
+          - containerPort: 6379
+            name: gcs
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          volumeMounts:
+          - mountPath: /tmp/ray
+            name: ray-logs
+        volumes:
+        - name: ray-logs
+          emptyDir: {}
+  workerGroupSpecs:
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 10
+    groupName: small-group
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.57.0
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "1"
+              memory: "1Gi"

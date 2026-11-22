@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { fetchRuntimeConfig } from "@/utils/constants";
 
 const NamespaceContext = React.createContext<string>("");
 
@@ -8,6 +9,16 @@ interface NamespaceProviderProps {
 
 const NamespaceProvider: React.FC<NamespaceProviderProps> = ({ children }) => {
   const [namespace, setNamespace] = useState("default");
+
+  useEffect(() => {
+    fetchRuntimeConfig().then((cfg) => {
+      if (cfg.defaultNamespace) {
+        setNamespace((prev) =>
+          prev === "default" ? cfg.defaultNamespace! : prev,
+        );
+      }
+    });
+  }, []);
 
   // This useEffect is necessary since the window object is not available
   // during static generation. After the component is rendered on browser, we can use it.

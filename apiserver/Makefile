@@ -19,6 +19,11 @@ else
 endif
 # Kuberay API Server base URL to use in end to end tests
 E2E_API_SERVER_URL ?= http://localhost:31888
+# Export so `go test` subprocesses pick them up via os.Getenv. Without this,
+# the e2e helpers fall back to their hard-coded defaults and disagree with the
+# image preloaded into kind by `load-ray-test-image`.
+export E2E_API_SERVER_RAY_IMAGE
+export E2E_API_SERVER_URL
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (, $(shell go env GOBIN))
@@ -151,9 +156,6 @@ load-image: ## Load the api server image to the kind cluster created with create
 operator-image: ## Build the operator image to be loaded in your kind cluster.
 	cd ../ray-operator && $(MAKE) docker-image -e IMG=quay.io/kuberay/operator:$(OPERATOR_IMAGE_TAG)
 
-.PHONY: security-proxy-image
-security-proxy-image: ## Build the security proxy image to be loaded in your kind cluster.
-	cd ../experimental && $(MAKE) docker-image -e IMG=quay.io/kuberay/security-proxy:$(SECURITY_IMAGE_TAG)
 
 .PHONY: deploy-operator
 deploy-operator: ## Deploy operator via helm into the K8s cluster specified in ~/.kube/config.
@@ -258,7 +260,7 @@ MOCKGEN = $(REPO_ROOT_BIN)/mockgen
 KUSTOMIZE_VERSION ?= v5.4.3
 GOFUMPT_VERSION ?= v0.3.1
 GOIMPORTS_VERSION ?= v0.14.0
-GOLANGCI_LINT_VERSION ?= v2.7.2
+GOLANGCI_LINT_VERSION ?= v2.11.4
 KIND_VERSION ?= v0.19.0
 GOBINDATA_VERSION ?= v4.0.2
 MOCKGEN_VERSION ?= v1.6.0

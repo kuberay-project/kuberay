@@ -73,6 +73,7 @@ const (
 	PreRunningDeadlineExceeded                       JobFailedReason = "PreRunningDeadlineExceeded"
 	AppFailed                                        JobFailedReason = "AppFailed"
 	JobDeploymentStatusTransitionGracePeriodExceeded JobFailedReason = "JobDeploymentStatusTransitionGracePeriodExceeded"
+	JobStatusCheckTimeoutExceeded                    JobFailedReason = "JobStatusCheckTimeoutExceeded"
 	ValidationFailed                                 JobFailedReason = "ValidationFailed"
 )
 
@@ -171,7 +172,8 @@ const (
 )
 
 type SubmitterConfig struct {
-	// BackoffLimit of the submitter k8s job.
+	// BackoffLimit of the submitter. In K8sJobMode, this is the K8s Job backoffLimit.
+	// In SidecarMode with SidecarSubmitterRestart enabled, this is the maximum container restart count.
 	// +optional
 	BackoffLimit *int32 `json:"backoffLimit,omitempty"`
 }
@@ -321,6 +323,10 @@ type RayJobStatus struct {
 	// RayClusterStatus is the status of the RayCluster running the job.
 	// +optional
 	RayClusterStatus RayClusterStatus `json:"rayClusterStatus,omitempty"`
+	// JobStatusCheckFailureStartTime is set when job status checks via the Ray Dashboard started failing.
+	// Reset on a successful check. JobDeploymentStatus transitions to 'Failed' after RAYJOB_STATUS_CHECK_TIMEOUT_SECONDS
+	// +optional
+	JobStatusCheckFailureStartTime *metav1.Time `json:"jobStatusCheckFailureStartTime,omitempty"`
 
 	// observedGeneration is the most recent generation observed for this RayJob. It corresponds to the
 	// RayJob's generation, which is updated on mutation by the API Server.
@@ -345,6 +351,7 @@ type RayJob struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec RayJobSpec `json:"spec,omitempty"`
+	// Status is the most recently observed state of the RayJob.
 	// +optional
 	Status RayJobStatus `json:"status,omitempty"`
 }
@@ -356,8 +363,4 @@ type RayJobList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []RayJob `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&RayJob{}, &RayJobList{})
 }
