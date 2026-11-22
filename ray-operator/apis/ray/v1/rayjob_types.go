@@ -83,7 +83,7 @@ const (
 type HeadFailurePolicy string
 
 const (
-	// HeadFailurePolicyRecreate recreates the head pod when it fails (existing behavior).
+	// HeadFailurePolicyRecreate recreates the head pod when it fails.
 	HeadFailurePolicyRecreate HeadFailurePolicy = "Recreate"
 	// HeadFailurePolicyFail marks the RayJob as failed when the head pod fails, without recreating it.
 	HeadFailurePolicyFail HeadFailurePolicy = "Fail"
