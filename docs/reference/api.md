@@ -214,22 +214,6 @@ _Appears in:_
 | `ttlSeconds` _integer_ | TTLSeconds is the time in seconds from when the JobStatus or JobDeploymentStatus<br />reaches the specified terminal state to when this deletion action should be triggered.<br />The value must be a non-negative integer. | 0 | Minimum: 0 <br /> |
 
 
-#### DeletionPolicy
-
-
-
-
-
-
-
-_Appears in:_
-- [DeletionStrategy](#deletionstrategy)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `policy` _[DeletionPolicyType](#deletionpolicytype)_ |  |  |  |
-
-
 #### DeletionPolicyType
 
 _Underlying type:_ _string_
@@ -239,7 +223,6 @@ _Underlying type:_ _string_
 
 
 _Appears in:_
-- [DeletionPolicy](#deletionpolicy)
 - [DeletionRule](#deletionrule)
 
 | Field | Description |
@@ -293,8 +276,6 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `deletionRules` _[DeletionRule](#deletionrule) array_ | DeletionRules is a list of deletion rules, processed based on their trigger conditions. |  |  |
-| `onSuccess` _[DeletionPolicy](#deletionpolicy)_ | OnSuccess is deprecated; use deletionRules instead.<br />This field is for backward compatibility but is no longer functional. |  |  |
-| `onFailure` _[DeletionPolicy](#deletionpolicy)_ | OnFailure is deprecated; use deletionRules instead.<br />This field is for backward compatibility but is no longer functional. |  |  |
 
 
 

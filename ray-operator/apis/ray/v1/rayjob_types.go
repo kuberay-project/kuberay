@@ -105,21 +105,6 @@ type DeletionStrategy struct {
 	// +optional
 	// +listType=atomic
 	DeletionRules []DeletionRule `json:"deletionRules,omitempty"`
-
-	// OnSuccess is deprecated; use deletionRules instead.
-	// This field is for backward compatibility but is no longer functional.
-	// +optional
-	OnSuccess *DeletionPolicy `json:"onSuccess,omitempty"`
-
-	// OnFailure is deprecated; use deletionRules instead.
-	// This field is for backward compatibility but is no longer functional.
-	// +optional
-	OnFailure *DeletionPolicy `json:"onFailure,omitempty"`
-}
-
-type DeletionPolicy struct {
-	// +optional
-	Policy DeletionPolicyType `json:"policy,omitempty"`
 }
 
 // DeletionRule defines a single deletion action and its trigger condition.

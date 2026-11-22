@@ -120,21 +120,12 @@ spec:
                               type: object
                             type: array
                             x-kubernetes-list-type: atomic
-                          onFailure:
-                            properties:
-                              policy:
-                                type: string
-                            type: object
-                          onSuccess:
-                            properties:
-                              policy:
-                                type: string
-                            type: object
                         type: object
                         x-kubernetes-validations:
-                        - message: deletionRules is required and cannot be empty
-                            when deletionStrategy is set
-                          rule: has(self.deletionRules) && size(self.deletionRules) > 0
+                        - message: deletionRules is required and cannot be empty when
+                            deletionStrategy is set
+                          rule: has(self.deletionRules) && size(self.deletionRules)
+                            > 0
                       entrypoint:
                         type: string
                       entrypointNumCpus:

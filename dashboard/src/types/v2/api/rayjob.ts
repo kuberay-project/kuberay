@@ -24,7 +24,7 @@ interface RayJobAPISpec extends RayJobSpec {
   backoffLimit: number;
   submitterConfig: SubmitterConfig;
   managedBy: string;
-  deletionStrategy: DeletionStrategy;
+  deletionStrategy?: DeletionStrategy;
   submissionMode: JobSubmissionMode;
 }
 

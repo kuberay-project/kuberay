@@ -20,12 +20,6 @@ package v1
 type DeletionStrategyApplyConfiguration struct {
 	// DeletionRules is a list of deletion rules, processed based on their trigger conditions.
 	DeletionRules []DeletionRuleApplyConfiguration `json:"deletionRules,omitempty"`
-	// OnSuccess is deprecated; use deletionRules instead.
-	// This field is for backward compatibility but is no longer functional.
-	OnSuccess *DeletionPolicyApplyConfiguration `json:"onSuccess,omitempty"`
-	// OnFailure is deprecated; use deletionRules instead.
-	// This field is for backward compatibility but is no longer functional.
-	OnFailure *DeletionPolicyApplyConfiguration `json:"onFailure,omitempty"`
 }
 
 // DeletionStrategyApplyConfiguration constructs a declarative configuration of the DeletionStrategy type for use with
@@ -44,21 +38,5 @@ func (b *DeletionStrategyApplyConfiguration) WithDeletionRules(values ...*Deleti
 		}
 		b.DeletionRules = append(b.DeletionRules, *values[i])
 	}
-	return b
-}
-
-// WithOnSuccess sets the OnSuccess field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the OnSuccess field is set to the value of the last call.
-func (b *DeletionStrategyApplyConfiguration) WithOnSuccess(value *DeletionPolicyApplyConfiguration) *DeletionStrategyApplyConfiguration {
-	b.OnSuccess = value
-	return b
-}
-
-// WithOnFailure sets the OnFailure field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the OnFailure field is set to the value of the last call.
-func (b *DeletionStrategyApplyConfiguration) WithOnFailure(value *DeletionPolicyApplyConfiguration) *DeletionStrategyApplyConfiguration {
-	b.OnFailure = value
 	return b
 }
