@@ -280,6 +280,8 @@ func TestCheckIsRestartCountExceeded(t *testing.T) {
 		restartCount         int32
 		existCode            int32
 		hasTermState         bool
+		isRunning            bool
+		isWaiting            bool
 		hasLastTermState     bool
 		expectedShouldUpdate bool
 	}{
@@ -307,6 +309,27 @@ func TestCheckIsRestartCountExceeded(t *testing.T) {
 			hasLastTermState:     true,
 			expectedShouldUpdate: false,
 		},
+		{
+			name:                 "last allowed restart is still running",
+			restartCount:         2,
+			isRunning:            true,
+			hasLastTermState:     true,
+			expectedShouldUpdate: false,
+		},
+		{
+			name:                 "restart beyond the limit is running",
+			restartCount:         3,
+			isRunning:            true,
+			hasLastTermState:     true,
+			expectedShouldUpdate: true,
+		},
+		{
+			name:                 "waiting to restart after the last allowed restart failed",
+			restartCount:         2,
+			isWaiting:            true,
+			hasLastTermState:     true,
+			expectedShouldUpdate: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -319,6 +342,16 @@ func TestCheckIsRestartCountExceeded(t *testing.T) {
 			if tt.hasTermState {
 				containerStatus.State = corev1.ContainerState{
 					Terminated: &corev1.ContainerStateTerminated{ExitCode: tt.existCode},
+				}
+			}
+			if tt.isRunning {
+				containerStatus.State = corev1.ContainerState{
+					Running: &corev1.ContainerStateRunning{},
+				}
+			}
+			if tt.isWaiting {
+				containerStatus.State = corev1.ContainerState{
+					Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"},
 				}
 			}
 
