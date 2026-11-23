@@ -298,6 +298,43 @@ func TestPropagateTaskGroupsAnnotationToPod(t *testing.T) {
 	assert.Equal(t, resource.MustParse("1"), workerGroup.MinResource["nvidia.com/gpu"])
 }
 
+func TestPropagateTaskGroupsAnnotationSkipsWorkerGroupsWithoutMinReplicas(t *testing.T) {
+	// YuniKorn rejects the whole task groups annotation if any group has minMember 0, and minReplicas
+	// defaults to 0, so worker groups without a minimum must not get a task group.
+	rayCluster := createRayClusterWithLabels(
+		"ray-cluster-with-gang-scheduling",
+		"test-namespace",
+		map[string]string{
+			RayApplicationIDLabelName:      "job-1-01234",
+			RayApplicationQueueLabelName:   "root.default",
+			utils.RayGangSchedulingEnabled: "true",
+		},
+	)
+	resources := corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse("1"),
+		corev1.ResourceMemory: resource.MustParse("1Gi"),
+	}
+	addHeadPodSpec(rayCluster, resources)
+	addWorkerPodSpec(rayCluster, "autoscaled-group", 2, 0, 5, resources)
+	addWorkerPodSpec(rayCluster, "fixed-group", 2, 2, 2, resources)
+
+	rayPod := createPod("ray-pod", "default")
+	err := propagateTaskGroupsAnnotation(rayCluster, rayPod)
+	require.NoError(t, err)
+
+	taskGroups := newTaskGroups()
+	err = taskGroups.unmarshalFrom(rayPod.Annotations[YuniKornTaskGroupsAnnotationName])
+	require.NoError(t, err)
+	assert.Len(t, taskGroups.Groups, 2) // head group and fixed-group
+	for _, group := range taskGroups.Groups {
+		assert.Positive(t, group.MinMember, "task group %q", group.Name)
+	}
+	assert.Empty(t, taskGroups.getTaskGroup("autoscaled-group").Name)
+	fixedGroup := taskGroups.getTaskGroup("fixed-group")
+	assert.Equal(t, "fixed-group", fixedGroup.Name)
+	assert.Equal(t, int32(2), fixedGroup.MinMember)
+}
+
 func TestPropagateTaskGroupsAnnotationToRayClusterAndSubmitterPodTemplate(t *testing.T) {
 	appID := "job-1-01234"
 	queue := "root.default"
