@@ -262,3 +262,40 @@ func TestReadLogEvents(t *testing.T) {
 		assert.Len(t, events["global"], 1)
 	})
 }
+
+func TestReadEventFileCppFormattedEvent(t *testing.T) {
+	// Format written by Ray's C++ LogEventReporter::EventToString (raylet and GCS): "timestamp" is a
+	// number and the source is in "host_name" and "pid" (a string) instead of "source_hostname" and
+	// "source_pid".
+	const cppWorkerFailure = `{"custom_fields":{"job_id":"01000000","node_id":"aa","worker_id":"bb"},"event_id":"0b1c2d3e4f5a6b7c8d9e","host_name":"raycluster-head-6gvqk","label":"RAY_WORKER_FAILURE","message":"A worker died or was killed while executing a task by an unexpected system error.","pid":"812","severity":"ERROR","source_type":"RAYLET","timestamp":1770635705}`
+	// Format written by Python's EventLoggerAdapter.
+	const pythonJobEvent = `{"event_id":"1a2b3c4d5e6f7a8b9c0d","source_type":"JOBS","source_hostname":"raycluster-head-6gvqk","source_pid":1234,"severity":"INFO","label":"","message":"Started a ray job.","timestamp":"1770635706","custom_fields":{"job_id":"01000000","submission_id":"raysubmit_1"}}`
+
+	mock := newLogEventMockReader()
+	mock.addFile("session/node1/logs/events/event_RAYLET.log", cppWorkerFailure+"\n")
+	mock.addFile("session/node1/logs/events/event_JOBS.log", pythonJobEvent+"\n")
+	reader := NewLogEventReader(mock)
+	jobEventMap := types.NewJobEventMap()
+	require.NoError(t, reader.readEventFile(mockClusterID, "session/node1/logs/events/event_RAYLET.log", jobEventMap))
+	require.NoError(t, reader.readEventFile(mockClusterID, "session/node1/logs/events/event_JOBS.log", jobEventMap))
+
+	events := jobEventMap.GetAllEvents()["01000000"]
+	require.Len(t, events, 2, "both the C++ and the Python formatted event should be read")
+	byLabel := map[string]map[string]any{}
+	for _, event := range events {
+		byLabel[event["sourceType"].(string)] = event
+	}
+
+	cpp := byLabel["RAYLET"]
+	require.NotNil(t, cpp)
+	assert.Equal(t, "RAY_WORKER_FAILURE", cpp["label"])
+	assert.Equal(t, "1770635705", cpp["timestamp"])
+	assert.Equal(t, "raycluster-head-6gvqk", cpp["sourceHostname"])
+	assert.Equal(t, 812, cpp["sourcePid"])
+
+	python := byLabel["JOBS"]
+	require.NotNil(t, python)
+	assert.Equal(t, "1770635706", python["timestamp"])
+	assert.Equal(t, "raycluster-head-6gvqk", python["sourceHostname"])
+	assert.Equal(t, 1234, python["sourcePid"])
+}
