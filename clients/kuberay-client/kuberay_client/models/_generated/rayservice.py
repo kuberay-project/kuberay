@@ -1103,6 +1103,7 @@ class RayClusterConfigCollectorOption(BaseModel):
     image: str | None = None
     imagePullPolicy: str | None = None
     resources: RayClusterConfigAutoscalerOptionResource | None = None
+    securityContext: RayClusterConfigAutoscalerOptionSecurityContext | None = None
 
 
 class RayClusterConfigHistoryServerOption(BaseModel):

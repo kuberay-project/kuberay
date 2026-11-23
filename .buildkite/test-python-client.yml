@@ -37,6 +37,7 @@
     - source venv/bin/activate
     - pip install -e .
     - pip install pytest
+    - pip install -r scripts/requirements-python-models.txt
     # Run Python client tests
     - echo "--- START:Running Python client tests"
     - set -o pipefail

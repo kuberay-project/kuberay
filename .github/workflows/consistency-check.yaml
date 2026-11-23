@@ -158,7 +158,7 @@ jobs:
 
   # Check consistency between CRD YAML and generated Python Pydantic models.
   # Uses a single consolidated generator that normalizes CRD schemas into
-  # named definitions, producing stable class names instead of positional ones.
+  # named definitions for the internal validation models.
   python-models-consistency:
     needs: ray-operator-verify-crd-rbac
     runs-on: ubuntu-22.04
@@ -173,20 +173,24 @@ jobs:
           python-version: '3.11'
 
       - name: Install generation dependencies
+        working-directory: ./clients/kuberay-client
         run: pip install -r scripts/requirements-python-models.txt
 
       - name: Regenerate Python models from CRD
+        working-directory: ./clients/kuberay-client
         run: python scripts/generate_python_models.py
 
       - name: Check for uncommitted changes
         run: |
           if ! git diff --exit-code clients/kuberay-client/kuberay_client/models/_generated/; then
-            echo "::error::Generated Python models are out of date. Run 'python scripts/generate_python_models.py' and commit the result."
+            echo "::error::Generated Python models are out of date. Run 'python clients/kuberay-client/scripts/generate_python_models.py' and commit the result."
             exit 1
           fi
 
-      - name: Verify builders work with generated models
+      - name: Test generation and builders
         working-directory: ./clients/kuberay-client
         run: |
           pip install -e . pytest
-          pytest -q kuberay_client_test/test_utils.py kuberay_client_test/test_director.py
+          pytest -q kuberay_client_test/test_generate_python_models.py \
+            kuberay_client_test/test_job_builder.py kuberay_client_test/test_utils.py \
+            kuberay_client_test/test_director.py

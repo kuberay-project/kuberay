@@ -1063,6 +1063,7 @@ class CollectorOption(BaseModel):
     image: str | None = None
     imagePullPolicy: str | None = None
     resources: AutoscalerOptionResource | None = None
+    securityContext: AutoscalerOptionSecurityContext | None = None
 
 
 class HistoryServerOption(BaseModel):

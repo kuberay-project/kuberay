@@ -7,7 +7,7 @@ implementation details; only the root RayJob class is imported for
 validation.
 
 Usage:
-    from kuberay_client.utils.kuberay_job_builder import RayJobBuilder, create_ray_job
+    from kuberay_client.utils.kuberay_job_builder import RayJobBuilder
 
     # Create a RayJob targeting existing cluster
     job = RayJobBuilder("my-job") \
@@ -73,10 +73,23 @@ class RayJobBuilder:
         worker_image: Optional[str] = None,
         worker_replicas: int = 1,
         worker_min_replicas: int = 0,
-        worker_max_replicas: int = 4,
+        worker_max_replicas: Optional[int] = None,
         ray_version: str = "2.48.0",
     ) -> "RayJobBuilder":
-        """Create an embedded RayCluster for this job."""
+        """Create an embedded RayCluster for this job.
+
+        worker_max_replicas defaults to worker_replicas. Explicit bounds must
+        satisfy 0 <= worker_min_replicas <= worker_replicas <= worker_max_replicas.
+        A worker_replicas value of zero creates a head-only cluster.
+        """
+        if worker_max_replicas is None:
+            worker_max_replicas = worker_replicas
+        if not 0 <= worker_min_replicas <= worker_replicas <= worker_max_replicas:
+            raise ValueError(
+                "Worker replicas must satisfy "
+                "0 <= worker_min_replicas <= worker_replicas <= worker_max_replicas"
+            )
+
         if worker_image is None:
             worker_image = head_image
 
@@ -204,77 +217,3 @@ class RayJobBuilder:
     def to_json(self, indent: int = 2) -> str:
         """Build and convert to JSON string."""
         return json.dumps(self.build(), indent=indent)
-
-
-def create_ray_job(
-    name: str,
-    entrypoint: str,
-    namespace: str = "default",
-    cluster_name: Optional[str] = None,
-    worker_replicas: int = 1,
-    shutdown_after_finish: bool = True,
-    head_image: str = "rayproject/ray:2.48.0",
-    worker_image: Optional[str] = None,
-    worker_min_replicas: int = 0,
-    worker_max_replicas: int = 4,
-    ray_version: str = "2.48.0",
-    ttl_seconds: Optional[int] = None,
-    runtime_env_yaml: Optional[str] = None,
-    num_cpus: Optional[float] = None,
-    num_gpus: Optional[float] = None,
-    active_deadline_seconds: Optional[int] = None,
-    labels: Optional[dict] = None,
-) -> dict:
-    """
-    Create a RayJob manifest dict.
-
-    Args:
-        name: Job name
-        entrypoint: Command to run
-        namespace: K8s namespace
-        cluster_name: Target existing cluster (if None, creates ephemeral cluster)
-        worker_replicas: Number of workers (for ephemeral cluster)
-        shutdown_after_finish: Delete cluster when job completes
-        head_image: Ray image for the head node (ephemeral cluster only)
-        worker_image: Ray image for worker nodes; defaults to head_image
-        worker_min_replicas: Minimum worker replicas for autoscaling
-        worker_max_replicas: Maximum worker replicas for autoscaling
-        ray_version: Ray version string (ephemeral cluster only)
-        ttl_seconds: Seconds to keep the job resource after it finishes
-        runtime_env_yaml: Runtime environment YAML string
-        num_cpus: Number of CPUs reserved for the entrypoint
-        num_gpus: Number of GPUs reserved for the entrypoint
-        active_deadline_seconds: Hard deadline for the job in seconds
-        labels: Metadata labels to attach to the RayJob
-
-    Returns:
-        K8s manifest dict ready for API submission
-    """
-    builder = RayJobBuilder(name, namespace).with_entrypoint(entrypoint)
-
-    if labels:
-        builder.with_labels(labels)
-
-    if cluster_name:
-        builder.with_cluster_selector(cluster_name)
-    else:
-        builder.with_cluster_spec(
-            head_image=head_image,
-            worker_image=worker_image,
-            worker_replicas=worker_replicas,
-            worker_min_replicas=worker_min_replicas,
-            worker_max_replicas=worker_max_replicas,
-            ray_version=ray_version,
-        )
-        builder.with_shutdown_after_finish(shutdown_after_finish)
-
-    if ttl_seconds is not None:
-        builder.with_ttl_seconds(ttl_seconds)
-    if runtime_env_yaml is not None:
-        builder.with_runtime_env(runtime_env_yaml)
-    if num_cpus is not None or num_gpus is not None:
-        builder.with_resources(num_cpus=num_cpus, num_gpus=num_gpus)
-    if active_deadline_seconds is not None:
-        builder.with_deadline(active_deadline_seconds)
-
-    return builder.build()
