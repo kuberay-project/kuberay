@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
@@ -39,14 +40,18 @@ type RayClusterMTLSController struct {
 	client.Client
 	Scheme   *k8sruntime.Scheme
 	Recorder events.EventRecorder
+	// namespaceSelector restricts reconciliation to namespaces whose labels match it. Nil means all namespaces.
+	namespaceSelector labels.Selector
 }
 
 // NewRayClusterMTLSController creates a new mTLS controller instance.
-func NewRayClusterMTLSController(mgr ctrl.Manager) *RayClusterMTLSController {
+func NewRayClusterMTLSController(mgr ctrl.Manager, namespaceSelector labels.Selector) *RayClusterMTLSController {
 	return &RayClusterMTLSController{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorder("raycluster-mtls-controller"),
+
+		namespaceSelector: namespaceSelector,
 	}
 }
 
@@ -64,6 +69,14 @@ func NewRayClusterMTLSController(mgr ctrl.Manager) *RayClusterMTLSController {
 // Each Certificate's Secret is patched with an owner reference to its Certificate so
 // that Secrets are also GC'd when the Certificate is deleted (no finalizer needed).
 func (r *RayClusterMTLSController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	matches, err := utils.NamespaceMatchesSelector(ctx, r.Client, r.namespaceSelector, req.Namespace)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !matches {
+		return ctrl.Result{}, nil
+	}
+
 	instance := &rayv1.RayCluster{}
 	if err := r.Get(ctx, req.NamespacedName, instance); err != nil {
 		if errors.IsNotFound(err) {
@@ -492,11 +505,13 @@ func (r *RayClusterMTLSController) checkTLSCertificateExpiry(ctx context.Context
 
 // SetupWithManager registers the mTLS controller with the manager.
 func (r *RayClusterMTLSController) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		Named("raycluster-mtls").
 		For(&rayv1.RayCluster{}).
 		Owns(&certmanagerv1.Issuer{}).
-		Owns(&certmanagerv1.Certificate{}).
+		Owns(&certmanagerv1.Certificate{})
+	b = utils.WatchMatchingNamespaces(b, mgr.GetClient(), r.namespaceSelector, &rayv1.RayClusterList{})
+	return b.
 		WithOptions(controller.Options{
 			LogConstructor: func(request *reconcile.Request) logr.Logger {
 				logger := ctrl.Log.WithName("controllers").WithName("RayClusterMTLS")

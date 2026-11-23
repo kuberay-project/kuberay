@@ -170,6 +170,9 @@ It should be called early in the deployment to ensure invalid values are caught.
 {{- if and .Values.singleNamespaceInstall $nodeEventForwarderEnabled }}
 {{- fail "nodeEventForwarder is not supported when singleNamespaceInstall is true because Node events are cluster-scoped and recorded in 'default' or 'kube-system', which requires permissions outside a single namespace." }}
 {{- end }}
+{{- if and .Values.watchNamespaceSelector (or .Values.watchNamespace .Values.singleNamespaceInstall) }}
+{{- fail "watchNamespaceSelector cannot be combined with watchNamespace or singleNamespaceInstall because Namespace labels are cluster-scoped." }}
+{{- end }}
 {{- if and .Values.singleNamespaceInstall .Values.webhooks.enabled }}
 {{- fail "webhooks are not supported when singleNamespaceInstall is true because the webhook configurations and Node reads are cluster-scoped." }}
 {{- end }}
@@ -202,9 +205,11 @@ Create a template to ensure consistency for Role and ClusterRole.
 rules:
 {{- if .clusterScoped }}
 # the pods/binding webhook and controller read the bound node's labels from the informer cache; nodes are cluster-scoped so only the ClusterRole carries it
+# namespaces are read for watchNamespaceSelector and are also cluster-scoped
 - apiGroups:
   - ""
   resources:
+  - namespaces
   - nodes
   verbs:
   - get

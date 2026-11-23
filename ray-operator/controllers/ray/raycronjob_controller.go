@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/clock"
@@ -33,15 +34,19 @@ type RayCronJobReconciler struct {
 	Scheme   *runtime.Scheme
 	Recorder events.EventRecorder
 	clock    clock.Clock
+	// namespaceSelector restricts reconciliation to namespaces whose labels match it. Nil means all namespaces.
+	namespaceSelector labels.Selector
 }
 
 // NewRayCronJobReconciler returns a new RayCronJobReconciler
-func NewRayCronJobReconciler(mgr ctrl.Manager) *RayCronJobReconciler {
+func NewRayCronJobReconciler(mgr ctrl.Manager, namespaceSelector labels.Selector) *RayCronJobReconciler {
 	return &RayCronJobReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorder("raycronjob-controller"),
 		clock:    clock.RealClock{},
+
+		namespaceSelector: namespaceSelector,
 	}
 }
 
@@ -58,6 +63,13 @@ func NewRayCronJobReconciler(mgr ctrl.Manager) *RayCronJobReconciler {
 // Reconcile used to bridge the desired state with the current state
 func (r *RayCronJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
+
+	if matches, err := utils.NamespaceMatchesSelector(ctx, r.Client, r.namespaceSelector, request.Namespace); err != nil {
+		return ctrl.Result{}, err
+	} else if !matches {
+		logger.V(1).Info("Skipping RayCronJob in a namespace that does not match watchNamespaceSelector")
+		return ctrl.Result{}, nil
+	}
 
 	// Get RayCronJob instance
 	rayCronJobInstance := &rayv1.RayCronJob{}
@@ -199,8 +211,10 @@ func (r *RayCronJobReconciler) constructRayJob(cronJob *rayv1.RayCronJob, expect
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *RayCronJobReconciler) SetupWithManager(mgr ctrl.Manager, reconcileConcurrency int) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&rayv1.RayCronJob{}).
+	b := ctrl.NewControllerManagedBy(mgr).
+		For(&rayv1.RayCronJob{})
+	b = utils.WatchMatchingNamespaces(b, mgr.GetClient(), r.namespaceSelector, &rayv1.RayCronJobList{})
+	return b.
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: reconcileConcurrency,
 			LogConstructor: func(request *reconcile.Request) logr.Logger {

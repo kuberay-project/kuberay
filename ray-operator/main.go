@@ -65,6 +65,7 @@ func main() {
 	var probeAddr string
 	var reconcileConcurrency int
 	var watchNamespace string
+	var watchNamespaceSelector string
 	var forcedClusterUpgrade bool
 	var logFile string
 	var logFileEncoder string
@@ -97,6 +98,14 @@ func main() {
 		"watch-namespace",
 		"",
 		"Specify a list of namespaces to watch for custom resources, separated by commas. If left empty, all namespaces will be watched.",
+	)
+	flag.StringVar(
+		&watchNamespaceSelector,
+		"watch-namespace-selector",
+		"",
+		"A Kubernetes label selector (e.g. ray.io/watch=true). If set, custom resources are only reconciled in namespaces whose labels match. "+
+			"Mutually exclusive with --watch-namespace. If both are left empty, all namespaces will be watched."+
+			" CRs deleted after their namespace stops matching are not finalized until the namespace matches again.",
 	)
 	flag.BoolVar(&forcedClusterUpgrade, "forced-cluster-upgrade", false,
 		"(Deprecated) Forced cluster upgrade flag")
@@ -152,6 +161,7 @@ func main() {
 		config.LeaderElectionNamespace = leaderElectionNamespace
 		config.ReconcileConcurrency = reconcileConcurrency
 		config.WatchNamespace = watchNamespace
+		config.WatchNamespaceSelector = watchNamespaceSelector
 		config.LogFile = logFile
 		config.LogFileEncoder = logFileEncoder
 		config.LogStdoutEncoder = logStdoutEncoder
@@ -220,6 +230,9 @@ func main() {
 	if err := configapi.ValidateBatchSchedulerConfig(setupLog, config); err != nil {
 		exitOnError(err, "batch scheduler configs validation failed")
 	}
+	// watchNamespaceSelector must be a valid label selector and cannot be combined with watchNamespace.
+	watchNamespaceLabelSelector, err := configapi.ParseWatchNamespaceSelector(config)
+	exitOnError(err, "watchNamespaceSelector validation failed")
 	// every allowedNodeLabels entry must be a valid label key
 	for _, key := range config.AllowedNodeLabels {
 		if errs := validation.IsQualifiedName(key); len(errs) > 0 {
@@ -303,6 +316,12 @@ func main() {
 		}
 	}
 
+	if watchNamespaceLabelSelector != nil {
+		// The cache stays cluster-wide because DefaultNamespaces cannot change at runtime. Controllers skip
+		// custom resources in namespaces that don't match the selector.
+		setupLog.Info("Only reconcile custom resources in namespaces matching the selector.", "selector", watchNamespaceLabelSelector.String())
+	}
+
 	setupLog.Info("Setup manager")
 	restConfig := ctrl.GetConfigOrDie()
 	restConfig.UserAgent = userAgent
@@ -358,13 +377,15 @@ func main() {
 		AllowedNodeLabels:        config.AllowedNodeLabels,
 		CollectorImage:           config.CollectorImage,
 		CertManagerAvailable:     certManagerAvailable,
+
+		WatchNamespaceSelector: watchNamespaceLabelSelector,
 	}
 	exitOnError(ray.NewReconciler(mgr, rayClusterOptions).SetupWithManager(mgr, config.ReconcileConcurrency),
 		"unable to create controller", "controller", "RayCluster")
 
 	if features.Enabled(features.RayClusterMTLS) {
 		if certManagerAvailable {
-			exitOnError(ray.NewRayClusterMTLSController(mgr).SetupWithManager(mgr),
+			exitOnError(ray.NewRayClusterMTLSController(mgr, watchNamespaceLabelSelector).SetupWithManager(mgr),
 				"unable to create controller", "controller", "RayClusterMTLS")
 		} else {
 			setupLog.Info("cert-manager API not found; mTLS controller disabled (RayClusters with tlsOptions and no CertificateSecretName will not get auto-generated certs)")
@@ -373,12 +394,14 @@ func main() {
 		setupLog.Info("RayClusterMTLS feature gate is disabled, skipping mTLS controller setup")
 	}
 
-	exitOnError(ray.NewRayServiceReconciler(ctx, mgr, config).SetupWithManager(mgr, config.ReconcileConcurrency),
+	exitOnError(ray.NewRayServiceReconciler(ctx, mgr, config, watchNamespaceLabelSelector).SetupWithManager(mgr, config.ReconcileConcurrency),
 		"unable to create controller", "controller", "RayService")
 
 	rayJobOptions := ray.RayJobReconcilerOptions{
 		RayJobMetricsManager:  rayJobMetricsManager,
 		BatchSchedulerManager: batchSchedulerManager,
+
+		WatchNamespaceSelector: watchNamespaceLabelSelector,
 	}
 	exitOnError(ray.NewRayJobReconciler(ctx, mgr, rayJobOptions, config).SetupWithManager(mgr, config.ReconcileConcurrency),
 		"unable to create controller", "controller", "RayJob")
@@ -399,7 +422,7 @@ func main() {
 
 	if features.Enabled(features.RayCronJob) {
 		setupLog.Info("RayCronJob feature gate is enabled, starting RayCronJob controller")
-		exitOnError(ray.NewRayCronJobReconciler(mgr).SetupWithManager(mgr, config.ReconcileConcurrency),
+		exitOnError(ray.NewRayCronJobReconciler(mgr, watchNamespaceLabelSelector).SetupWithManager(mgr, config.ReconcileConcurrency),
 			"unable to create controller", "controller", "RayCronJob")
 	} else {
 		setupLog.Info("RayCronJob feature gate is disabled, skipping RayCronJob controller setup")
@@ -428,7 +451,7 @@ func main() {
 
 	if features.Enabled(features.RayClusterNetworkPolicy) {
 		setupLog.Info("RayClusterNetworkPolicy feature gate is enabled, starting NetworkPolicy controller")
-		networkPolicyController, err := ray.NewNetworkPolicyController(mgr)
+		networkPolicyController, err := ray.NewNetworkPolicyController(mgr, watchNamespaceLabelSelector)
 		exitOnError(err, "unable to create controller", "controller", "NetworkPolicy")
 		exitOnError(networkPolicyController.SetupWithManager(mgr, config.ReconcileConcurrency),
 			"unable to setup controller", "controller", "NetworkPolicy")

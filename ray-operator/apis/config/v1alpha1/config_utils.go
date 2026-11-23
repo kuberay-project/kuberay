@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/labels"
 
 	kaischeduler "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/kai-scheduler"
 	schedulerplugins "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/scheduler-plugins"
@@ -43,4 +44,20 @@ func ValidateBatchSchedulerConfig(logger logr.Logger, config Configuration) erro
 	}
 
 	return nil
+}
+
+// ParseWatchNamespaceSelector validates WatchNamespaceSelector and returns the parsed selector.
+// It returns a nil selector if WatchNamespaceSelector is empty, which means all namespaces are watched.
+func ParseWatchNamespaceSelector(config Configuration) (labels.Selector, error) {
+	if config.WatchNamespaceSelector == "" {
+		return nil, nil
+	}
+	if config.WatchNamespace != "" {
+		return nil, fmt.Errorf("watchNamespaceSelector and watchNamespace are mutually exclusive, but both are set")
+	}
+	selector, err := labels.Parse(config.WatchNamespaceSelector)
+	if err != nil {
+		return nil, fmt.Errorf("invalid watchNamespaceSelector %q: %w", config.WatchNamespaceSelector, err)
+	}
+	return selector, nil
 }
