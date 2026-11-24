@@ -16,3 +16,8 @@ nodes:
     apiServer:
       certSANs:
         - "docker"
+  # Expose the KubeRay API server NodePort without using kubectl port-forward.
+  extraPortMappings:
+  - containerPort: 31888
+    hostPort: 31888
+    listenAddress: "0.0.0.0"

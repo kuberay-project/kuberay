@@ -87,6 +87,32 @@ def test_templates():
     assert temp3.to_string() == template_decoder(json.loads(tm3_json)).to_string()
 
 
+def test_template_json_field_names():
+    template = Template(
+        name="template",
+        namespace="namespace",
+        cpu=2,
+        memory=8,
+        gpu=1,
+        gpu_accelerator="nvidia.com/gpu",
+        extended_resources={"vpc.amazonaws.com/efa": 32},
+    )
+
+    payload = template.to_dict()
+    assert payload["gpuAccelerator"] == "nvidia.com/gpu"
+    assert payload["extendedResources"] == {"vpc.amazonaws.com/efa": 32}
+    assert template_decoder(payload).to_string() == template.to_string()
+
+    legacy_payload = {
+        **payload,
+        "gpu_accelerator": "nvidia.com/gpu",
+        "extended_resources": {"vpc.amazonaws.com/efa": 32},
+    }
+    del legacy_payload["gpuAccelerator"]
+    del legacy_payload["extendedResources"]
+    assert template_decoder(legacy_payload).to_string() == template.to_string()
+
+
 def test_volumes():
 
     # hostPath
