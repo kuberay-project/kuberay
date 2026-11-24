@@ -734,12 +734,12 @@ func TestBuildPod(t *testing.T) {
 
 	// Test head pod
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), "", defaultContainerEnvs, "")
 
 	// Check environment variables
 	rayContainer := pod.Spec.Containers[utils.RayContainerIndex]
-	checkContainerEnv(t, rayContainer, utils.RAY_ADDRESS, "127.0.0.1:6379")
+	checkContainerEnv(t, rayContainer, utils.RAY_ADDRESS, "localhost:6379")
 	checkContainerEnv(t, rayContainer, utils.RAY_USAGE_STATS_KUBERAY_IN_USE, "1")
 	checkContainerEnv(t, rayContainer, utils.RAY_CLUSTER_NAME, fmt.Sprintf("metadata.labels['%s']", utils.RayClusterLabelKey))
 	checkContainerEnv(t, rayContainer, utils.RAY_CLUSTER_NAMESPACE, "metadata.namespace")
@@ -823,7 +823,7 @@ func TestBuildPod_WithUlimitOverride(t *testing.T) {
 	)
 
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), "", nil, "")
 
 	// The generated command arg still uses ${RAY_START_ULIMIT_OPEN_FILES:-65536} because the shell resolves it at runtime.
@@ -948,7 +948,7 @@ func TestBuildPod_WithPlasmaDirectory(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cluster := instance.DeepCopy()
 			podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-			podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+			podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 			pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, maps.Clone(tc.rayStartParams), "6379", false, utils.GetCRDType(""), "", nil, "")
 
 			assert.Equal(t, tc.expectSharedMemory, checkIfVolumeMounted(&pod.Spec.Containers[utils.RayContainerIndex], SharedMemoryVolumeMountPath))
@@ -1001,7 +1001,7 @@ func TestBuildPod_WithEnableK8sTokenAuth(t *testing.T) {
 	}
 
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), "", nil, "")
 
 	rayContainer := pod.Spec.Containers[utils.RayContainerIndex]
@@ -1034,7 +1034,7 @@ func TestBuildPod_WithEnableK8sTokenAuth(t *testing.T) {
 		Mode:               rayv1.AuthModeToken,
 		EnableK8sTokenAuth: new(false),
 	}
-	podTemplateSpec = DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec = DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	pod = BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), "", nil, "")
 	rayContainer = pod.Spec.Containers[utils.RayContainerIndex]
 	for _, env := range rayContainer.Env {
@@ -1048,7 +1048,7 @@ func TestBuildPod_WithEnableK8sTokenAuth(t *testing.T) {
 		Mode:               rayv1.AuthModeToken,
 		EnableK8sTokenAuth: nil,
 	}
-	podTemplateSpec = DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec = DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	pod = BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), "", nil, "")
 	rayContainer = pod.Spec.Containers[utils.RayContainerIndex]
 	for _, env := range rayContainer.Env {
@@ -1121,7 +1121,7 @@ func TestBuildPod_WithNoCPULimits(t *testing.T) {
 
 	// Test head pod
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), "", nil, "")
 	expectedCommandArg := splitAndSort("ulimit -n ${RAY_START_ULIMIT_OPEN_FILES:-65536}; ray start --head --block --dashboard-agent-listen-port=52365 --memory=1073741824 --num-cpus=2 --metrics-export-port=8080 --dashboard-host=0.0.0.0")
 	actualCommandArg := splitAndSort(pod.Spec.Containers[0].Args[0])
@@ -1153,7 +1153,7 @@ func TestBuildPod_WithOverwriteCommand(t *testing.T) {
 	cluster.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[utils.RayContainerIndex].Args = []string{"I am worker again"}
 
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	headPod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), "", nil, "")
 	headContainer := headPod.Spec.Containers[utils.RayContainerIndex]
 	assert.Equal(t, []string{"I am head"}, headContainer.Command)
@@ -1174,7 +1174,7 @@ func TestBuildPod_WithAutoscalerEnabled(t *testing.T) {
 	cluster := instance.DeepCopy()
 	cluster.Spec.EnableInTreeAutoscaling = &trueFlag
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", true, utils.GetCRDType(""), "", nil, "")
 
 	assert.Equal(t, cluster.Name, pod.Labels[utils.RayClusterLabelKey])
@@ -1206,7 +1206,7 @@ func TestBuildPod_WithCreatedByRayService(t *testing.T) {
 	cluster := instance.DeepCopy()
 	cluster.Spec.EnableInTreeAutoscaling = &trueFlag
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", true, utils.RayServiceCRD, "", nil, "")
 
 	val, ok := pod.Labels[utils.RayClusterServingServiceLabelKey]
@@ -1257,7 +1257,7 @@ func TestBuildPod_WithLoginBash(t *testing.T) {
 
 			// Test head pod
 			podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-			podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+			podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 			headPod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", true, utils.RayServiceCRD, "", nil, "")
 
 			// Verify head container command
@@ -1354,7 +1354,7 @@ func TestBuildPodWithAutoscalerOptions(t *testing.T) {
 		VolumeMounts:       customVolumeMounts,
 		SecurityContext:    &customSecurityContext,
 	}
-	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", true, utils.GetCRDType(""), "", nil, "")
 	expectedContainer := *autoscalerContainer.DeepCopy()
 	expectedContainer.Image = customAutoscalerImage
@@ -1375,7 +1375,7 @@ func TestHeadPodTemplate_WithAutoscalingEnabled(t *testing.T) {
 	cluster := instance.DeepCopy()
 	cluster.Spec.EnableInTreeAutoscaling = &trueFlag
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 
 	// autoscaler container is injected into head pod
 	assert.Len(t, podTemplateSpec.Spec.Containers, 2)
@@ -1384,7 +1384,7 @@ func TestHeadPodTemplate_WithAutoscalingEnabled(t *testing.T) {
 
 	// Repeat ServiceAccountName check with long cluster name.
 	cluster.Name = longString(t) // 200 chars long
-	podTemplateSpec = DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec = DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	assert.Equal(t, shortString(t), podTemplateSpec.Spec.ServiceAccountName)
 }
 
@@ -1482,7 +1482,7 @@ func TestDefaultHeadPodTemplate_Autoscaling(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			cluster := tc.cluster.DeepCopy()
 			cluster.Spec.RayVersion = tc.rayVersion
-			podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+			podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 
 			// if autoscaling is enabled, the head pod should have the autoscaler container appended for a total of 2 containers
 			if utils.IsAutoscalingEnabled(&cluster.Spec) {
@@ -1528,7 +1528,7 @@ func TestHeadPodTemplate_AutoscalerImage(t *testing.T) {
 
 	// Case 1: If `AutoscalerOptions.Image` is not set, the Autoscaler container should use the Ray head container's image by default.
 	expectedAutoscalerImage := cluster.Spec.HeadGroupSpec.Template.Spec.Containers[utils.RayContainerIndex].Image
-	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	pod := corev1.Pod{
 		Spec: podTemplateSpec.Spec,
 	}
@@ -1542,7 +1542,7 @@ func TestHeadPodTemplate_AutoscalerImage(t *testing.T) {
 	cluster.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{
 		Image: &customAutoscalerImage,
 	}
-	podTemplateSpec = DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec = DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	pod.Spec = podTemplateSpec.Spec
 	autoscalerContainerIndex = getAutoscalerContainerIndex(pod)
 	assert.Equal(t, customAutoscalerImage, podTemplateSpec.Spec.Containers[autoscalerContainerIndex].Image)
@@ -1553,7 +1553,7 @@ func TestHeadPodTemplate_AutoscalerImage(t *testing.T) {
 func TestHeadPodTemplate_WithNoServiceAccount(t *testing.T) {
 	cluster := instance.DeepCopy()
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-	pod := DefaultHeadPodTemplate(context.Background(), *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	pod := DefaultHeadPodTemplate(context.Background(), *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 
 	assert.Empty(t, pod.Spec.ServiceAccountName)
 }
@@ -1565,7 +1565,7 @@ func TestHeadPodTemplate_WithServiceAccountNoAutoscaling(t *testing.T) {
 	serviceAccount := "head-service-account"
 	cluster.Spec.HeadGroupSpec.Template.Spec.ServiceAccountName = serviceAccount
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-	pod := DefaultHeadPodTemplate(context.Background(), *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	pod := DefaultHeadPodTemplate(context.Background(), *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 
 	assert.Equal(t, serviceAccount, pod.Spec.ServiceAccountName)
 }
@@ -1578,7 +1578,7 @@ func TestHeadPodTemplate_WithServiceAccount(t *testing.T) {
 	cluster.Spec.HeadGroupSpec.Template.Spec.ServiceAccountName = serviceAccount
 	cluster.Spec.EnableInTreeAutoscaling = &trueFlag
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-	pod := DefaultHeadPodTemplate(context.Background(), *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	pod := DefaultHeadPodTemplate(context.Background(), *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 
 	assert.Equal(t, serviceAccount, pod.Spec.ServiceAccountName)
 }
@@ -1653,7 +1653,7 @@ func TestDefaultHeadPodTemplateWithConfigurablePorts(t *testing.T) {
 	cluster := instance.DeepCopy()
 	cluster.Spec.HeadGroupSpec.Template.Spec.Containers[0].Ports = []corev1.ContainerPort{}
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	// DefaultHeadPodTemplate will add the default metrics port if user doesn't specify it.
 	// Verify the default metrics port exists.
 	require.NoError(t, containerPortExists(podTemplateSpec.Spec.Containers[0].Ports, int32(utils.DefaultMetricsPort)))
@@ -1663,7 +1663,7 @@ func TestDefaultHeadPodTemplateWithConfigurablePorts(t *testing.T) {
 		ContainerPort: customMetricsPort,
 	}
 	cluster.Spec.HeadGroupSpec.Template.Spec.Containers[0].Ports = []corev1.ContainerPort{metricsPort}
-	podTemplateSpec = DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec = DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	// Verify the custom metrics port exists.
 	require.NoError(t, containerPortExists(podTemplateSpec.Spec.Containers[0].Ports, customMetricsPort))
 }
@@ -1907,7 +1907,7 @@ func TestSetMissingRayStartParamsAddress(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			testCase.rayStartParams = setMissingRayStartParams(ctx, testCase.rayStartParams, testCase.nodeType, headPort, testCase.fqdnRayIP)
+			testCase.rayStartParams = setMissingRayStartParams(ctx, testCase.rayStartParams, testCase.nodeType, headPort, testCase.fqdnRayIP, corev1.IPv4Protocol)
 			testCase.assertion(t, testCase.rayStartParams)
 		})
 	}
@@ -1970,7 +1970,7 @@ func TestSetMissingRayStartParamsMetricsExportPort(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			testCase.rayStartParams = setMissingRayStartParams(ctx, testCase.rayStartParams, testCase.nodeType, headPort, testCase.fqdnRayIP)
+			testCase.rayStartParams = setMissingRayStartParams(ctx, testCase.rayStartParams, testCase.nodeType, headPort, testCase.fqdnRayIP, corev1.IPv4Protocol)
 			testCase.assertion(t, testCase.rayStartParams)
 		})
 	}
@@ -2031,7 +2031,7 @@ func TestSetMissingRayStartParamsBlock(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			testCase.rayStartParams = setMissingRayStartParams(ctx, testCase.rayStartParams, testCase.nodeType, headPort, testCase.fqdnRayIP)
+			testCase.rayStartParams = setMissingRayStartParams(ctx, testCase.rayStartParams, testCase.nodeType, headPort, testCase.fqdnRayIP, corev1.IPv4Protocol)
 			testCase.assertion(t, testCase.rayStartParams)
 		})
 	}
@@ -2040,8 +2040,9 @@ func TestSetMissingRayStartParamsBlock(t *testing.T) {
 func TestSetMissingRayStartParamsDashboardHost(t *testing.T) {
 	ctx := context.Background()
 
-	// The dashboard-host option is automatically injected into RayStartParams with a default value of "0.0.0.0" for head only as workers do not have dashborad server.
-	// Users can manually set the dashboard-host option to customize the host the dashboard server binds to, either "localhost" (127.0.0.1) or "0.0.0.0" (available from all interfaces).
+	// The dashboard-host option is automatically injected for the head only, as workers do not have a dashboard server.
+	// Its value is the wildcard of the head Service's IP family: "0.0.0.0" for IPv4 and "::" for IPv6.
+	// Users can manually set the dashboard-host option to customize the bind address.
 	headPort := "6379"
 	fqdnRayIP := "raycluster-kuberay-head-svc.default.svc.cluster.local"
 	testCases := []struct {
@@ -2050,14 +2051,35 @@ func TestSetMissingRayStartParamsDashboardHost(t *testing.T) {
 		rayStartParams map[string]string
 		fqdnRayIP      string
 		nodeType       rayv1.RayNodeType
+		headIPFamily   corev1.IPFamily
 	}{
 		{
 			name:           "Head node with no dashboard-host option set.",
 			rayStartParams: map[string]string{},
 			fqdnRayIP:      "",
 			nodeType:       rayv1.HeadNode,
+			headIPFamily:   corev1.IPv4Protocol,
 			assertion: func(t *testing.T, rayStartParams map[string]string) {
-				assert.Equalf(t, "0.0.0.0", rayStartParams["dashboard-host"], "Expected `%v` but got `%v`", "0.0.0.0", rayStartParams["dashboard-host"])
+				assert.Equal(t, "0.0.0.0", rayStartParams["dashboard-host"])
+			},
+		},
+		{
+			name:           "Head node in an IPv6 cluster with no dashboard-host option set.",
+			rayStartParams: map[string]string{},
+			fqdnRayIP:      "",
+			nodeType:       rayv1.HeadNode,
+			headIPFamily:   corev1.IPv6Protocol,
+			assertion: func(t *testing.T, rayStartParams map[string]string) {
+				assert.Equal(t, "::", rayStartParams["dashboard-host"])
+			},
+		},
+		{
+			name:           "Head node with unknown IP family defaults to IPv4.",
+			rayStartParams: map[string]string{},
+			fqdnRayIP:      "",
+			nodeType:       rayv1.HeadNode,
+			assertion: func(t *testing.T, rayStartParams map[string]string) {
+				assert.Equal(t, "0.0.0.0", rayStartParams["dashboard-host"])
 			},
 		},
 		{
@@ -2091,7 +2113,7 @@ func TestSetMissingRayStartParamsDashboardHost(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			testCase.rayStartParams = setMissingRayStartParams(ctx, testCase.rayStartParams, testCase.nodeType, headPort, testCase.fqdnRayIP)
+			testCase.rayStartParams = setMissingRayStartParams(ctx, testCase.rayStartParams, testCase.nodeType, headPort, testCase.fqdnRayIP, testCase.headIPFamily)
 			testCase.assertion(t, testCase.rayStartParams)
 		})
 	}
@@ -2151,7 +2173,7 @@ func TestGetEnableProbesInjection(t *testing.T) {
 func TestInitLivenessAndReadinessProbe(t *testing.T) {
 	cluster := instance.DeepCopy()
 	podName := strings.ToLower(cluster.Name + utils.DashSymbol + string(rayv1.HeadNode) + utils.DashSymbol + utils.FormatInt32(0))
-	podTemplateSpec := DefaultHeadPodTemplate(context.Background(), *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplateSpec := DefaultHeadPodTemplate(context.Background(), *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 	rayContainer := &podTemplateSpec.Spec.Containers[utils.RayContainerIndex]
 	rayStartParams := make(map[string]string)
 
@@ -2871,7 +2893,7 @@ func TestConfigureTLS_Disabled(t *testing.T) {
 	ctx := context.Background()
 
 	podName := "test-head"
-	podTemplate := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplate := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 
 	// No TLS volume should be added.
 	for _, vol := range podTemplate.Spec.Volumes {
@@ -2889,7 +2911,7 @@ func TestConfigureTLS_AutoGenerate_HeadPod(t *testing.T) {
 	ctx := context.Background()
 
 	podName := "test-head"
-	podTemplate := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379")
+	podTemplate := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, podName, "6379", corev1.IPv4Protocol)
 
 	// Auto-generate mode mounts the cert-manager head secret.
 	var tlsVolume *corev1.Volume
@@ -2947,6 +2969,11 @@ func TestConfigureTLS_AutoGenerate_HeadPod(t *testing.T) {
 		}
 	}
 	assert.True(t, hasPodIPEnv, "wait-for-tls-ip-san should receive POD_IP via downward API")
+	require.Len(t, waitInit.Args, 1)
+	assert.Contains(t, waitInit.Args[0], `output=$(openssl verify -CAfile "${CA_CERT}" -verify_ip "${POD_IP}" "${CERT}" 2>&1)`,
+		"wait-for-tls-ip-san should compare IPv4 and IPv6 SANs semantically")
+	assert.Contains(t, waitInit.Args[0], `retrying in 5s: ${output}`,
+		"wait-for-tls-ip-san should surface the openssl verification error on each retry")
 }
 
 func TestConfigureTLS_AutoGenerate_WorkerPod(t *testing.T) {
@@ -3016,7 +3043,7 @@ func TestConfigureTLS_AutoscalerContainer(t *testing.T) {
 	cluster.Spec.EnableInTreeAutoscaling = new(true)
 	ctx := context.Background()
 
-	podTemplate := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, "test-head", "6379")
+	podTemplate := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, "test-head", "6379", corev1.IPv4Protocol)
 
 	// Find the autoscaler container.
 	var autoscalerContainer *corev1.Container
@@ -3136,7 +3163,7 @@ func TestBuildCollectorContainerAndPodInjection(t *testing.T) {
 	assert.Equal(t, "http://localhost:8265", dashboardAddrEnv.Value)
 
 	// Test DefaultHeadPodTemplate injection and BuildPod volume mounting
-	headPodTemplate := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, "pod-head", "6379")
+	headPodTemplate := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, "pod-head", "6379", corev1.IPv4Protocol)
 	assert.Len(t, headPodTemplate.Spec.Containers, 2)
 	assert.Equal(t, utils.CollectorContainerName, headPodTemplate.Spec.Containers[1].Name)
 
