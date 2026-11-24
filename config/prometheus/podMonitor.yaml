@@ -1,3 +1,13 @@
+# Ray 2.61+ requires the cluster's auth token on every metrics endpoint when token auth is on
+# Either:
+#   1. set `RAY_AUTH_SKIP_METRICS=1` on every Ray container to serve metrics without the token, or
+#   2. copy the RayCluster's token Secret into the Prometheus namespace and add to each endpoint:
+#        authorization:
+#          type: Bearer
+#          credentials:
+#            name: <raycluster-name>
+#            key: auth_token
+# Clusters with auth disabled (the default) need neither.
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
