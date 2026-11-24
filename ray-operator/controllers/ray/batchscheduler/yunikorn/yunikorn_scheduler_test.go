@@ -298,6 +298,24 @@ func TestPropagateTaskGroupsAnnotationToPod(t *testing.T) {
 	assert.Equal(t, resource.MustParse("1"), workerGroup.MinResource["nvidia.com/gpu"])
 }
 
+func TestNewTaskGroupsFromRayClusterSpec_NumOfHostsZero(t *testing.T) {
+	rayCluster := createRayClusterWithLabels("ray-cluster-zero-hosts", "test-namespace", nil)
+	addHeadPodSpec(rayCluster, corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("1"),
+	})
+	addWorkerPodSpec(rayCluster, "worker-group-1", 3, 2, 4, corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("1"),
+	})
+	rayCluster.Spec.WorkerGroupSpecs[0].NumOfHosts = 0
+
+	taskGroups := newTaskGroupsFromRayClusterSpec(&rayCluster.Spec)
+
+	// numOfHosts 0 counts as one host, so MinMember is minReplicas (2), not 0.
+	workerGroup := taskGroups.getTaskGroup("worker-group-1")
+	require.NotNil(t, workerGroup)
+	assert.Equal(t, int32(2), workerGroup.MinMember)
+}
+
 func TestPropagateTaskGroupsAnnotationToRayClusterAndSubmitterPodTemplate(t *testing.T) {
 	appID := "job-1-01234"
 	queue := "root.default"

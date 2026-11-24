@@ -55,7 +55,7 @@ func newTaskGroupsFromRayClusterSpec(rayClusterSpec *v1.RayClusterSpec) *TaskGro
 	for _, workerGroupSpec := range rayClusterSpec.WorkerGroupSpecs {
 		workerMinResource := utils.CalculatePodResource(workerGroupSpec.Template.Spec)
 		minReplicas := ptr.Deref(workerGroupSpec.MinReplicas, int32(0))
-		minWorkers := minReplicas * workerGroupSpec.NumOfHosts
+		minWorkers := minReplicas * utils.GetNumOfHosts(workerGroupSpec)
 		taskGroups.addTaskGroup(
 			TaskGroup{
 				Name:         workerGroupSpec.GroupName,

@@ -256,10 +256,8 @@ func calculateSubGroupPolicy(owner metav1.Object, rayClusterSpec *rayv1.RayClust
 			continue
 		}
 
-		numOfHosts := workerGroupSpec.NumOfHosts
-		if numOfHosts < 1 {
-			continue
-		}
+		// Values below 1 count as one host, matching the controller and the MinMember/resource helpers.
+		numOfHosts := utils.GetNumOfHosts(workerGroupSpec)
 
 		var minSubGroups int32
 		if autoscalingEnabled {
