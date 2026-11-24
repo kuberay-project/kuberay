@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -156,7 +157,7 @@ func NewJobSubmitCommand(cmdFactory cmdutil.Factory, streams genericclioptions.I
 	cmd.Flags().StringVar(&options.address, "address", "", "Ray Dashboard base URL (e.g., https://ray.example.com). If set, skips port-forwarding.")
 	cmd.Flags().StringVar(&options.submissionID, "submission-id", "", "ID to specify for the Ray job. If not provided, one will be generated")
 	cmd.Flags().StringVar(&options.runtimeEnv, "runtime-env", "", "Path and name to the runtime env YAML file.")
-	cmd.Flags().StringVar(&options.workingDir, "working-dir", "", "Directory containing files that your job will run in")
+	cmd.Flags().StringVar(&options.workingDir, "working-dir", "", "Working directory for the job. Overrides working_dir in the runtime environment.")
 	cmd.Flags().StringVar(&options.headers, "headers", "", "Used to pass headers through http/s to Ray Cluster. Must be JSON formatting")
 	cmd.Flags().StringVar(&options.runtimeEnvJson, "runtime-env-json", "", "JSON-serialized runtime_env dictionary. Precedence over Ray job CR.")
 	cmd.Flags().StringVar(&options.verify, "verify", "", "Boolean indication to verify the server's TLS certificate or a path to a file or directory of trusted certificates.")
@@ -212,6 +213,7 @@ func (options *SubmitJobOptions) Complete() error {
 }
 
 func (options *SubmitJobOptions) Validate(cmd *cobra.Command) error {
+	workingDir := options.workingDir
 	if len(options.runtimeEnv) > 0 {
 		info, err := os.Stat(options.runtimeEnv)
 		if os.IsNotExist(err) {
@@ -226,8 +228,8 @@ func (options *SubmitJobOptions) Validate(cmd *cobra.Command) error {
 		if err != nil {
 			return fmt.Errorf("Error while checking runtime env: %w", err)
 		}
-		if len(runtimeEnvWorkingDir) > 0 && options.workingDir == "" {
-			options.workingDir = runtimeEnvWorkingDir
+		if workingDir == "" {
+			workingDir = runtimeEnvWorkingDir
 		}
 	}
 
@@ -294,7 +296,14 @@ func (options *SubmitJobOptions) Validate(cmd *cobra.Command) error {
 		return fmt.Errorf("Must set either yaml file (--filename) or set Ray job name (--name)")
 	}
 
-	if options.workingDir == "" {
+	if workingDir == "" && options.runtimeEnvJson != "" {
+		var runtimeEnv map[string]any
+		if err := json.Unmarshal([]byte(options.runtimeEnvJson), &runtimeEnv); err != nil {
+			return fmt.Errorf("invalid runtime env JSON: %w", err)
+		}
+		workingDir, _ = runtimeEnv["working_dir"].(string)
+	}
+	if workingDir == "" {
 		return fmt.Errorf("working directory is required, use --working-dir or set with runtime env")
 	}
 
@@ -740,7 +749,9 @@ func (options *SubmitJobOptions) raySubmitCmd() ([]string, error) {
 		raySubmitCmd = append(raySubmitCmd, "--verbose")
 	}
 
-	raySubmitCmd = append(raySubmitCmd, "--working-dir", options.workingDir)
+	if options.workingDir != "" {
+		raySubmitCmd = append(raySubmitCmd, "--working-dir", options.workingDir)
+	}
 
 	raySubmitCmd = append(raySubmitCmd, "--")
 	// Sanitize entrypoint

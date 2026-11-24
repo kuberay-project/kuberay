@@ -234,6 +234,59 @@ func TestRayJobSubmitWithoutYamlValidate(t *testing.T) {
 	}
 }
 
+func TestRayJobSubmitRuntimeEnvWorkingDir(t *testing.T) {
+	const jsonEnv = `{"working_dir":"./from-json"}`
+	manifest := filepath.Join(t.TempDir(), "rayjob.yaml")
+	require.NoError(t, os.WriteFile(manifest, []byte(`apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: example
+spec:
+  submissionMode: InteractiveMode
+  runtimeEnvYAML: |
+    working_dir: ./from-manifest
+`), 0o600))
+
+	tests := []struct {
+		name           string
+		fileName       string
+		runtimeEnvJSON string
+		workingDir     string
+		wantEnv        string
+		wantErr        string
+	}{
+		{name: "JSON flag", runtimeEnvJSON: jsonEnv, wantEnv: jsonEnv},
+		{name: "RayJob manifest", fileName: manifest, wantEnv: `{"working_dir":"./from-manifest"}`},
+		{name: "JSON overrides the manifest", fileName: manifest, runtimeEnvJSON: jsonEnv, wantEnv: jsonEnv},
+		{name: "explicit directory overrides JSON", workingDir: "./explicit", runtimeEnvJSON: jsonEnv, wantEnv: jsonEnv},
+		{name: "overridden manifest cannot supply the directory", fileName: manifest, runtimeEnvJSON: `{}`, wantErr: "working directory is required"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := SubmitJobOptions{
+				rayjobName:     "example",
+				fileName:       tc.fileName,
+				runtimeEnvJson: tc.runtimeEnvJSON,
+				workingDir:     tc.workingDir,
+			}
+			err := opts.Validate(&cobra.Command{})
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			args, err := opts.raySubmitCmd()
+			require.NoError(t, err)
+			assert.Contains(t, args, tc.wantEnv)
+			if tc.workingDir == "" {
+				assert.NotContains(t, args, "--working-dir")
+			} else {
+				assert.Subset(t, args, []string{"--working-dir", tc.workingDir})
+			}
+		})
+	}
+}
+
 func TestRayJobTerminalResult(t *testing.T) {
 	tests := []struct {
 		name         string
