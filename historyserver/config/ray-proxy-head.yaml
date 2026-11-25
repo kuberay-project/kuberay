@@ -20,7 +20,7 @@ metadata:
 spec:
   containers:
   - name: ray-head
-    image: rayproject/ray:2.56.0
+    image: rayproject/ray:2.58.0
     imagePullPolicy: IfNotPresent
     command: ["/bin/bash", "-lc"]
     args:

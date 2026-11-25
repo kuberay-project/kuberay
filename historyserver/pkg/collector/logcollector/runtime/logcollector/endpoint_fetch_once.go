@@ -187,9 +187,6 @@ func (r *RayLogHandler) sleepOrShutdown(d time.Duration) bool {
 
 // nextBackoff doubles the interval up to maxInterval.
 func nextBackoff(current, maxInterval time.Duration) time.Duration {
-	next := current * 2
-	if next > maxInterval {
-		next = maxInterval
-	}
+	next := min(current*2, maxInterval)
 	return next
 }

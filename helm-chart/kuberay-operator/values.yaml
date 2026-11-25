@@ -154,6 +154,14 @@ configuration:
   # - topology.kubernetes.io/zone
   allowedNodeLabels: []
 
+# Admission webhooks: validating webhooks for RayCluster, RayJob and RayService, and the pod mutating webhooks
+# that deliver node labels to Ray workers (workerGroupSpecs[].labelRefs, NodeLabelDelivery feature gate).
+webhooks:
+  # -- Deploy the admission webhooks. Currently requires cert-manager in the cluster for the serving certificate
+  # and CA injection. The webhook configurations are cluster-scoped, so the install fails with singleNamespaceInstall.
+  # The pod webhooks for node label delivery are registered only when the NodeLabelDelivery feature gate is enabled.
+  enabled: false
+
 featureGates:
 - name: RayClusterStatusConditions
   enabled: true
@@ -173,6 +181,8 @@ featureGates:
   enabled: false
 - name: RayNodeEventForwarder
   enabled: false
+- name: NodeLabelDelivery
+  enabled: false
 
 # Configurations for KubeRay node event forwarder controller.
 # The controller forwards Kubernetes Node events to the corresponding RayCluster custom resources.
@@ -191,6 +201,11 @@ nodeEventForwarder:
   # Note: Removing the "Warning" filter (or including "Normal") may result in a large number of noisy Normal Node events being forwarded.
   types:
     - Warning
+
+# -- Default image for the History Server collector sidecar. A RayCluster can override it with
+# `spec.historyServerOptions.collectorOptions.image`. If empty, defaults to
+# `quay.io/kuberay/collector` with the tag matching the operator version.
+collectorImage: ""
 
 # Configurations for KubeRay operator metrics.
 metrics:
@@ -297,6 +312,8 @@ env:
 # Enabling this feature contributes to the robustness of Ray clusters.
 # - name: ENABLE_PROBES_INJECTION
 #   value: "true"
+# DEPRECATED: this environment variable will be removed in release 1.10.0.
+# Use the RayJob spec.deletionStrategy API instead (a deletionRules entry with the DeleteSelf policy).
 # If set to true, the RayJob CR itself will be deleted if shutdownAfterJobFinishes is set to true. Note that all resources created by the RayJob CR will be deleted, including the K8s Job. Otherwise, only the RayCluster CR will be deleted. Default is false.
 # - name: DELETE_RAYJOB_CR_AFTER_JOB_FINISHES
 #   value: "false"

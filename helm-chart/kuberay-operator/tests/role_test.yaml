@@ -56,3 +56,20 @@ tests:
               - patch
               - update
               - watch
+
+  - it: Should grant nodes get, list, and watch for the pods/binding webhook and controller cache
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - nodes
+            verbs:
+              - get
+              - list
+              - watch

@@ -54,3 +54,22 @@ tests:
               - patch
               - update
               - watch
+
+  - it: Should not carry the cluster-scoped nodes rule
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: true
+      crNamespacedRbacEnable: true
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - nodes
+            verbs:
+              - get
+              - list
+              - watch
+        documentIndex: 0

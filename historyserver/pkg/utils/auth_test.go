@@ -111,14 +111,14 @@ func TestSetRayAuthHeader(t *testing.T) {
 	t.Run("sets bearer header when a token exists", func(t *testing.T) {
 		clearAuthEnv(t)
 		t.Setenv(RAY_AUTH_TOKEN_ENV_VAR, "secret")
-		req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.com", nil)
 		require.NoError(t, SetRayAuthHeader(req))
 		assert.Equal(t, "Bearer secret", req.Header.Get(RayAuthHeader))
 	})
 
 	t.Run("leaves header unset when auth is disabled", func(t *testing.T) {
 		clearAuthEnv(t)
-		req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.com", nil)
 		require.NoError(t, SetRayAuthHeader(req))
 		assert.Empty(t, req.Header.Get(RayAuthHeader))
 	})

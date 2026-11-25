@@ -2,6 +2,8 @@ package v1alpha1
 
 import (
 	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 )
 
 const (
@@ -11,6 +13,10 @@ const (
 	DefaultReconcileConcurrency = 1
 	DefaultQPS                  = float64(100)
 	DefaultBurst                = 200
+
+	// DefaultCollectorImage is the image of the History Server collector sidecar. Its tag tracks
+	// the KubeRay version so that the collector is always in sync with the operator.
+	DefaultCollectorImage = "quay.io/kuberay/collector:" + utils.KUBERAY_VERSION
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
@@ -36,6 +42,10 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	if cfg.ReconcileConcurrency == 0 {
 		cfg.ReconcileConcurrency = DefaultReconcileConcurrency
+	}
+
+	if cfg.CollectorImage == "" {
+		cfg.CollectorImage = DefaultCollectorImage
 	}
 
 	if cfg.QPS == nil {

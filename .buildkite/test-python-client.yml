@@ -32,7 +32,7 @@
     - popd
     # Setup Python environment and install Python client
     - echo "--- START:Setting up Python environment"
-    - pushd clients/python-client
+    - pushd clients/kuberay-client
     - python3 -m venv venv
     - source venv/bin/activate
     - pip install -e .
@@ -40,5 +40,5 @@
     # Run Python client tests
     - echo "--- START:Running Python client tests"
     - set -o pipefail
-    - pytest python_client_test/ -v || (kubectl logs --tail=50 -l app.kubernetes.io/name=kuberay && exit 1)
+    - pytest kuberay_client_test/ -v || (kubectl logs --tail=50 -l app.kubernetes.io/name=kuberay && exit 1)
     - echo "--- END:Python client tests finished"

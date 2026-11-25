@@ -22,6 +22,14 @@ type RayClusterSpec struct {
 	// A suspended RayCluster will have head pods and worker pods deleted.
 	// +optional
 	Suspend *bool `json:"suspend,omitempty"`
+	// IdleSuspend indicates whether a RayCluster should be suspended due to idleness.
+	// An idle-suspended RayCluster will have head pods and worker pods deleted.
+	// +optional
+	IdleSuspend *bool `json:"idleSuspend,omitempty"`
+	// IdleTerminationOptions specifies optional configuration for terminating an idle RayCluster.
+	// A RayCluster is considered idle when no Ray driver is connected.
+	// +optional
+	IdleTerminationOptions *IdleTerminationOptions `json:"idleTerminationOptions,omitempty"`
 	// ManagedBy is an optional configuration for the controller or entity that manages a RayCluster.
 	// The value must be either 'ray.io/kuberay-operator' or 'kueue.x-k8s.io/multikueue'.
 	// The kuberay-operator reconciles a RayCluster which doesn't have this field at all or
@@ -67,6 +75,8 @@ type RayClusterSpec struct {
 	RayVersion string `json:"rayVersion,omitempty"`
 	// WorkerGroupSpecs are the specs for the worker pods
 	// +optional
+	// +listType=map
+	// +listMapKey=groupName
 	WorkerGroupSpecs []WorkerGroupSpec `json:"workerGroupSpecs,omitempty"`
 }
 
@@ -312,7 +322,7 @@ type HistoryServerOptions struct {
 
 // CollectorOptions defines settings for the history server collector sidecar.
 type CollectorOptions struct {
-	// Image is the collector container image to be used (e.g. quay.io/kuberay/collector:latest).
+	// Image is the collector container image to be used (e.g. quay.io/kuberay/collector:v1.7.0).
 	// +optional
 	Image *string `json:"image,omitempty"`
 	// ImagePullPolicy is the pull policy for the collector image.
@@ -324,6 +334,11 @@ type CollectorOptions struct {
 	// Env allows injecting custom environment variables into the collector container.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
+	// SecurityContext specifies the security context for the collector container.
+	// If set, the fields of SecurityContext override the equivalent fields of PodSecurityContext.
+	// More info: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 }
 
 // NetworkPolicyMode is the type for network isolation mode constants.
@@ -521,7 +536,7 @@ type WorkerGroupSpec struct {
 	// This enables Ray scheduling based on node attributes, such as topology placement (e.g., rack, zone, or topology domain).
 	// Only allowlisted node labels can be delivered. Every referenced label must exist on the node or pod startup fails.
 	// Empty means no labels are delivered.
-	// Requires `ENABLE_WEBHOOKS` enabled on the operator and Ray 2.45.0 or later (`--labels-file`).
+	// Requires the `NodeLabelDelivery` feature gate and `ENABLE_WEBHOOKS` enabled on the operator, and Ray 2.45.0 or later (`--labels-file`).
 	// +optional
 	LabelRefs []LabelRef `json:"labelRefs,omitempty"`
 }
@@ -578,6 +593,24 @@ type NodeFieldRef struct {
 	// The key must be in the operator's allowedNodeLabels.
 	// +kubebuilder:validation:MinLength=1
 	FieldPath string `json:"fieldPath"`
+}
+
+// +kubebuilder:validation:Enum=Delete;Suspend
+type IdleTerminationPolicy string
+
+const (
+	IdleTerminationPolicySuspend IdleTerminationPolicy = "Suspend"
+	IdleTerminationPolicyDelete  IdleTerminationPolicy = "Delete"
+)
+
+type IdleTerminationOptions struct {
+	// TimeoutSeconds denotes the number of seconds to wait before the v2 autoscaler terminates an idle RayCluster.
+	TimeoutSeconds *int32 `json:"timeoutSeconds"`
+
+	// Policy is the action taken once the RayCluster has been idle for TimeoutSeconds.
+	// +kubebuilder:default=Suspend
+	// +optional
+	Policy *IdleTerminationPolicy `json:"policy,omitempty"`
 }
 
 // AutoscalerOptions specifies optional configuration for the Ray autoscaler.
@@ -735,6 +768,7 @@ const (
 	RayClusterPodsProvisioning     = "RayClusterPodsProvisioning"
 	HeadPodNotFound                = "HeadPodNotFound"
 	HeadPodRunningAndReady         = "HeadPodRunningAndReady"
+	RayClusterIdleSuspended        = "RayClusterIdleSuspended"
 	// UnknownReason says that the reason for the condition is unknown.
 	UnknownReason = "Unknown"
 )
@@ -799,6 +833,7 @@ type RayCluster struct {
 
 	// Specification of the desired behavior of the RayCluster.
 	Spec RayClusterSpec `json:"spec,omitempty"`
+	// Status is the most recently observed state of the RayCluster.
 	// +optional
 	Status RayClusterStatus `json:"status,omitempty"`
 }

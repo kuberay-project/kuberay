@@ -136,42 +136,42 @@ func newTestCollector(t *testing.T, writer *mockWriter, opts Options) *EventColl
 // ---------- Pure helper function tests ----------
 
 func TestIsNodeEvent(t *testing.T) {
-	assert.True(t, isNodeEvent(map[string]interface{}{"eventType": "NODE_LIFECYCLE_EVENT"}))
-	assert.True(t, isNodeEvent(map[string]interface{}{"eventType": "NODE_DEFINITION_EVENT"}))
-	assert.False(t, isNodeEvent(map[string]interface{}{"eventType": "TASK_DEFINITION_EVENT"}))
-	assert.False(t, isNodeEvent(map[string]interface{}{}))
+	assert.True(t, isNodeEvent(map[string]any{"eventType": "NODE_LIFECYCLE_EVENT"}))
+	assert.True(t, isNodeEvent(map[string]any{"eventType": "NODE_DEFINITION_EVENT"}))
+	assert.False(t, isNodeEvent(map[string]any{"eventType": "TASK_DEFINITION_EVENT"}))
+	assert.False(t, isNodeEvent(map[string]any{}))
 }
 
 func TestGetJobID(t *testing.T) {
 	// Payload job IDs arrive base64-encoded and are normalized to hex.
-	evt := map[string]interface{}{
-		"driverJobLifecycleEvent": map[string]interface{}{"jobId": "AQAAAA=="},
+	evt := map[string]any{
+		"driverJobLifecycleEvent": map[string]any{"jobId": "AQAAAA=="},
 	}
 	assert.Equal(t, "01000000", getJobID(evt))
 
-	evt2 := map[string]interface{}{
-		"taskDefinitionEvent": map[string]interface{}{"jobId": 7},
+	evt2 := map[string]any{
+		"taskDefinitionEvent": map[string]any{"jobId": 7},
 	}
 	assert.Equal(t, "7", getJobID(evt2))
 
-	assert.Equal(t, "", getJobID(map[string]interface{}{}))
-	assert.Equal(t, "", getJobID(map[string]interface{}{"taskDefinitionEvent": map[string]interface{}{}}))
+	assert.Empty(t, getJobID(map[string]any{}))
+	assert.Empty(t, getJobID(map[string]any{"taskDefinitionEvent": map[string]any{}}))
 }
 
 func TestCategorize(t *testing.T) {
 	ec := &EventCollector{}
 	assert.Equal(t, categoryNodeEvents,
-		ec.categorize(map[string]interface{}{"eventType": "NODE_LIFECYCLE_EVENT"}))
+		ec.categorize(map[string]any{"eventType": "NODE_LIFECYCLE_EVENT"}))
 
 	assert.Equal(t, path.Join(categoryJobPrefix, "job-1"),
-		ec.categorize(map[string]interface{}{
+		ec.categorize(map[string]any{
 			"eventType":           "TASK_DEFINITION_EVENT",
-			"taskDefinitionEvent": map[string]interface{}{"jobId": "job-1"},
+			"taskDefinitionEvent": map[string]any{"jobId": "job-1"},
 		}))
 
 	// fallback: neither node event nor recognizable jobID → node_events
 	assert.Equal(t, categoryNodeEvents,
-		ec.categorize(map[string]interface{}{"eventType": "UNKNOWN"}))
+		ec.categorize(map[string]any{"eventType": "UNKNOWN"}))
 }
 
 func TestSanitizeFileComponent(t *testing.T) {
@@ -183,7 +183,7 @@ func TestSanitizeFileComponent(t *testing.T) {
 func TestGzipFile(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "in.txt")
-	require.NoError(t, os.WriteFile(src, []byte("hello world\nhello world\n"), 0o644))
+	require.NoError(t, os.WriteFile(src, []byte("hello world\nhello world\n"), 0o600))
 	dst := src + ".gz"
 
 	require.NoError(t, gzipFile(src, dst))
@@ -200,10 +200,10 @@ func TestGzipFile(t *testing.T) {
 
 func TestDirSize(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "a"), []byte("12345"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a"), []byte("12345"), 0o600))
 	sub := filepath.Join(dir, "sub")
 	require.NoError(t, os.Mkdir(sub, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(sub, "b"), []byte("abcdefg"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "b"), []byte("abcdefg"), 0o600))
 
 	size, err := dirSize(dir)
 	require.NoError(t, err)
@@ -275,7 +275,7 @@ func TestRotateFileLocked_EmptyFileIsDropped(t *testing.T) {
 
 func callPersistEvents(t *testing.T, ec *EventCollector, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/events", bytes.NewReader(body))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/events", bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", restful.MIME_JSON)
 	rec := httptest.NewRecorder()
 
@@ -290,7 +290,7 @@ func callPersistEvents(t *testing.T, ec *EventCollector, body []byte) *httptest.
 func TestPersistEvents_AppendsJSONLToDisk(t *testing.T) {
 	ec := newTestCollector(t, newMockWriter(), Options{CompressionEnabled: true})
 
-	events := []map[string]interface{}{
+	events := []map[string]any{
 		{
 			"eventId":     "e1",
 			"eventType":   "NODE_LIFECYCLE_EVENT",
@@ -300,7 +300,7 @@ func TestPersistEvents_AppendsJSONLToDisk(t *testing.T) {
 		{
 			"eventId":   "e2",
 			"eventType": "TASK_DEFINITION_EVENT",
-			"taskDefinitionEvent": map[string]interface{}{
+			"taskDefinitionEvent": map[string]any{
 				"jobId": "job-1",
 			},
 			"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
@@ -324,7 +324,7 @@ func TestPersistEvents_AppendsJSONLToDisk(t *testing.T) {
 	require.NoError(t, err)
 	lines := strings.Split(strings.TrimRight(string(nodeBytes), "\n"), "\n")
 	require.Len(t, lines, 1)
-	var m map[string]interface{}
+	var m map[string]any
 	require.NoError(t, json.Unmarshal([]byte(lines[0]), &m))
 	assert.Equal(t, "e1", m["eventId"])
 
@@ -345,7 +345,7 @@ func TestPersistEvents_SessionChangeRotates(t *testing.T) {
 	go ec.compressionUploadWorker()
 	defer ec.shutdown()
 
-	first := []map[string]interface{}{{
+	first := []map[string]any{{
 		"eventId":     "s1",
 		"eventType":   "NODE_LIFECYCLE_EVENT",
 		"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
@@ -354,7 +354,7 @@ func TestPersistEvents_SessionChangeRotates(t *testing.T) {
 	body, _ := json.Marshal(first)
 	callPersistEvents(t, ec, body)
 
-	second := []map[string]interface{}{{
+	second := []map[string]any{{
 		"eventId":     "s2",
 		"eventType":   "NODE_LIFECYCLE_EVENT",
 		"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
@@ -433,7 +433,7 @@ func TestProcessRotatedFile_GzipsAndUploadsThenCleansUp(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	jsonlPath := filepath.Join(dir, "node-1_123.jsonl")
 	payload := []byte(`{"eventId":"a"}` + "\n" + `{"eventId":"b"}` + "\n")
-	require.NoError(t, os.WriteFile(jsonlPath, payload, 0o644))
+	require.NoError(t, os.WriteFile(jsonlPath, payload, 0o600))
 	ec.totalDiskUsed.Store(int64(len(payload)))
 
 	task := rotationTask{
@@ -473,7 +473,7 @@ func TestProcessRotatedFile_NoCompressionUsesJSONLExtension(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	jsonlPath := filepath.Join(dir, "node-1_123.jsonl")
 	payload := []byte(`{"eventId":"a"}` + "\n")
-	require.NoError(t, os.WriteFile(jsonlPath, payload, 0o644))
+	require.NoError(t, os.WriteFile(jsonlPath, payload, 0o600))
 
 	task := rotationTask{
 		path:        jsonlPath,
@@ -508,7 +508,7 @@ func TestProcessRotatedFile_PrecompressedSkipsGzip(t *testing.T) {
 	_, err := gw.Write(payload)
 	require.NoError(t, err)
 	require.NoError(t, gw.Close())
-	require.NoError(t, os.WriteFile(gzPath, buf.Bytes(), 0o644))
+	require.NoError(t, os.WriteFile(gzPath, buf.Bytes(), 0o600))
 
 	task := rotationTask{
 		path:        gzPath,
@@ -552,7 +552,7 @@ func TestPersistEvents_WriteFailureEvictsWedgedWriter(t *testing.T) {
 	state.writer = bufio.NewWriterSize(state.file, 1)
 
 	event := func(id string) []byte {
-		body, merr := json.Marshal([]map[string]interface{}{{
+		body, merr := json.Marshal([]map[string]any{{
 			"eventId":     id,
 			"eventType":   "NODE_LIFECYCLE_EVENT",
 			"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
@@ -586,7 +586,7 @@ func TestShutdown_DrainsRetriedTasks(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	jsonlPath := filepath.Join(dir, "node-1_123.jsonl")
 	payload := []byte(`{"eventId":"a"}` + "\n")
-	require.NoError(t, os.WriteFile(jsonlPath, payload, 0o644))
+	require.NoError(t, os.WriteFile(jsonlPath, payload, 0o600))
 
 	// First upload attempt fails, scheduling a backoff retry.
 	writer.failNext = true
@@ -630,10 +630,10 @@ func TestResumePendingFiles_DropsPartialGzipKeepsSource(t *testing.T) {
 
 	payload := []byte(`{"eventId":"a"}` + "\n")
 	jsonlPath := filepath.Join(dir, "node-1_123.jsonl")
-	require.NoError(t, os.WriteFile(jsonlPath, payload, 0o644))
+	require.NoError(t, os.WriteFile(jsonlPath, payload, 0o600))
 	// Truncated gzip, the way a crash mid-compression leaves it.
 	tmpPath := jsonlPath + ".gz.tmp"
-	require.NoError(t, os.WriteFile(tmpPath, []byte("\x1f\x8b\x08trunc"), 0o644))
+	require.NoError(t, os.WriteFile(tmpPath, []byte("\x1f\x8b\x08trunc"), 0o600))
 
 	ec.resumePendingFiles()
 
@@ -645,7 +645,7 @@ func TestResumePendingFiles_DropsPartialGzipKeepsSource(t *testing.T) {
 
 	select {
 	case task := <-ec.rotationQueue:
-		assert.Equal(t, jsonlPath, task.path)
+		assert.Equal(t, jsonlPath, task.path) //nolint:testifylint // encoded-compare false positive: jsonlPath is a filesystem path, not a JSON document.
 	default:
 		t.Fatal("expected the .jsonl to be enqueued for upload")
 	}

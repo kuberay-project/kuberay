@@ -800,3 +800,117 @@ func TestRayServiceIncrementalUpgradeRollbackMatrixWithLocust(t *testing.T) {
 		})
 	}
 }
+
+// TestRayServiceIncrementalUpgradeWithGatewayRef validates attaching an incremental
+// upgrade to a pre-existing (shared) Gateway via clusterUpgradeOptions.gatewayRef
+// instead of letting KubeRay create a per-RayService Gateway. It checks:
+//  1. KubeRay attaches the HTTPRoute to the pre-existing Gateway (its ParentRef
+//     targets the shared Gateway) and does NOT create a per-RayService Gateway.
+//  2. Traffic resolves through the shared Gateway to the active cluster, and keeps
+//     resolving to active/pending clusters as it shifts during an upgrade.
+//  3. Suspending the RayService cleans up the HTTPRoute and active/pending Services
+//     but leaves the shared Gateway intact (KubeRay does not own it).
+func TestRayServiceIncrementalUpgradeWithGatewayRef(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayServiceIncrementalUpgrade, true)
+
+	test := With(t)
+	g := NewWithT(t)
+
+	namespace := test.NewTestNamespace()
+	rayServiceName := "gatewayref-incremental-rayservice"
+	sharedGatewayName := "shared-gateway"
+
+	stepSize := new(int32(25))
+	interval := new(int32(20))
+	maxSurge := new(int32(30))
+	serveConfigV2 := defaultIncrementalUpgradeServeConfigV2
+
+	// Pre-create the shared Gateway the RayService will attach to.
+	sharedGateway := createSharedGateway(test, g, namespace.Name, sharedGatewayName)
+	gatewayHost := GetGatewayHost(sharedGateway)
+	g.Expect(gatewayHost).NotTo(BeEmpty())
+
+	// Deploy the RayService with gatewayRef -> the shared Gateway.
+	LogWithTimestamp(test.T(), "Creating RayService %s/%s with gatewayRef -> %s", namespace.Name, rayServiceName, sharedGatewayName)
+	g.Expect(triggerIncrementalUpgrade(test, namespace.Name, rayServiceName, stepSize, interval, maxSurge, serveConfigV2,
+		withGatewayRef(sharedGatewayName, namespace.Name))).To(Succeed())
+	g.Eventually(RayService(test, namespace.Name, rayServiceName), TestTimeoutMedium).
+		Should(WithTransform(IsRayServiceReady, BeTrue()))
+
+	// Behavior 1: KubeRay must NOT create a per-RayService Gateway.
+	perServiceGatewayName := fmt.Sprintf("%s-gateway", rayServiceName)
+	g.Consistently(func(gg Gomega) {
+		_, err := GetGateway(test, namespace.Name, perServiceGatewayName)
+		gg.Expect(errors.IsNotFound(err)).To(BeTrue(), "KubeRay must not create a per-RayService Gateway when gatewayRef is set; got err=%v", err)
+	}, TestTimeoutShort).Should(Succeed())
+
+	// The HTTPRoute's ParentRef must target the pre-existing shared Gateway.
+	httpRouteName := fmt.Sprintf("%s-httproute", rayServiceName)
+	var httpRoute *gwv1.HTTPRoute
+	g.Eventually(func(gg Gomega) {
+		var err error
+		httpRoute, err = GetHTTPRoute(test, namespace.Name, httpRouteName)
+		gg.Expect(err).NotTo(HaveOccurred())
+		gg.Expect(httpRoute.Spec.ParentRefs).To(HaveLen(1))
+		gg.Expect(string(httpRoute.Spec.ParentRefs[0].Name)).To(Equal(sharedGatewayName))
+		gg.Expect(utils.IsHTTPRouteReady(sharedGateway, httpRoute)).To(BeTrue())
+	}, TestTimeoutMedium).Should(Succeed())
+
+	// Behavior 2: Traffic resolves through the shared Gateway to the active cluster.
+	curlPod, err := CreateCurlPod(g, test, CurlPodName, CurlContainerName, namespace.Name)
+	g.Expect(err).NotTo(HaveOccurred())
+	LogWithTimestamp(test.T(), "Verifying traffic resolves through the shared Gateway")
+	g.Eventually(func(gg Gomega) {
+		stdout, _ := CurlRayServiceGateway(test, gatewayHost, curlPod, CurlContainerName, http.MethodPost, "/fruit", `["MANGO", 2]`)
+		gg.Expect(stdout.String()).To(Equal("6"))
+	}, TestTimeoutMedium).Should(Succeed())
+
+	// Trigger an incremental upgrade; traffic must keep resolving (old or new) via
+	// the shared Gateway while it shifts to the pending cluster.
+	LogWithTimestamp(test.T(), "Triggering incremental upgrade; both active and pending clusters route through the shared Gateway")
+	g.Expect(triggerIncrementalUpgrade(test, namespace.Name, rayServiceName, stepSize, interval, maxSurge, serveConfigV2,
+		withGatewayRef(sharedGatewayName, namespace.Name), withWorkerCPURequest("500m"), withUpgradedServeConfig())).To(Succeed())
+	g.Eventually(RayService(test, namespace.Name, rayServiceName), TestTimeoutMedium).
+		Should(WithTransform(IsRayServiceUpgrading, BeTrue()))
+
+	// HTTPRoute gains the pending backend, still on the same shared Gateway.
+	g.Eventually(func(gg Gomega) {
+		route, err := GetHTTPRoute(test, namespace.Name, httpRouteName)
+		gg.Expect(err).NotTo(HaveOccurred())
+		gg.Expect(route.Spec.ParentRefs).To(HaveLen(1))
+		gg.Expect(string(route.Spec.ParentRefs[0].Name)).To(Equal(sharedGatewayName))
+		gg.Expect(route.Spec.Rules).To(HaveLen(1))
+		gg.Expect(route.Spec.Rules[0].BackendRefs).To(HaveLen(2))
+	}, TestTimeoutMedium).Should(Succeed())
+
+	LogWithTimestamp(test.T(), "Verifying traffic keeps resolving (old or new) through the shared Gateway during the shift")
+	g.Eventually(func(gg Gomega) {
+		stdout, _ := CurlRayServiceGateway(test, gatewayHost, curlPod, CurlContainerName, http.MethodPost, "/fruit", `["MANGO", 2]`)
+		gg.Expect(stdout.String()).To(Or(Equal("6"), Equal("8")))
+	}, TestTimeoutMedium).Should(Succeed())
+
+	// Behavior 3: Suspend must clean up HTTPRoute + Services but leave the shared Gateway.
+	LogWithTimestamp(test.T(), "Suspending the RayService")
+	g.Expect(triggerIncrementalUpgrade(test, namespace.Name, rayServiceName, stepSize, interval, maxSurge, serveConfigV2,
+		withGatewayRef(sharedGatewayName, namespace.Name), withWorkerCPURequest("500m"), withUpgradedServeConfig(), withSuspend(true))).To(Succeed())
+	g.Eventually(RayService(test, namespace.Name, rayServiceName), TestTimeoutMedium).
+		Should(WithTransform(IsRayServiceSuspended, BeTrue()))
+
+	LogWithTimestamp(test.T(), "HTTPRoute and Services must be deleted; the shared Gateway must remain")
+	g.Eventually(func(gg Gomega) {
+		_, err := GetHTTPRoute(test, namespace.Name, httpRouteName)
+		gg.Expect(errors.IsNotFound(err)).To(BeTrue(), "HTTPRoute %s should be deleted on suspend; got err=%v", httpRouteName, err)
+
+		svcList, err := test.Client().Core().CoreV1().Services(namespace.Name).List(test.Ctx(), metav1.ListOptions{
+			LabelSelector: utils.RayOriginatedFromCRNameLabelKey + "=" + rayServiceName,
+		})
+		gg.Expect(err).NotTo(HaveOccurred())
+		gg.Expect(svcList.Items).To(BeEmpty(), "All Services owned by the RayService should be deleted on suspend")
+	}, TestTimeoutMedium).Should(Succeed())
+
+	// The shared Gateway is not owned by KubeRay and must survive the suspend.
+	g.Consistently(func(gg Gomega) {
+		_, err := GetGateway(test, namespace.Name, sharedGatewayName)
+		gg.Expect(err).NotTo(HaveOccurred(), "shared Gateway %s must NOT be deleted on suspend", sharedGatewayName)
+	}, TestTimeoutShort).Should(Succeed())
+}

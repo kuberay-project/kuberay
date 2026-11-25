@@ -82,6 +82,7 @@ func main() {
 	var nodeEventForwarderReasons string
 	var nodeEventForwarderTypes string
 	var allowedNodeLabels string
+	var collectorImage string
 
 	// TODO: remove flag-based config once Configuration API graduates to v1.
 	flag.StringVar(&metricsAddr, "metrics-addr", configapi.DefaultMetricsAddr, "The address the metric endpoint binds to.")
@@ -126,6 +127,9 @@ func main() {
 		"Comma-separated list of event types to forward (Warning, Normal). Empty means all types.")
 	flag.StringVar(&allowedNodeLabels, "allowed-node-labels", "",
 		"Comma-separated list of node label keys worker groups may deliver as Ray node labels through workerGroupSpecs[].labelRefs. If left empty, every labelRef is rejected.")
+	flag.StringVar(&collectorImage, "collector-image", configapi.DefaultCollectorImage,
+		"The image of the History Server collector sidecar injected into Ray Pods. "+
+			"A RayCluster can override it with spec.historyServerOptions.collectorOptions.image.")
 
 	opts := k8szap.Options{
 		TimeEncoder: zapcore.ISO8601TimeEncoder,
@@ -154,7 +158,6 @@ func main() {
 		config.EnableBatchScheduler = enableBatchScheduler
 		config.BatchScheduler = batchScheduler
 		config.UseKubernetesProxy = useKubernetesProxy
-		config.DeleteRayJobAfterJobFinishes = os.Getenv(utils.DELETE_RAYJOB_CR_AFTER_JOB_FINISHES) == "true"
 		config.EnableMetrics = enableMetrics
 		config.QPS = &qps
 		config.Burst = &burst
@@ -163,6 +166,7 @@ func main() {
 		config.NodeEventForwarder.Reasons = splitCommaSeparated(nodeEventForwarderReasons)
 		config.NodeEventForwarder.Types = splitCommaSeparated(nodeEventForwarderTypes)
 		config.AllowedNodeLabels = splitCommaSeparated(allowedNodeLabels)
+		config.CollectorImage = collectorImage
 	}
 
 	stdoutEncoder, err := newLogEncoder(config.LogStdoutEncoder)
@@ -271,9 +275,10 @@ func main() {
 	// This improves the scalability of the system, both for KubeRay itself by reducing the size of the
 	// informers cache, and for the API server / etcd, by reducing the number of watch events.
 	// For example, KubeRay is only interested in:
-	// - the batch Jobs it creates when reconciling RayJobs (app.kubernetes.io/created-by=kuberay-operator), and
-	// - Ray-managed Pods (ray.io/node-type in head|worker|redis-cleanup).
-	// These labels are provided to the manager cache as selectors for Job and Pod resources.
+	// - the batch Jobs it creates when reconciling RayJobs (app.kubernetes.io/created-by=kuberay-operator),
+	// - Ray-managed Pods (ray.io/node-type in head|worker|redis-cleanup), and
+	// - Node labels (stripping managedFields and annotations from cached Node metadata).
+	// These selectors and transforms are provided to the manager cache via ByObject.
 	selectorsByObject, err := managercache.K8sControllerRuntimeCacheSelectors()
 	exitOnError(err, "unable to build manager cache ByObject")
 	if features.Enabled(features.RayNodeEventForwarder) && config.NodeEventForwarder.Enabled {
@@ -350,6 +355,8 @@ func main() {
 		DefaultContainerEnvs:     config.DefaultContainerEnvs,
 		DefaultPodAnnotations:    config.DefaultPodAnnotations,
 		DefaultPodLabels:         config.DefaultPodLabels,
+		AllowedNodeLabels:        config.AllowedNodeLabels,
+		CollectorImage:           config.CollectorImage,
 		CertManagerAvailable:     certManagerAvailable,
 	}
 	exitOnError(ray.NewReconciler(mgr, rayClusterOptions).SetupWithManager(mgr, config.ReconcileConcurrency),
@@ -376,13 +383,18 @@ func main() {
 	exitOnError(ray.NewRayJobReconciler(ctx, mgr, rayJobOptions, config).SetupWithManager(mgr, config.ReconcileConcurrency),
 		"unable to create controller", "controller", "RayJob")
 
-	if os.Getenv("ENABLE_WEBHOOKS") == "true" {
-		exitOnError(webhooks.SetupRayClusterWebhookWithManager(mgr),
+	if strings.ToLower(os.Getenv("ENABLE_WEBHOOKS")) == "true" {
+		exitOnError(webhooks.SetupRayClusterWebhookWithManager(mgr, config),
 			"unable to create webhook", "webhook", "RayCluster")
-		exitOnError(webhooks.SetupRayJobWebhookWithManager(mgr),
+		exitOnError(webhooks.SetupRayJobWebhookWithManager(mgr, config),
 			"unable to create webhook", "webhook", "RayJob")
-		exitOnError(webhooks.SetupRayServiceWebhookWithManager(mgr),
+		exitOnError(webhooks.SetupRayServiceWebhookWithManager(mgr, config),
 			"unable to create webhook", "webhook", "RayService")
+		// node label delivery for worker groups with labelRefs
+		exitOnError(webhooks.SetupPodWebhookWithManager(mgr),
+			"unable to create webhook", "webhook", "Pod")
+		exitOnError(webhooks.SetupPodBindingWebhookWithManager(mgr, config),
+			"unable to create webhook", "webhook", "PodBinding")
 	}
 
 	if features.Enabled(features.RayCronJob) {

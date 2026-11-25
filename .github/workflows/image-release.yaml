@@ -102,6 +102,8 @@ jobs:
       working-directory: ./ray-operator
     name: Release Operator Docker Images
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
 
     - name: Error if not a tag

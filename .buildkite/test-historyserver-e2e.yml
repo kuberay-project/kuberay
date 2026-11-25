@@ -1,8 +1,4 @@
 - label: 'Test History Server E2E (nightly operator)'
-  # Temporarily disabled: quay.io/minio/minio no longer allows anonymous pulls,
-  # so the MinIO pod never becomes Ready and every run fails.
-  # TODO: Re-enable after https://github.com/ray-project/kuberay/issues/5339 is fixed.
-  if: "false"
   instance_size: large
   image: golang:1.26-bookworm
   commands:

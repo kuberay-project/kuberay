@@ -13,7 +13,7 @@ type config struct {
 	types.RayCollectorConfig
 }
 
-func (c *config) complete(rcc *types.RayCollectorConfig, jd map[string]interface{}) {
+func (c *config) complete(rcc *types.RayCollectorConfig, jd map[string]any) {
 	c.RayCollectorConfig = *rcc
 	if len(jd) == 0 {
 		c.OSSRegion = os.Getenv("OSS_REGION")
@@ -26,7 +26,7 @@ func (c *config) complete(rcc *types.RayCollectorConfig, jd map[string]interface
 	}
 }
 
-func (c *config) completeHSConfig(rcc *types.RayHistoryServerConfig, jd map[string]interface{}) {
+func (c *config) completeHSConfig(rcc *types.RayHistoryServerConfig, jd map[string]any) {
 	c.RayCollectorConfig = types.RayCollectorConfig{
 		RootDir: rcc.RootDir,
 	}

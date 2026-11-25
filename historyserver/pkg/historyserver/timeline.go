@@ -76,7 +76,7 @@ func getTasksTimeline(snap *eventserver.SessionSnapshot, jobID string) []eventty
 			PID:   pid,
 			TID:   nil,
 			Phase: "M",
-			Args: map[string]interface{}{
+			Args: map[string]any{
 				"name": "Node " + nodeIP,
 			},
 		})
@@ -88,7 +88,7 @@ func getTasksTimeline(snap *eventserver.SessionSnapshot, jobID string) []eventty
 				PID:   pid,
 				TID:   &tidVal,
 				Phase: "M",
-				Args: map[string]interface{}{
+				Args: map[string]any{
 					"name": clusterID,
 				},
 			})
@@ -120,9 +120,9 @@ func getTasksTimeline(snap *eventserver.SessionSnapshot, jobID string) []eventty
 			durationUs := float64(profEvent.EndTime-profEvent.StartTime) / 1000.0
 
 			// Parse extraData for additional fields
-			var extraData map[string]interface{}
+			var extraData map[string]any
 			if profEvent.ExtraData != "" {
-				json.Unmarshal([]byte(profEvent.ExtraData), &extraData)
+				_ = json.Unmarshal([]byte(profEvent.ExtraData), &extraData)
 			}
 
 			// Determine task_id and func_or_class_name
@@ -145,7 +145,7 @@ func getTasksTimeline(snap *eventserver.SessionSnapshot, jobID string) []eventty
 
 			// Build args
 			actorID := extractActorIDFromTaskID(taskIDForArgs)
-			args := map[string]interface{}{
+			args := map[string]any{
 				"task_id":            taskIDForArgs,
 				"job_id":             task.JobID,
 				"attempt_number":     task.TaskAttempt,

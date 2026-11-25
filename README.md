@@ -97,6 +97,9 @@ KubeRay contributors are welcome to join the bi-weekly KubeRay community meeting
 * See the KubeRay community meeting schedule on [Ray/KubeRay LFX calendar](https://zoom-lfx.platform.linuxfoundation.org/meetings/ray?view=month).
 * Join the KubeRay community meeting on [Zoom](https://zoom-lfx.platform.linuxfoundation.org/meeting/99190775938?password=96660107-f00b-4d1d-8015-d6348e911a0a).
 
+See [GOVERNANCE.md](GOVERNANCE.md) for the roles in the KubeRay community and how they are granted, and
+[PEOPLE.md](docs/community/PEOPLE.md) for the current role holders.
+
 ## Security
 
 If you discover a potential security issue in this project, or think you may
@@ -107,3 +110,15 @@ Please do **not** create a public GitHub issue.
 ## License
 
 This project is licensed under the [Apache-2.0 License](LICENSE).
+
+---
+
+We are a [Cloud Native Computing Foundation](https://www.cncf.io/) sandbox project.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/cncf/artwork/main/other/cncf/horizontal/white/cncf-white.svg">
+  <img src="https://raw.githubusercontent.com/cncf/artwork/main/other/cncf/horizontal/color/cncf-color.svg" alt="CNCF logo" width="300">
+</picture>
+
+Copyright Contributors to KubeRay, established as KubeRay a Series of LF Projects, LLC.
+For website terms of use, trademark policy and other project policies please see [lfprojects.org/policies](https://lfprojects.org/policies/).
