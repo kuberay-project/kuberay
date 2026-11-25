@@ -215,10 +215,15 @@ func main() {
 	}
 	features.LogFeatureGates(setupLog)
 
+	enableControllers := !strings.EqualFold(os.Getenv("ENABLE_CONTROLLERS"), "false")
+	enableWebhooks := strings.EqualFold(os.Getenv("ENABLE_WEBHOOKS"), "true")
+
 	// validate the batch scheduler configs,
 	// exit with error if the configs is invalid.
-	if err := configapi.ValidateBatchSchedulerConfig(setupLog, config); err != nil {
-		exitOnError(err, "batch scheduler configs validation failed")
+	if enableControllers {
+		if err := configapi.ValidateBatchSchedulerConfig(setupLog, config); err != nil {
+			exitOnError(err, "batch scheduler configs validation failed")
+		}
 	}
 	// every allowedNodeLabels entry must be a valid label key
 	for _, key := range config.AllowedNodeLabels {
@@ -240,7 +245,7 @@ func main() {
 	// submitter container will be ignored. In this scenario, if the submitter container exit on failure,
 	// a 30-second timeout will be applied by the operator and could incorrectly mark the RayJob as Failed
 	// even if the Ray job is still running.
-	if features.Enabled(features.SidecarSubmitterRestart) {
+	if enableControllers && features.Enabled(features.SidecarSubmitterRestart) {
 		serverVersion, err := utils.GetKubernetesVersion()
 		if err != nil {
 			exitOnError(err, "SidecarSubmitterRestart feature gate enabled but unable to detect K8s version. Feature requires K8s 1.35+.")
@@ -265,7 +270,7 @@ func main() {
 			BindAddress: config.MetricsAddr,
 		},
 		HealthProbeBindAddress:  config.ProbeAddr,
-		LeaderElection:          *config.EnableLeaderElection,
+		LeaderElection:          enableControllers && *config.EnableLeaderElection,
 		LeaderElectionID:        "ray-operator-leader",
 		LeaderElectionNamespace: config.LeaderElectionNamespace,
 	}
@@ -281,7 +286,7 @@ func main() {
 	// These selectors and transforms are provided to the manager cache via ByObject.
 	selectorsByObject, err := managercache.K8sControllerRuntimeCacheSelectors()
 	exitOnError(err, "unable to build manager cache ByObject")
-	if features.Enabled(features.RayNodeEventForwarder) && config.NodeEventForwarder.Enabled {
+	if enableControllers && features.Enabled(features.RayNodeEventForwarder) && config.NodeEventForwarder.Enabled {
 		// Scope the Event informer server-side to Node events in default and kube-system namespaces;
 		// without this the event forwarder's watch would receive every Event in the cluster.
 		// If types contains a single type (e.g. Warning), it is also filtered server-side.
@@ -309,81 +314,122 @@ func main() {
 	restConfig.QPS = float32(*config.QPS)
 	restConfig.Burst = *config.Burst
 
-	// Check if cert-manager API is available before registering the mTLS controller.
-	// If cert-manager is not installed, the controller's Certificate/Issuer cache would
-	// never sync and the manager would fail to start (e.g. in E2E environments without cert-manager).
-	certManagerAvailable := certManagerAPIAvailable(restConfig)
-
 	mgr, err := ctrl.NewManager(restConfig, options)
 	exitOnError(err, "unable to start manager")
 
 	ctx := ctrl.SetupSignalHandler()
 
-	var rayClusterMetricsManager *metrics.RayClusterMetricsManager
-	var rayJobMetricsManager *metrics.RayJobMetricsManager
-	var rayServiceMetricsManager *metrics.RayServiceMetricsManager
-	var batchSchedulerManager *batchscheduler.SchedulerManager
-	if config.EnableMetrics {
-		mgrClient := mgr.GetClient()
-		rayClusterMetricsManager = metrics.NewRayClusterMetricsManager(ctx, mgrClient)
-		rayJobMetricsManager = metrics.NewRayJobMetricsManager(ctx, mgrClient)
-		rayServiceMetricsManager = metrics.NewRayServiceMetricsManager(ctx, mgrClient)
-		ctrlmetrics.Registry.MustRegister(
-			rayClusterMetricsManager,
-			rayJobMetricsManager,
-			rayServiceMetricsManager,
-		)
-	}
+	if enableControllers {
+		// Check if cert-manager API is available before registering the mTLS controller.
+		// If cert-manager is not installed, the controller's Certificate/Issuer cache would
+		// never sync and the manager would fail to start (e.g. in E2E environments without cert-manager).
+		certManagerAvailable := certManagerAPIAvailable(restConfig)
 
-	batchSchedulerManager, err = batchscheduler.NewSchedulerManager(ctx, config, restConfig, mgr.GetClient())
-	exitOnError(err, "unable to create batch scheduler manager")
-	batchSchedulerManager.AddToScheme(mgr.GetScheme())
-
-	// TODO: Remove isOpenShift and related reconciler options once Gateway API support is mature
-	// and Route-based dashboard access is no longer needed.
-	// See: https://github.com/ray-project/kuberay/pull/4365#issuecomment-4143407845
-	isOpenShift, err := utils.IsOpenShiftCluster(restConfig)
-	exitOnError(err, "unable to detect cluster type (OpenShift vs Kubernetes)")
-
-	rayClusterOptions := ray.RayClusterReconcilerOptions{
-		HeadSidecarContainers:    config.HeadSidecarContainers,
-		WorkerSidecarContainers:  config.WorkerSidecarContainers,
-		IsOpenShift:              isOpenShift,
-		UseIngressOnOpenShift:    utils.ShouldUseIngressOnOpenShift(),
-		RayClusterMetricsManager: rayClusterMetricsManager,
-		BatchSchedulerManager:    batchSchedulerManager,
-		DefaultContainerEnvs:     config.DefaultContainerEnvs,
-		DefaultPodAnnotations:    config.DefaultPodAnnotations,
-		DefaultPodLabels:         config.DefaultPodLabels,
-		AllowedNodeLabels:        config.AllowedNodeLabels,
-		CollectorImage:           config.CollectorImage,
-		CertManagerAvailable:     certManagerAvailable,
-	}
-	exitOnError(ray.NewReconciler(mgr, rayClusterOptions).SetupWithManager(mgr, config.ReconcileConcurrency),
-		"unable to create controller", "controller", "RayCluster")
-
-	if features.Enabled(features.RayClusterMTLS) {
-		if certManagerAvailable {
-			exitOnError(ray.NewRayClusterMTLSController(mgr).SetupWithManager(mgr),
-				"unable to create controller", "controller", "RayClusterMTLS")
-		} else {
-			setupLog.Info("cert-manager API not found; mTLS controller disabled (RayClusters with tlsOptions and no CertificateSecretName will not get auto-generated certs)")
+		var rayClusterMetricsManager *metrics.RayClusterMetricsManager
+		var rayJobMetricsManager *metrics.RayJobMetricsManager
+		var rayServiceMetricsManager *metrics.RayServiceMetricsManager
+		var batchSchedulerManager *batchscheduler.SchedulerManager
+		if config.EnableMetrics {
+			mgrClient := mgr.GetClient()
+			rayClusterMetricsManager = metrics.NewRayClusterMetricsManager(ctx, mgrClient)
+			rayJobMetricsManager = metrics.NewRayJobMetricsManager(ctx, mgrClient)
+			rayServiceMetricsManager = metrics.NewRayServiceMetricsManager(ctx, mgrClient)
+			ctrlmetrics.Registry.MustRegister(
+				rayClusterMetricsManager,
+				rayJobMetricsManager,
+				rayServiceMetricsManager,
+			)
 		}
-	} else {
-		setupLog.Info("RayClusterMTLS feature gate is disabled, skipping mTLS controller setup")
+
+		batchSchedulerManager, err = batchscheduler.NewSchedulerManager(ctx, config, restConfig, mgr.GetClient())
+		exitOnError(err, "unable to create batch scheduler manager")
+		batchSchedulerManager.AddToScheme(mgr.GetScheme())
+
+		// TODO: Remove isOpenShift and related reconciler options once Gateway API support is mature
+		// and Route-based dashboard access is no longer needed.
+		// See: https://github.com/ray-project/kuberay/pull/4365#issuecomment-4143407845
+		isOpenShift, err := utils.IsOpenShiftCluster(restConfig)
+		exitOnError(err, "unable to detect cluster type (OpenShift vs Kubernetes)")
+
+		rayClusterOptions := ray.RayClusterReconcilerOptions{
+			HeadSidecarContainers:    config.HeadSidecarContainers,
+			WorkerSidecarContainers:  config.WorkerSidecarContainers,
+			IsOpenShift:              isOpenShift,
+			UseIngressOnOpenShift:    utils.ShouldUseIngressOnOpenShift(),
+			RayClusterMetricsManager: rayClusterMetricsManager,
+			BatchSchedulerManager:    batchSchedulerManager,
+			DefaultContainerEnvs:     config.DefaultContainerEnvs,
+			DefaultPodAnnotations:    config.DefaultPodAnnotations,
+			DefaultPodLabels:         config.DefaultPodLabels,
+			AllowedNodeLabels:        config.AllowedNodeLabels,
+			CollectorImage:           config.CollectorImage,
+			CertManagerAvailable:     certManagerAvailable,
+		}
+		exitOnError(ray.NewReconciler(mgr, rayClusterOptions).SetupWithManager(mgr, config.ReconcileConcurrency),
+			"unable to create controller", "controller", "RayCluster")
+
+		if features.Enabled(features.RayClusterMTLS) {
+			if certManagerAvailable {
+				exitOnError(ray.NewRayClusterMTLSController(mgr).SetupWithManager(mgr),
+					"unable to create controller", "controller", "RayClusterMTLS")
+			} else {
+				setupLog.Info("cert-manager API not found; mTLS controller disabled (RayClusters with tlsOptions and no CertificateSecretName will not get auto-generated certs)")
+			}
+		} else {
+			setupLog.Info("RayClusterMTLS feature gate is disabled, skipping mTLS controller setup")
+		}
+
+		exitOnError(ray.NewRayServiceReconciler(ctx, mgr, config).SetupWithManager(mgr, config.ReconcileConcurrency),
+			"unable to create controller", "controller", "RayService")
+
+		rayJobOptions := ray.RayJobReconcilerOptions{
+			RayJobMetricsManager:  rayJobMetricsManager,
+			BatchSchedulerManager: batchSchedulerManager,
+		}
+		exitOnError(ray.NewRayJobReconciler(ctx, mgr, rayJobOptions, config).SetupWithManager(mgr, config.ReconcileConcurrency),
+			"unable to create controller", "controller", "RayJob")
+
+		if features.Enabled(features.RayCronJob) {
+			setupLog.Info("RayCronJob feature gate is enabled, starting RayCronJob controller")
+			exitOnError(ray.NewRayCronJobReconciler(mgr).SetupWithManager(mgr, config.ReconcileConcurrency),
+				"unable to create controller", "controller", "RayCronJob")
+		} else {
+			setupLog.Info("RayCronJob feature gate is disabled, skipping RayCronJob controller setup")
+		}
+
+		if features.Enabled(features.RayNodeEventForwarder) && config.NodeEventForwarder.Enabled {
+			setupLog.Info("RayNodeEventForwarder is enabled, starting EventForwarder controller",
+				"sources", config.NodeEventForwarder.Sources, "reasons", config.NodeEventForwarder.Reasons, "types", config.NodeEventForwarder.Types)
+			if config.WatchNamespace != "" {
+				setupLog.Info("Node event forwarder watches Node events in default and kube-system namespaces despite watchNamespace being set; "+
+					"the operator's ServiceAccount requires Role permissions in those namespaces",
+					"watchNamespace", config.WatchNamespace)
+			}
+			eventForwarderOptions := ray.EventForwarderOptions{
+				Sources: config.NodeEventForwarder.Sources,
+				Reasons: config.NodeEventForwarder.Reasons,
+				Types:   config.NodeEventForwarder.Types,
+			}
+			eventForwarder, err := ray.NewEventForwarderReconciler(mgr, eventForwarderOptions)
+			exitOnError(err, "unable to create controller", "controller", "EventForwarder")
+			exitOnError(eventForwarder.SetupWithManager(mgr, config.ReconcileConcurrency),
+				"unable to setup controller", "controller", "EventForwarder")
+		} else {
+			setupLog.Info("RayNodeEventForwarder or nodeEventForwarder.enabled is disabled, skipping EventForwarder controller setup")
+		}
+
+		if features.Enabled(features.RayClusterNetworkPolicy) {
+			setupLog.Info("RayClusterNetworkPolicy feature gate is enabled, starting NetworkPolicy controller")
+			networkPolicyController, err := ray.NewNetworkPolicyController(mgr)
+			exitOnError(err, "unable to create controller", "controller", "NetworkPolicy")
+			exitOnError(networkPolicyController.SetupWithManager(mgr, config.ReconcileConcurrency),
+				"unable to setup controller", "controller", "NetworkPolicy")
+		} else {
+			setupLog.Info("RayClusterNetworkPolicy feature gate is disabled, skipping NetworkPolicy controller setup")
+		}
 	}
 
-	exitOnError(ray.NewRayServiceReconciler(ctx, mgr, config).SetupWithManager(mgr, config.ReconcileConcurrency),
-		"unable to create controller", "controller", "RayService")
-
-	rayJobOptions := ray.RayJobReconcilerOptions{
-		RayJobMetricsManager:  rayJobMetricsManager,
-		BatchSchedulerManager: batchSchedulerManager,
-	}
-	exitOnError(ray.NewRayJobReconciler(ctx, mgr, rayJobOptions, config).SetupWithManager(mgr, config.ReconcileConcurrency),
-		"unable to create controller", "controller", "RayJob")
-
-	if strings.ToLower(os.Getenv("ENABLE_WEBHOOKS")) == "true" {
+	if enableWebhooks {
 		exitOnError(webhooks.SetupRayClusterWebhookWithManager(mgr, config),
 			"unable to create webhook", "webhook", "RayCluster")
 		exitOnError(webhooks.SetupRayJobWebhookWithManager(mgr, config),
@@ -397,49 +443,14 @@ func main() {
 			"unable to create webhook", "webhook", "PodBinding")
 	}
 
-	if features.Enabled(features.RayCronJob) {
-		setupLog.Info("RayCronJob feature gate is enabled, starting RayCronJob controller")
-		exitOnError(ray.NewRayCronJobReconciler(mgr).SetupWithManager(mgr, config.ReconcileConcurrency),
-			"unable to create controller", "controller", "RayCronJob")
-	} else {
-		setupLog.Info("RayCronJob feature gate is disabled, skipping RayCronJob controller setup")
-	}
-
-	if features.Enabled(features.RayNodeEventForwarder) && config.NodeEventForwarder.Enabled {
-		setupLog.Info("RayNodeEventForwarder is enabled, starting EventForwarder controller",
-			"sources", config.NodeEventForwarder.Sources, "reasons", config.NodeEventForwarder.Reasons, "types", config.NodeEventForwarder.Types)
-		if config.WatchNamespace != "" {
-			setupLog.Info("Node event forwarder watches Node events in default and kube-system namespaces despite watchNamespace being set; "+
-				"the operator's ServiceAccount requires Role permissions in those namespaces",
-				"watchNamespace", config.WatchNamespace)
-		}
-		eventForwarderOptions := ray.EventForwarderOptions{
-			Sources: config.NodeEventForwarder.Sources,
-			Reasons: config.NodeEventForwarder.Reasons,
-			Types:   config.NodeEventForwarder.Types,
-		}
-		eventForwarder, err := ray.NewEventForwarderReconciler(mgr, eventForwarderOptions)
-		exitOnError(err, "unable to create controller", "controller", "EventForwarder")
-		exitOnError(eventForwarder.SetupWithManager(mgr, config.ReconcileConcurrency),
-			"unable to setup controller", "controller", "EventForwarder")
-	} else {
-		setupLog.Info("RayNodeEventForwarder or nodeEventForwarder.enabled is disabled, skipping EventForwarder controller setup")
-	}
-
-	if features.Enabled(features.RayClusterNetworkPolicy) {
-		setupLog.Info("RayClusterNetworkPolicy feature gate is enabled, starting NetworkPolicy controller")
-		networkPolicyController, err := ray.NewNetworkPolicyController(mgr)
-		exitOnError(err, "unable to create controller", "controller", "NetworkPolicy")
-		exitOnError(networkPolicyController.SetupWithManager(mgr, config.ReconcileConcurrency),
-			"unable to setup controller", "controller", "NetworkPolicy")
-	} else {
-		setupLog.Info("RayClusterNetworkPolicy feature gate is disabled, skipping NetworkPolicy controller setup")
-	}
-
 	// +kubebuilder:scaffold:builder
 
 	exitOnError(mgr.AddHealthzCheck("healthz", healthz.Ping), "unable to set up health check")
-	exitOnError(mgr.AddReadyzCheck("readyz", healthz.Ping), "unable to set up ready check")
+	readyz := healthz.Ping
+	if enableWebhooks {
+		readyz = mgr.GetWebhookServer().StartedChecker()
+	}
+	exitOnError(mgr.AddReadyzCheck("readyz", readyz), "unable to set up ready check")
 
 	setupLog.Info("starting manager")
 	exitOnError(mgr.Start(ctx), "problem running manager")

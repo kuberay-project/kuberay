@@ -1,0 +1,82 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../default-with-webhooks
+patches:
+- target:
+    kind: ClusterRoleBinding
+    name: kuberay-operator
+  patch: |-
+    - op: replace
+      path: /metadata/name
+      value: kuberay-webhook
+- target:
+    kind: Deployment
+    name: kuberay-operator
+  patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: kuberay-operator
+      labels:
+        app.kubernetes.io/component: kuberay-webhook
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: kuberay-webhook
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: kuberay-webhook
+        spec:
+          containers:
+          - name: kuberay-operator
+            env:
+            - name: ENABLE_CONTROLLERS
+              value: "false"
+            readinessProbe:
+              httpGet:
+                path: /readyz
+                port: 8082
+            livenessProbe:
+              httpGet:
+                path: /healthz
+                port: 8082
+- target:
+    kind: Service
+    name: kuberay-operator
+  patch: |-
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: kuberay-operator
+      labels:
+        app.kubernetes.io/component: kuberay-webhook
+    spec:
+      selector:
+        app.kubernetes.io/component: kuberay-webhook
+- target:
+    kind: Deployment
+    name: kuberay-operator
+  patch: |-
+    - op: replace
+      path: /metadata/name
+      value: kuberay-webhook
+- target:
+    kind: Service
+    name: kuberay-operator
+  patch: |-
+    - op: replace
+      path: /metadata/name
+      value: kuberay-webhook
+- target:
+    kind: Service
+    name: kuberay-webhook-service
+  patch: |-
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: kuberay-webhook-service
+    spec:
+      selector:
+        app.kubernetes.io/component: kuberay-webhook
