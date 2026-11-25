@@ -19,7 +19,7 @@ image:
   repository: quay.io/kuberay/operator
 
   # -- Image tag.
-  tag: v1.8.0-rc.0
+  tag: v1.8.0
 
   # -- Image pull policy.
   pullPolicy: IfNotPresent
