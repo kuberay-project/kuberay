@@ -56,6 +56,11 @@ func newTaskGroupsFromRayClusterSpec(rayClusterSpec *v1.RayClusterSpec) *TaskGro
 		workerMinResource := utils.CalculatePodResource(workerGroupSpec.Template.Spec)
 		minReplicas := ptr.Deref(workerGroupSpec.MinReplicas, int32(0))
 		minWorkers := minReplicas * workerGroupSpec.NumOfHosts
+		// YuniKorn rejects the whole task groups annotation if any group has minMember 0, which turns off
+		// gang scheduling for the application. A group without a minimum has nothing to reserve, so skip it.
+		if minWorkers <= 0 {
+			continue
+		}
 		taskGroups.addTaskGroup(
 			TaskGroup{
 				Name:         workerGroupSpec.GroupName,
