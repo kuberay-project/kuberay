@@ -118,8 +118,8 @@ class RayJobInfo:
         self.message = dct.get("message", None)
         self.start_time = int(dct.get("startTime", "0"))
         self.end_time = int(dct.get("endTime", "0"))
-        self.error_type = dct.get("ErrorType", None)
-        self.metadata = dct.get("Metadata", None)
+        self.error_type = dct.get("errorType", None)
+        self.metadata = dct.get("metadata", None)
         self.runtime_env = dct.get("runtimeEnv", None)
 
     def to_string(self) -> str:
