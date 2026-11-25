@@ -390,6 +390,48 @@ func TestGetRayHeadSvcNameByRayService(t *testing.T) {
 	}
 }
 
+func TestGetRayHeadSvcNameNotSetInStatus(t *testing.T) {
+	// The operator fills in the head service name only once the head service exists.
+	// For example, a RayService has no active cluster until its first cluster is ready,
+	// and a RayJob clears its cluster status when it is suspended.
+	rayObjects := []runtime.Object{
+		&rayv1.RayCluster{ObjectMeta: metav1.ObjectMeta{Name: "raycluster-sample", Namespace: "default"}},
+		&rayv1.RayJob{ObjectMeta: metav1.ObjectMeta{Name: "rayjob-sample", Namespace: "default"}},
+		&rayv1.RayService{ObjectMeta: metav1.ObjectMeta{Name: "rayservice-sample", Namespace: "default"}},
+	}
+	client := NewClientForTesting(kubeFake.NewClientset(), rayClientFake.NewClientset(rayObjects...))
+
+	tests := []struct {
+		resourceType util.ResourceType
+		resourceName string
+		expectError  string
+	}{
+		{
+			resourceType: util.RayCluster,
+			resourceName: "raycluster-sample",
+			expectError:  "the head service of raycluster default/raycluster-sample is not available yet",
+		},
+		{
+			resourceType: util.RayJob,
+			resourceName: "rayjob-sample",
+			expectError:  "the head service of rayjob default/rayjob-sample is not available yet",
+		},
+		{
+			resourceType: util.RayService,
+			resourceName: "rayservice-sample",
+			expectError:  "the head service of rayservice default/rayservice-sample is not available yet",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.resourceType), func(t *testing.T) {
+			svcName, err := client.GetRayHeadSvcName(context.Background(), "default", tc.resourceType, tc.resourceName)
+			require.EqualError(t, err, tc.expectError)
+			assert.Empty(t, svcName)
+		})
+	}
+}
+
 func TestWaitRayClusterProvisioned(t *testing.T) {
 	tests := []struct {
 		name          string
