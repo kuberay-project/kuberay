@@ -365,9 +365,10 @@ func setAutoscalerV1EnvVars(podTemplate *corev1.PodTemplateSpec) {
 
 // configureTokenAuth sets environment variables required for Ray token authentication
 func configureTokenAuth(clusterName string, podTemplate *corev1.PodTemplateSpec, authOptions *rayv1.AuthOptions) {
-	// Only inject token auth here. For non-token mode, the RAY_AUTH_MODE=disabled default for the
-	// Ray container is added later in setContainerEnvVars.
-	if authOptions != nil && authOptions.Mode == rayv1.AuthModeToken {
+	// An explicit authOptions.mode takes precedence over defaultContainerEnvs, so apply it here.
+	// If mode is not set, the RAY_AUTH_MODE=disabled default for the Ray container is added later
+	// in setContainerEnvVars, after defaultContainerEnvs.
+	if authOptions != nil && authOptions.Mode != "" {
 		SetContainerTokenAuthEnvVars(clusterName, &podTemplate.Spec.Containers[utils.RayContainerIndex], authOptions)
 	}
 

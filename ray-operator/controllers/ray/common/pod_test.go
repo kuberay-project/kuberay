@@ -1409,6 +1409,21 @@ func TestBuildPod_DefaultContainerEnvsAuthModeTakesPrecedence(t *testing.T) {
 	checkContainerEnv(t, pod.Spec.Containers[utils.RayContainerIndex], utils.RAY_AUTH_MODE_ENV_VAR, string(rayv1.AuthModeToken))
 }
 
+// TestBuildPod_ExplicitAuthModeDisabledTakesPrecedence ensures an explicit
+// authOptions.mode=disabled is not overridden by RAY_AUTH_MODE in defaultContainerEnvs, so the
+// Ray container stays consistent with the autoscaler and wait-gcs-ready.
+func TestBuildPod_ExplicitAuthModeDisabledTakesPrecedence(t *testing.T) {
+	ctx := context.Background()
+	cluster := instance.DeepCopy()
+	cluster.Spec.AuthOptions = &rayv1.AuthOptions{Mode: rayv1.AuthModeDisabled}
+	defaultContainerEnvs := []corev1.EnvVar{{Name: utils.RAY_AUTH_MODE_ENV_VAR, Value: string(rayv1.AuthModeToken)}}
+
+	podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, "pod", "6379")
+	pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", false, utils.GetCRDType(""), "", defaultContainerEnvs, "")
+
+	checkContainerEnv(t, pod.Spec.Containers[utils.RayContainerIndex], utils.RAY_AUTH_MODE_ENV_VAR, string(rayv1.AuthModeDisabled))
+}
+
 func TestHeadPodTemplate_WithAutoscalingEnabled(t *testing.T) {
 	ctx := context.Background()
 
