@@ -7,15 +7,27 @@ namePrefix: kuberay-
 configurations:
 - kustomizeconfig.yaml
 
-patches:
-- patch: |-
-    - op: replace
-      path: /webhooks/0/clientConfig/service/namespace
-      value: ray-system
-  target:
-    kind: ValidatingWebhookConfiguration
-    name: validating-webhook-configuration
+replacements:
+- source:
+    kind: Service
+    name: webhook-service
     version: v1
+    fieldPath: metadata.namespace
+  targets:
+  - select:
+      group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      version: v1
+    fieldPaths:
+    - webhooks.*.clientConfig.service.namespace
+  - select:
+      group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      version: v1
+    fieldPaths:
+    - webhooks.*.clientConfig.service.namespace
+
+patches:
 - patch: |-
     apiVersion: admissionregistration.k8s.io/v1
     kind: MutatingWebhookConfiguration
