@@ -27,12 +27,12 @@ func BuildHeadServiceForRayJob(ctx context.Context, rayJob rayv1.RayJob, rayClus
 		return nil, err
 	}
 
-	headSvcName, err := utils.GenerateHeadServiceName(utils.RayJobCRD, rayv1.RayClusterSpec{}, rayJob.Name)
+	serviceKey, err := RayJobHeadServiceNamespacedName(&rayJob)
 	if err != nil {
 		return nil, err
 	}
 
-	service.ObjectMeta.Name = headSvcName
+	service.ObjectMeta.Name = serviceKey.Name
 	service.ObjectMeta.Namespace = rayJob.Namespace
 	service.ObjectMeta.Labels = map[string]string{
 		utils.RayOriginatedFromCRNameLabelKey: rayJob.Name,
