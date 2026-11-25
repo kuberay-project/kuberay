@@ -21,13 +21,32 @@ import {
   accordionClasses,
   FormHelperText,
   Alert,
+  Option,
+  Select,
 } from "@mui/joy";
 import { InfoOutlined } from "@mui/icons-material";
 import { useCreateJob } from "@/hooks/api/useCreateJob";
 import { CreateRayJobConfig } from "@/types/v2/api/rayjob";
+import { useNamespace, useSetNamespace } from "@/components/NamespaceProvider";
+import { useListNamespaces } from "@/hooks/api/useListNamespaces";
+import { ALL_NAMESPACES } from "@/utils/config-defaults";
 
 export const CreateJobForm = () => {
   const router = useRouter();
+  const globalNamespace = useNamespace();
+  const setNamespace = useSetNamespace();
+  const { namespaces } = useListNamespaces();
+  // Defaults to the globally selected namespace, falling back to "default"
+  // when the dashboard is listing all namespaces.
+  const [jobNamespace, setJobNamespace] = React.useState<string | null>(null);
+  const effectiveNamespace =
+    jobNamespace ??
+    (globalNamespace === ALL_NAMESPACES ? "default" : globalNamespace);
+  // Keep the selected namespace selectable even if the namespace list fails
+  // to load.
+  const namespaceOptions = Array.from(
+    new Set([...namespaces, effectiveNamespace]),
+  );
   const [jobName, setJobName] = React.useState(
     "test-job" + Math.floor(Math.random() * 100),
   );
@@ -83,6 +102,7 @@ export const CreateJobForm = () => {
   const handleCreateJob = async () => {
     const jobConfig: CreateRayJobConfig = {
       jobName,
+      namespace: effectiveNamespace,
       dockerImage,
       entrypoint,
       headResources: {
@@ -102,6 +122,9 @@ export const CreateJobForm = () => {
 
     const success = await createJob(jobConfig);
     if (success) {
+      if (globalNamespace !== ALL_NAMESPACES) {
+        setNamespace(jobConfig.namespace);
+      }
       navigateToJobsPage();
     }
   };
@@ -138,6 +161,25 @@ export const CreateJobForm = () => {
               value={jobName}
               onChange={(e) => setJobName(e.target.value)}
             />
+          </FormControl>
+          <FormControl size="sm" sx={{ mt: 1.5 }}>
+            <FormLabel>Namespace</FormLabel>
+            <Select
+              size="sm"
+              value={effectiveNamespace}
+              slotProps={{ button: { sx: { whiteSpace: "nowrap" } } }}
+              onChange={(_, newValue) => {
+                if (newValue !== null) {
+                  setJobNamespace(newValue);
+                }
+              }}
+            >
+              {namespaceOptions.map((ns) => (
+                <Option key={ns} value={ns}>
+                  {ns}
+                </Option>
+              ))}
+            </Select>
           </FormControl>
         </Step>
         <Step
