@@ -591,6 +591,17 @@ func GetHeadGroupServiceAccountName(cluster *rayv1.RayCluster) string {
 	return cluster.Name
 }
 
+// GetAutoscalerServiceAccountName returns the name of the ServiceAccount that the head Pod and the
+// autoscaler RoleBinding use when autoscaling is enabled. A ServiceAccount specified by the user must
+// already exist, so its name is used as is. Otherwise, KubeRay creates one named after the RayCluster
+// and clipped by CheckName.
+func GetAutoscalerServiceAccountName(cluster *rayv1.RayCluster) string {
+	if name := cluster.Spec.HeadGroupSpec.Template.Spec.ServiceAccountName; name != "" {
+		return name
+	}
+	return CheckName(cluster.Name)
+}
+
 // CheckAllPodsRunning returns true if all the RayCluster's Pods are running, false otherwise
 func CheckAllPodsRunning(ctx context.Context, runningPods corev1.PodList) bool {
 	log := ctrl.LoggerFrom(ctx)

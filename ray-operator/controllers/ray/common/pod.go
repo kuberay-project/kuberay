@@ -272,8 +272,7 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 		// the monitor process by default and inject a KubeRay autoscaler side container into the head pod.
 		headSpec.RayStartParams["no-monitor"] = "true"
 		// set custom service account with proper roles bound.
-		// utils.CheckName clips the name to match the behavior of reconcileAutoscalerServiceAccount
-		podTemplate.Spec.ServiceAccountName = utils.CheckName(utils.GetHeadGroupServiceAccountName(&instance))
+		podTemplate.Spec.ServiceAccountName = utils.GetAutoscalerServiceAccountName(&instance)
 		// Use the same image as Ray head container by default.
 		autoscalerImage := podTemplate.Spec.Containers[utils.RayContainerIndex].Image
 		// inject autoscaler container into head pod
