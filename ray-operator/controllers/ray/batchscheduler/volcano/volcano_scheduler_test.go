@@ -642,6 +642,31 @@ func TestCalculateSubGroupPolicy(t *testing.T) {
 		assert.Equal(t, int32(8), ptr.Deref(policies[2].MinSubGroups, int32(0)))
 	})
 
+	t.Run("numOfHosts 0 counts as one host", func(t *testing.T) {
+		cluster := createTestRayCluster(1)
+		cluster.Spec.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+			{
+				GroupName:   "zero-hosts-group",
+				Replicas:    ptr.To[int32](3),
+				MinReplicas: ptr.To[int32](1),
+				MaxReplicas: ptr.To[int32](5),
+				NumOfHosts:  0,
+			},
+		}
+
+		policies := calculateSubGroupPolicy(&cluster, &cluster.Spec)
+		scheduler := &VolcanoBatchScheduler{}
+		minMember, _ := scheduler.calculatePodGroupParams(&cluster.Spec)
+
+		// 1 head + 3 workers, the same count the controller creates Pods for.
+		assert.Equal(t, int32(4), minMember)
+		require.Len(t, policies, 2)
+		assert.Equal(t, "zero-hosts-group", policies[1].Name)
+		assert.Equal(t, int32(1), ptr.Deref(policies[1].SubGroupSize, int32(0)))
+		assert.Equal(t, int32(3), ptr.Deref(policies[1].MinSubGroups, int32(0)))
+		assert.Equal(t, []string{utils.RayWorkerReplicaIndexKey}, policies[1].MatchLabelKeys)
+	})
+
 	t.Run("multi-host indexing feature gate disabled omits subgroup policy", func(t *testing.T) {
 		features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, false)
 		cluster := createTestRayCluster(2)
