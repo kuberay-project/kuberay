@@ -1823,7 +1823,7 @@ func (s *ServerHandler) getTaskSummarize(req *restful.Request, resp *restful.Res
 	resp.Write(respData)
 }
 
-// summarizeTasksByFuncName groups tasks by function name and counts by state.
+// summarizeTasksByFuncName groups tasks by custom task name, falling back to function name, and counts by state.
 //
 // The Ray Dashboard frontend always calls this API with a job_id filter
 // (e.g. filter_keys=job_id&filter_predicates=%3D&filter_values={jobId}),
@@ -1832,7 +1832,7 @@ func (s *ServerHandler) getTaskSummarize(req *restful.Request, resp *restful.Res
 // job and are excluded by the filter before reaching this function.
 // Ref: https://github.com/ray-project/ray/blob/777f37f002c14bd4c587f4d095b85c62690647de/python/ray/dashboard/client/src/service/job.ts
 //
-// Ray API source code: https://github.com/ray-project/ray/blob/777f37f002c14bd4c587f4d095b85c62690647de/python/ray/util/state/common.py#L1035-L1064
+// Ray API source code: https://github.com/ray-project/ray/blob/32e512021b9679f11c4f37d452cc9e133de88403/python/ray/util/state/common.py#L1066-L1102
 func summarizeTasksByFuncName(tasks []eventtypes.Task) *utils.TaskSummariesByFuncName {
 	summary := make(map[string]*utils.TaskSummaryPerFuncOrClassName)
 	totalTasks := 0
@@ -1840,26 +1840,18 @@ func summarizeTasksByFuncName(tasks []eventtypes.Task) *utils.TaskSummariesByFun
 	totalActorScheduled := 0
 
 	for _, task := range tasks {
-		funcName := task.GetFuncName()
-		if funcName == "" {
-			// Skip tasks without a function name. This can happen when we've received
-			// a TASK_LIFECYCLE_EVENT but not yet the corresponding TASK_DEFINITION_EVENT,
-			// since only the definition event carries the FunctionDescriptor (TaskFunc/ActorFunc).
-			//
-			// Unlike the live Ray Dashboard (which reads complete TaskInfo from GCS in a single object),
-			// the history server ingests definition and lifecycle as separate events that may arrive
-			// out of order. A task missing its definition also lacks TaskType, so it cannot contribute
-			// to totalTasks/totalActorTasks/totalActorScheduled counts either.
-			//
-			// We skip rather than using a fallback like "unknown" to keep the summary clean for the
-			// Dashboard frontend, which does not expect such a synthetic key.
-			// Ref: https://github.com/ray-project/ray/blob/777f37f002c14bd4c587f4d095b85c62690647de/python/ray/util/state/common.py#L1049
+		key := task.GetTaskName()
+		if key == "" {
+			key = task.GetFuncName()
+		}
+		if key == "" {
+			// Lifecycle events can arrive before the definition that supplies the names.
 			continue
 		}
 
-		if _, ok := summary[funcName]; !ok {
-			summary[funcName] = &utils.TaskSummaryPerFuncOrClassName{
-				FuncOrClassName: funcName,
+		if _, ok := summary[key]; !ok {
+			summary[key] = &utils.TaskSummaryPerFuncOrClassName{
+				FuncOrClassName: key,
 				Type:            string(task.TaskType),
 				StateCounts:     make(map[string]int),
 			}
@@ -1872,7 +1864,7 @@ func summarizeTasksByFuncName(tasks []eventtypes.Task) *utils.TaskSummariesByFun
 		if state == "" {
 			state = "NIL"
 		}
-		summary[funcName].StateCounts[state]++
+		summary[key].StateCounts[state]++
 
 		// Count by task type
 		switch task.TaskType {
