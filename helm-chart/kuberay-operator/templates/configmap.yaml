@@ -60,6 +60,9 @@ data:
     {{- else if .Values.singleNamespaceInstall }}
     watchNamespace: {{ .Release.Namespace | quote }}
     {{- end }}
+    {{- if .Values.watchNamespaceSelector }}
+    watchNamespaceSelector: {{ .Values.watchNamespaceSelector | quote }}
+    {{- end }}
     {{- if and (.Values.logging.baseDir) (.Values.logging.fileName) }}
     logFile: {{ printf "%s/%s" .Values.logging.baseDir .Values.logging.fileName | quote }}
     {{- end }}

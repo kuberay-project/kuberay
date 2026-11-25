@@ -65,6 +65,11 @@ type Configuration struct {
 	// If empty, all namespaces will be watched.
 	WatchNamespace string `json:"watchNamespace,omitempty"`
 
+	// WatchNamespaceSelector is a Kubernetes label selector (e.g. "ray.io/watch=true"). If set, custom resources
+	// are only reconciled in namespaces whose labels match the selector. It is mutually exclusive with WatchNamespace.
+	// If both are empty, all namespaces will be watched.
+	WatchNamespaceSelector string `json:"watchNamespaceSelector,omitempty"`
+
 	// WorkerSidecarContainers includes specification for a sidecar container
 	// to inject into every Worker pod.
 	WorkerSidecarContainers []corev1.Container `json:"workerSidecarContainers,omitempty"`

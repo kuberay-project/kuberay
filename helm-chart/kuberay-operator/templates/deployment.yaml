@@ -118,6 +118,9 @@ spec:
             {{- $argList = append $argList "--watch-namespace" -}}
             {{- $argList = append $argList $watchNamespace -}}
             {{- end -}}
+            {{- if .Values.watchNamespaceSelector -}}
+            {{- $argList = append $argList (printf "--watch-namespace-selector=%s" .Values.watchNamespaceSelector) -}}
+            {{- end -}}
             {{- if and (.Values.logging.baseDir) (.Values.logging.fileName) -}}
             {{- $argList = append $argList "--log-file-path" -}}
             {{- $argList = append $argList (printf "%s/%s" .Values.logging.baseDir .Values.logging.fileName) -}}

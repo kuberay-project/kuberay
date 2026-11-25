@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -86,6 +87,8 @@ type RayClusterReconcilerOptions struct {
 	IsOpenShift              bool
 	UseIngressOnOpenShift    bool
 	CertManagerAvailable     bool
+	// WatchNamespaceSelector restricts reconciliation to namespaces whose labels match it. Nil means all namespaces.
+	WatchNamespaceSelector labels.Selector
 }
 
 // Reconcile reads that state of the cluster for a RayCluster object and makes changes based on it
@@ -96,6 +99,7 @@ type RayClusterReconcilerOptions struct {
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete;deletecollection
 // +kubebuilder:rbac:groups=core,resources=pods/status,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods/resize,verbs=patch
@@ -117,7 +121,15 @@ type RayClusterReconcilerOptions struct {
 // Reconcile used to bridge the desired state with the current state
 func (r *RayClusterReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
-	var err error
+
+	matches, err := utils.NamespaceMatchesSelector(ctx, r.Client, r.options.WatchNamespaceSelector, request.Namespace)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !matches {
+		logger.V(1).Info("Skipping RayCluster in a namespace that does not match watchNamespaceSelector")
+		return ctrl.Result{}, nil
+	}
 
 	// Try to fetch the RayCluster instance
 	instance := &rayv1.RayCluster{}
@@ -2085,6 +2097,7 @@ func (r *RayClusterReconciler) SetupWithManager(mgr ctrl.Manager, reconcileConcu
 	if r.options.BatchSchedulerManager != nil {
 		r.options.BatchSchedulerManager.ConfigureReconciler(b)
 	}
+	b = utils.WatchMatchingNamespaces(b, mgr.GetClient(), r.options.WatchNamespaceSelector, &rayv1.RayClusterList{})
 
 	return b.
 		WithOptions(controller.Options{

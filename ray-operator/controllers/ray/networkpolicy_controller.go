@@ -12,6 +12,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/events"
@@ -34,13 +35,17 @@ type NetworkPolicyController struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder events.EventRecorder
+	// namespaceSelector restricts reconciliation to namespaces whose labels match it. Nil means all namespaces.
+	namespaceSelector labels.Selector
 }
 
-func NewNetworkPolicyController(mgr manager.Manager) (*NetworkPolicyController, error) {
+func NewNetworkPolicyController(mgr manager.Manager, namespaceSelector labels.Selector) (*NetworkPolicyController, error) {
 	return &NetworkPolicyController{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorder("networkpolicy-controller"),
+
+		namespaceSelector: namespaceSelector,
 	}, nil
 }
 
@@ -49,6 +54,15 @@ func NewNetworkPolicyController(mgr manager.Manager) (*NetworkPolicyController, 
 
 func (r *NetworkPolicyController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
+
+	matches, err := utils.NamespaceMatchesSelector(ctx, r.Client, r.namespaceSelector, req.Namespace)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !matches {
+		logger.V(1).Info("Skipping RayCluster in a namespace that does not match watchNamespaceSelector")
+		return ctrl.Result{}, nil
+	}
 
 	instance := &rayv1.RayCluster{}
 	if err := r.Get(ctx, req.NamespacedName, instance); err != nil {
@@ -456,10 +470,12 @@ func (r *NetworkPolicyController) deleteStaleNetworkPolicies(ctx context.Context
 }
 
 func (r *NetworkPolicyController) SetupWithManager(mgr ctrl.Manager, reconcileConcurrency int) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&rayv1.RayCluster{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&networkingv1.NetworkPolicy{}).
-		Named("networkpolicy").
+		Named("networkpolicy")
+	b = utils.WatchMatchingNamespaces(b, mgr.GetClient(), r.namespaceSelector, &rayv1.RayClusterList{})
+	return b.
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: reconcileConcurrency,
 			LogConstructor: func(request *reconcile.Request) logr.Logger {

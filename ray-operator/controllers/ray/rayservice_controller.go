@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
@@ -62,10 +63,12 @@ type RayServiceReconciler struct {
 	RayClusterDeletionTimestamps cmap.ConcurrentMap[string, time.Time]
 	dashboardClientFunc          func(rayCluster *rayv1.RayCluster, url string) (dashboardclient.RayDashboardClientInterface, error)
 	httpProxyClientFunc          func(hostIp, podNamespace, podName string, port int) utils.RayHttpProxyClientInterface
+	// namespaceSelector restricts reconciliation to namespaces whose labels match it. Nil means all namespaces.
+	namespaceSelector labels.Selector
 }
 
 // NewRayServiceReconciler returns a new reconcile.Reconciler
-func NewRayServiceReconciler(ctx context.Context, mgr manager.Manager, provider utils.ClientProvider) *RayServiceReconciler {
+func NewRayServiceReconciler(ctx context.Context, mgr manager.Manager, provider utils.ClientProvider, namespaceSelector labels.Selector) *RayServiceReconciler {
 	dashboardClientFunc := provider.GetDashboardClient(ctx, mgr)
 	httpProxyClientFunc := provider.GetHttpProxyClient(mgr)
 	return &RayServiceReconciler{
@@ -77,6 +80,7 @@ func NewRayServiceReconciler(ctx context.Context, mgr manager.Manager, provider 
 
 		dashboardClientFunc: dashboardClientFunc,
 		httpProxyClientFunc: httpProxyClientFunc,
+		namespaceSelector:   namespaceSelector,
 	}
 }
 
@@ -111,6 +115,13 @@ func NewRayServiceReconciler(ctx context.Context, mgr manager.Manager, provider 
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.2/pkg/reconcile
 func (r *RayServiceReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
+
+	if matches, err := utils.NamespaceMatchesSelector(ctx, r.Client, r.namespaceSelector, request.Namespace); err != nil {
+		return ctrl.Result{}, err
+	} else if !matches {
+		logger.V(1).Info("Skipping RayService in a namespace that does not match watchNamespaceSelector")
+		return ctrl.Result{}, nil
+	}
 
 	rayServiceInstance, err := r.getRayServiceInstance(ctx, request)
 	if err != nil {
@@ -833,14 +844,16 @@ func setCondition(rayServiceInstance *rayv1.RayService, conditionType rayv1.RayS
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *RayServiceReconciler) SetupWithManager(mgr ctrl.Manager, reconcileConcurrency int) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&rayv1.RayService{}, builder.WithPredicates(predicate.Or(
 			predicate.GenerationChangedPredicate{},
 			predicate.LabelChangedPredicate{},
 			predicate.AnnotationChangedPredicate{},
 		))).
 		Owns(&rayv1.RayCluster{}).
-		Owns(&corev1.Service{}).
+		Owns(&corev1.Service{})
+	b = utils.WatchMatchingNamespaces(b, mgr.GetClient(), r.namespaceSelector, &rayv1.RayServiceList{})
+	return b.
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: reconcileConcurrency,
 			LogConstructor: func(request *reconcile.Request) logr.Logger {

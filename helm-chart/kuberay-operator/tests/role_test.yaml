@@ -32,6 +32,24 @@ tests:
           kind: ClusterRole
           name: kuberay-operator
 
+  - it: Should allow reading Namespaces for watchNamespaceSelector
+    set:
+      rbacEnable: true
+      singleNamespaceInstall: false
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - namespaces
+              - nodes
+            verbs:
+              - get
+              - list
+              - watch
+
   - it: Should include scheduling.k8s.io rules for Kubernetes WAS v1alpha3
     set:
       rbacEnable: true

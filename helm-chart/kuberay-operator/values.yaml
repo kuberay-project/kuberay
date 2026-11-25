@@ -276,6 +276,12 @@ singleNamespaceInstall: false
 #   - n1
 #   - n2
 
+# -- A Kubernetes label selector (e.g. "ray.io/watch=true"). If set, the KubeRay operator only reconciles custom resources
+# in namespaces whose labels match the selector. Namespace label changes are picked up without restarting the operator.
+# Cannot be combined with "watchNamespace" or "singleNamespaceInstall".
+# CRs deleted after their namespace stops matching are not finalized until the namespace matches again.
+watchNamespaceSelector: ""
+
 # -- Environment variables.
 
 env:

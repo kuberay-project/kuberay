@@ -221,6 +221,25 @@ tests:
           path: data["config.yaml"]
           pattern: 'watchNamespace: "namespace1,namespace2"'
 
+  - it: Should include watchNamespaceSelector from values
+    set:
+      configuration:
+        enabled: true
+      watchNamespaceSelector: ray.io/watch=true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'watchNamespaceSelector: "ray.io/watch=true"'
+
+  - it: Should not include watchNamespaceSelector by default
+    set:
+      configuration:
+        enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "watchNamespaceSelector"
+
   - it: Should include batchScheduler configuration
     set:
       configuration:

@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
@@ -52,6 +53,7 @@ type RayJobReconciler struct {
 type RayJobReconcilerOptions struct {
 	RayJobMetricsManager  *metrics.RayJobMetricsManager
 	BatchSchedulerManager *batchscheduler.SchedulerManager
+	WatchNamespaceSelector labels.Selector
 }
 
 // NewRayJobReconciler returns a new reconcile.Reconciler
@@ -88,6 +90,13 @@ func NewRayJobReconciler(ctx context.Context, mgr manager.Manager, options RayJo
 // Reconcile used to bridge the desired state with the current state
 func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
+
+	if matches, err := utils.NamespaceMatchesSelector(ctx, r.Client, r.options.WatchNamespaceSelector, request.Namespace); err != nil {
+		return ctrl.Result{}, err
+	} else if !matches {
+		logger.V(1).Info("Skipping RayJob in a namespace that does not match watchNamespaceSelector")
+		return ctrl.Result{}, nil
+	}
 
 	// Get RayJob instance
 	var err error
@@ -867,11 +876,13 @@ func (r *RayJobReconciler) suspendWorkerGroups(ctx context.Context, rayJobInstan
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *RayJobReconciler) SetupWithManager(mgr ctrl.Manager, reconcileConcurrency int) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&rayv1.RayJob{}).
 		Owns(&rayv1.RayCluster{}).
 		Owns(&corev1.Service{}).
-		Owns(&batchv1.Job{}).
+		Owns(&batchv1.Job{})
+	b = utils.WatchMatchingNamespaces(b, mgr.GetClient(), r.options.WatchNamespaceSelector, &rayv1.RayJobList{})
+	return b.
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: reconcileConcurrency,
 			LogConstructor: func(request *reconcile.Request) logr.Logger {

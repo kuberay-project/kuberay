@@ -6,6 +6,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/testr"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/labels"
 
 	kaischeduler "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/kai-scheduler"
 	schedulerPlugins "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/scheduler-plugins"
@@ -144,4 +145,53 @@ func TestValidateBatchSchedulerConfigKubernetesWAS(t *testing.T) {
 	require.NoError(t, ValidateBatchSchedulerConfig(testr.New(t), Configuration{}))
 	require.Error(t, ValidateBatchSchedulerConfig(testr.New(t), Configuration{BatchScheduler: volcano.GetPluginName()}))
 	require.Error(t, ValidateBatchSchedulerConfig(testr.New(t), Configuration{EnableBatchScheduler: true}))
+}
+
+func TestParseWatchNamespaceSelector(t *testing.T) {
+	tests := []struct {
+		name         string
+		config       Configuration
+		errContains  string
+		wantNil      bool
+		wantMatching map[string]string
+	}{
+		{name: "neither set watches all namespaces", config: Configuration{}, wantNil: true},
+		{name: "watchNamespace only", config: Configuration{WatchNamespace: "ns1,ns2"}, wantNil: true},
+		{
+			name:         "valid equality selector",
+			config:       Configuration{WatchNamespaceSelector: "ray.io/watch=true"},
+			wantMatching: map[string]string{"ray.io/watch": "true"},
+		},
+		{
+			name:         "valid set-based selector",
+			config:       Configuration{WatchNamespaceSelector: "env in (dev,test)"},
+			wantMatching: map[string]string{"env": "dev"},
+		},
+		{
+			name:        "invalid selector",
+			config:      Configuration{WatchNamespaceSelector: "ray.io/watch in ("},
+			errContains: "invalid watchNamespaceSelector",
+		},
+		{
+			name:        "mutually exclusive with watchNamespace",
+			config:      Configuration{WatchNamespace: "ns1", WatchNamespaceSelector: "ray.io/watch=true"},
+			errContains: "mutually exclusive",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			selector, err := ParseWatchNamespaceSelector(tc.config)
+			if tc.errContains != "" {
+				require.ErrorContains(t, err, tc.errContains)
+				return
+			}
+			require.NoError(t, err)
+			if tc.wantNil {
+				require.Nil(t, selector)
+				return
+			}
+			require.True(t, selector.Matches(labels.Set(tc.wantMatching)))
+			require.False(t, selector.Matches(labels.Set{}))
+		})
+	}
 }

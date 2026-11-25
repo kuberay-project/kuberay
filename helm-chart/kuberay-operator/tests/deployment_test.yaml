@@ -319,6 +319,41 @@ tests:
           path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
           content: "--collector-image="
 
+  - it: Should add --watch-namespace-selector arg when watchNamespaceSelector is set
+    set:
+      watchNamespaceSelector: ray.io/watch=true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--watch-namespace-selector=ray.io/watch=true"
+
+  - it: Should not add --watch-namespace-selector arg when the config file is used
+    set:
+      configuration:
+        enabled: true
+      watchNamespaceSelector: ray.io/watch=true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[?(@.name=="kuberay-operator")].args
+          content: "--watch-namespace-selector=ray.io/watch=true"
+
+  - it: Should fail if watchNamespaceSelector and watchNamespace are both set
+    set:
+      watchNamespaceSelector: ray.io/watch=true
+      watchNamespace:
+        - n1
+    asserts:
+      - failedTemplate:
+          errorMessage: "watchNamespaceSelector cannot be combined with watchNamespace or singleNamespaceInstall because Namespace labels are cluster-scoped."
+
+  - it: Should fail if watchNamespaceSelector and singleNamespaceInstall are both set
+    set:
+      watchNamespaceSelector: ray.io/watch=true
+      singleNamespaceInstall: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "watchNamespaceSelector cannot be combined with watchNamespace or singleNamespaceInstall because Namespace labels are cluster-scoped."
+
   - it: Should enable Kubernetes WAS batch scheduler when the KubernetesWAS feature gate is set
     set:
       featureGates:
