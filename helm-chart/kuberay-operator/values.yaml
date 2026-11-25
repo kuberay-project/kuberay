@@ -253,6 +253,11 @@ kubeClient:
 # -- If rbacEnable is set to false, no RBAC resources will be created, including the Role for leader election, the Role for Pods and Services, and so on.
 rbacEnable: true
 
+# -- When createAggregateClusterRoles is set to true, ClusterRoles with aggregation labels will be created.
+# These ClusterRoles aggregate to the default admin, edit, and view ClusterRoles, allowing users with those
+# roles to manage RayCluster, RayJob, and RayService resources.
+createAggregateClusterRoles: false
+
 # -- When crNamespacedRbacEnable is set to true, the KubeRay operator will create a Role for RayCluster preparation (e.g., Pods, Services)
 # and a corresponding RoleBinding for each namespace listed in the "watchNamespace" parameter. Please note that even if crNamespacedRbacEnable
 # is set to false, the Role and RoleBinding for leader election will still be created.

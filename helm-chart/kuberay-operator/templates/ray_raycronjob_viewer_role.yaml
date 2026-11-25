@@ -11,14 +11,9 @@ rules:
   - ray.io
   resources:
   - raycronjobs
+  - raycronjobs/status
   verbs:
   - get
   - list
   - watch
-- apiGroups:
-  - ray.io
-  resources:
-  - raycronjobs/status
-  verbs:
-  - get
 {{- end }}
