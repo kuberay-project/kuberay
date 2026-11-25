@@ -445,7 +445,7 @@ func (r *RayClusterReconciler) reconcileAuthSecret(ctx context.Context, instance
 	logger := ctrl.LoggerFrom(ctx)
 	logger.Info("Reconciling Auth")
 
-	if instance.Spec.AuthOptions == nil || instance.Spec.AuthOptions.Mode == rayv1.AuthModeDisabled {
+	if !utils.IsAuthEnabled(&instance.Spec) {
 		return nil
 	}
 
