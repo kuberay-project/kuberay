@@ -213,6 +213,7 @@ func TestGenerateRayJobApplyConfig(t *testing.T) {
 			RayClusterSpec: &rayv1ac.RayClusterSpecApplyConfiguration{
 				RayVersion: ptr.To(util.RayVersion),
 				HeadGroupSpec: &rayv1ac.HeadGroupSpecApplyConfiguration{
+					RayStartParams: map[string]string{},
 					Template: &corev1ac.PodTemplateSpecApplyConfiguration{
 						Spec: &corev1ac.PodSpecApplyConfiguration{
 							Containers: []corev1ac.ContainerApplyConfiguration{
@@ -584,8 +585,9 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 				},
 			},
 			{
-				GroupName: new("worker-group-2"),
-				Replicas:  new(int32(0)),
+				GroupName:      new("worker-group-2"),
+				Replicas:       new(int32(0)),
+				RayStartParams: map[string]string{},
 				Template: &corev1ac.PodTemplateSpecApplyConfiguration{
 					Spec: &corev1ac.PodSpecApplyConfiguration{
 						ServiceAccountName: new("my-service-account"),
