@@ -270,11 +270,17 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			break
 		}
 
-		var rayClusterInstance *rayv1.RayCluster
-		// TODO (kevin85421): Maybe we only need to `get` the RayCluster because the RayCluster should have been created
-		// before transitioning the status from `Initializing` to `Running`.
-		if rayClusterInstance, err = r.getOrCreateRayClusterInstance(ctx, rayJobInstance); err != nil {
-			return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
+		rayClusterNamespacedName := common.RayJobRayClusterNamespacedName(rayJobInstance)
+		rayClusterInstance := &rayv1.RayCluster{}
+		if err = r.Get(ctx, rayClusterNamespacedName, rayClusterInstance); err != nil {
+			if !errors.IsNotFound(err) {
+				return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
+			}
+			if len(rayJobInstance.Spec.ClusterSelector) != 0 {
+				return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, r.selectedRayClusterNotFound(rayJobInstance, rayClusterNamespacedName, err)
+			}
+			r.failRayJobOnMissingRayCluster(ctx, rayJobInstance, rayClusterNamespacedName)
+			break
 		}
 
 		err = r.reconcileServices(ctx, rayJobInstance, rayClusterInstance)
@@ -961,9 +967,7 @@ func (r *RayJobReconciler) getOrCreateRayClusterInstance(ctx context.Context, ra
 		if errors.IsNotFound(err) {
 			logger.Info("RayCluster not found", "RayCluster", rayClusterNamespacedName)
 			if len(rayJobInstance.Spec.ClusterSelector) != 0 {
-				err := fmt.Errorf("clusterSelector mode is enabled, but RayCluster %s/%s is not found: %w", rayClusterNamespacedName.Namespace, rayClusterNamespacedName.Name, err)
-				r.Recorder.Eventf(rayJobInstance, nil, corev1.EventTypeWarning, string(utils.RayClusterNotFound), string(utils.ValidateAction), "RayCluster %s/%s set in the clusterSelector is not found. It must be created manually", rayClusterNamespacedName.Namespace, rayClusterNamespacedName.Name)
-				return nil, err
+				return nil, r.selectedRayClusterNotFound(rayJobInstance, rayClusterNamespacedName, err)
 			}
 
 			logger.Info("RayCluster not found, creating RayCluster!", "RayCluster", rayClusterNamespacedName)
@@ -999,6 +1003,20 @@ func (r *RayJobReconciler) getOrCreateRayClusterInstance(ctx context.Context, ra
 	}
 
 	return rayClusterInstance, nil
+}
+
+func (r *RayJobReconciler) selectedRayClusterNotFound(rayJobInstance *rayv1.RayJob, rayClusterNamespacedName types.NamespacedName, err error) error {
+	r.Recorder.Eventf(rayJobInstance, nil, corev1.EventTypeWarning, string(utils.RayClusterNotFound), string(utils.ValidateAction), "RayCluster %s/%s set in the clusterSelector is not found. It must be created manually", rayClusterNamespacedName.Namespace, rayClusterNamespacedName.Name)
+	return fmt.Errorf("clusterSelector mode is enabled, but RayCluster %s/%s is not found: %w", rayClusterNamespacedName.Namespace, rayClusterNamespacedName.Name, err)
+}
+
+func (r *RayJobReconciler) failRayJobOnMissingRayCluster(ctx context.Context, rayJobInstance *rayv1.RayJob, rayClusterNamespacedName types.NamespacedName) {
+	message := fmt.Sprintf("RayCluster %s/%s was not found while the RayJob was Running", rayClusterNamespacedName.Namespace, rayClusterNamespacedName.Name)
+	ctrl.LoggerFrom(ctx).Info(message)
+	r.Recorder.Eventf(rayJobInstance, nil, corev1.EventTypeWarning, string(utils.RayClusterNotFound), string(utils.ValidateAction), "%s", message)
+	rayJobInstance.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusFailed
+	rayJobInstance.Status.Reason = rayv1.RayClusterNotFound
+	rayJobInstance.Status.Message = message
 }
 
 func (r *RayJobReconciler) constructRayClusterForRayJob(rayJobInstance *rayv1.RayJob, rayClusterName string) (*rayv1.RayCluster, error) {
