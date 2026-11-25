@@ -295,8 +295,6 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 
 		// Merge the user overrides from autoscalerOptions into the autoscaler container config.
 		mergeAutoscalerOverrides(&autoscalerContainer, instance.Spec.AutoscalerOptions)
-		// Must run after the merge so a RAY_AUTH_MODE set in autoscalerOptions.env takes precedence.
-		SetContainerTokenAuthEnvVars(instance.Name, &autoscalerContainer, instance.Spec.AuthOptions)
 		podTemplate.Spec.Containers = append(podTemplate.Spec.Containers, autoscalerContainer)
 
 		if utils.IsAutoscalingV2Enabled(&instance.Spec) {
@@ -365,11 +363,14 @@ func setAutoscalerV1EnvVars(podTemplate *corev1.PodTemplateSpec) {
 
 // configureTokenAuth sets environment variables required for Ray token authentication
 func configureTokenAuth(clusterName string, podTemplate *corev1.PodTemplateSpec, authOptions *rayv1.AuthOptions) {
-	// An explicit authOptions.mode takes precedence over defaultContainerEnvs, so apply it here.
-	// If mode is not set, the RAY_AUTH_MODE=disabled default for the Ray container is added later
-	// in setContainerEnvVars, after defaultContainerEnvs.
 	if authOptions != nil && authOptions.Mode != "" {
 		SetContainerTokenAuthEnvVars(clusterName, &podTemplate.Spec.Containers[utils.RayContainerIndex], authOptions)
+	}
+
+	for i := range podTemplate.Spec.Containers {
+		if podTemplate.Spec.Containers[i].Name == AutoscalerContainerName {
+			SetContainerTokenAuthEnvVars(clusterName, &podTemplate.Spec.Containers[i], authOptions)
+		}
 	}
 
 	if utils.IsK8sAuthEnabled(authOptions) {

@@ -1,8 +1,6 @@
 # Ray 2.61+ requires the cluster's auth token on every metrics endpoint when token auth is on
 # Either:
-#   1. set `RAY_AUTH_SKIP_METRICS=1` on every Ray container to serve metrics without the token
-#      (with `enableInTreeAutoscaling: true`, also set it in `spec.autoscalerOptions.env`, since the
-#      autoscaler sidecar serves `as-metrics` and does not inherit the Ray container's env), or
+#   1. set `RAY_AUTH_SKIP_METRICS=1` on every Ray container, including the head, workers, and autoscaler containers, to serve metrics without token authentication.
 #   2. copy the RayCluster's token Secret into the Prometheus namespace and add to each endpoint:
 #        authorization:
 #          type: Bearer

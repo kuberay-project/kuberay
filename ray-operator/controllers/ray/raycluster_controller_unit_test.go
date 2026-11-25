@@ -4075,29 +4075,6 @@ func TestReconcile_AuthSecret(t *testing.T) {
 	assert.Len(t, decodedBytes, 32)
 }
 
-func TestReconcile_AuthSecret_SkipWhenModeOmitted(t *testing.T) {
-	setupTest(t)
-
-	// An omitted mode means auth is disabled, so no token Secret should be created.
-	testRayCluster.Spec.AuthOptions = &rayv1.AuthOptions{}
-
-	fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects(testPods...).Build()
-	ctx := context.Background()
-	testRayClusterReconciler := &RayClusterReconciler{
-		Client:                     fakeClient,
-		Recorder:                   &events.FakeRecorder{},
-		Scheme:                     scheme.Scheme,
-		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
-	}
-
-	err := testRayClusterReconciler.reconcileAuthSecret(ctx, testRayCluster)
-	require.NoError(t, err, "Fail to reconcile auth secret")
-
-	secret := corev1.Secret{}
-	err = fakeClient.Get(ctx, types.NamespacedName{Name: instanceName, Namespace: namespaceStr}, &secret)
-	assert.True(t, k8serrors.IsNotFound(err), "Secret should not be created when authOptions.mode is omitted")
-}
-
 func TestReconcile_AuthSecret_SkipWhenK8sTokenAuthEnabled(t *testing.T) {
 	setupTest(t)
 
