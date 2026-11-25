@@ -117,6 +117,15 @@ func (r *RayLogsHandler) _listFiles(prefix string, delimiter string, onlyBase bo
 				prefix+"/", len(page.Contents), len(page.CommonPrefixes))
 
 			for _, object := range page.Contents {
+				// CreateDirectory writes a trailing-slash placeholder object for the
+				// directory itself, and a listing whose prefix is that directory
+				// returns it as a key. It is not a file: path.Base would drop the
+				// slash and report it as one to the callers, which tell files from
+				// subdirectories by the trailing slash. Skip it, as the gcs backend
+				// already does.
+				if strings.HasSuffix(*object.Key, "/") {
+					continue
+				}
 				objName := *object.Key
 				if onlyBase {
 					objName = path.Base(*object.Key)
