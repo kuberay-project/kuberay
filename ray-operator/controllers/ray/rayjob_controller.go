@@ -1228,6 +1228,11 @@ func checkIsRestartCountExceeded(headPod *corev1.Pod, backoffLimit int32) (bool,
 				if containerStatus.State.Terminated != nil && containerStatus.State.Terminated.ExitCode == 0 {
 					break
 				}
+				// RestartCount counts the restarts that have already started, so while the last allowed restart is
+				// still running it equals backoffLimit. Only treat the limit as exceeded once that run has failed too.
+				if containerStatus.State.Running != nil {
+					return containerStatus.RestartCount > backoffLimit, &containerStatus
+				}
 				return containerStatus.RestartCount >= backoffLimit, &containerStatus
 			}
 			break
