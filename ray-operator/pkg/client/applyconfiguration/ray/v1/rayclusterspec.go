@@ -55,6 +55,7 @@ type RayClusterSpecApplyConfiguration struct {
 	// RayVersion is used to determine the command for the Kubernetes Job managed by RayJob
 	RayVersion *string `json:"rayVersion,omitempty"`
 	// WorkerGroupSpecs are the specs for the worker pods
+	// MaxItems is load-bearing: it caps the worker group removal validation rule's CEL cost so the CRD stays installable. Do not remove.
 	WorkerGroupSpecs []WorkerGroupSpecApplyConfiguration `json:"workerGroupSpecs,omitempty"`
 }
 
