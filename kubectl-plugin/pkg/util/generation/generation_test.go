@@ -46,7 +46,7 @@ func TestGenerateRayClusterApplyConfig(t *testing.T) {
 		},
 		WorkerGroups: []WorkerGroup{
 			{
-				Replicas:   int32(3),
+				Replicas:   new(int32(3)),
 				NumOfHosts: new(int32(2)),
 				CPU:        new("2"),
 				Memory:     new("10Gi"),
@@ -179,7 +179,7 @@ func TestGenerateRayJobApplyConfig(t *testing.T) {
 			},
 			WorkerGroups: []WorkerGroup{
 				{
-					Replicas:   int32(3),
+					Replicas:   new(int32(3)),
 					NumOfHosts: new(int32(2)),
 					CPU:        new("2"),
 					Memory:     new("10Gi"),
@@ -310,7 +310,7 @@ func TestConvertRayClusterApplyConfigToYaml(t *testing.T) {
 		},
 		WorkerGroups: []WorkerGroup{
 			{
-				Replicas:   int32(3),
+				Replicas:   new(int32(3)),
 				NumOfHosts: new(int32(2)),
 				CPU:        new("2"),
 				Memory:     new("10Gi"),
@@ -476,7 +476,7 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 		},
 		WorkerGroups: []WorkerGroup{
 			{
-				Replicas:   int32(3),
+				Replicas:   new(int32(3)),
 				NumOfHosts: new(int32(1)),
 				CPU:        new("2"),
 				Memory:     new("10Gi"),
@@ -820,7 +820,7 @@ func TestNewRayClusterConfigWithDefaults(t *testing.T) {
 				Name:     new("default-group"),
 				CPU:      new("2"),
 				Memory:   new("4Gi"),
-				Replicas: int32(1),
+				Replicas: new(int32(1)),
 			},
 		},
 	}
@@ -854,7 +854,7 @@ func TestParseConfigFile(t *testing.T) {
 				WorkerGroups: []WorkerGroup{
 					{
 						Name:     new("default-group"),
-						Replicas: int32(1),
+						Replicas: new(int32(1)),
 						CPU:      new("2"),
 						Memory:   new("4Gi"),
 					},
@@ -875,8 +875,50 @@ func TestParseConfigFile(t *testing.T) {
 				},
 				WorkerGroups: []WorkerGroup{
 					{
-						Replicas: int32(1),
+						Replicas: new(int32(1)),
 						GPU:      new("1"),
+						CPU:      ptr.To(util.DefaultWorkerCPU),
+						Memory:   ptr.To(util.DefaultWorkerMemory),
+					},
+				},
+			},
+		},
+		"minimal config without replicas": {
+			config: `worker-groups:
+- cpu: 3
+`,
+			expected: &RayClusterConfig{
+				RayVersion: ptr.To(util.RayVersion),
+				Image:      new(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
+				Head: &Head{
+					CPU:    new("2"),
+					Memory: new("4Gi"),
+				},
+				WorkerGroups: []WorkerGroup{
+					{
+						Replicas: ptr.To(util.DefaultWorkerReplicas),
+						CPU:      new("3"),
+						Memory:   ptr.To(util.DefaultWorkerMemory),
+					},
+				},
+			},
+		},
+		"ray-version propagates to image": {
+			config: `ray-version: "2.40.0"
+`,
+			expected: &RayClusterConfig{
+				RayVersion: new("2.40.0"),
+				Image:      new("rayproject/ray:2.40.0"),
+				Head: &Head{
+					CPU:    new("2"),
+					Memory: new("4Gi"),
+				},
+				WorkerGroups: []WorkerGroup{
+					{
+						Name:     new("default-group"),
+						Replicas: new(int32(1)),
+						CPU:      new("2"),
+						Memory:   new("4Gi"),
 					},
 				},
 			},
@@ -950,7 +992,7 @@ gke:
 				WorkerGroups: []WorkerGroup{
 					{
 						Name:             new("cpu-workers"),
-						Replicas:         int32(1),
+						Replicas:         new(int32(1)),
 						CPU:              new("2"),
 						Memory:           new("4Gi"),
 						GPU:              new("0"),
@@ -959,7 +1001,7 @@ gke:
 					},
 					{
 						Name:             new("gpu-workers"),
-						Replicas:         int32(1),
+						Replicas:         new(int32(1)),
 						CPU:              new("3"),
 						Memory:           new("6Gi"),
 						GPU:              new("1"),
