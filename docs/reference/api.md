@@ -13,6 +13,7 @@ Package v1 contains API Schema definitions for the ray v1 API group
 - [RayCluster](#raycluster)
 - [RayCronJob](#raycronjob)
 - [RayJob](#rayjob)
+- [RayManagedCluster](#raymanagedcluster)
 - [RayService](#rayservice)
 
 
@@ -82,6 +83,7 @@ AuthOptions defines the authentication options for a RayCluster.
 
 _Appears in:_
 - [RayClusterSpec](#rayclusterspec)
+- [RayManagedClusterSpec](#raymanagedclusterspec)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -421,6 +423,7 @@ HeadGroupSpec are the spec for the head pod
 
 _Appears in:_
 - [RayClusterSpec](#rayclusterspec)
+- [RayManagedClusterSpec](#raymanagedclusterspec)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -444,6 +447,7 @@ HeadInfo gives info about head
 
 _Appears in:_
 - [RayClusterStatus](#rayclusterstatus)
+- [RayManagedClusterStatus](#raymanagedclusterstatus)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -1035,6 +1039,208 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[RayJobSpec](#rayjobspec)_ | Specification of the desired behavior of the RayJob |  |  |
+
+
+#### RayManagedCluster
+
+
+
+RayManagedCluster is a Ray cluster whose worker pods Ray asks for, through ray.cluster.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `ray.io/v1` | | |
+| `kind` _string_ | `RayManagedCluster` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[RayManagedClusterSpec](#raymanagedclusterspec)_ |  |  |  |
+| `status` _[RayManagedClusterStatus](#raymanagedclusterstatus)_ |  |  |  |
+
+
+#### RayManagedClusterProvisioning
+
+
+
+RayManagedClusterProvisioning is KubeRay's answer to Ray's requests, by group.
+
+
+
+_Appears in:_
+- [RayManagedClusterStatus](#raymanagedclusterstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `groups` _[RayManagedGroupProvisioning](#raymanagedgroupprovisioning) array_ |  |  |  |
+
+
+#### RayManagedClusterRequests
+
+
+
+RayManagedClusterRequests are Ray's requests, by group.
+
+
+
+_Appears in:_
+- [RayManagedClusterStatus](#raymanagedclusterstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `groups` _[RayManagedGroupRequests](#raymanagedgrouprequests) array_ |  |  |  |
+
+
+#### RayManagedClusterSpec
+
+
+
+RayManagedClusterSpec is a RayCluster's spec as Ray's ray.cluster API wants it: KubeRay creates
+each group's initial replicas, and after that only the replicas Ray asks for in the status.
+
+
+
+_Appears in:_
+- [RayManagedCluster](#raymanagedcluster)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `authOptions` _[AuthOptions](#authoptions)_ | AuthOptions: how the cluster's processes authenticate. Ray 3 requires a token by default,<br />so without it, KubeRay generates one (as with mode token and no secretName); mode disabled<br />turns authentication off. Each Ray container reads the token from the Secret, mounted as a<br />file (RAY_AUTH_TOKEN_PATH). Ray 3 has no Kubernetes token authentication. |  |  |
+| `headGroupSpec` _[HeadGroupSpec](#headgroupspec)_ | HeadGroupSpec is the head pod's spec: the instance group named headgroup. |  |  |
+| `rayVersion` _string_ | RayVersion is the version of Ray the pods run. |  |  |
+| `workerGroupSpecs` _[RayManagedWorkerGroupSpec](#raymanagedworkergroupspec) array_ | WorkerGroupSpecs are the instance groups Ray adds instances to. |  |  |
+
+
+#### RayManagedClusterStatus
+
+
+
+RayManagedClusterStatus is KubeRay's status, with Ray's requests and KubeRay's answer.
+
+
+
+_Appears in:_
+- [RayManagedCluster](#raymanagedcluster)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `requests` _[RayManagedClusterRequests](#raymanagedclusterrequests)_ | Requests are Ray's: the replicas it asks for and the pods it gives up. Only Ray writes them,<br />except for the initial replicas KubeRay writes when the cluster is created. |  |  |
+| `provisioning` _[RayManagedClusterProvisioning](#raymanagedclusterprovisioning)_ | Provisioning is KubeRay's answer to Ray's requests. |  |  |
+| `head` _[HeadInfo](#headinfo)_ | Head is the head pod's and service's addresses. |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration is the last generation KubeRay acted on. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta) array_ | Conditions: Ended once the cluster's head has stopped. |  |  |
+
+
+#### RayManagedDeletePods
+
+
+
+RayManagedDeletePods are pods of a replica Ray gave up.
+
+
+
+_Appears in:_
+- [RayManagedGroupRequests](#raymanagedgrouprequests)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `replica` _integer_ |  |  |  |
+| `hosts` _integer array_ |  |  |  |
+
+
+#### RayManagedFailedReplica
+
+
+
+RayManagedFailedReplica is a replica KubeRay couldn't create.
+
+
+
+_Appears in:_
+- [RayManagedGroupProvisioning](#raymanagedgroupprovisioning)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `replica` _integer_ |  |  |  |
+| `message` _string_ |  |  |  |
+
+
+#### RayManagedGroupProvisioning
+
+
+
+RayManagedGroupProvisioning is KubeRay's answer for one group.
+
+
+
+_Appears in:_
+- [RayManagedClusterProvisioning](#raymanagedclusterprovisioning)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ |  |  |  |
+| `createdReplicas` _integer_ | CreatedReplicas is the highest replica KubeRay has handled. It's never lowered. |  |  |
+| `failedReplicas` _[RayManagedFailedReplica](#raymanagedfailedreplica) array_ | FailedReplicas are replicas KubeRay couldn't create, until Ray drops them from newReplicas. |  |  |
+
+
+#### RayManagedGroupRequests
+
+
+
+RayManagedGroupRequests are Ray's requests of one group.
+
+
+
+_Appears in:_
+- [RayManagedClusterRequests](#raymanagedclusterrequests)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ |  |  |  |
+| `newReplicas` _[RayManagedNewReplica](#raymanagednewreplica) array_ | NewReplicas are the replicas Ray asked for that KubeRay hasn't made, with their instances' IDs. |  |  |
+| `deletePods` _[RayManagedDeletePods](#raymanageddeletepods) array_ | DeletePods are the pods Ray gave up, by replica and host, until KubeRay deletes them. |  |  |
+
+
+#### RayManagedNewReplica
+
+
+
+RayManagedNewReplica is a replica Ray asks for.
+
+
+
+_Appears in:_
+- [RayManagedGroupRequests](#raymanagedgrouprequests)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `replica` _integer_ | Replica is its number in its group, from 1. |  |  |
+| `nodes` _string array_ | Nodes are its instances' Ray node IDs, in hex, by host. |  |  |
+
+
+#### RayManagedWorkerGroupSpec
+
+
+
+RayManagedWorkerGroupSpec is a worker group: pods of one shape, made a replica at a time.
+
+
+
+_Appears in:_
+- [RayManagedClusterSpec](#raymanagedclusterspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `groupName` _string_ | GroupName names the group. headgroup is reserved. It's the pods' ray.io/group label, so a label<br />value. |  | MaxLength: 63 <br />Pattern: `^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$` <br /> |
+| `initialReplicas` _integer_ | InitialReplicas is how many replicas the group starts with when the cluster is created.<br />KubeRay doesn't keep this count afterward. | 0 | Minimum: 0 <br /> |
+| `maxReplicas` _integer_ | MaxReplicas is the most replicas the group can have. Ray enforces it, not KubeRay. | 2147483647 | Minimum: 0 <br /> |
+| `numOfHosts` _integer_ | NumOfHosts is the number of pods in each replica, one per host. | 1 | Minimum: 1 <br /> |
+| `deleteWholeReplicas` _boolean_ | DeleteWholeReplicas has KubeRay delete a replica's other pods along with each one Ray<br />gives up, as TPU multi-host slices need. |  |  |
+| `resources` _object (keys:string, values:string)_ | Resources overrides the Ray resources the pods' ray start detects. |  |  |
+| `labels` _object (keys:string, values:string)_ | Labels are the Ray labels of the group's nodes. |  |  |
+| `rayStartParams` _object (keys:string, values:string)_ | RayStartParams are the pods' ray start parameters. |  |  |
+| `template` _[PodTemplateSpec](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#podtemplatespec-v1-core)_ | Template is the pods' template. |  |  |
 
 
 

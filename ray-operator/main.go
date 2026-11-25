@@ -361,6 +361,8 @@ func main() {
 	}
 	exitOnError(ray.NewReconciler(mgr, rayClusterOptions).SetupWithManager(mgr, config.ReconcileConcurrency),
 		"unable to create controller", "controller", "RayCluster")
+	exitOnError(ray.NewRayManagedClusterReconciler(mgr).SetupWithManager(mgr, config.ReconcileConcurrency),
+		"unable to create controller", "controller", "RayManagedCluster")
 
 	if features.Enabled(features.RayClusterMTLS) {
 		if certManagerAvailable {
