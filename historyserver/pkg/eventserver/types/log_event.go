@@ -10,6 +10,7 @@
 package types
 
 import (
+	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,6 +24,7 @@ const MaxEventsPerJob = 10000
 
 // LogEvent represents an event from logs/events/event_*.log files.
 // This matches the format defined in Ray's event.proto and written by EventLoggerAdapter.
+// Events written by Ray's C++ code use a slightly different format, see UnmarshalJSON.
 //
 // Storage format: snake_case JSON (as written to event_*.log files)
 // API response format: camelCase JSON (converted by ToAPIResponse)
@@ -36,6 +38,49 @@ type LogEvent struct {
 	Message        string         `json:"message"`         // Human-readable message
 	Timestamp      string         `json:"timestamp"`       // Unix seconds as string (e.g., "1770635705")
 	CustomFields   map[string]any `json:"custom_fields"`   // Custom key-value pairs (contains job_id, submission_id, etc.)
+}
+
+// UnmarshalJSON reads both formats Ray writes to event_*.log files. Python's EventLoggerAdapter writes
+// "timestamp" as a string and the source as "source_hostname" and "source_pid". Ray's C++ code
+// (LogEventReporter::EventToString, used by the raylet and the GCS) writes "timestamp" as a number and
+// the source as "host_name" and "pid", where "pid" is a string.
+func (e *LogEvent) UnmarshalJSON(data []byte) error {
+	// logEvent has the same fields but not this method, so decoding into it doesn't recurse.
+	type logEvent LogEvent
+	var raw struct {
+		logEvent
+		Timestamp json.RawMessage `json:"timestamp"`
+		HostName  string          `json:"host_name"`
+		Pid       json.RawMessage `json:"pid"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*e = LogEvent(raw.logEvent)
+	e.Timestamp = rawScalarToString(raw.Timestamp)
+	if e.SourceHostname == "" {
+		e.SourceHostname = raw.HostName
+	}
+	if e.SourcePid == 0 {
+		if pid, err := strconv.Atoi(rawScalarToString(raw.Pid)); err == nil {
+			e.SourcePid = pid
+		}
+	}
+	return nil
+}
+
+// rawScalarToString returns the value of a JSON string, or the JSON text itself for any other value
+// such as a number. It returns "" for a missing or null value.
+func rawScalarToString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	return string(raw)
 }
 
 // GetJobID extracts the job_id from custom_fields for event grouping.
