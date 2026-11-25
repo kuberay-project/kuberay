@@ -971,10 +971,11 @@ func TestBuildPod_AuthDisabledOptsOutExplicitly(t *testing.T) {
 			fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
 			worker := cluster.Spec.WorkerGroupSpecs[0]
 			podTemplateSpec := DefaultWorkerPodTemplate(ctx, *cluster, *worker.DeepCopy(), "pod", fqdnRayIP, "6379", "", 0, 0)
+			pod := BuildPod(ctx, podTemplateSpec, rayv1.WorkerNode, worker.RayStartParams, "6379", false, utils.GetCRDType(""), fqdnRayIP, nil, "")
 
-			checkContainerEnv(t, podTemplateSpec.Spec.Containers[utils.RayContainerIndex], utils.RAY_AUTH_MODE_ENV_VAR, string(rayv1.AuthModeDisabled))
-			checkContainerEnv(t, podTemplateSpec.Spec.InitContainers[len(podTemplateSpec.Spec.InitContainers)-1], utils.RAY_AUTH_MODE_ENV_VAR, string(rayv1.AuthModeDisabled))
-			for _, env := range podTemplateSpec.Spec.Containers[utils.RayContainerIndex].Env {
+			checkContainerEnv(t, pod.Spec.Containers[utils.RayContainerIndex], utils.RAY_AUTH_MODE_ENV_VAR, string(rayv1.AuthModeDisabled))
+			checkContainerEnv(t, pod.Spec.InitContainers[len(pod.Spec.InitContainers)-1], utils.RAY_AUTH_MODE_ENV_VAR, string(rayv1.AuthModeDisabled))
+			for _, env := range pod.Spec.Containers[utils.RayContainerIndex].Env {
 				assert.NotEqual(t, utils.RAY_AUTH_TOKEN_ENV_VAR, env.Name)
 				assert.NotEqual(t, utils.RAY_ENABLE_K8S_TOKEN_AUTH_ENV_VAR, env.Name)
 			}
@@ -1366,7 +1367,71 @@ func TestBuildPodWithAutoscalerOptions(t *testing.T) {
 	expectedContainer.SecurityContext = &customSecurityContext
 	index := getAutoscalerContainerIndex(pod)
 	actualContainer := pod.Spec.Containers[index]
+	// Env order depends on when auth env vars are injected, which is not part of the contract.
+	assert.ElementsMatch(t, expectedContainer.Env, actualContainer.Env)
+	expectedContainer.Env, actualContainer.Env = nil, nil
 	assert.True(t, reflect.DeepEqual(expectedContainer, actualContainer))
+}
+
+// TestBuildPod_AuthModePrecedence checks the RAY_AUTH_MODE setting priority.
+func TestBuildPod_AuthModePrecedence(t *testing.T) {
+	tokenEnv := []corev1.EnvVar{{Name: utils.RAY_AUTH_MODE_ENV_VAR, Value: string(rayv1.AuthModeToken)}}
+	disabled, token := string(rayv1.AuthModeDisabled), string(rayv1.AuthModeToken)
+
+	tests := []struct {
+		name                    string
+		authOptions             *rayv1.AuthOptions
+		autoscalerEnv           []corev1.EnvVar
+		defaultContainerEnvs    []corev1.EnvVar
+		expectedRayAuthModes    []string
+		expectedAutoscalerModes []string
+	}{
+		{
+			name:                    "autoscalerOptions.env is kept and not duplicated",
+			autoscalerEnv:           tokenEnv,
+			expectedRayAuthModes:    []string{disabled},
+			expectedAutoscalerModes: []string{token},
+		},
+		{
+			name:                    "defaultContainerEnvs wins over the default when authOptions is omitted",
+			defaultContainerEnvs:    tokenEnv,
+			expectedRayAuthModes:    []string{token},
+			expectedAutoscalerModes: []string{disabled},
+		},
+		{
+			name:                    "explicit authOptions.mode=disabled wins over defaultContainerEnvs",
+			authOptions:             &rayv1.AuthOptions{Mode: rayv1.AuthModeDisabled},
+			defaultContainerEnvs:    tokenEnv,
+			expectedRayAuthModes:    []string{disabled},
+			expectedAutoscalerModes: []string{disabled},
+		},
+	}
+
+	getAuthModes := func(container corev1.Container) []string {
+		var modes []string
+		for _, env := range container.Env {
+			if env.Name == utils.RAY_AUTH_MODE_ENV_VAR {
+				modes = append(modes, env.Value)
+			}
+		}
+		return modes
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			cluster := instance.DeepCopy()
+			cluster.Spec.AuthOptions = tc.authOptions
+			cluster.Spec.EnableInTreeAutoscaling = &trueFlag
+			cluster.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{Env: tc.autoscalerEnv}
+
+			podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, "pod", "6379")
+			pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", true, utils.GetCRDType(""), "", tc.defaultContainerEnvs, "")
+
+			assert.Equal(t, tc.expectedRayAuthModes, getAuthModes(pod.Spec.Containers[utils.RayContainerIndex]))
+			assert.Equal(t, tc.expectedAutoscalerModes, getAuthModes(pod.Spec.Containers[getAutoscalerContainerIndex(pod)]))
+		})
+	}
 }
 
 func TestHeadPodTemplate_WithAutoscalingEnabled(t *testing.T) {
@@ -1794,7 +1859,10 @@ func TestDefaultInitContainer(t *testing.T) {
 	rayContainer := podTemplateSpec.Spec.Containers[utils.RayContainerIndex]
 
 	assert.NotEmpty(t, rayContainer.Env, "The test only makes sense if the Ray container has environment variables.")
-	assert.Len(t, healthCheckContainer.Env, len(rayContainer.Env))
+	// The init container additionally gets RAY_AUTH_MODE=disabled here, while the Ray container
+	// only gets it later in BuildPod (after defaultContainerEnvs).
+	assert.Len(t, healthCheckContainer.Env, len(rayContainer.Env)+1)
+	checkContainerEnv(t, healthCheckContainer, utils.RAY_AUTH_MODE_ENV_VAR, string(rayv1.AuthModeDisabled))
 	for _, env := range rayContainer.Env {
 		// env.ValueFrom is the source for the environment variable's value. Cannot be used if value is not empty.
 		if env.Value != "" {
