@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
 func TestInconsistentRayClusterStatus(t *testing.T) {
@@ -188,4 +189,43 @@ func TestInconsistentRayServiceStatuses(t *testing.T) {
 	// Test 2: Test RayServiceStatus
 	newStatus = oldStatus.DeepCopy()
 	assert.False(t, InconsistentRayServiceStatuses(oldStatus, *newStatus))
+}
+
+func TestInconsistentRayServiceStatuses_IncrementalUpgradeFields(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayServiceIncrementalUpgrade, true)
+
+	migratedTime := metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	oldStatus := rayv1.RayServiceStatuses{
+		ActiveServiceStatus: rayv1.RayServiceStatus{
+			RayClusterName:          "active-cluster",
+			TargetCapacity:          new(int32(100)),
+			TrafficRoutedPercent:    new(int32(100)),
+			LastTrafficMigratedTime: &migratedTime,
+		},
+		PendingServiceStatus: rayv1.RayServiceStatus{
+			RayClusterName:       "pending-cluster",
+			TargetCapacity:       new(int32(0)),
+			TrafficRoutedPercent: new(int32(0)),
+		},
+	}
+
+	// A deep copy has new pointers but the same values, so it is not a change.
+	newStatus := oldStatus.DeepCopy()
+	assert.False(t, InconsistentRayServiceStatuses(oldStatus, *newStatus))
+
+	newStatus = oldStatus.DeepCopy()
+	newStatus.ActiveServiceStatus.TrafficRoutedPercent = new(int32(90))
+	assert.True(t, InconsistentRayServiceStatuses(oldStatus, *newStatus))
+
+	newStatus = oldStatus.DeepCopy()
+	newStatus.PendingServiceStatus.TargetCapacity = new(int32(10))
+	assert.True(t, InconsistentRayServiceStatuses(oldStatus, *newStatus))
+
+	newStatus = oldStatus.DeepCopy()
+	newStatus.PendingServiceStatus.LastTrafficMigratedTime = &migratedTime
+	assert.True(t, InconsistentRayServiceStatuses(oldStatus, *newStatus))
+
+	newStatus = oldStatus.DeepCopy()
+	newStatus.ActiveServiceStatus.LastTrafficMigratedTime = &metav1.Time{Time: migratedTime.Add(time.Minute)}
+	assert.True(t, InconsistentRayServiceStatuses(oldStatus, *newStatus))
 }
