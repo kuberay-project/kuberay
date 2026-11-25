@@ -286,9 +286,10 @@ func (r *RayServiceReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 		logMsg := "Reconciling K8s services to point to the active Ray cluster."
 
 		isIncrementalUpgradeInProgress := utils.IsIncrementalUpgradeEnabled(&rayServiceInstance.Spec) && meta.IsStatusConditionTrue(rayServiceInstance.Status.Conditions, string(rayv1.UpgradeInProgress))
-		if isPendingClusterReady && !isIncrementalUpgradeInProgress {
-			// This step is skipped for incremental upgrade, because the pending cluster is ready during the upgrade
-			// and creates its own per-cluster Serve service.
+		// During an incremental upgrade the Services keep pointing at the active cluster, because the pending
+		// cluster gets its own per-cluster Serve service. If the active cluster is gone, though, the pending
+		// cluster is the only one left to point them at.
+		if isPendingClusterReady && (!isIncrementalUpgradeInProgress || activeRayClusterInstance == nil) {
 			targetCluster = pendingRayClusterInstance
 			logMsg = "Reconciling K8s services to point to the pending Ray cluster to switch traffic because it is ready."
 		}
