@@ -18,6 +18,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -2826,7 +2828,8 @@ func TestUpdateRayStartParamsLabels(t *testing.T) {
 }
 
 func TestUpdateRayStartParamsResources(t *testing.T) {
-	ctx := context.Background()
+	// Development-mode zap panics on malformed key/value log calls, so log misuse fails the test.
+	ctx := ctrl.LoggerInto(context.Background(), zap.New(zap.UseDevMode(true)))
 
 	tests := map[string]struct {
 		initialRayStartParams  map[string]string
@@ -2915,6 +2918,16 @@ func TestUpdateRayStartParamsResources(t *testing.T) {
 			expectedRayStartParams: map[string]string{
 				"num-gpus":  "1",
 				"resources": "'{\"NPU\":2}'",
+			},
+		},
+		"Unparseable quantity in `Resources` is skipped": {
+			initialRayStartParams: map[string]string{},
+			groupResources: map[string]string{
+				string(corev1.ResourceCPU): "2",
+				"foo":                      "not-a-qty",
+			},
+			expectedRayStartParams: map[string]string{
+				"num-cpus": "2",
 			},
 		},
 	}

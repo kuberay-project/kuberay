@@ -1727,7 +1727,7 @@ func updateRayStartParamsResources(ctx context.Context, rayStartParams map[strin
 	for name, quantity := range groupResources {
 		q, err := resource.ParseQuantity(quantity)
 		if err != nil {
-			log.Info("Skipping resource %s: failed to parse quantity '%s': %v", name, quantity, err)
+			log.Info("Skipping resource: failed to parse quantity", "resource", name, "quantity", quantity, "error", err)
 			continue
 		}
 
