@@ -1,0 +1,7 @@
+--- RUN   TestRayClusterAutoscalerV2IdleTimeout
+=== RUN   TestRayClusterAutoscalerV2IdleTimeout/Create_a_RayCluster_with_autoscaler_v2_enabled
+    raycluster_autoscaler_part2_test.go:93: Timed out waiting for one worker.
+### FAIL: TestRayClusterAutoscalerV2IdleTimeout (84.30s)
+    ### FAIL: TestRayClusterAutoscalerV2IdleTimeout/Create_a_RayCluster_with_autoscaler_v2_enabled (84.30s)
+FAIL
+FAIL github.com/ray-project/kuberay/ray-operator/test/e2eautoscaler 84.923s

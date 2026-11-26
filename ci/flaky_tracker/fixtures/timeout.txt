@@ -1,0 +1,8 @@
+--- RUN   TestRayServiceUpgrade
+panic: test timed out after 30m0s
+	running tests:
+		TestRayServiceUpgrade (30m0s)
+
+goroutine 123 [running]:
+testing.(*M).startAlarm.func1()
+FAIL github.com/ray-project/kuberay/ray-operator/test/e2erayservice 1800.042s

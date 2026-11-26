@@ -1,0 +1,8 @@
+--- RUN   TestRayJob
+=== RUN   TestRayJob/succeeds
+=== RUN   TestRayJob/skipped_without_feature_gate
+    ### PASS: TestRayJob/succeeds (1.20s)
+    ### SKIP: TestRayJob/skipped_without_feature_gate (0.00s)
+### PASS: TestRayJob (1.25s)
+PASS
+ok github.com/ray-project/kuberay/ray-operator/test/e2erayjob 1.300s
