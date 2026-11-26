@@ -428,7 +428,9 @@ func TestNodeIDRefresh(t *testing.T) {
 				}
 			}`, nodeID)
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(resp))
+			if _, err := w.Write([]byte(resp)); err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
 			return
 		}
 		http.NotFound(w, r)

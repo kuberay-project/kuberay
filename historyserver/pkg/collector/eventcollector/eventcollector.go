@@ -296,7 +296,7 @@ func (ec *EventCollector) shutdown() {
 func (ec *EventCollector) PersistEvents(req *restful.Request, resp *restful.Response) {
 	if ec.draining.Load() {
 		resp.AddHeader("Retry-After", "5")
-		resp.WriteErrorString(http.StatusServiceUnavailable, "event collector is shutting down")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusServiceUnavailable, "event collector is shutting down"))
 		return
 	}
 
@@ -309,28 +309,28 @@ func (ec *EventCollector) PersistEvents(req *restful.Request, resp *restful.Resp
 	defer ec.inflightWG.Done()
 	if ec.draining.Load() {
 		resp.AddHeader("Retry-After", "5")
-		resp.WriteErrorString(http.StatusServiceUnavailable, "event collector is shutting down")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusServiceUnavailable, "event collector is shutting down"))
 		return
 	}
 
 	// Disk pressure only applies when the local disk pipeline is in use.
 	if ec.underDiskPressure() {
 		resp.AddHeader("Retry-After", "10")
-		resp.WriteErrorString(http.StatusServiceUnavailable, "event collector under disk pressure")
+		utils.LogResponseWriteError(resp.WriteErrorString(http.StatusServiceUnavailable, "event collector under disk pressure"))
 		return
 	}
 
 	body, err := io.ReadAll(req.Request.Body)
 	if err != nil {
 		logrus.Errorf("Failed to read request body: %v", err)
-		resp.WriteError(http.StatusBadRequest, err)
+		utils.LogResponseWriteError(resp.WriteError(http.StatusBadRequest, err))
 		return
 	}
 
 	var eventDatas []map[string]any
 	if err := json.Unmarshal(body, &eventDatas); err != nil {
 		logrus.Errorf("Failed to unmarshal event: %v", err)
-		resp.WriteError(http.StatusBadRequest, err)
+		utils.LogResponseWriteError(resp.WriteError(http.StatusBadRequest, err))
 		return
 	}
 
@@ -339,25 +339,25 @@ func (ec *EventCollector) PersistEvents(req *restful.Request, resp *restful.Resp
 	for _, eventData := range eventDatas {
 		if _, ok := eventData["timestamp"].(string); !ok {
 			logrus.Errorf("Event timestamp not found or not a string")
-			resp.WriteError(http.StatusBadRequest, fmt.Errorf("timestamp not found"))
+			utils.LogResponseWriteError(resp.WriteError(http.StatusBadRequest, fmt.Errorf("timestamp not found")))
 			return
 		}
 		sessionNameStr, ok := eventData["sessionName"].(string)
 		if !ok {
 			logrus.Errorf("Event sessionName not found or not a string")
-			resp.WriteError(http.StatusBadRequest, fmt.Errorf("sessionName not found"))
+			utils.LogResponseWriteError(resp.WriteError(http.StatusBadRequest, fmt.Errorf("sessionName not found")))
 			return
 		}
 		// sessionName becomes a directory name and part of the remote storage
 		// key, so reject anything that could escape the collector data dir.
 		if !isSafePathComponent(sessionNameStr) {
 			logrus.Errorf("Event sessionName %q is not a valid path component", sessionNameStr)
-			resp.WriteError(http.StatusBadRequest, fmt.Errorf("invalid sessionName"))
+			utils.LogResponseWriteError(resp.WriteError(http.StatusBadRequest, fmt.Errorf("invalid sessionName")))
 			return
 		}
 		if _, err := time.Parse(time.RFC3339Nano, eventData["timestamp"].(string)); err != nil {
 			logrus.Errorf("Failed to parse timestamp: %v", err)
-			resp.WriteError(http.StatusBadRequest, err)
+			utils.LogResponseWriteError(resp.WriteError(http.StatusBadRequest, err))
 			return
 		}
 	}
@@ -386,7 +386,7 @@ func (ec *EventCollector) PersistEvents(req *restful.Request, resp *restful.Resp
 			ec.reconcileDiskAccountingLocked(state)
 		}
 		if writeErr != nil {
-			resp.WriteError(http.StatusInternalServerError, writeErr)
+			utils.LogResponseWriteError(resp.WriteError(http.StatusInternalServerError, writeErr))
 		} else {
 			resp.WriteHeader(http.StatusOK)
 		}
