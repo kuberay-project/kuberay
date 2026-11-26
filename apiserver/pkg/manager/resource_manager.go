@@ -450,6 +450,9 @@ func getComputeTemplateByName(ctx context.Context, client clientv1.ConfigMapInte
 
 		return nil, util.Wrap(err, "Get compute template failed")
 	}
+	if configType, ok := runtime.Labels["ray.io/config-type"]; !ok || configType != "compute-template" {
+		return nil, fmt.Errorf("ConfigMap with name %s is not a compute template", name)
+	}
 
 	return runtime, nil
 }
