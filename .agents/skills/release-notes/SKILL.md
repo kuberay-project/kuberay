@@ -12,8 +12,9 @@ Drafts the GitHub release notes for a KubeRay tag: Highlights, Other Notable Fea
 Changes, and Deprecations. The draft is built from the `release-note` and `breaking-change` blocks of every PR merged
 between two tags, and written to `release-notes-<new_tag>.md` in the repo root.
 
-Arguments: `$ARGUMENTS` (`<prev_tag> <new_tag>`, e.g. `v1.7.0 v1.8.0`). If empty, use the two newest tags from `git tag
---sort=-v:refname`.
+Arguments: `$ARGUMENTS` (`<prev_tag> <new_tag>`, e.g. `v1.7.3 v1.8.0`). If empty, `new_tag` is the newest non-RC tag
+from `git tag --sort=-v:refname`. `prev_tag` is the newest non-RC tag of the previous minor for a minor release (`v1.7.3`
+for `v1.8.0`), or the previous patch for a patch release (`v1.8.0` for `v1.8.1`). Never use an RC tag as `prev_tag`.
 
 Release type:
 
@@ -38,7 +39,11 @@ git diff <prev_tag>..<new_tag> -- ray-operator/pkg/features/features.go
 git diff <prev_tag>..<new_tag> --stat -- ray-operator/apis/ray/v1/ helm-chart/kuberay-operator/values.yaml ray-operator/config/samples/
 ```
 
-`prs.json` is one object per PR: `number, title, labels, release-note, breaking-change, source`.
+`prs.json` is one object per PR: `number, title, labels, release-note, breaking-change, source, already_released`.
+
+`already_released` is true when the PR was cherry-picked to the previous release branch and shipped in `prev_tag` or
+an earlier release on that branch. Its master commit is still in `prev_tag..new_tag`, because the cherry-pick has a
+different commit.
 
 `source` tells where `release-note` came from:
 
@@ -50,8 +55,12 @@ git diff <prev_tag>..<new_tag> --stat -- ray-operator/apis/ray/v1/ helm-chart/ku
 
 ### 2. Filter
 
-Drop a PR when `release-note` and `breaking-change` are both empty and the title starts with `[CI]`, `[Test]`,
-`[Chore]`, `[Refactor]`, `[Docs]`, `[Flaky]`, or it bumps a dependency.
+Drop a PR when:
+
+- `already_released` is true. It was announced in an earlier release.
+- it only bumps the KubeRay version for the release (e.g. `update KubeRay version to 1.8.0`).
+- `release-note` and `breaking-change` are both empty and the title starts with `[CI]`, `[Test]`, `[Chore]`,
+  `[Refactor]`, `[Docs]`, `[Flaky]`, or it bumps a dependency.
 
 ### 3. Classify (minor only)
 
@@ -76,13 +85,20 @@ for PRs whose blocks are empty: a PR that adds an API field or Helm value with a
 - samples, docs, CI, tests, dependency bumps
 - alpha-stage churn of a feature that has a Highlight: fold it into the Highlight paragraph
 
-**Highlight**: a group with a feature gate added or promoted, a new CRD/API object, or ≥3 included PRs.
+**Highlight**: a group with any of:
+
+- a feature gate added or promoted
+- a new CRD/API object
+- ≥3 included PRs
+- a new user-facing capability that comes with a new sample file in `ray-operator/config/samples/`, even if it is a
+  single PR without a feature gate (e.g. `spec.idleTerminationOptions` to suspend or delete an idle RayCluster). A new
+  field that only tunes an existing feature stays in Other Notable Features.
 
 - One Highlight per feature and stage. If a group contains both a feature graduating (e.g. History Server to beta) and
   a new gate for it (e.g. `RayClusterHistoryServer` alpha), write two sections.
 - Title is the user-facing feature name plus its stage from `features.go`, e.g. `Ray History Server (beta)`,
-  `Automatic History Server Sidecar Configuration (alpha)`. The title must describe what the paragraph is mostly
-  about.
+  `Automatic History Server Sidecar Configuration (alpha)`. Omit the stage when the feature has no feature gate. The
+  title must describe what the paragraph is mostly about.
 
 **Other Notable Features**: the rest of the included PRs, one line each under a `####` component heading. Use only these
 names, in this order, and only the ones that have entries: RayCluster, RayJob, RayService, RayCronJob, Operator, Helm,
@@ -101,8 +117,12 @@ Fill the template. Rules:
 
 - Highlight citations: list at the end of the paragraph the PRs for what the paragraph describes. Follow-up fixes,
   finalizers, and tests in the same group are not cited unless the paragraph mentions them.
-- Highlight: one paragraph of what it does and why; `Try it here:` doc link; YAML excerpt from the new sample file
-  (≤15 lines); alpha features get the feature-gate warning block verbatim.
+- Highlight: one paragraph of what it does and why; `Try it here:` doc link; alpha features get the feature-gate
+  warning block verbatim.
+- Highlight YAML excerpt (≤15 lines) is optional. Add one only when the feature is configured through a new or changed
+  field in a RayCluster, RayJob, or RayService spec, and copy it from a sample file in `ray-operator/config/samples/`.
+  Skip it when no sample uses the field, or when the feature is about server flags, Helm values, UI, or other
+  behavior. Never write the YAML yourself.
 - Other Notable Features and Notable Bug Fixes lines are the PR's `release-note` text, lightly edited for tense and
   consistency. Breaking Changes lines are the `breaking-change` text. Rewrite from scratch only when `source` is
   `why-section`.

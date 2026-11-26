@@ -12,6 +12,7 @@ Try it here: [{{Doc title}}]({{docs.ray.io URL}}).
 > --feature-gates={{FeatureGate}}=true
 > ```
 
+<!-- Optional: only for a new or changed RayCluster/RayJob/RayService spec field, copied from a sample. See SKILL.md. -->
 ```yaml
 {{sample excerpt}}
 ```
