@@ -406,7 +406,7 @@ func TestGetAndCheckServeStatus(t *testing.T) {
 			} else {
 				dashboardClient = &utils.FakeRayDashboardClient{}
 			}
-			isReady, _, err := getAndCheckServeStatus(ctx, dashboardClient)
+			isReady, _, _, err := getAndCheckServeStatus(ctx, dashboardClient)
 			require.NoError(t, err)
 			assert.Equal(t, tc.expectedReady, isReady)
 		})
@@ -717,6 +717,241 @@ func TestLabelHeadPodForServeStatus(t *testing.T) {
 			assert.Equal(t, headPod.Labels[utils.RayClusterServingServiceLabelKey], tc.expectServeResult)
 			require.NoError(t, err)
 		})
+	}
+}
+
+func TestUpdateWorkerPodsServeLabel(t *testing.T) {
+	namespace := "mock-ray-namespace"
+	cluster := rayv1.RayCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-cluster",
+			Namespace: namespace,
+		},
+	}
+	workerPodName, workerIP := "worker-pod", "10.0.0.2"
+	headProxy := utiltypes.ServeProxyDetails{NodeIP: "10.0.0.1", NodeInstanceID: "head-pod", Status: utiltypes.ServeProxyStatusHealthy}
+
+	tests := []struct {
+		proxies       map[string]utiltypes.ServeProxyDetails
+		name          string
+		oldLabel      string
+		workerIP      string
+		expectedLabel string
+		deleting      bool
+	}{
+		{
+			name:     "healthy proxy on the worker, matched by Pod name",
+			oldLabel: "false",
+			workerIP: workerIP,
+			proxies: map[string]utiltypes.ServeProxyDetails{
+				"head":   headProxy,
+				"worker": {NodeIP: workerIP, NodeInstanceID: workerPodName, Status: utiltypes.ServeProxyStatusHealthy},
+			},
+			expectedLabel: "true",
+		},
+		{
+			name:     "healthy proxy on the worker, matched by IP for Ray versions without node_instance_id",
+			oldLabel: "false",
+			workerIP: workerIP,
+			proxies: map[string]utiltypes.ServeProxyDetails{
+				"head":   {NodeIP: "10.0.0.1", Status: utiltypes.ServeProxyStatusHealthy},
+				"worker": {NodeIP: workerIP, Status: utiltypes.ServeProxyStatusHealthy},
+			},
+			expectedLabel: "true",
+		},
+		{
+			name:     "a proxy with a Pod name is not matched by IP",
+			oldLabel: "true",
+			workerIP: workerIP,
+			proxies: map[string]utiltypes.ServeProxyDetails{
+				"head":  headProxy,
+				"other": {NodeIP: workerIP, NodeInstanceID: "deleted-pod", Status: utiltypes.ServeProxyStatusHealthy},
+			},
+			expectedLabel: "false",
+		},
+		{
+			name:     "no proxy on the worker, e.g. proxy_location is HeadOnly or the worker has no replica",
+			oldLabel: "true",
+			workerIP: workerIP,
+			proxies: map[string]utiltypes.ServeProxyDetails{
+				"head": headProxy,
+			},
+			expectedLabel: "false",
+		},
+		{
+			name:     "proxy on the worker is draining",
+			oldLabel: "true",
+			workerIP: workerIP,
+			proxies: map[string]utiltypes.ServeProxyDetails{
+				"head":   headProxy,
+				"worker": {NodeIP: workerIP, NodeInstanceID: workerPodName, Status: "DRAINING"},
+			},
+			expectedLabel: "false",
+		},
+		{
+			name:     "proxy on the worker is starting, keep the label",
+			oldLabel: "true",
+			workerIP: workerIP,
+			proxies: map[string]utiltypes.ServeProxyDetails{
+				"head":   headProxy,
+				"worker": {NodeIP: workerIP, NodeInstanceID: workerPodName, Status: utiltypes.ServeProxyStatusStarting},
+			},
+			expectedLabel: "true",
+		},
+		{
+			name:          "Serve has no proxy yet, keep the label",
+			oldLabel:      "true",
+			workerIP:      workerIP,
+			proxies:       nil,
+			expectedLabel: "true",
+		},
+		{
+			name:     "worker Pod has no IP yet, keep the label",
+			oldLabel: "true",
+			workerIP: "",
+			proxies: map[string]utiltypes.ServeProxyDetails{
+				"head": headProxy,
+			},
+			expectedLabel: "true",
+		},
+		{
+			name:     "worker Pod is being deleted, keep the label",
+			oldLabel: "true",
+			workerIP: workerIP,
+			deleting: true,
+			proxies: map[string]utiltypes.ServeProxyDetails{
+				"head": headProxy,
+			},
+			expectedLabel: "true",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			newScheme := runtime.NewScheme()
+			_ = corev1.AddToScheme(newScheme)
+
+			workerPod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      workerPodName,
+					Namespace: namespace,
+					Labels: map[string]string{
+						utils.RayClusterLabelKey:               cluster.Name,
+						utils.RayNodeTypeLabelKey:              string(rayv1.WorkerNode),
+						utils.RayClusterServingServiceLabelKey: tc.oldLabel,
+					},
+				},
+				Status: corev1.PodStatus{
+					Phase: corev1.PodRunning,
+					PodIP: tc.workerIP,
+				},
+			}
+			if tc.deleting {
+				workerPod.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+				workerPod.Finalizers = []string{"test-finalizer"}
+			}
+			fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(workerPod).Build()
+			ctx := context.TODO()
+			r := &RayServiceReconciler{
+				Client:   fakeClient,
+				Recorder: &events.FakeRecorder{},
+				Scheme:   newScheme,
+			}
+
+			err := r.updateWorkerPodsServeLabel(ctx, &rayv1.RayService{}, &cluster, tc.proxies)
+			require.NoError(t, err)
+
+			updatedWorkerPod := &corev1.Pod{}
+			err = fakeClient.Get(ctx, client.ObjectKeyFromObject(workerPod), updatedWorkerPod)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedLabel, updatedWorkerPod.Labels[utils.RayClusterServingServiceLabelKey])
+		})
+	}
+}
+
+func TestReconcileServe_UpdatesWorkerServeLabel(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterStatusConditions, true)
+	ctx := context.TODO()
+	namespace := "test-ns"
+
+	cluster := &rayv1.RayCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: namespace},
+		Status: rayv1.RayClusterStatus{
+			Conditions: []metav1.Condition{
+				{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue},
+			},
+		},
+	}
+	headSvcName, err := utils.GenerateHeadServiceName(utils.RayClusterCRD, rayv1.RayClusterSpec{}, cluster.Name)
+	require.NoError(t, err)
+	headSvc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: headSvcName, Namespace: namespace},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{{Name: utils.DashboardPortName, Port: 8265}},
+		},
+	}
+	newWorkerPod := func(name, ip string) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+				Labels: map[string]string{
+					utils.RayClusterLabelKey:               cluster.Name,
+					utils.RayNodeTypeLabelKey:              string(rayv1.WorkerNode),
+					utils.RayClusterServingServiceLabelKey: utils.EnableRayClusterServingServiceTrue,
+				},
+			},
+			Status: corev1.PodStatus{Phase: corev1.PodRunning, PodIP: ip},
+		}
+	}
+	workerWithProxy := newWorkerPod("worker-with-proxy", "10.0.0.2")
+	workerWithoutProxy := newWorkerPod("worker-without-proxy", "10.0.0.3")
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(newScheme).
+		WithRuntimeObjects(cluster, headSvc, workerWithProxy, workerWithoutProxy).
+		Build()
+
+	fakeDashboardClient := &utils.FakeRayDashboardClient{}
+	fakeDashboardClient.SetMultiApplicationStatuses(map[string]*utiltypes.ServeApplicationStatus{
+		"app1": {Status: rayv1.ApplicationStatusEnum.RUNNING},
+	})
+	fakeDashboardClient.SetServeDetails(utiltypes.ServeDetails{
+		Proxies: map[string]utiltypes.ServeProxyDetails{
+			"head":   {NodeIP: "10.0.0.1", NodeInstanceID: "head-pod", Status: utiltypes.ServeProxyStatusHealthy},
+			"worker": {NodeIP: "10.0.0.2", NodeInstanceID: workerWithProxy.Name, Status: utiltypes.ServeProxyStatusHealthy},
+		},
+	})
+
+	r := &RayServiceReconciler{
+		Client:   fakeClient,
+		Recorder: &events.FakeRecorder{},
+		dashboardClientFunc: func(_ *rayv1.RayCluster, _ string) (dashboardclient.RayDashboardClientInterface, error) {
+			return fakeDashboardClient, nil
+		},
+		ServeConfigs: lru.New(10),
+	}
+	rayService := &rayv1.RayService{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice", Namespace: namespace},
+	}
+
+	isReady, serveApplications, err := r.reconcileServe(ctx, rayService, cluster)
+	require.NoError(t, err)
+	// The applications come from the same Serve details as the proxies.
+	assert.True(t, isReady)
+	assert.Contains(t, serveApplications, "app1")
+
+	expectedLabels := map[string]string{
+		workerWithProxy.Name:    utils.EnableRayClusterServingServiceTrue,
+		workerWithoutProxy.Name: utils.EnableRayClusterServingServiceFalse,
+	}
+	for name, expected := range expectedLabels {
+		pod := &corev1.Pod{}
+		require.NoError(t, fakeClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, pod))
+		assert.Equal(t, expected, pod.Labels[utils.RayClusterServingServiceLabelKey], name)
 	}
 }
 
