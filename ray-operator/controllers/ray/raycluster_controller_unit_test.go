@@ -855,6 +855,93 @@ func TestReconcile_Diff0_WorkersToDelete_OK(t *testing.T) {
 		"Replica number is wrong after reconcile expect %d actual %d", expectReplicaNum, getNotFailedPodItemNum(podList))
 }
 
+func TestReconcile_CreateFailureDoesNotBlockOtherWorkerGroups(t *testing.T) {
+	tests := []struct {
+		name              string
+		multiHostIndexing bool
+		groupANumOfHosts  int32
+	}{
+		{
+			name:              "single-host group with RayMultiHostIndexing enabled",
+			multiHostIndexing: true,
+			groupANumOfHosts:  1,
+		},
+		{
+			name:              "single-host group with RayMultiHostIndexing disabled",
+			multiHostIndexing: false,
+			groupANumOfHosts:  1,
+		},
+		{
+			// Group A is reconciled by reconcileMultiHostWorkerGroup.
+			name:              "multi-host group with RayMultiHostIndexing enabled",
+			multiHostIndexing: true,
+			groupANumOfHosts:  2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setupTest(t)
+			features.SetFeatureGateDuringTest(t, features.RayMultiHostIndexing, tc.multiHostIndexing)
+
+			// This test makes some assumptions about the testRayCluster object.
+			// (1) 1 workerGroup (small-group)
+			// (2) The goal state of the workerGroup is 3 replicas.
+			assert.Len(t, testRayCluster.Spec.WorkerGroupSpecs, 1, "This test assumes only one worker group.")
+			assert.Equal(t, 3, int(*testRayCluster.Spec.WorkerGroupSpecs[0].Replicas), "This test assumes the expected number of worker pods is 3.")
+			// `testPods` contains 6 pods, including 1 head pod and 5 worker pods in small-group.
+			assert.Len(t, testPods, 6, "This test assumes the testPods object contains 6 pods.")
+
+			// Group B (small-group) has 5 Pods, and the autoscaler asks to delete pod3 and pod4.
+			groupB := testRayCluster.Spec.WorkerGroupSpecs[0]
+			groupB.ScaleStrategy.WorkersToDelete = []string{"pod3", "pod4"}
+
+			// Group A comes first and has no Pods, so the controller will try to create Pods for it.
+			groupA := *groupB.DeepCopy()
+			groupA.GroupName = "group-a"
+			groupA.Replicas = ptr.To[int32](2)
+			groupA.NumOfHosts = tc.groupANumOfHosts
+			groupA.ScaleStrategy.WorkersToDelete = nil
+			testRayCluster.Spec.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{groupA, groupB}
+
+			// Initialize a fake client with testPods. The interceptor makes every Create() fail,
+			// simulating the namespace ResourceQuota rejecting Pod creation.
+			fakeClient := clientFake.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				Create: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.CreateOption) error {
+					return errors.New("exceeded quota")
+				},
+			}).WithRuntimeObjects(testPods...).Build()
+			ctx := context.Background()
+
+			// Initialize a new RayClusterReconciler.
+			testRayClusterReconciler := &RayClusterReconciler{
+				Client:                     fakeClient,
+				Recorder:                   &events.FakeRecorder{},
+				Scheme:                     scheme.Scheme,
+				rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+			}
+
+			err := testRayClusterReconciler.reconcilePods(ctx, testRayCluster)
+			// The creation failure in group A should still be surfaced so that the ReplicaFailure condition is set.
+			require.ErrorIs(t, err, utils.ErrFailedCreateWorkerPod)
+
+			// Group B's WorkersToDelete should be deleted despite group A's failure.
+			// workerSelector selects small-group, which is group B.
+			podList := corev1.PodList{}
+			err = fakeClient.List(ctx, &podList, &client.ListOptions{
+				LabelSelector: workerSelector,
+				Namespace:     namespaceStr,
+			})
+			require.NoError(t, err)
+			podNames := make([]string, 0, len(podList.Items))
+			for _, pod := range podList.Items {
+				podNames = append(podNames, pod.Name)
+			}
+			assert.ElementsMatch(t, []string{"pod1", "pod2", "pod5"}, podNames, "WorkersToDelete of group B should be deleted even though group A failed to create Pods")
+		})
+	}
+}
+
 func TestReconcile_PodCrash_DiffLess0_OK(t *testing.T) {
 	setupTest(t)
 
@@ -5013,6 +5100,159 @@ func TestReconcile_TLSAutoGenerate_RejectsWithoutCertManager(t *testing.T) {
 		}
 	}
 	assert.True(t, foundEvent, "expected a warning event about cert-manager")
+}
+
+func TestShouldDeleteWorkerPod_MissingNodeLabelsSelfHealing(t *testing.T) {
+	setupTest(t)
+	features.SetFeatureGateDuringTest(t, features.NodeLabelDelivery, true)
+	ctx := context.Background()
+
+	cluster := testRayCluster.DeepCopy()
+	workerSpec := &cluster.Spec.WorkerGroupSpecs[0]
+	workerSpec.LabelRefs = []rayv1.LabelRef{{
+		Name: "tpu-coords",
+		ValueFrom: rayv1.LabelRefSource{
+			NodeRef: rayv1.NodeFieldRef{FieldPath: "metadata.labels['cloud.google.com/gke-tpu-node-slice-coordinates']"},
+		},
+	}}
+
+	readyNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "tpu-node-ready",
+			Labels: map[string]string{"cloud.google.com/gke-tpu-node-slice-coordinates": "0,0,0"},
+		},
+	}
+	unlabeledNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "tpu-node-unlabeled",
+			Labels: map[string]string{},
+		},
+	}
+
+	require.NoError(t, corev1.AddToScheme(scheme.Scheme))
+	fakeClient := clientFake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(readyNode, unlabeledNode).Build()
+	r := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Recorder:                   events.NewFakeRecorder(10),
+		Scheme:                     scheme.Scheme,
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+		options: RayClusterReconcilerOptions{
+			AllowedNodeLabels: []string{"cloud.google.com/gke-tpu-node-slice-coordinates"},
+		},
+	}
+
+	pod := r.buildWorkerPod(ctx, *cluster, *workerSpec, "", 0, 0)
+	pod.Spec.Containers[utils.RayContainerIndex].Env = append(pod.Spec.Containers[utils.RayContainerIndex].Env, corev1.EnvVar{
+		Name: utils.RAY_NODE_LABELS_JSON,
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "metadata.annotations['" + utils.RayNodeLabelsAnnotationKey + "']",
+			},
+		},
+	})
+	pod.Name = "worker-0"
+	pod.Status.Phase = corev1.PodRunning
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name: pod.Spec.Containers[utils.RayContainerIndex].Name,
+		LastTerminationState: corev1.ContainerState{
+			Terminated: &corev1.ContainerStateTerminated{ExitCode: 1},
+		},
+		RestartCount: 1,
+	}}
+
+	// Case 1: Bound node lacks the requested label (or is not yet found in cache) -> do not delete the pod yet.
+	pod.Spec.NodeName = unlabeledNode.Name
+	shouldDel, reason := r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "node lacks label")
+
+	pod.Spec.NodeName = "missing-node"
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "could not be read")
+
+	// Case 2: Bound node carries all requested and allowed labels -> self-heal by deleting the pod so it can be recreated.
+	pod.Spec.NodeName = readyNode.Name
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.True(t, shouldDel)
+	assert.Contains(t, reason, utils.RayNodeLabelsAnnotationKey)
+
+	// Case 3: Label is not in AllowedNodeLabels ([]string{} or nil) -> do not delete the pod (avoid infinite delete/recreate loop).
+	r.options.AllowedNodeLabels = []string{}
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "not in the operator's allowedNodeLabels")
+	r.options.AllowedNodeLabels = nil
+	shouldDel, reason = r.shouldDeleteWorkerPod(ctx, pod, workerSpec)
+	assert.False(t, shouldDel)
+	assert.Contains(t, reason, "not in the operator's allowedNodeLabels")
+	r.options.AllowedNodeLabels = []string{"cloud.google.com/gke-tpu-node-slice-coordinates"}
+
+	// Case 4: Pod already carries ray.io/node-labels -> preserve standard RestartPolicy: Always behavior.
+	annotatedPod := pod.DeepCopy()
+	annotatedPod.Annotations = map[string]string{utils.RayNodeLabelsAnnotationKey: `{"tpu-coords":"0,0,0"}`}
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *annotatedPod, workerSpec)
+	assert.False(t, shouldDel)
+
+	// Case 5: Ray container has not terminated yet (even if a sidecar at ContainerStatuses[0] terminated) -> do not delete.
+	startingPod := pod.DeepCopy()
+	startingPod.Status.ContainerStatuses = []corev1.ContainerStatus{
+		{
+			Name:  "sidecar",
+			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}},
+		},
+		{
+			Name:  pod.Spec.Containers[utils.RayContainerIndex].Name,
+			State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+		},
+	}
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *startingPod, workerSpec)
+	assert.False(t, shouldDel)
+
+	// Case 6: RestartPolicy: Never / PodFailed (or PodRunning with a live sidecar and terminated Ray container)
+	// always preserves existing shouldDeletePod deletion behavior, even if the bound node lacks the label or the
+	// label is not in AllowedNodeLabels.
+	neverPod := pod.DeepCopy()
+	neverPod.Spec.RestartPolicy = corev1.RestartPolicyNever
+	neverPod.Status.Phase = corev1.PodFailed
+	neverPod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:  pod.Spec.Containers[utils.RayContainerIndex].Name,
+		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}},
+	}}
+	neverPod.Spec.NodeName = unlabeledNode.Name
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
+	assert.True(t, shouldDel)
+
+	neverRunningWithSidecar := neverPod.DeepCopy()
+	neverRunningWithSidecar.Status.Phase = corev1.PodRunning
+	neverRunningWithSidecar.Status.ContainerStatuses = []corev1.ContainerStatus{
+		{
+			Name:  pod.Spec.Containers[utils.RayContainerIndex].Name,
+			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}},
+		},
+		{
+			Name:  "sidecar",
+			State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+		},
+	}
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverRunningWithSidecar, workerSpec)
+	assert.True(t, shouldDel)
+
+	r.options.AllowedNodeLabels = nil
+	neverPod.Spec.NodeName = readyNode.Name
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
+	assert.True(t, shouldDel)
+	r.options.AllowedNodeLabels = []string{"cloud.google.com/gke-tpu-node-slice-coordinates"}
+
+	neverPod.Spec.NodeName = "deleted-node"
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, *neverPod, workerSpec)
+	assert.True(t, shouldDel)
+
+	// Case 7: Worker group with static template.spec.nodeName skips self-healing (since pods/binding does not run).
+	pinnedWorkerSpec := workerSpec.DeepCopy()
+	pinnedWorkerSpec.Template.Spec.NodeName = readyNode.Name
+	shouldDel, _ = r.shouldDeleteWorkerPod(ctx, pod, pinnedWorkerSpec)
+	assert.False(t, shouldDel)
 }
 
 // TestReconcilePodsCleansUpBatchSchedulerOnSuspend is a regression test for

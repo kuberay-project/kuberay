@@ -18,6 +18,8 @@ spec:
       # to the collector image matching the operator version.
       # image: quay.io/kuberay/collector:nightly
       imagePullPolicy: IfNotPresent
+      # Optionally specify the collector container's securityContext.
+      securityContext: {}
       resources:
         requests:
           cpu: "50m"
