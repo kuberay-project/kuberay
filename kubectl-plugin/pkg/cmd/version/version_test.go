@@ -12,6 +12,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 
+	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util/client"
 	clientfake "github.com/ray-project/kuberay/kubectl-plugin/pkg/util/client/fake"
 )
 
@@ -65,6 +66,12 @@ func TestRayVersionRun(t *testing.T) {
 				"Did you install it with the name \"kuberay-operator\"?\n", Version),
 		},
 		{
+			name:                           "Test when the operator is hosted outside the cluster",
+			getKubeRayOperatorVersionError: client.ErrHostedOperator,
+			expected: fmt.Sprintf("kubectl ray plugin version: %s\n"+
+				"KubeRay operator version: hosted outside the cluster (e.g. GKE Ray Operator add-on); version not available in-cluster\n", Version),
+		},
+		{
 			name:                "Test when build info is included",
 			kuberayImageVersion: "v0.0.1",
 			pluginCommit:        "abcdefg",
@@ -87,14 +94,14 @@ func TestRayVersionRun(t *testing.T) {
 			testVersion := Version                   // Store the global Version value
 			defer func() { Version = testVersion }() // Restore after the test
 
-			client := clientfake.NewFakeClient().WithKubeRayImageVersion(tc.kuberayImageVersion).WithKubeRayOperatorVersionError(tc.getKubeRayOperatorVersionError)
+			fakeClient := clientfake.NewFakeClient().WithKubeRayImageVersion(tc.kuberayImageVersion).WithKubeRayOperatorVersionError(tc.getKubeRayOperatorVersionError)
 
 			fakeBuildInfo := func() (*debug.BuildInfo, bool) {
 				return createBuildInfo(tc.pluginCommit, tc.pluginBuildTime), !tc.buildInfoErr
 			}
 
 			var buf bytes.Buffer
-			err := fakeVersionOptions.Run(context.Background(), client, fakeBuildInfo, &buf)
+			err := fakeVersionOptions.Run(context.Background(), fakeClient, fakeBuildInfo, &buf)
 			require.NoError(t, err)
 
 			assert.Equal(t, tc.expected, buf.String())
