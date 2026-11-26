@@ -307,6 +307,33 @@ jobs:
         run: go test ./pkg/... -race -parallel 4
         working-directory: ${{env.working-directory}}
 
+  test_python_apiserver_client:
+    env:
+      working-directory: ./clients/python-apiserver-client
+    name: Test Python API Server Client
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Check out code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{github.event.pull_request.head.sha}}
+
+      - name: Install dependencies
+        working-directory: ${{env.working-directory}}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+
+      - name: Run unit tests
+        working-directory: ${{env.working-directory}}
+        run: pytest test/api_params_test.py -v
+
   build_historyserver:
     env:
       working-directory: ./historyserver

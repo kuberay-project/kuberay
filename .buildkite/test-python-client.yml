@@ -30,15 +30,32 @@
         kubectl wait --timeout=180s --for=condition=Available=true deployment kuberay-operator
       fi
     - popd
-    # Setup Python environment and install Python client
+    # Build and start the API server. The insecure deployment exposes a NodePort,
+    # which avoids the flakiness associated with kubectl port-forward.
+    - pushd apiserver
+    - KIND_CLUSTER_NAME=kind KIND=kind make install
+    - kubectl wait --namespace ray-system --for=condition=Available --timeout=90s deployment/kuberay-apiserver
+    - popd
+    # Setup Python environment and install both Python clients
     - echo "--- START:Setting up Python environment"
     - pushd clients/kuberay-client
     - python3 -m venv venv
     - source venv/bin/activate
     - pip install -e .
+    - pip install -e ../python-apiserver-client
     - pip install pytest
     # Run Python client tests
     - echo "--- START:Running Python client tests"
     - set -o pipefail
     - pytest kuberay_client_test/ -v || (kubectl logs --tail=50 -l app.kubernetes.io/name=kuberay && exit 1)
     - echo "--- END:Python client tests finished"
+    - popd
+    # Run Python API server client tests against the API server NodePort.
+    - pushd clients/python-apiserver-client
+    - source ../kuberay-client/venv/bin/activate
+    - echo "--- START:Running Python API server client e2e tests"
+    - |
+      E2E_API_SERVER_URL="http://docker:31888"
+      curl --fail --retry 10 --retry-delay 3 --retry-connrefused "$$E2E_API_SERVER_URL/healthz"
+      pytest test/kuberay_api_test.py -v || (kubectl logs --tail=50 -l app.kubernetes.io/component=kuberay-apiserver --namespace ray-system && exit 1)
+    - echo "--- END:Python API server client e2e tests finished"

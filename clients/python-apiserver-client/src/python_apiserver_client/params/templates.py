@@ -163,9 +163,9 @@ class Template:
         if self.gpu > 0:
             dct["gpu"] = self.gpu
         if self.gpu_accelerator is not None:
-            dct["gpu accelerator"] = self.gpu_accelerator
+            dct["gpuAccelerator"] = self.gpu_accelerator
         if self.extended_resources is not None:
-            dct["extended resources"] = self.extended_resources
+            dct["extendedResources"] = self.extended_resources
         if self.tolerations is not None:
             dct["tolerations"] = [tl.to_dict() for tl in self.tolerations]
         return dct
@@ -206,8 +206,8 @@ def template_decoder(dct: dict[str, Any]) -> Template:
         cpu=int(dct.get("cpu", "0")),
         memory=int(dct.get("memory", "0")),
         gpu=int(dct.get("gpu", "0")),
-        gpu_accelerator=dct.get("gpu_accelerator"),
-        extended_resources=dct.get("extended_resources"),
+        gpu_accelerator=dct.get("gpuAccelerator", dct.get("gpu_accelerator")),
+        extended_resources=dct.get("extendedResources", dct.get("extended_resources")),
         tolerations=tolerations,
     )
 
