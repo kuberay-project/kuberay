@@ -68,7 +68,7 @@ The Ray client server is a GRPC service. The NGINX Ingress Controller supports G
 kubectl apply -f https://raw.githubusercontent.com/ray-project/kuberay/master/ray-operator/config/samples/ray-cluster.tls.yaml
 ```
 
-Refer to the [TLS document](tls.md) for more detail.
+Refer to the [TLS document](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/tls.html) for more detail.
 
 ## Step 5: Create an ingress for the Ray client service
 
