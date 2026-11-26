@@ -82,6 +82,7 @@ func (s *RayJobSubmissionServiceServer) SubmitRayJob(ctx context.Context, req *a
 		request.NumGpus = req.Jobsubmission.EntrypointNumGpus
 	}
 	if len(req.Jobsubmission.EntrypointResources) > 0 {
+		request.Resources = make(map[string]float32)
 		for k, v := range req.Jobsubmission.EntrypointResources {
 			f, err := strconv.ParseFloat(v, 32)
 			if err != nil {
