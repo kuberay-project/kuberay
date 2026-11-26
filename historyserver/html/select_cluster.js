@@ -150,7 +150,11 @@ const fetchClusters = async () => {
 const enterCluster = async ({ namespace, name, sessionName }, reload) => {
     // A link can name the session, so encode each value to keep it in its path segment.
     const path = [namespace, "raycluster", name, sessionName].map(encodeURIComponent).join("/");
-    const res = await fetch(`/enter_cluster/${path}${reload ? "?reload=true" : ""}`);
+    // /enter_cluster serves the dashboard bootstrap page unless the request asks for
+    // JSON. fetch() never runs a page it receives, so ask for the JSON answer instead.
+    const res = await fetch(`/enter_cluster/${path}${reload ? "?reload=true" : ""}`, {
+        headers: { Accept: "application/json" },
+    });
     if (!res.ok) {
         const body = (await res.text()).trim();
         throw body ? new Error(body) : statusError(res);

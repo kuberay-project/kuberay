@@ -792,35 +792,37 @@ func TestEnterClusterWithLiveClustersDisabled(t *testing.T) {
 }
 
 // TestClusterSelectorNavigatesAfterEnterCluster guards the contract between
-// /enter_cluster and the embedded cluster selector page. The endpoint answers with the
-// HTML bootstrap page, and a fetch() never executes the document it receives, so the
-// selector must navigate on its own once the response is ok. Parsing the body as JSON
-// (the pre-bootstrap behavior) throws on the HTML and strands the user on the selector
-// with an error even though the context cookies were already set.
+// /enter_cluster and the cluster selector script. The endpoint answers with the HTML
+// bootstrap page unless the request asks for JSON, and a fetch() never executes the
+// document it receives, so the selector must navigate on its own. It checks the JSON
+// answer first, so it has to ask for JSON: parsing the bootstrap page as JSON throws
+// and strands the user on the selector with an error even though the context cookies
+// were already set.
 //
 // This is asserted here because the History Server e2e suite that would exercise the
 // flow in a real browser is not wired into CI at the moment.
 func TestClusterSelectorNavigatesAfterEnterCluster(t *testing.T) {
-	page := string(html.ClusterSelectorHTML)
+	script := string(html.ClusterSelectorJS)
 
-	start := strings.Index(page, "function enterCluster(")
+	start := strings.Index(script, "const enterCluster = ")
 	if start < 0 {
-		t.Fatal("the cluster selector page no longer defines enterCluster()")
+		t.Fatal("the cluster selector script no longer defines enterCluster")
 	}
-	end := strings.Index(page[start:], "\n            function ")
+	end := strings.Index(script[start:], "\n};\n")
 	if end < 0 {
-		t.Fatal("cannot locate the end of enterCluster() in the cluster selector page")
+		t.Fatal("cannot locate the end of enterCluster in the cluster selector script")
 	}
-	enterCluster := page[start : start+end]
+	enterCluster := script[start : start+end]
 
-	if strings.Contains(enterCluster, "res.json()") {
-		t.Error("enterCluster() parses the /enter_cluster body as JSON, " +
-			"but that endpoint serves the HTML bootstrap page")
+	if !strings.Contains(enterCluster, "/enter_cluster/") {
+		t.Fatal("enterCluster no longer requests /enter_cluster")
 	}
-	if strings.Contains(enterCluster, "data.result") {
-		t.Error("enterCluster() still checks data.result, which the bootstrap page never returns")
+	// The same media type that /enter_cluster matches the Accept header against.
+	if !strings.Contains(enterCluster, fmt.Sprintf("Accept: %q", restful.MIME_JSON)) {
+		t.Error("enterCluster must ask /enter_cluster for JSON, " +
+			"since that endpoint serves the HTML bootstrap page otherwise")
 	}
-	if !strings.Contains(enterCluster, "window.location.href") {
-		t.Error("enterCluster() must navigate to the dashboard itself once the context cookies are set")
+	if !strings.Contains(script, "window.location.href = DASHBOARD_URL") {
+		t.Error("the selector must navigate to the dashboard itself once the context cookies are set")
 	}
 }
