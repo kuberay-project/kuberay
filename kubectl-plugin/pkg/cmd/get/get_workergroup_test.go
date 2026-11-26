@@ -837,3 +837,61 @@ func TestCalculatePodResourceDoesNotMutateInput(t *testing.T) {
 	assert.Equal(t, "200Mi", got.Memory().String())
 	assert.Equal(t, wantRequests, podSpec.Containers[0].Resources.Requests)
 }
+
+func TestGetWorkerGroupDetailsMultiHost(t *testing.T) {
+	// A multi-host worker group (e.g. a multi-host TPU slice) creates Replicas * NumOfHosts Pods,
+	// which is also what the operator reports in RayCluster status and `kubectl ray get cluster`.
+	resources := corev1.ResourceList{
+		corev1.ResourceCPU:     resource.MustParse("2"),
+		corev1.ResourceMemory:  resource.MustParse("1Gi"),
+		util.ResourceGoogleTPU: resource.MustParse("4"),
+	}
+	podSpec := corev1.PodSpec{
+		Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: resources}}},
+	}
+
+	var pods []runtime.Object
+	for _, name := range []string{"tpu-0", "tpu-1", "tpu-2", "tpu-3"} {
+		pods = append(pods, &corev1.Pod{
+			ObjectMeta: v1.ObjectMeta{
+				Namespace: "default",
+				Name:      name,
+				Labels: map[string]string{
+					util.RayClusterLabelKey:   "cluster-1",
+					util.RayNodeGroupLabelKey: "tpu-group",
+					util.RayNodeTypeLabelKey:  string(rayv1.WorkerNode),
+				},
+			},
+			Spec: podSpec,
+			Status: corev1.PodStatus{
+				Phase:      corev1.PodRunning,
+				Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+			},
+		})
+	}
+
+	k8sClients := client.NewClientForTesting(kubefake.NewClientset(pods...), clienttesting.NewRayClientset())
+	workerGroups, err := getWorkerGroupDetails(context.Background(), []enrichedWorkerGroupSpec{
+		{
+			namespace: "default",
+			cluster:   "cluster-1",
+			spec: rayv1.WorkerGroupSpec{
+				GroupName:   "tpu-group",
+				Replicas:    new(int32(2)),
+				MinReplicas: new(int32(0)),
+				MaxReplicas: new(int32(2)),
+				NumOfHosts:  2,
+				Template:    corev1.PodTemplateSpec{Spec: podSpec},
+			},
+		},
+	}, k8sClients)
+	require.NoError(t, err)
+	require.Len(t, workerGroups, 1)
+
+	wg := workerGroups[0]
+	assert.Equal(t, int32(4), wg.readyReplicas)
+	assert.Equal(t, int32(4), wg.desiredReplicas)
+	assert.Equal(t, "8", wg.totalCPU.String())
+	assert.Equal(t, "16", wg.totalTPU.String())
+	assert.Equal(t, "4Gi", wg.totalMemory.String())
+}
