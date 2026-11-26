@@ -1384,22 +1384,6 @@ func TestReconcileRayJobClusterSelectorDeletion(t *testing.T) {
 			},
 		},
 		{
-			name: "legacy OnSuccess DeleteSelf",
-			deletionStrategy: &rayv1.DeletionStrategy{
-				OnSuccess: &rayv1.DeletionPolicy{Policy: ptr.To(rayv1.DeleteSelf)},
-				OnFailure: &rayv1.DeletionPolicy{Policy: ptr.To(rayv1.DeleteNone)},
-			},
-		},
-		{
-			name: "legacy OnSuccess DeleteSelf with TTL",
-			deletionStrategy: &rayv1.DeletionStrategy{
-				OnSuccess: &rayv1.DeletionPolicy{Policy: ptr.To(rayv1.DeleteSelf)},
-				OnFailure: &rayv1.DeletionPolicy{Policy: ptr.To(rayv1.DeleteSelf)},
-			},
-			shutdownAfterJobFinishes: true,
-			ttlSecondsAfterFinished:  60,
-		},
-		{
 			name:                     "shutdownAfterJobFinishes deletes RayJob",
 			shutdownAfterJobFinishes: true,
 			ttlSecondsAfterFinished:  60,

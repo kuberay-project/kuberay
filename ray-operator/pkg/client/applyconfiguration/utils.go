@@ -30,8 +30,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &rayv1.CollectorOptionsApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("DeletionCondition"):
 		return &rayv1.DeletionConditionApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("DeletionPolicy"):
-		return &rayv1.DeletionPolicyApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("DeletionRule"):
 		return &rayv1.DeletionRuleApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("DeletionStrategy"):

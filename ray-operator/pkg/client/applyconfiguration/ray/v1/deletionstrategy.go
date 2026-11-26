@@ -6,33 +6,19 @@ package v1
 // with apply.
 //
 // DeletionStrategy configures automated cleanup after the RayJob reaches a terminal state.
-// Two mutually exclusive styles are supported:
-//
-// - Legacy: provide both onSuccess and onFailure (deprecated; removal planned for 1.6.0). May be combined with shutdownAfterJobFinishes and (optionally) global TTLSecondsAfterFinished.
-// - Rules: provide deletionRules (non-empty list). Rules mode is incompatible with shutdownAfterJobFinishes, legacy fields, and the global TTLSecondsAfterFinished (use per-rule condition.ttlSeconds instead).
 //
 // Semantics:
-// - A non-empty deletionRules selects rules mode; empty lists are treated as unset.
-// - Legacy requires both onSuccess and onFailure; specifying only one is invalid.
-// - Global TTLSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true; therefore it cannot be used with rules mode or with legacy alone (no shutdown).
+// - The deletionRules list is the primary mechanism for cleanup; it must be non-empty when this block is present.
+// - DeletionStrategy is mutually exclusive with spec.shutdownAfterJobFinishes.
+// - Global spec.ttlSecondsAfterFinished > 0 requires shutdownAfterJobFinishes=true;
+// therefore it cannot be used with DeletionStrategy (use condition.ttlSeconds within rules instead).
 // - Feature gate RayJobDeletionPolicy must be enabled when this block is present.
 //
 // Validation:
-// - CRD XValidations prevent mixing legacy fields with deletionRules and enforce legacy completeness.
 // - Controller logic enforces rules vs shutdown exclusivity and TTL constraints.
-// - onSuccess/onFailure are deprecated; migration to deletionRules is encouraged.
+// - Cross-field validation (CEL) ensures deletionRules is provided when the strategy is set.
 type DeletionStrategyApplyConfiguration struct {
-	// OnSuccess is the deletion policy for a successful RayJob.
-	// Deprecated: Use `deletionRules` instead for more flexible, multi-stage deletion strategies.
-	// This field will be removed in release 1.6.0.
-	OnSuccess *DeletionPolicyApplyConfiguration `json:"onSuccess,omitempty"`
-	// OnFailure is the deletion policy for a failed RayJob.
-	// Deprecated: Use `deletionRules` instead for more flexible, multi-stage deletion strategies.
-	// This field will be removed in release 1.6.0.
-	OnFailure *DeletionPolicyApplyConfiguration `json:"onFailure,omitempty"`
 	// DeletionRules is a list of deletion rules, processed based on their trigger conditions.
-	// While the rules can be used to define a sequence, if multiple rules are overdue (e.g., due to controller downtime),
-	// the most impactful rule (e.g., DeleteSelf) will be executed first to prioritize resource cleanup.
 	DeletionRules []DeletionRuleApplyConfiguration `json:"deletionRules,omitempty"`
 }
 
@@ -40,22 +26,6 @@ type DeletionStrategyApplyConfiguration struct {
 // apply.
 func DeletionStrategy() *DeletionStrategyApplyConfiguration {
 	return &DeletionStrategyApplyConfiguration{}
-}
-
-// WithOnSuccess sets the OnSuccess field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the OnSuccess field is set to the value of the last call.
-func (b *DeletionStrategyApplyConfiguration) WithOnSuccess(value *DeletionPolicyApplyConfiguration) *DeletionStrategyApplyConfiguration {
-	b.OnSuccess = value
-	return b
-}
-
-// WithOnFailure sets the OnFailure field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the OnFailure field is set to the value of the last call.
-func (b *DeletionStrategyApplyConfiguration) WithOnFailure(value *DeletionPolicyApplyConfiguration) *DeletionStrategyApplyConfiguration {
-	b.OnFailure = value
-	return b
 }
 
 // WithDeletionRules adds the given value to the DeletionRules field in the declarative configuration

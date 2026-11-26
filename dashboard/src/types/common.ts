@@ -1,11 +1,16 @@
 export interface DeletionStrategy {
-  onSuccess: DeletionPolicy;
-  onFailure: DeletionPolicy;
+  deletionRules: DeletionRule[];
 }
 
-interface DeletionPolicy {
-  policy?: DeletionPolicyType;
+interface DeletionRule {
+  policy: DeletionPolicyType;
+  condition: DeletionCondition;
 }
+
+type DeletionCondition = (
+  | { jobStatus: "SUCCEEDED" | "FAILED"; jobDeploymentStatus?: never }
+  | { jobDeploymentStatus: "Failed"; jobStatus?: never }
+) & { ttlSeconds?: number };
 
 type DeletionPolicyType =
   | "DeleteCluster"

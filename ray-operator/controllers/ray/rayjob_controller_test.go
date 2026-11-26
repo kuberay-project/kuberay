@@ -913,19 +913,28 @@ var _ = Context("RayJob with different submission modes", func() {
 			features.SetFeatureGateDuringTest(GinkgoTB(), features.RayJobDeletionPolicy, true)
 		})
 
-		It("Delete cluster on success", func() {
+		It("delete cluster via deletionRules on job success", func() {
 			ctx := context.Background()
 			namespace := "default"
 			rayJob := rayJobTemplate("rayjob-test-deletecluster-on-success", namespace)
 
-			onSuccessPolicy := rayv1.DeleteCluster
-			onFailurePolicy := rayv1.DeleteNone
+			succeededStatus := rayv1.JobStatusSucceeded
+			failedStatus := rayv1.JobStatusFailed
+
 			deletionStrategy := &rayv1.DeletionStrategy{
-				OnSuccess: &rayv1.DeletionPolicy{
-					Policy: &onSuccessPolicy,
-				},
-				OnFailure: &rayv1.DeletionPolicy{
-					Policy: &onFailurePolicy,
+				DeletionRules: []rayv1.DeletionRule{
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &succeededStatus,
+						},
+						Policy: rayv1.DeleteCluster,
+					},
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &failedStatus,
+						},
+						Policy: rayv1.DeleteNone,
+					},
 				},
 			}
 			rayJob.Spec.DeletionStrategy = deletionStrategy
@@ -934,11 +943,19 @@ var _ = Context("RayJob with different submission modes", func() {
 
 			By("Verify RayJob spec", func() {
 				Expect(*rayJob.Spec.DeletionStrategy).To(Equal(rayv1.DeletionStrategy{
-					OnSuccess: &rayv1.DeletionPolicy{
-						Policy: &onSuccessPolicy,
-					},
-					OnFailure: &rayv1.DeletionPolicy{
-						Policy: &onFailurePolicy,
+					DeletionRules: []rayv1.DeletionRule{
+						{
+							Condition: rayv1.DeletionCondition{
+								JobStatus: &succeededStatus,
+							},
+							Policy: rayv1.DeleteCluster,
+						},
+						{
+							Condition: rayv1.DeletionCondition{
+								JobStatus: &failedStatus,
+							},
+							Policy: rayv1.DeleteNone,
+						},
 					},
 				}))
 			})
@@ -1052,14 +1069,22 @@ var _ = Context("RayJob with different submission modes", func() {
 			namespace := "default"
 			rayJob := rayJobTemplate("rayjob-test-deletecluster-on-failure", namespace)
 
-			onSuccessPolicy := rayv1.DeleteNone
-			onFailurePolicy := rayv1.DeleteCluster
+			succeededStatus := rayv1.JobStatusSucceeded
+			failedStatus := rayv1.JobStatusFailed
 			deletionStrategy := &rayv1.DeletionStrategy{
-				OnSuccess: &rayv1.DeletionPolicy{
-					Policy: &onSuccessPolicy,
-				},
-				OnFailure: &rayv1.DeletionPolicy{
-					Policy: &onFailurePolicy,
+				DeletionRules: []rayv1.DeletionRule{
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &succeededStatus,
+						},
+						Policy: rayv1.DeleteCluster,
+					},
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &failedStatus,
+						},
+						Policy: rayv1.DeleteCluster,
+					},
 				},
 			}
 			rayJob.Spec.DeletionStrategy = deletionStrategy
@@ -1068,11 +1093,19 @@ var _ = Context("RayJob with different submission modes", func() {
 
 			By("Verify RayJob spec", func() {
 				Expect(*rayJob.Spec.DeletionStrategy).To(Equal(rayv1.DeletionStrategy{
-					OnSuccess: &rayv1.DeletionPolicy{
-						Policy: &onSuccessPolicy,
-					},
-					OnFailure: &rayv1.DeletionPolicy{
-						Policy: &onFailurePolicy,
+					DeletionRules: []rayv1.DeletionRule{
+						{
+							Condition: rayv1.DeletionCondition{
+								JobStatus: &succeededStatus,
+							},
+							Policy: rayv1.DeleteCluster,
+						},
+						{
+							Condition: rayv1.DeletionCondition{
+								JobStatus: &failedStatus,
+							},
+							Policy: rayv1.DeleteCluster,
+						},
 					},
 				}))
 			})
@@ -1186,27 +1219,43 @@ var _ = Context("RayJob with different submission modes", func() {
 			namespace := "default"
 			rayJob := rayJobTemplate("rayjob-test-deleteworkers-on-success", namespace)
 
-			onSuccessPolicy := rayv1.DeleteWorkers
-			onFailurePolicy := rayv1.DeleteNone
-			deletionStrategy := rayv1.DeletionStrategy{
-				OnSuccess: &rayv1.DeletionPolicy{
-					Policy: &onSuccessPolicy,
-				},
-				OnFailure: &rayv1.DeletionPolicy{
-					Policy: &onFailurePolicy,
+			succeededStatus := rayv1.JobStatusSucceeded
+			failedStatus := rayv1.JobStatusFailed
+			deletionStrategy := &rayv1.DeletionStrategy{
+				DeletionRules: []rayv1.DeletionRule{
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &succeededStatus,
+						},
+						Policy: rayv1.DeleteWorkers,
+					},
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &failedStatus,
+						},
+						Policy: rayv1.DeleteNone,
+					},
 				},
 			}
-			rayJob.Spec.DeletionStrategy = &deletionStrategy
+			rayJob.Spec.DeletionStrategy = deletionStrategy
 			rayJob.Spec.ShutdownAfterJobFinishes = false
 			rayCluster := &rayv1.RayCluster{}
 
 			By("Verify RayJob spec", func() {
 				Expect(*rayJob.Spec.DeletionStrategy).To(Equal(rayv1.DeletionStrategy{
-					OnSuccess: &rayv1.DeletionPolicy{
-						Policy: &onSuccessPolicy,
-					},
-					OnFailure: &rayv1.DeletionPolicy{
-						Policy: &onFailurePolicy,
+					DeletionRules: []rayv1.DeletionRule{
+						{
+							Condition: rayv1.DeletionCondition{
+								JobStatus: &succeededStatus,
+							},
+							Policy: rayv1.DeleteWorkers,
+						},
+						{
+							Condition: rayv1.DeletionCondition{
+								JobStatus: &failedStatus,
+							},
+							Policy: rayv1.DeleteNone,
+						},
 					},
 				}))
 			})
@@ -1337,27 +1386,43 @@ var _ = Context("RayJob with different submission modes", func() {
 			namespace := "default"
 			rayJob := rayJobTemplate("rayjob-test-deleteworkers-on-failure", namespace)
 
-			onSuccessPolicy := rayv1.DeleteWorkers
-			onFailurePolicy := rayv1.DeleteWorkers
-			deletionStrategy := rayv1.DeletionStrategy{
-				OnSuccess: &rayv1.DeletionPolicy{
-					Policy: &onSuccessPolicy,
-				},
-				OnFailure: &rayv1.DeletionPolicy{
-					Policy: &onFailurePolicy,
+			succeededStatus := rayv1.JobStatusSucceeded
+			failedStatus := rayv1.JobStatusFailed
+			deletionStrategy := &rayv1.DeletionStrategy{
+				DeletionRules: []rayv1.DeletionRule{
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &succeededStatus,
+						},
+						Policy: rayv1.DeleteCluster,
+					},
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &failedStatus,
+						},
+						Policy: rayv1.DeleteWorkers,
+					},
 				},
 			}
-			rayJob.Spec.DeletionStrategy = &deletionStrategy
+			rayJob.Spec.DeletionStrategy = deletionStrategy
 			rayJob.Spec.ShutdownAfterJobFinishes = false
 			rayCluster := &rayv1.RayCluster{}
 
 			By("Verify RayJob spec", func() {
 				Expect(*rayJob.Spec.DeletionStrategy).To(Equal(rayv1.DeletionStrategy{
-					OnSuccess: &rayv1.DeletionPolicy{
-						Policy: &onSuccessPolicy,
-					},
-					OnFailure: &rayv1.DeletionPolicy{
-						Policy: &onFailurePolicy,
+					DeletionRules: []rayv1.DeletionRule{
+						{
+							Condition: rayv1.DeletionCondition{
+								JobStatus: &succeededStatus,
+							},
+							Policy: rayv1.DeleteCluster,
+						},
+						{
+							Condition: rayv1.DeletionCondition{
+								JobStatus: &failedStatus,
+							},
+							Policy: rayv1.DeleteWorkers,
+						},
 					},
 				}))
 			})
@@ -1488,17 +1553,25 @@ var _ = Context("RayJob with different submission modes", func() {
 			namespace := "default"
 			rayJob := rayJobTemplate("rayjob-test-deleteself-on-success", namespace)
 
-			onSuccessPolicy := rayv1.DeleteSelf
-			onFailurePolicy := rayv1.DeleteNone
-			deletionStrategy := rayv1.DeletionStrategy{
-				OnSuccess: &rayv1.DeletionPolicy{
-					Policy: &onSuccessPolicy,
-				},
-				OnFailure: &rayv1.DeletionPolicy{
-					Policy: &onFailurePolicy,
+			succeededStatus := rayv1.JobStatusSucceeded
+			failedStatus := rayv1.JobStatusFailed
+			deletionStrategy := &rayv1.DeletionStrategy{
+				DeletionRules: []rayv1.DeletionRule{
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &succeededStatus,
+						},
+						Policy: rayv1.DeleteSelf,
+					},
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &failedStatus,
+						},
+						Policy: rayv1.DeleteNone,
+					},
 				},
 			}
-			rayJob.Spec.DeletionStrategy = &deletionStrategy
+			rayJob.Spec.DeletionStrategy = deletionStrategy
 			rayJob.Spec.ShutdownAfterJobFinishes = false
 			rayCluster := &rayv1.RayCluster{}
 
@@ -1599,17 +1672,25 @@ var _ = Context("RayJob with different submission modes", func() {
 			namespace := "default"
 			rayJob := rayJobTemplate("rayjob-test-deleteself-on-failure", namespace)
 
-			onSuccessPolicy := rayv1.DeleteNone
-			onFailurePolicy := rayv1.DeleteSelf
-			deletionStrategy := rayv1.DeletionStrategy{
-				OnSuccess: &rayv1.DeletionPolicy{
-					Policy: &onSuccessPolicy,
-				},
-				OnFailure: &rayv1.DeletionPolicy{
-					Policy: &onFailurePolicy,
+			succeededStatus := rayv1.JobStatusSucceeded
+			failedStatus := rayv1.JobStatusFailed
+			deletionStrategy := &rayv1.DeletionStrategy{
+				DeletionRules: []rayv1.DeletionRule{
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &succeededStatus,
+						},
+						Policy: rayv1.DeleteCluster,
+					},
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &failedStatus,
+						},
+						Policy: rayv1.DeleteSelf,
+					},
 				},
 			}
-			rayJob.Spec.DeletionStrategy = &deletionStrategy
+			rayJob.Spec.DeletionStrategy = deletionStrategy
 			rayJob.Spec.ShutdownAfterJobFinishes = false
 			rayCluster := &rayv1.RayCluster{}
 
@@ -1710,27 +1791,43 @@ var _ = Context("RayJob with different submission modes", func() {
 			namespace := "default"
 			rayJob := rayJobTemplate("rayjob-test-deletenone-on-success", namespace)
 
-			onSuccessPolicy := rayv1.DeleteNone
-			onFailurePolicy := rayv1.DeleteNone
-			deletionStrategy := rayv1.DeletionStrategy{
-				OnSuccess: &rayv1.DeletionPolicy{
-					Policy: &onSuccessPolicy,
-				},
-				OnFailure: &rayv1.DeletionPolicy{
-					Policy: &onFailurePolicy,
+			succeededStatus := rayv1.JobStatusSucceeded
+			failedStatus := rayv1.JobStatusFailed
+			deletionStrategy := &rayv1.DeletionStrategy{
+				DeletionRules: []rayv1.DeletionRule{
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &succeededStatus,
+						},
+						Policy: rayv1.DeleteNone,
+					},
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &failedStatus,
+						},
+						Policy: rayv1.DeleteNone,
+					},
 				},
 			}
-			rayJob.Spec.DeletionStrategy = &deletionStrategy
+			rayJob.Spec.DeletionStrategy = deletionStrategy
 			rayJob.Spec.ShutdownAfterJobFinishes = false
 			rayCluster := &rayv1.RayCluster{}
 
 			By("Verify RayJob spec", func() {
 				Expect(*rayJob.Spec.DeletionStrategy).To(Equal(rayv1.DeletionStrategy{
-					OnSuccess: &rayv1.DeletionPolicy{
-						Policy: &onSuccessPolicy,
-					},
-					OnFailure: &rayv1.DeletionPolicy{
-						Policy: &onFailurePolicy,
+					DeletionRules: []rayv1.DeletionRule{
+						{
+							Condition: rayv1.DeletionCondition{
+								JobStatus: &succeededStatus,
+							},
+							Policy: rayv1.DeleteNone,
+						},
+						{
+							Condition: rayv1.DeletionCondition{
+								JobStatus: &failedStatus,
+							},
+							Policy: rayv1.DeleteNone,
+						},
 					},
 				}))
 			})
@@ -1866,27 +1963,43 @@ var _ = Context("RayJob with different submission modes", func() {
 			namespace := "default"
 			rayJob := rayJobTemplate("rayjob-test-deletenone-on-failure", namespace)
 
-			onSuccessPolicy := rayv1.DeleteCluster
-			onFailurePolicy := rayv1.DeleteNone
-			deletionStrategy := rayv1.DeletionStrategy{
-				OnSuccess: &rayv1.DeletionPolicy{
-					Policy: &onSuccessPolicy,
-				},
-				OnFailure: &rayv1.DeletionPolicy{
-					Policy: &onFailurePolicy,
+			succeededStatus := rayv1.JobStatusSucceeded
+			failedStatus := rayv1.JobStatusFailed
+			deletionStrategy := &rayv1.DeletionStrategy{
+				DeletionRules: []rayv1.DeletionRule{
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &succeededStatus,
+						},
+						Policy: rayv1.DeleteCluster,
+					},
+					{
+						Condition: rayv1.DeletionCondition{
+							JobStatus: &failedStatus,
+						},
+						Policy: rayv1.DeleteNone,
+					},
 				},
 			}
-			rayJob.Spec.DeletionStrategy = &deletionStrategy
+			rayJob.Spec.DeletionStrategy = deletionStrategy
 			rayJob.Spec.ShutdownAfterJobFinishes = false
 			rayCluster := &rayv1.RayCluster{}
 
 			By("Verify RayJob spec", func() {
 				Expect(*rayJob.Spec.DeletionStrategy).To(Equal(rayv1.DeletionStrategy{
-					OnSuccess: &rayv1.DeletionPolicy{
-						Policy: &onSuccessPolicy,
-					},
-					OnFailure: &rayv1.DeletionPolicy{
-						Policy: &onFailurePolicy,
+					DeletionRules: []rayv1.DeletionRule{
+						{
+							Condition: rayv1.DeletionCondition{
+								JobStatus: &succeededStatus,
+							},
+							Policy: rayv1.DeleteCluster,
+						},
+						{
+							Condition: rayv1.DeletionCondition{
+								JobStatus: &failedStatus,
+							},
+							Policy: rayv1.DeleteNone,
+						},
 					},
 				}))
 			})
