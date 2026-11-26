@@ -84,6 +84,7 @@ repos:
         name: Markdown linting
         args:
           - --ignore=.github/pull_request_template.md
+          - --ignore=.agents/skills/release-notes/templates
           - --disable=MD033
 
   - repo: https://github.com/google/yamlfmt
