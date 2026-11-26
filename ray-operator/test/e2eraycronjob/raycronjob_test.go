@@ -21,9 +21,12 @@ func rayCronJobACTemplate(name, namespace, schedule string) *rayv1ac.RayCronJobA
 			rayv1ac.RayCronJobSpec().
 				WithSchedule(schedule).
 				WithJobTemplate(
-					rayv1ac.RayJobSpec().
-						WithEntrypoint("sleep 1").
-						WithRayClusterSpec(NewRayClusterSpec()),
+					rayv1ac.RayJobTemplateSpec().
+						WithSpec(
+							rayv1ac.RayJobSpec().
+								WithEntrypoint("sleep 1").
+								WithRayClusterSpec(NewRayClusterSpec()),
+						),
 				),
 		)
 }

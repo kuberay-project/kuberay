@@ -1,11 +1,7 @@
 processor:
   ignoreTypes:
     - "List$"
-    - "Status$"
-    - "HeadInfo$"
-    - "ClusterState$"
   ignoreFields:
-    - "status$"
     - "TypeMeta$"
 
 render:

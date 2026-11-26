@@ -19,6 +19,10 @@ type CollectorOptionsApplyConfiguration struct {
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 	// Env allows injecting custom environment variables into the collector container.
 	Env []corev1.EnvVar `json:"env,omitempty"`
+	// SecurityContext specifies the security context for the collector container.
+	// If set, the fields of SecurityContext override the equivalent fields of PodSecurityContext.
+	// More info: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 }
 
 // CollectorOptionsApplyConfiguration constructs a declarative configuration of the CollectorOptions type for use with
@@ -58,5 +62,13 @@ func (b *CollectorOptionsApplyConfiguration) WithEnv(values ...corev1.EnvVar) *C
 	for i := range values {
 		b.Env = append(b.Env, values[i])
 	}
+	return b
+}
+
+// WithSecurityContext sets the SecurityContext field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SecurityContext field is set to the value of the last call.
+func (b *CollectorOptionsApplyConfiguration) WithSecurityContext(value corev1.SecurityContext) *CollectorOptionsApplyConfiguration {
+	b.SecurityContext = &value
 	return b
 }

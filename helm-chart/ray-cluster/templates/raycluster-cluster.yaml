@@ -189,7 +189,11 @@ spec:
   - groupName: {{ .Values.worker.groupName }}
     replicas: {{ .Values.worker.replicas }}
     minReplicas: {{ .Values.worker.minReplicas | default 0 }}
-    maxReplicas: {{ .Values.worker.maxReplicas | default 2147483647 }}
+    {{- if ne .Values.worker.maxReplicas nil }}
+    maxReplicas: {{ .Values.worker.maxReplicas }}
+    {{- else }}
+    maxReplicas: 2147483647
+    {{- end }}
     numOfHosts: {{ .Values.worker.numOfHosts | default 1 }}
     {{- if or .Values.worker.rayStartParams .Values.worker.initArgs }}
     rayStartParams:
@@ -323,7 +327,11 @@ spec:
   - groupName: {{ $groupName }}
     replicas: {{ $values.replicas }}
     minReplicas: {{ $values.minReplicas | default 0 }}
-    maxReplicas: {{ $values.maxReplicas | default 2147483647 }}
+    {{- if ne $values.maxReplicas nil }}
+    maxReplicas: {{ $values.maxReplicas }}
+    {{- else }}
+    maxReplicas: 2147483647
+    {{- end }}
     numOfHosts: {{ $values.numOfHosts | default 1 }}
     {{- if or $values.rayStartParams $values.initArgs }}
     rayStartParams:

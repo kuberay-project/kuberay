@@ -15,6 +15,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/ray-project/kuberay/historyserver/pkg/historyserver"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/clusterlogs"
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 	. "github.com/ray-project/kuberay/historyserver/test/support"
@@ -2215,7 +2216,11 @@ func testDeadClusterMetadata(test Test, g *WithT, namespace *corev1.Namespace, s
 	// Wait for cluster metadata to be stored in S3 by the collector before deleting the cluster.
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	storageKey := utils.EndpointPathToStorageKey("/api/v0/cluster_metadata")
-	sessionDir := clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID)
+	sessionDir := clusterlogs.SessionDir("", utils.ClusterInfo{
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
+		SessionName: sessionID,
+	})
 	metaKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
 	LogWithTimestamp(test.T(), "Waiting for cluster metadata to appear at S3 key: %s", metaKey)
 
@@ -2295,7 +2300,11 @@ func testDeadClusterPlacementGroups(test Test, g *WithT, namespace *corev1.Names
 	// The collector stores the endpoint with query params, so the storage key includes them.
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	storageKey := utils.EndpointPathToStorageKey("/api/v0/placement_groups?detail=1&limit=10000")
-	sessionDir := clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID)
+	sessionDir := clusterlogs.SessionDir("", utils.ClusterInfo{
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
+		SessionName: sessionID,
+	})
 	pgKey := fmt.Sprintf("%s/%s/%s", sessionDir, utils.RAY_SESSIONDIR_FETCHED_ENDPOINTS_NAME, storageKey)
 	LogWithTimestamp(test.T(), "Waiting for placement groups data to appear at S3 key: %s", pgKey)
 
@@ -2537,16 +2546,16 @@ func setClusterContext(test Test, g *WithT, client *http.Client, historyServerUR
 		defer resp.Body.Close()
 		gg.Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-		body, err := io.ReadAll(resp.Body)
-		gg.Expect(err).NotTo(HaveOccurred())
-
-		var result map[string]any
-		err = json.Unmarshal(body, &result)
-		gg.Expect(err).NotTo(HaveOccurred())
-		gg.Expect(result["result"]).To(Equal("success"))
-		gg.Expect(result["name"]).To(Equal(clusterName))
-		gg.Expect(result["namespace"]).To(Equal(namespace))
-		gg.Expect(result["session"]).To(Equal(session))
+		// The cluster context rides on the response cookies: the body is the bootstrap
+		// page that hands the URL fragment over to the dashboard root client-side.
+		gg.Expect(resp.Header.Get("Content-Type")).To(ContainSubstring("text/html"))
+		cookies := map[string]string{}
+		for _, cookie := range resp.Cookies() {
+			cookies[cookie.Name] = cookie.Value
+		}
+		gg.Expect(cookies[historyserver.COOKIE_CLUSTER_NAME_KEY]).To(Equal(clusterName))
+		gg.Expect(cookies[historyserver.COOKIE_CLUSTER_NAMESPACE_KEY]).To(Equal(namespace))
+		gg.Expect(cookies[historyserver.COOKIE_SESSION_NAME_KEY]).To(Equal(session))
 	}, TestTimeoutShort).Should(Succeed())
 }
 

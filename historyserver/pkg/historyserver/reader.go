@@ -348,43 +348,44 @@ func (s *ServerHandler) _getNodeLogFile(clusterSessionKey, clusterLogPathPrefix,
 		maxLines = MAX_LOG_LIMIT
 	}
 
-	scanner := bufio.NewScanner(reader)
+	logReader := bufio.NewReader(reader)
 	buffer := make([]string, maxLines)
-	index := 0
-	totalLines := 0
+	index, count, retainedBytes := 0, 0, 0
 
-	// TODO(nary): Optimize this to prevent scanning through the whole log file to get last n lines
-	// Get the last N lines following Ray Dashboard API behavior with circular buffer
-	// Example with maxLines=3, file has 5 lines:
-	// 	Line 1: buffer[0], Line 2: buffer[1], Line 3: buffer[2]
-	// 	Line 4: buffer[0] (overwrites Line 1), Line 5: buffer[1] (overwrites Line 2)
-	// 	Final buffer: ["Line 4", "Line 5", "Line 3"]
-	for scanner.Scan() {
-		buffer[index%maxLines] = scanner.Text()
-		index++
-		totalLines++
+	// TODO(nary): Avoid reading the whole log file to get the last N lines.
+	// index points to the next slot to overwrite, or the oldest line once full.
+	for {
+		line, err := logReader.ReadString('\n')
+		atEOF := errors.Is(err, io.EOF)
+		if err != nil && !atEOF {
+			return nil, err
+		}
+		if len(line) == 0 && atEOF {
+			break
+		}
+		// Match ScanLines: strip LF and an optional trailing CR, even at EOF.
+		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		retainedBytes += len(line) - len(buffer[index])
+		buffer[index] = line
+		index = (index + 1) % maxLines
+		count = min(count+1, maxLines)
+		if atEOF {
+			break
+		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, err
+	start := 0
+	if count == maxLines {
+		start = index
 	}
-
-	// Reconstruct lines in correct order
-	var lines []string
-	if totalLines <= maxLines {
-		// File has fewer lines than requested, return all
-		lines = buffer[:totalLines]
-	} else {
-		// Construct response with correct log line order from the circular buffer
-		// Example: buffer=["Line 4", "Line 5", "Line 3"], start=2
-		//   buffer[2:] = ["Line 3"] (oldest)
-		//   buffer[:2] = ["Line 4", "Line 5"] (newest)
-		//   Result: ["Line 3", "Line 4", "Line 5"]
-		start := index % maxLines
-		lines = append(buffer[start:], buffer[:start]...)
+	// Build the response directly without a reordered slice or intermediate string.
+	result := make([]byte, 0, retainedBytes+max(0, count-1))
+	for i := range count {
+		if i > 0 {
+			result = append(result, '\n')
+		}
+		result = append(result, buffer[(start+i)%count]...)
 	}
-
-	result := []byte(strings.Join(lines, "\n"))
 	if options.FilterAnsiCode {
 		result = filterAnsiEscapeCodes(result)
 	}

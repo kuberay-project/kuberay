@@ -61,6 +61,7 @@ The History Server supports multiple storage backends:
 | S3 | AWS S3 or S3-compatible storage (e.g. RustFS) | Use `--storage-backend=s3` |
 | Azure Blob Storage | Microsoft Azure Blob Storage | Use `--storage-backend=azureblob` |
 | Aliyun OSS | Alibaba Cloud Object Storage Service | Use `--storage-backend=aliyunoss` |
+| OCI Object Storage | Oracle Cloud Infrastructure Object Storage | Use `--storage-backend=oci` |
 | Local test | For local testing and development | Use `--storage-backend=localtest` |
 
 ## Running locally
@@ -111,11 +112,13 @@ Sample configs are in the `config/` directory:
 | `rayjob-azureblob.yaml` | Sample RayJob with collector sidecar (Azure Blob) |
 | `rayjob-gcs.yaml` | Sample RayJob with collector sidecar (GCS) |
 | `rayjob-aliyunoss.yaml` | Sample RayJob with collector sidecar (Alibaba Cloud OSS via RRSA) |
+| `rayjob-oci.yaml` | Sample RayJob with collector sidecar (OCI Object Storage via OKE Workload Identity) |
 | `rayjob-kubernetes-auth.yaml` | Sample RayJob with collector sidecar using Kubernetes token authentication (S3/RustFS) |
 | `ray-data.yaml` | Sample Ray Data RayJob with collector sidecar (S3/RustFS) |
 | `rayservice.yaml` | Sample RayService with collector sidecar (S3/RustFS) |
 | `historyserver.yaml` | History Server deployment (S3/RustFS) |
 | `historyserver-azureblob.yaml` | History Server deployment (Azure Blob) |
+| `historyserver-oci.yaml` | History Server deployment (OCI Object Storage) |
 | `service_account.yaml` | Service account for History Server |
 
 ## Additional resources
