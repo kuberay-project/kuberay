@@ -3,6 +3,7 @@ package e2e
 import (
 	"testing"
 
+	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/require"
 
 	api "github.com/ray-project/kuberay/proto/go_client"
@@ -162,6 +163,14 @@ func TestCreateJobSubmission(t *testing.T) {
 	jobStopStatus, err = tCtx.GetRayAPIServerClient().StopRayJob(&stopJobRequest)
 	require.NoError(t, err, "No error expected")
 	require.Nil(t, jobStopStatus, "No RPC status expected")
+
+	gomega.NewWithT(t).Eventually(func() string {
+		jobDetails, rpcStatus, err := tCtx.GetRayAPIServerClient().GetRayJobDetails(&jobDetailsRequest)
+		if err != nil || rpcStatus != nil || jobDetails == nil {
+			return ""
+		}
+		return jobDetails.Status
+	}, TestTimeoutMedium, TestPollingInterval).Should(gomega.BeElementOf("STOPPED", "SUCCEEDED", "FAILED"))
 
 	// Delete job
 	deleteJobRequest := api.DeleteRayJobSubmissionRequest{
