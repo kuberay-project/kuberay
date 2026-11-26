@@ -278,6 +278,12 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 		autoscalerImage := podTemplate.Spec.Containers[utils.RayContainerIndex].Image
 		// inject autoscaler container into head pod
 		autoscalerContainer := BuildAutoscalerContainer(autoscalerImage)
+		for _, container := range podTemplate.Spec.Containers {
+			if utils.FindContainerPort(&container, utils.AutoscalerMetricsPortName, -1) != -1 {
+				autoscalerContainer.Ports = nil
+				break
+			}
+		}
 
 		// Configure mTLS env vars and volume mount for the autoscaler sidecar.
 		// validateTLSOptions rejects forbidden TLS env vars in autoscalerOptions.env,
@@ -982,6 +988,12 @@ func BuildAutoscalerContainer(autoscalerImage string) corev1.Container {
 		Name:            AutoscalerContainerName,
 		Image:           autoscalerImage,
 		ImagePullPolicy: corev1.PullIfNotPresent,
+		Ports: []corev1.ContainerPort{
+			{
+				Name:          utils.AutoscalerMetricsPortName,
+				ContainerPort: utils.DefaultAutoscalerMetricsPort,
+			},
+		},
 		Env: []corev1.EnvVar{
 			{
 				Name: utils.RAY_CLUSTER_NAME,
