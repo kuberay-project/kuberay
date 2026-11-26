@@ -12,7 +12,7 @@ kind create cluster --image=kindest/node:v1.29.0
 ## Step 2: Deploy a KubeRay operator
 
 Follow [this
-document](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/kuberay-operator-installation.html#kuberay-operator-deploy)
+document](https://docs.ray.io/en/latest/kuberay/getting-started/operator-installation.html#kuberay-operator-deploy)
 to install the latest stable KubeRay operator from the Helm repository.
 
 ## Step 3: Install APIServer with Helm
