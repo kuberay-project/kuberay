@@ -1,0 +1,11 @@
+{{- if .Values.webhooks.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kuberay-operator.fullname" . }}-selfsigned-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberay-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+{{- end }}

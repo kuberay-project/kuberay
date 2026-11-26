@@ -7,10 +7,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ray-project/kuberay/historyserver/pkg/collector/types"
-	"github.com/ray-project/kuberay/historyserver/pkg/storage"
 	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/transport"
+
+	"github.com/ray-project/kuberay/historyserver/pkg/collector/types"
+	"github.com/ray-project/kuberay/historyserver/pkg/storage"
 )
 
 type ServerHandler struct {
@@ -36,7 +37,8 @@ func NewServerHandler(
 	sessionLoader *SessionLoader,
 	useKubernetesProxy bool,
 	useAuthTokenMode bool,
-	enableLiveClusters bool) (*ServerHandler, error) {
+	enableLiveClusters bool,
+) (*ServerHandler, error) {
 	handler := &ServerHandler{
 		reader:        reader,
 		clientManager: clientManager,

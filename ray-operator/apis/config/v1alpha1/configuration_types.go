@@ -55,6 +55,12 @@ type Configuration struct {
 	// MetricsAddr is the address the metrics endpoint binds to.
 	MetricsAddr string `json:"metricsAddr,omitempty"`
 
+	// CollectorImage is the image used for the History Server collector sidecar injected into
+	// Ray head and worker Pods. A RayCluster can override it with
+	// `spec.historyServerOptions.collectorOptions.image`.
+	// Defaults to the collector image matching the KubeRay operator version.
+	CollectorImage string `json:"collectorImage,omitempty"`
+
 	// WatchNamespace specifies a list of namespaces to watch for custom resources, separated by commas.
 	// If empty, all namespaces will be watched.
 	WatchNamespace string `json:"watchNamespace,omitempty"`
@@ -89,12 +95,9 @@ type Configuration struct {
 
 	// UseKubernetesProxy indicates that the services/proxy and pods/proxy subresource should be used
 	// when connecting to the Ray Head node. This is useful when network policies disallow
-	// ingress traffic to the Ray cluster from other pods or Kuberay is running in a network without
+	// ingress traffic to the Ray cluster from other pods or KubeRay is running in a network without
 	// connectivity to Pods.
 	UseKubernetesProxy bool `json:"useKubernetesProxy,omitempty"`
-
-	// DeleteRayJobAfterJobFinishes deletes the RayJob CR itself if shutdownAfterJobFinishes is set to true.
-	DeleteRayJobAfterJobFinishes bool `json:"deleteRayJobAfterJobFinishes,omitempty"`
 
 	// EnableMetrics indicates whether KubeRay operator should emit control plane metrics.
 	EnableMetrics bool `json:"enableMetrics,omitempty"`

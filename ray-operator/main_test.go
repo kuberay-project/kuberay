@@ -34,6 +34,7 @@ kind: Configuration
 				ProbeAddr:            ":8082",
 				EnableLeaderElection: new(true),
 				ReconcileConcurrency: 1,
+				CollectorImage:       configapi.DefaultCollectorImage,
 				QPS:                  ptr.To(configapi.DefaultQPS),
 				Burst:                ptr.To(configapi.DefaultBurst),
 			},
@@ -57,6 +58,7 @@ reconcileConcurrency: 1
 				ProbeAddr:            ":8082",
 				EnableLeaderElection: new(true),
 				ReconcileConcurrency: 1,
+				CollectorImage:       configapi.DefaultCollectorImage,
 				QPS:                  ptr.To(configapi.DefaultQPS),
 				Burst:                ptr.To(configapi.DefaultBurst),
 			},
@@ -86,6 +88,7 @@ workerSidecarContainers:
 				ProbeAddr:            ":8082",
 				EnableLeaderElection: new(true),
 				ReconcileConcurrency: 1,
+				CollectorImage:       configapi.DefaultCollectorImage,
 				HeadSidecarContainers: []corev1.Container{
 					{
 						Name:  "fluentbit",
@@ -127,6 +130,7 @@ defaultPodLabels:
 				ProbeAddr:            ":8082",
 				EnableLeaderElection: new(true),
 				ReconcileConcurrency: 1,
+				CollectorImage:       configapi.DefaultCollectorImage,
 				DefaultPodAnnotations: map[string]string{
 					"monitoring.example.com/scrape": "true",
 					"monitoring.example.com/port":   "8080",
@@ -159,6 +163,7 @@ unknownfield: 1
 				ProbeAddr:            ":8082",
 				EnableLeaderElection: new(true),
 				ReconcileConcurrency: 1,
+				CollectorImage:       configapi.DefaultCollectorImage,
 				QPS:                  ptr.To(configapi.DefaultQPS),
 				Burst:                ptr.To(configapi.DefaultBurst),
 			},
@@ -184,6 +189,7 @@ burst: 300
 				ProbeAddr:            ":8082",
 				EnableLeaderElection: new(true),
 				ReconcileConcurrency: 1,
+				CollectorImage:       configapi.DefaultCollectorImage,
 				QPS:                  new(150.5),
 				Burst:                new(300),
 			},
@@ -257,6 +263,28 @@ reconcileConcurrency: 100
 				ProbeAddr:            ":8082",
 				EnableLeaderElection: new(true),
 				ReconcileConcurrency: 100,
+				CollectorImage:       configapi.DefaultCollectorImage,
+				QPS:                  ptr.To(configapi.DefaultQPS),
+				Burst:                ptr.To(configapi.DefaultBurst),
+			},
+			expectErr: false,
+		},
+		{
+			name: "Set CollectorImage",
+			configData: `apiVersion: config.ray.io/v1alpha1
+kind: Configuration
+collectorImage: "my-registry.io/kuberay/collector:v1.7.0"
+`,
+			expectedConfig: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Configuration",
+					APIVersion: "config.ray.io/v1alpha1",
+				},
+				MetricsAddr:          ":8080",
+				ProbeAddr:            ":8082",
+				EnableLeaderElection: new(true),
+				ReconcileConcurrency: 1,
+				CollectorImage:       "my-registry.io/kuberay/collector:v1.7.0",
 				QPS:                  ptr.To(configapi.DefaultQPS),
 				Burst:                ptr.To(configapi.DefaultBurst),
 			},
@@ -291,6 +319,7 @@ nodeEventForwarder:
 				ProbeAddr:            ":8082",
 				EnableLeaderElection: new(true),
 				ReconcileConcurrency: 1,
+				CollectorImage:       configapi.DefaultCollectorImage,
 				NodeEventForwarder: configapi.NodeEventForwarderConfiguration{
 					Enabled: true,
 					Sources: []string{"node-problem-detector", "nvidia-gpu-device-plugin"},
@@ -347,6 +376,7 @@ allowedNodeLabels:
 				ProbeAddr:            ":8082",
 				EnableLeaderElection: new(true),
 				ReconcileConcurrency: 1,
+				CollectorImage:       configapi.DefaultCollectorImage,
 				QPS:                  ptr.To(configapi.DefaultQPS),
 				Burst:                ptr.To(configapi.DefaultBurst),
 				AllowedNodeLabels:    []string{"topology.kubernetes.io/zone", "nvidia.com/gpu.clique"},

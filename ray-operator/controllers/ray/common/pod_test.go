@@ -194,6 +194,10 @@ var autoscalerContainer = corev1.Container{
 			Name:  utils.KUBERAY_GEN_AUTOSCALER_START_CMD,
 			Value: "ray kuberay-autoscaler --cluster-name $(RAY_CLUSTER_NAME) --cluster-namespace $(RAY_CLUSTER_NAMESPACE)",
 		},
+		{
+			Name:  utils.RAY_AUTH_MODE_ENV_VAR,
+			Value: string(rayv1.AuthModeDisabled),
+		},
 	},
 	Command: []string{
 		"/bin/bash",
@@ -953,6 +957,41 @@ func TestBuildPod_WithPlasmaDirectory(t *testing.T) {
 	}
 }
 
+func TestBuildPod_AuthDisabledOptsOutExplicitly(t *testing.T) {
+	// Ray 2.61+ defaults to token auth, so a cluster without authOptions.mode=token must get
+	// RAY_AUTH_MODE=disabled on the Ray container and the wait-gcs-ready init container.
+	ctx := context.Background()
+	for name, authOptions := range map[string]*rayv1.AuthOptions{
+		"nil":      nil,
+		"disabled": {Mode: rayv1.AuthModeDisabled},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cluster := instance.DeepCopy()
+			cluster.Spec.AuthOptions = authOptions
+			fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
+			worker := cluster.Spec.WorkerGroupSpecs[0]
+			podTemplateSpec := DefaultWorkerPodTemplate(ctx, *cluster, *worker.DeepCopy(), "pod", fqdnRayIP, "6379", "", 0, 0)
+			pod := BuildPod(ctx, podTemplateSpec, rayv1.WorkerNode, worker.RayStartParams, "6379", false, utils.GetCRDType(""), fqdnRayIP, nil, "")
+
+			checkContainerEnv(t, pod.Spec.Containers[utils.RayContainerIndex], utils.RAY_AUTH_MODE_ENV_VAR, string(rayv1.AuthModeDisabled))
+			checkContainerEnv(t, pod.Spec.InitContainers[len(pod.Spec.InitContainers)-1], utils.RAY_AUTH_MODE_ENV_VAR, string(rayv1.AuthModeDisabled))
+			for _, env := range pod.Spec.Containers[utils.RayContainerIndex].Env {
+				assert.NotEqual(t, utils.RAY_AUTH_TOKEN_ENV_VAR, env.Name)
+				assert.NotEqual(t, utils.RAY_ENABLE_K8S_TOKEN_AUTH_ENV_VAR, env.Name)
+			}
+		})
+	}
+}
+
+// TestSetContainerTokenAuthEnvVars_KeepsUserProvidedAuthMode ensures the user's token auth config
+// will not be overridden by the operator.
+func TestSetContainerTokenAuthEnvVars_KeepsUserProvidedAuthMode(t *testing.T) {
+	container := corev1.Container{Env: []corev1.EnvVar{{Name: utils.RAY_AUTH_MODE_ENV_VAR, Value: "token"}}}
+	SetContainerTokenAuthEnvVars("cluster", &container, nil)
+	// user defined RAY_AUTH_MODE_ENV_VAR is kept
+	assert.Equal(t, []corev1.EnvVar{{Name: utils.RAY_AUTH_MODE_ENV_VAR, Value: "token"}}, container.Env)
+}
+
 func TestBuildPod_WithEnableK8sTokenAuth(t *testing.T) {
 	ctx := context.Background()
 
@@ -1328,7 +1367,71 @@ func TestBuildPodWithAutoscalerOptions(t *testing.T) {
 	expectedContainer.SecurityContext = &customSecurityContext
 	index := getAutoscalerContainerIndex(pod)
 	actualContainer := pod.Spec.Containers[index]
+	// Env order depends on when auth env vars are injected, which is not part of the contract.
+	assert.ElementsMatch(t, expectedContainer.Env, actualContainer.Env)
+	expectedContainer.Env, actualContainer.Env = nil, nil
 	assert.True(t, reflect.DeepEqual(expectedContainer, actualContainer))
+}
+
+// TestBuildPod_AuthModePrecedence checks the RAY_AUTH_MODE setting priority.
+func TestBuildPod_AuthModePrecedence(t *testing.T) {
+	tokenEnv := []corev1.EnvVar{{Name: utils.RAY_AUTH_MODE_ENV_VAR, Value: string(rayv1.AuthModeToken)}}
+	disabled, token := string(rayv1.AuthModeDisabled), string(rayv1.AuthModeToken)
+
+	tests := []struct {
+		name                    string
+		authOptions             *rayv1.AuthOptions
+		autoscalerEnv           []corev1.EnvVar
+		defaultContainerEnvs    []corev1.EnvVar
+		expectedRayAuthModes    []string
+		expectedAutoscalerModes []string
+	}{
+		{
+			name:                    "autoscalerOptions.env is kept and not duplicated",
+			autoscalerEnv:           tokenEnv,
+			expectedRayAuthModes:    []string{disabled},
+			expectedAutoscalerModes: []string{token},
+		},
+		{
+			name:                    "defaultContainerEnvs wins over the default when authOptions is omitted",
+			defaultContainerEnvs:    tokenEnv,
+			expectedRayAuthModes:    []string{token},
+			expectedAutoscalerModes: []string{disabled},
+		},
+		{
+			name:                    "explicit authOptions.mode=disabled wins over defaultContainerEnvs",
+			authOptions:             &rayv1.AuthOptions{Mode: rayv1.AuthModeDisabled},
+			defaultContainerEnvs:    tokenEnv,
+			expectedRayAuthModes:    []string{disabled},
+			expectedAutoscalerModes: []string{disabled},
+		},
+	}
+
+	getAuthModes := func(container corev1.Container) []string {
+		var modes []string
+		for _, env := range container.Env {
+			if env.Name == utils.RAY_AUTH_MODE_ENV_VAR {
+				modes = append(modes, env.Value)
+			}
+		}
+		return modes
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			cluster := instance.DeepCopy()
+			cluster.Spec.AuthOptions = tc.authOptions
+			cluster.Spec.EnableInTreeAutoscaling = &trueFlag
+			cluster.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{Env: tc.autoscalerEnv}
+
+			podTemplateSpec := DefaultHeadPodTemplate(ctx, *cluster, cluster.Spec.HeadGroupSpec, "pod", "6379")
+			pod := BuildPod(ctx, podTemplateSpec, rayv1.HeadNode, cluster.Spec.HeadGroupSpec.RayStartParams, "6379", true, utils.GetCRDType(""), "", tc.defaultContainerEnvs, "")
+
+			assert.Equal(t, tc.expectedRayAuthModes, getAuthModes(pod.Spec.Containers[utils.RayContainerIndex]))
+			assert.Equal(t, tc.expectedAutoscalerModes, getAuthModes(pod.Spec.Containers[getAutoscalerContainerIndex(pod)]))
+		})
+	}
 }
 
 func TestHeadPodTemplate_WithAutoscalingEnabled(t *testing.T) {
@@ -1753,10 +1856,13 @@ func TestDefaultInitContainer(t *testing.T) {
 	// with the Ray head using TLS authentication. Currently, we simply copied all environment variables from
 	// Ray container to the init container. This may be changed in the future.
 	healthCheckContainer := podTemplateSpec.Spec.InitContainers[numInitContainers-1]
-	rayContainer := worker.Template.Spec.Containers[utils.RayContainerIndex]
+	rayContainer := podTemplateSpec.Spec.Containers[utils.RayContainerIndex]
 
 	assert.NotEmpty(t, rayContainer.Env, "The test only makes sense if the Ray container has environment variables.")
-	assert.Len(t, healthCheckContainer.Env, len(rayContainer.Env))
+	// The init container additionally gets RAY_AUTH_MODE=disabled here, while the Ray container
+	// only gets it later in BuildPod (after defaultContainerEnvs).
+	assert.Len(t, healthCheckContainer.Env, len(rayContainer.Env)+1)
+	checkContainerEnv(t, healthCheckContainer, utils.RAY_AUTH_MODE_ENV_VAR, string(rayv1.AuthModeDisabled))
 	for _, env := range rayContainer.Env {
 		// env.ValueFrom is the source for the environment variable's value. Cannot be used if value is not empty.
 		if env.Value != "" {
@@ -3150,6 +3256,35 @@ func TestBuildCollectorContainerAndPodInjection(t *testing.T) {
 	assert.Equal(t, utils.DEFAULT_RAY_EXPOSABLE_EVENT_TYPES, workerEventTypesV2Env.Value)
 }
 
+func TestBuildCollectorContainerSecurityContext(t *testing.T) {
+	fqdnRayIP := "test-cluster-head-svc.default.svc.cluster.local"
+	baseOptions := func() *rayv1.CollectorOptions {
+		return &rayv1.CollectorOptions{
+			Image: new("quay.io/kuberay/collector:latest"),
+			Env: []corev1.EnvVar{
+				{Name: "STORAGE_BACKEND", Value: "GCS"},
+				{Name: "GCS_BUCKET", Value: "my-bucket"},
+			},
+		}
+	}
+
+	t.Run("nil SecurityContext is not set on container", func(t *testing.T) {
+		opts := baseOptions()
+		container := BuildCollectorContainer(opts, rayv1.HeadNode, "cluster", "default", fqdnRayIP, nil)
+		assert.Nil(t, container.SecurityContext)
+	})
+
+	t.Run("SecurityContext is applied to container", func(t *testing.T) {
+		opts := baseOptions()
+		opts.SecurityContext = &corev1.SecurityContext{
+			RunAsUser:    new(int64(0)),
+			RunAsNonRoot: new(false),
+		}
+		container := BuildCollectorContainer(opts, rayv1.HeadNode, "cluster", "default", fqdnRayIP, nil)
+		assert.Equal(t, opts.SecurityContext, container.SecurityContext)
+	})
+}
+
 func TestIsNPUResourceKey(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -3264,5 +3399,106 @@ func TestGetCustomAcceleratorRayResourceName(t *testing.T) {
 			result := getCustomAcceleratorRayResourceName(tt.key)
 			assert.Equal(t, tt.expected, result)
 		})
+	}
+}
+
+func TestSetDefaultCollectorImage(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterHistoryServer, true)
+
+	defaultCollectorImage := "quay.io/kuberay/collector:nightly"
+
+	cluster := &rayv1.RayCluster{
+		Spec: rayv1.RayClusterSpec{
+			HistoryServerOptions: &rayv1.HistoryServerOptions{
+				CollectorOptions: &rayv1.CollectorOptions{},
+			},
+		},
+	}
+
+	tests := []struct {
+		name           string
+		collectorImage string
+		expectedImage  string
+	}{
+		{
+			name:           "collector image is inherited from the operator when not set",
+			collectorImage: "",
+			expectedImage:  defaultCollectorImage,
+		},
+		{
+			name:           "collector image set in the RayCluster is not overridden",
+			collectorImage: "my-registry.io/kuberay/collector:v1.7.0",
+			expectedImage:  "my-registry.io/kuberay/collector:v1.7.0",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			podTemplate := corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "ray-head", Image: "rayproject/ray:latest"},
+						{Name: utils.CollectorContainerName, Image: tc.collectorImage},
+					},
+				},
+			}
+
+			SetDefaultCollectorImage(cluster, &podTemplate, defaultCollectorImage)
+
+			assert.Equal(t, "rayproject/ray:latest", podTemplate.Spec.Containers[0].Image)
+			assert.Equal(t, tc.expectedImage, podTemplate.Spec.Containers[1].Image)
+		})
+	}
+
+	t.Run("no-op when the collector container is not injected", func(t *testing.T) {
+		podTemplate := corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: "ray-head", Image: "rayproject/ray:latest"},
+				},
+			},
+		}
+
+		SetDefaultCollectorImage(cluster, &podTemplate, defaultCollectorImage)
+
+		assert.Len(t, podTemplate.Spec.Containers, 1)
+		assert.Equal(t, "rayproject/ray:latest", podTemplate.Spec.Containers[0].Image)
+	})
+
+	t.Run("no-op when the RayCluster does not set historyServerOptions.collectorOptions", func(t *testing.T) {
+		// A collector container the user added manually is not managed by the operator,
+		// so its empty image is left as is.
+		podTemplate := corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: utils.CollectorContainerName, Image: ""},
+				},
+			},
+		}
+
+		SetDefaultCollectorImage(&rayv1.RayCluster{}, &podTemplate, defaultCollectorImage)
+
+		assert.Empty(t, podTemplate.Spec.Containers[0].Image)
+	})
+}
+
+// TestBuildPod_GeneratedRayStartCmdIsArgsSubstring pins the contract the pods CREATE webhook relies on: the
+// KUBERAY_GEN_RAY_START_CMD value appears exactly once, verbatim, in the Ray container's single args element
+func TestBuildPod_GeneratedRayStartCmdIsArgsSubstring(t *testing.T) {
+	ctx := context.Background()
+	for _, userCommand := range [][]string{nil, {"echo hello"}} {
+		cluster := instance.DeepCopy()
+		worker := cluster.Spec.WorkerGroupSpecs[0]
+		worker.Template.Spec.Containers[utils.RayContainerIndex].Command = userCommand
+		podName := cluster.Name + utils.DashSymbol + string(rayv1.WorkerNode) + utils.DashSymbol + worker.GroupName + utils.DashSymbol + utils.FormatInt32(0)
+		fqdnRayIP := utils.GenerateFQDNServiceName(ctx, *cluster, cluster.Namespace)
+		podTemplateSpec := DefaultWorkerPodTemplate(ctx, *cluster, worker, podName, fqdnRayIP, "6379", "", 0, 0)
+		pod := BuildPod(ctx, podTemplateSpec, rayv1.WorkerNode, worker.RayStartParams, "6379", false, utils.GetCRDType(""), fqdnRayIP, nil, "")
+
+		container := pod.Spec.Containers[utils.RayContainerIndex]
+		generated := getEnvVar(container, utils.KUBERAY_GEN_RAY_START_CMD)
+		require.NotNil(t, generated)
+		require.Len(t, container.Args, 1)
+		assert.Equal(t, 1, strings.Count(container.Args[0], generated.Value), "args: %q", container.Args[0])
 	}
 }

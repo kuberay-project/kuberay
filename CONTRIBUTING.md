@@ -27,6 +27,10 @@ Pull Requests should follow the "subject: message" format, where the subject des
 
 Refer to the template for more information on what goes into a PR description.
 
+### Updating your Pull Request
+
+To make reviews easier, we suggest merging `master` into your branch instead of rebasing when it falls behind, and adding new commits instead of squashing or force-pushing during review. This lets reviewers see what changed since their last review. PRs will be squashed when merged.
+
 ### Design Docs
 
 A contributor proposes a design with a PR on the repository to allow for revisions and discussions. If a design needs to be discussed before formulating a document for it, make use of Google doc and GitHub issue to involve the community on the discussion.
@@ -67,6 +71,20 @@ If you run into any merge issues, checkout this [git tutorial](https://docs.gith
 ### Release Acknowledgements
 
 Once your PR is merged, your contributions will be acknowledged in every release, see [Release Notes](https://github.com/ray-project/kuberay/releases) for more details.
+
+## AI-assisted Contributions
+
+> These guidelines apply to **all** AI-assisted contributions to KubeRay.
+> PRs that do not follow them may be closed without review.
+
+AI tools are welcome, but you are responsible for every line you submit.
+
+- **Disclose it:** Answer the "AI assistance" section in the PR template, and briefly describe how AI was used if it was.
+- **Review and test it yourself:** Read every changed line and run the relevant tests locally before requesting review. Reviewers should not be the first to read AI-generated code.
+- **Keep the PR description concise:** We suggest writing the PR description mostly yourself and keeping it short, so reviewers can quickly understand what changed and why.
+- **Be able to explain it:** Understand why each change was made, and be ready to explain it when reviewers ask.
+- **Reply to reviews yourself:** Do not use AI tools to write responses to review comments.
+- **Avoid duplicate and mass-generated PRs:** Search open issues and PRs before starting. Group small fixes (typos, style) into one PR instead of opening many.
 
 ## Finding contributions to work on
 

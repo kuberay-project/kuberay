@@ -46,7 +46,7 @@ func GetContainerStatusByName(pod *corev1.Pod, containerName string) (*corev1.Co
 //
 // TODO: port-forwarding is flaky in CI (see #5302) — the forward can die
 // silently and nothing restarts it. Only the Azurite tests still use this;
-// they should migrate to in-cluster access like the MinIO and history server
+// they should migrate to in-cluster access like the RustFS and history server
 // tests, after which this helper should be deleted.
 func PortForwardService(test Test, g *WithT, namespace, serviceName string, port int) {
 	kubectlCmd := exec.Command(

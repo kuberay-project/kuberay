@@ -1,7 +1,7 @@
 # KubeRay Community Guidelines
 
 There are 5 roles in the KubeRay community: contributor, triager, reviewer, committer, and technical steering
-committee. For formal descriptions and mechanisms, see GOVERNANCE.md.
+committee. For formal descriptions and mechanisms, see [GOVERNANCE.md](../../GOVERNANCE.md).
 
 ## Guidelines
 

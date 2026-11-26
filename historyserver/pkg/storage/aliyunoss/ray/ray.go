@@ -22,6 +22,8 @@ import (
 	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 )
 
+const timeout = 2 * time.Minute
+
 type RayLogsHandler struct {
 	OssClient           *oss.Client
 	OssBucket           string
@@ -38,7 +40,8 @@ type RayLogsHandler struct {
 }
 
 func (r *RayLogsHandler) CreateDirectory(d string) error {
-	ctx := context.TODO()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	objectDir := fmt.Sprintf("%s/", path.Clean(d))
 
 	isExist, err := r.OssClient.IsObjectExist(ctx, r.OssBucket, objectDir)
@@ -49,8 +52,8 @@ func (r *RayLogsHandler) CreateDirectory(d string) error {
 	if !isExist {
 		logrus.Infof("Begin to create oss dir %s ...", objectDir)
 		_, err = r.OssClient.PutObject(ctx, &oss.PutObjectRequest{
-			Bucket: oss.Ptr(r.OssBucket),
-			Key:    oss.Ptr(objectDir),
+			Bucket: new(r.OssBucket),
+			Key:    new(objectDir),
 			Body:   bytes.NewReader([]byte("")),
 		})
 		if err != nil {
@@ -63,9 +66,12 @@ func (r *RayLogsHandler) CreateDirectory(d string) error {
 }
 
 func (r *RayLogsHandler) Append(file string, reader io.Reader, appendPosition int64) (nextPod int64, err error) {
-	result, err := r.OssClient.AppendObject(context.TODO(), &oss.AppendObjectRequest{
-		Bucket:   oss.Ptr(r.OssBucket),
-		Key:      oss.Ptr(file),
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	result, err := r.OssClient.AppendObject(ctx, &oss.AppendObjectRequest{
+		Bucket:   new(r.OssBucket),
+		Key:      new(file),
 		Position: &appendPosition,
 		Body:     reader,
 	})
@@ -77,22 +83,26 @@ func (r *RayLogsHandler) Append(file string, reader io.Reader, appendPosition in
 }
 
 func (r *RayLogsHandler) WriteFile(file string, reader io.ReadSeeker) error {
-	_, err := r.OssClient.PutObject(context.TODO(), &oss.PutObjectRequest{
-		Bucket: oss.Ptr(r.OssBucket),
-		Key:    oss.Ptr(file),
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	_, err := r.OssClient.PutObject(ctx, &oss.PutObjectRequest{
+		Bucket: new(r.OssBucket),
+		Key:    new(file),
 		Body:   reader,
 	})
 	return err
 }
 
 func (r *RayLogsHandler) _listFiles(prefix string, delimiter string, onlyBase bool) []string {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	files := []string{}
 
 	p := r.OssClient.NewListObjectsV2Paginator(&oss.ListObjectsV2Request{
-		Bucket:    oss.Ptr(r.OssBucket),
-		Prefix:    oss.Ptr(prefix + "/"),
-		Delimiter: oss.Ptr(delimiter),
+		Bucket:    new(r.OssBucket),
+		Prefix:    new(prefix + "/"),
+		Delimiter: new(delimiter),
 		MaxKeys:   100,
 	})
 
@@ -144,7 +154,8 @@ func (r *RayLogsHandler) List() (res []utils.ClusterInfo) {
 			fmt.Println("Recovered from panic:", r)
 		}
 	}()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	clusters := make(utils.ClusterInfoList, 0, 10)
 	logrus.Debugf("Prepare to get list clusters info ...")
 
@@ -152,9 +163,9 @@ func (r *RayLogsHandler) List() (res []utils.ClusterInfo) {
 
 	getClusters := func() {
 		p := r.OssClient.NewListObjectsV2Paginator(&oss.ListObjectsV2Request{
-			Bucket:    oss.Ptr(r.OssBucket),
-			Prefix:    oss.Ptr(prefix),
-			Delimiter: oss.Ptr(""),
+			Bucket:    new(r.OssBucket),
+			Prefix:    new(prefix),
+			Delimiter: new(""),
 			MaxKeys:   100,
 		})
 
@@ -182,24 +193,31 @@ func (r *RayLogsHandler) List() (res []utils.ClusterInfo) {
 }
 
 func (r *RayLogsHandler) GetContent(prefix string, fileName string) io.Reader {
-	ctx := context.TODO()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	fullPath := path.Join(r.OssRootDir, prefix, fileName)
 	logrus.Infof("Prepare to get object %s info ...", fullPath)
 	result, err := r.OssClient.GetObject(ctx, &oss.GetObjectRequest{
-		Bucket: oss.Ptr(r.OssBucket),
-		Key:    oss.Ptr(fullPath),
+		Bucket: new(r.OssBucket),
+		Key:    new(fullPath),
 	})
 	if err != nil {
 		logrus.Errorf("Failed to get object %s: %v", fullPath, err)
 		dirPath := path.Dir(fullPath)
 		allFiles := r._listFiles(dirPath, "", false)
+
+		// Use a fresh context for the retry. The _listFiles above has its own
+		// timeout budget and may have consumed most of the parent ctx.
+		retryCtx, retryCancel := context.WithTimeout(context.Background(), timeout)
+		defer retryCancel()
+
 		found := false
 		for _, f := range allFiles {
 			if path.Base(f) == path.Base(fullPath) {
 				logrus.Infof("Get object %s info success", f)
-				result, err = r.OssClient.GetObject(ctx, &oss.GetObjectRequest{
-					Bucket: oss.Ptr(r.OssBucket),
-					Key:    oss.Ptr(f),
+				result, err = r.OssClient.GetObject(retryCtx, &oss.GetObjectRequest{
+					Bucket: new(r.OssBucket),
+					Key:    new(f),
 				})
 				if err != nil {
 					logrus.Errorf("Failed to get object %s: %v", f, err)
@@ -224,14 +242,14 @@ func (r *RayLogsHandler) GetContent(prefix string, fileName string) io.Reader {
 	return bytes.NewReader(data)
 }
 
-func NewReader(c *types.RayHistoryServerConfig, jd map[string]interface{}) (storage.StorageReader, error) {
+func NewReader(c *types.RayHistoryServerConfig, jd map[string]any) (storage.StorageReader, error) {
 	config := &config{}
 	config.completeHSConfig(c, jd)
 
 	return New(config)
 }
 
-func NewWriter(c *types.RayCollectorConfig, jd map[string]interface{}) (storage.StorageWriter, error) {
+func NewWriter(c *types.RayCollectorConfig, jd map[string]any) (storage.StorageWriter, error) {
 	config := &config{}
 	config.complete(c, jd)
 
@@ -243,9 +261,6 @@ func New(c *config) (*RayLogsHandler, error) {
 	// Ref: https://github.com/aliyun/alibabacloud-oss-go-sdk-v2.
 
 	logrus.Infof("Begin to create oss client ...")
-	httpClient := &http.Client{
-		Timeout: 5 * time.Second, // Set timeout
-	}
 	provider, err := rrsa.NewCredentialsProvider()
 	if err != nil {
 		logrus.Fatalf("Failed to create credentials provider: %v", err)
@@ -254,8 +269,7 @@ func New(c *config) (*RayLogsHandler, error) {
 	cfg := oss.LoadDefaultConfig().
 		WithCredentialsProvider(provider).
 		WithRegion(c.OSSRegion).
-		WithEndpoint(c.OSSEndpoint).
-		WithHttpClient(httpClient)
+		WithEndpoint(c.OSSEndpoint)
 	client := oss.NewClient(cfg)
 
 	logrus.Infof("Begin to use oss bucket %s ...", c.OSSBucket)

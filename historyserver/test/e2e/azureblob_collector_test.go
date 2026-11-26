@@ -64,7 +64,12 @@ func testAzureBlobUploadOnGracefulShutdown(test Test, g *WithT, namespace *corev
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
-	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID))
+	clusterInfo := utils.ClusterInfo{
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
+		SessionName: sessionID,
+	}
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
 	err := test.Client().Ray().RayV1().
 		RayClusters(rayCluster.Namespace).
@@ -89,7 +94,12 @@ func testAzureBlobSeparatesFilesBySession(test Test, g *WithT, namespace *corev1
 	sessionID := GetSessionIDFromHeadPod(test, g, rayCluster)
 	headNodeID := GetNodeIDFromPod(test, g, HeadPod(test, rayCluster), "ray-head")
 	workerNodeID := GetNodeIDFromPod(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
-	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, sessionID))
+	clusterInfo := utils.ClusterInfo{
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
+		SessionName: sessionID,
+	}
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
 	killContainerAndWaitForRestart(test, g, HeadPod(test, rayCluster), "ray-head")
 	killContainerAndWaitForRestart(test, g, FirstWorkerPod(test, rayCluster), "ray-worker")
@@ -109,7 +119,12 @@ func testAzureBlobResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 
 	dummySessionID := fmt.Sprintf("test-recovery-session-%s", namespace.Name)
 	dummyNodeID := fmt.Sprintf("head-node-%s", namespace.Name)
-	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", "", "", rayCluster.Namespace, rayCluster.Name, dummySessionID))
+	clusterInfo := utils.ClusterInfo{
+		Namespace:   rayCluster.Namespace,
+		Name:        rayCluster.Name,
+		SessionName: dummySessionID,
+	}
+	sessionPrefix := fmt.Sprintf("%s/", clusterlogs.SessionDir("", clusterInfo))
 
 	headPod, err := GetHeadPod(test, rayCluster)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -143,7 +158,7 @@ func testAzureBlobResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 		gg.Expect(cs.Ready).To(BeTrue())
 	}, TestTimeoutMedium).Should(Succeed())
 
-	LogWithTimestamp(test.T(), "Verifying file2.log was uploaded to Azure Blob (idempotency check)")
+	LogWithTimestamp(test.T(), "Verifying file2.log was uploaded to Azure Blob as a chunk (idempotency check)")
 	g.Eventually(func(gg Gomega) {
 		logsPrefix := sessionPrefix
 		containerClient := azureClient.ServiceClient().NewContainerClient(AzureContainerName)
@@ -164,9 +179,11 @@ func testAzureBlobResumesUploadsOnRestart(test Test, g *WithT, namespace *corev1
 		}
 		LogWithTimestamp(test.T(), "Found uploaded objects: %v", uploadedKeys)
 
+		// Append-only logs are uploaded by chunk, so file2.log lands under
+		// "file2.log.chunks/<offset>" rather than as a whole object.
 		hasFile2 := false
 		for _, key := range uploadedKeys {
-			if strings.HasSuffix(key, "file2.log") {
+			if strings.Contains(key, "/file2.log"+clusterlogs.ChunkDirSuffix+"/") {
 				hasFile2 = true
 				break
 			}
@@ -307,8 +324,26 @@ func assertAzureBlobFileExist(test Test, g *WithT, containerClient *container.Cl
 	LogWithTimestamp(test.T(), "Verifying file %s exists", fileKey)
 	g.Eventually(func(gg Gomega) {
 		blobClient := containerClient.NewBlobClient(fileKey)
-		_, err := blobClient.GetProperties(context.Background(), nil)
-		gg.Expect(err).NotTo(HaveOccurred())
-		LogWithTimestamp(test.T(), "Verified file %s exists", fileKey)
+		if _, err := blobClient.GetProperties(context.Background(), nil); err == nil {
+			LogWithTimestamp(test.T(), "Verified file %s exists", fileKey)
+			return
+		}
+		// Append-only logs are stored as chunks under "<fileName>.chunks/".
+		chunkPrefix := fileKey + clusterlogs.ChunkDirSuffix + "/"
+		pager := containerClient.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{Prefix: &chunkPrefix})
+		// The collector writes a "<file>.chunks/" directory marker before the
+		// first chunk; only count real chunk blobs.
+		found := 0
+		for pager.More() {
+			page, err := pager.NextPage(context.Background())
+			gg.Expect(err).NotTo(HaveOccurred())
+			for _, blob := range page.Segment.BlobItems {
+				if blob.Name != nil && !strings.HasSuffix(*blob.Name, "/") {
+					found++
+				}
+			}
+		}
+		gg.Expect(found).NotTo(BeZero(), "neither %s nor any chunk under %s exists", fileKey, chunkPrefix)
+		LogWithTimestamp(test.T(), "Verified file %s exists as %d chunk(s)", fileKey, found)
 	}, TestTimeoutMedium).Should(Succeed(), "Failed to verify file %s exists", fileKey)
 }

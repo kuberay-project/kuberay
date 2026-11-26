@@ -7,10 +7,11 @@ import (
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/azureblob"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/gcs"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/localtest"
+	"github.com/ray-project/kuberay/historyserver/pkg/storage/oci"
 	"github.com/ray-project/kuberay/historyserver/pkg/storage/s3"
 )
 
-type WriterRegistry map[string]func(globalData *types.RayCollectorConfig, data map[string]interface{}) (storage.StorageWriter, error)
+type WriterRegistry map[string]func(globalData *types.RayCollectorConfig, data map[string]any) (storage.StorageWriter, error)
 
 func GetWriterRegistry() WriterRegistry {
 	return writerRegistry
@@ -21,9 +22,10 @@ var writerRegistry = WriterRegistry{
 	"azureblob": azureblob.NewWriter,
 	"s3":        s3.NewWriter,
 	"gcs":       gcs.NewWriter,
+	"oci":       oci.NewWriter,
 }
 
-type ReaderRegistry map[string]func(globalData *types.RayHistoryServerConfig, data map[string]interface{}) (storage.StorageReader, error)
+type ReaderRegistry map[string]func(globalData *types.RayHistoryServerConfig, data map[string]any) (storage.StorageReader, error)
 
 func GetReaderRegistry() ReaderRegistry {
 	return readerRegistry
@@ -35,4 +37,5 @@ var readerRegistry = ReaderRegistry{
 	"localtest": localtest.NewReader,
 	"s3":        s3.NewReader,
 	"gcs":       gcs.NewReader,
+	"oci":       oci.NewReader,
 }

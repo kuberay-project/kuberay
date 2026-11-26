@@ -84,7 +84,7 @@ func NewAzureBlobClient() (*azblob.Client, error) {
 }
 
 // DeleteAzureBlobContainer deletes all blobs in the Azure container.
-func DeleteAzureBlobContainer(test Test, g *WithT, azureClient *azblob.Client) {
+func DeleteAzureBlobContainer(test Test, _ *WithT, azureClient *azblob.Client) {
 	LogWithTimestamp(test.T(), "Deleting Azure Blob container %s", AzureContainerName)
 
 	containerClient := azureClient.ServiceClient().NewContainerClient(AzureContainerName)

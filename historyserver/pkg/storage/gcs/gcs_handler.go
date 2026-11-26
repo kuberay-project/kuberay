@@ -13,14 +13,15 @@ import (
 	"time"
 
 	gstorage "cloud.google.com/go/storage"
-	"github.com/ray-project/kuberay/historyserver/pkg/collector/types"
-	"github.com/ray-project/kuberay/historyserver/pkg/storage"
-	"github.com/ray-project/kuberay/historyserver/pkg/storage/clustermetadata"
-	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 	"github.com/sirupsen/logrus"
 	gIterator "google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	gTransport "google.golang.org/api/transport/http"
+
+	"github.com/ray-project/kuberay/historyserver/pkg/collector/types"
+	"github.com/ray-project/kuberay/historyserver/pkg/storage"
+	"github.com/ray-project/kuberay/historyserver/pkg/storage/clustermetadata"
+	"github.com/ray-project/kuberay/historyserver/pkg/utils"
 )
 
 const (
@@ -55,13 +56,13 @@ func (h *RayLogsHandler) CreateDirectory(directoryPath string) error {
 	if errors.Is(err, gstorage.ErrObjectNotExist) {
 		writer := h.StorageClient.Bucket(h.GCSBucket).Object(objectPath).NewWriter(ctx)
 		if createErr := writer.Close(); createErr != nil {
-			return fmt.Errorf("Failed to create directory: %s, error: %v", objectPath, createErr)
+			return fmt.Errorf("Failed to create directory: %s, error: %w", objectPath, createErr)
 		}
 
 		logrus.Infof("Successfully created GCS directory: %s", objectPath)
 		return nil
 	} else if err != nil {
-		return fmt.Errorf("Failed to check if GCS directory already exist: %s, error: %v", objectPath, err)
+		return fmt.Errorf("Failed to check if GCS directory already exist: %s, error: %w", objectPath, err)
 	}
 
 	logrus.Infof("Directory already exists: %s", objectPath)
@@ -76,14 +77,11 @@ func (h *RayLogsHandler) WriteFile(file string, reader io.ReadSeeker) error {
 	writer := h.StorageClient.Bucket(h.GCSBucket).Object(file).NewWriter(ctx)
 	_, err := io.Copy(writer, reader)
 	if err != nil {
-		return fmt.Errorf("GCS Client failed to Copy from source: %v", err)
+		return fmt.Errorf("GCS Client failed to Copy from source: %w", err)
 	}
 
 	// We don't defer close here since the close function acts as finalizing the write.
-	if err := writer.Close(); err != nil {
-		return err
-	}
-	return nil
+	return writer.Close()
 }
 
 // ListFiles will return all files within the directory.
@@ -103,7 +101,7 @@ func (h *RayLogsHandler) ListFiles(prefix string, directory string) []string {
 	var fileList []string
 	for {
 		attrs, err := fileIterator.Next()
-		if err == gIterator.Done {
+		if errors.Is(err, gIterator.Done) {
 			break
 		}
 		if err != nil {
@@ -150,7 +148,7 @@ func (h *RayLogsHandler) List() []utils.ClusterInfo {
 	objectIterator := bucket.Objects(ctx, query)
 	for {
 		objectAttr, err := objectIterator.Next()
-		if err == gIterator.Done {
+		if errors.Is(err, gIterator.Done) {
 			logrus.Infof("Finished iterating through gcs objects")
 			break
 		}
@@ -193,7 +191,7 @@ func (h *RayLogsHandler) GetContent(prefix string, fileName string) io.Reader {
 	}
 	objectIterator := bucket.Objects(ctx, query)
 	fileAttrs, err := objectIterator.Next()
-	if err == gIterator.Done {
+	if errors.Is(err, gIterator.Done) {
 		logrus.Errorf("File %s was not found in bucket for prefix %s", fileName, prefix)
 		return nil
 	}
@@ -218,13 +216,13 @@ func (h *RayLogsHandler) GetContent(prefix string, fileName string) io.Reader {
 	return bytes.NewReader(data)
 }
 
-func NewReader(c *types.RayHistoryServerConfig, jd map[string]interface{}) (storage.StorageReader, error) {
+func NewReader(c *types.RayHistoryServerConfig, jd map[string]any) (storage.StorageReader, error) {
 	config := &config{}
 	config.completeHistoryServerConfig(c, jd)
 	return New(config)
 }
 
-func NewWriter(c *types.RayCollectorConfig, jd map[string]interface{}) (storage.StorageWriter, error) {
+func NewWriter(c *types.RayCollectorConfig, jd map[string]any) (storage.StorageWriter, error) {
 	config := &config{}
 	config.completeCollectorConfig(c, jd)
 	return New(config)
@@ -252,7 +250,7 @@ func New(c *config) (*RayLogsHandler, error) {
 		option.WithScopes(gstorage.ScopeFullControl),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to create authentication transport object: %v", err)
+		return nil, fmt.Errorf("Failed to create authentication transport object: %w", err)
 	}
 
 	// Create a custom client with the authenticated transport
@@ -266,7 +264,7 @@ func New(c *config) (*RayLogsHandler, error) {
 		option.WithHTTPClient(customHttpTransportClient),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to create google cloud storage client: %v", err)
+		return nil, fmt.Errorf("Failed to create google cloud storage client: %w", err)
 	}
 
 	return &RayLogsHandler{

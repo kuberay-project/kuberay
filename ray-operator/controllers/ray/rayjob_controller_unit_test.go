@@ -16,6 +16,7 @@ import (
 	"go.uber.org/mock/gomock"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -1133,6 +1134,168 @@ func TestCheckJobStatusCheckTimeoutAndUpdateStatusIfNeeded(t *testing.T) {
 	assert.Contains(t, rayJob.Status.Message, "exceeded timeout of 1s")
 }
 
+// TestReconcileHTTPModeJobNotFound covers the two meanings of a GetJobInfo 404 in HTTPMode
+// (https://github.com/ray-project/kuberay/issues/4824). If the job was never observed on the
+// cluster, the 404 simply means the job has not been submitted yet, so the initial submission
+// must proceed. If the job was already observed, the 404 means the cluster lost the job state
+// (e.g. the head Pod was recreated), so the RayJob must transition to Failed and let
+// spec.backoffLimit govern retries (consistent with K8sJobMode) instead of being silently
+// resubmitted to the new head.
+func TestReconcileHTTPModeJobNotFound(t *testing.T) {
+	tests := []struct {
+		name                        string
+		jobStatus                   rayv1.JobStatus
+		expectedJobDeploymentStatus rayv1.JobDeploymentStatus
+		expectedReason              rayv1.JobFailedReason
+		expectedSubmitCalls         int
+	}{
+		{
+			name:                        "job not observed yet, initial submission proceeds",
+			jobStatus:                   rayv1.JobStatusNew,
+			expectedJobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
+			expectedSubmitCalls:         1,
+		},
+		{
+			name:                        "previously observed job disappeared, mark Failed instead of resubmitting",
+			jobStatus:                   rayv1.JobStatusRunning,
+			expectedJobDeploymentStatus: rayv1.JobDeploymentStatusFailed,
+			expectedReason:              rayv1.AppFailed,
+			expectedSubmitCalls:         0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			rayJob := &rayv1.RayJob{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-rayjob", Namespace: "default"},
+				Spec: rayv1.RayJobSpec{
+					SubmissionMode: rayv1.HTTPMode,
+					BackoffLimit:   ptr.To[int32](0),
+				},
+				Status: rayv1.RayJobStatus{
+					JobId:               "test-rayjob-abcde",
+					JobStatus:           tc.jobStatus,
+					JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
+				},
+			}
+
+			fakeDashboardClient := &utils.FakeRayDashboardClient{}
+			submitCalls := 0
+			submitJobMock := func(_ context.Context, _ *rayv1.RayJob) (string, error) { //nolint:unparam // This is a mock function so the signature cannot change
+				submitCalls++
+				return rayJob.Status.JobId, nil
+			}
+			fakeDashboardClient.SubmitJobMock.Store(&submitJobMock)
+
+			reconcileHTTPModeJobNotFound(ctx, rayJob, fakeDashboardClient)
+
+			assert.Equal(t, tc.expectedSubmitCalls, submitCalls)
+			assert.Equal(t, tc.expectedJobDeploymentStatus, rayJob.Status.JobDeploymentStatus)
+			assert.Equal(t, tc.expectedReason, rayJob.Status.Reason)
+		})
+	}
+}
+
+func TestRunningRayJobFailsWhenRayClusterIsDeleted(t *testing.T) {
+	tests := []struct {
+		backoffLimit                *int32
+		name                        string
+		expectedJobDeploymentStatus rayv1.JobDeploymentStatus
+	}{
+		{
+			name:                        "no backoffLimit - RayJob fails",
+			backoffLimit:                nil,
+			expectedJobDeploymentStatus: rayv1.JobDeploymentStatusFailed,
+		},
+		{
+			name:                        "backoffLimit allows retry - RayJob retries",
+			backoffLimit:                ptr.To[int32](1),
+			expectedJobDeploymentStatus: rayv1.JobDeploymentStatusRetrying,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			newScheme := runtime.NewScheme()
+			_ = rayv1.AddToScheme(newScheme)
+			_ = corev1.AddToScheme(newScheme)
+
+			rayJob := &rayv1.RayJob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-rayjob",
+					Namespace: "default",
+				},
+				Spec: rayv1.RayJobSpec{
+					Entrypoint:     "echo hello",
+					SubmissionMode: rayv1.HTTPMode,
+					BackoffLimit:   tc.backoffLimit,
+					RayClusterSpec: &rayv1.RayClusterSpec{
+						HeadGroupSpec: rayv1.HeadGroupSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{
+											Name:  "ray-head",
+											Image: "rayproject/ray:latest",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				Status: rayv1.RayJobStatus{
+					JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
+					JobStatus:           rayv1.JobStatusRunning,
+					JobId:               "test-job-id",
+					RayClusterName:      "test-raycluster",
+					StartTime:           &metav1.Time{Time: time.Now()},
+				},
+			}
+
+			fakeClient := clientFake.NewClientBuilder().
+				WithScheme(newScheme).
+				WithRuntimeObjects(rayJob).
+				WithStatusSubresource(rayJob).
+				Build()
+			recorder := events.NewFakeRecorder(100)
+			reconciler := &RayJobReconciler{
+				Client:   fakeClient,
+				Recorder: recorder,
+				Scheme:   newScheme,
+				dashboardClientFunc: func(_ *rayv1.RayCluster, _ string) (dashboardclient.RayDashboardClientInterface, error) {
+					return nil, errors.New("dashboard client should not be used when the RayCluster is missing")
+				},
+			}
+
+			ctx := context.Background()
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: rayJob.Name, Namespace: rayJob.Namespace},
+			})
+			require.NoError(t, err)
+
+			rayClusters := &rayv1.RayClusterList{}
+			require.NoError(t, fakeClient.List(ctx, rayClusters, client.InNamespace(rayJob.Namespace)))
+			assert.Empty(t, rayClusters.Items, "RayCluster should not be re-created while the RayJob is Running")
+
+			updated := &rayv1.RayJob{}
+			require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: rayJob.Name, Namespace: rayJob.Namespace}, updated))
+			assert.Equal(t, tc.expectedJobDeploymentStatus, updated.Status.JobDeploymentStatus)
+			assert.Equal(t, rayv1.RayClusterNotFound, updated.Status.Reason)
+			assert.Equal(t, int32(1), *updated.Status.Failed)
+
+			var foundEvent bool
+			for len(recorder.Events) > 0 {
+				if event := <-recorder.Events; strings.Contains(event, string(utils.RayClusterNotFound)) && strings.Contains(event, corev1.EventTypeWarning) {
+					foundEvent = true
+				}
+			}
+			assert.True(t, foundEvent, "Expected a Warning %s event", utils.RayClusterNotFound)
+		})
+	}
+}
+
 // TestBatchSchedulerCleanupCalledWhenRayJobSuspending verifies that batch scheduler resources are
 // cleaned up when a RayJob is suspended/retrying. Unlike the terminal (Complete/Failed) path, the
 // suspend path must requeue on cleanup failure rather than swallow the error, otherwise the PodGroup
@@ -1274,101 +1437,169 @@ func TestBatchSchedulerCleanupCalledWhenRayJobSuspendingOrRetrying(t *testing.T)
 	}
 }
 
-func TestRunningRayJobFailsWhenRayClusterIsDeleted(t *testing.T) {
-	tests := []struct {
-		backoffLimit                *int32
-		name                        string
-		expectedJobDeploymentStatus rayv1.JobDeploymentStatus
-	}{
-		{
-			name:                        "no backoffLimit - RayJob fails",
-			backoffLimit:                nil,
-			expectedJobDeploymentStatus: rayv1.JobDeploymentStatusFailed,
+// Deleting a completed RayJob should preserve its shared RayCluster.
+func TestReconcileRayJobClusterSelectorDeletion(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayJobDeletionPolicy, true)
+	ctx := context.Background()
+	newScheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(newScheme))
+
+	rayCluster := &rayv1.RayCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shared",
+			Namespace: "default",
+			UID:       "shared-cluster",
 		},
-		{
-			name:                        "backoffLimit allows retry - RayJob retries",
-			backoffLimit:                ptr.To[int32](1),
-			expectedJobDeploymentStatus: rayv1.JobDeploymentStatusRetrying,
+		Spec: rayv1.RayClusterSpec{
+			WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+				{
+					GroupName: "workers",
+					Replicas:  ptr.To[int32](2),
+				},
+			},
 		},
 	}
+	endTime := metav1.NewTime(time.Now().Add(-time.Hour))
 
+	tests := []struct {
+		name                     string
+		deletionStrategy         *rayv1.DeletionStrategy
+		shutdownAfterJobFinishes bool
+		ttlSecondsAfterFinished  int32
+		deleteRayJobCR           string
+		keepRayJob               bool
+	}{
+		{
+			name: "deletionRules DeleteSelf",
+			deletionStrategy: &rayv1.DeletionStrategy{
+				DeletionRules: []rayv1.DeletionRule{
+					{
+						Policy: rayv1.DeleteSelf,
+						Condition: rayv1.DeletionCondition{
+							JobStatus:  ptr.To(rayv1.JobStatusSucceeded),
+							TTLSeconds: 60,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "legacy OnSuccess DeleteSelf",
+			deletionStrategy: &rayv1.DeletionStrategy{
+				OnSuccess: &rayv1.DeletionPolicy{Policy: ptr.To(rayv1.DeleteSelf)},
+				OnFailure: &rayv1.DeletionPolicy{Policy: ptr.To(rayv1.DeleteNone)},
+			},
+		},
+		{
+			name: "legacy OnSuccess DeleteSelf with TTL",
+			deletionStrategy: &rayv1.DeletionStrategy{
+				OnSuccess: &rayv1.DeletionPolicy{Policy: ptr.To(rayv1.DeleteSelf)},
+				OnFailure: &rayv1.DeletionPolicy{Policy: ptr.To(rayv1.DeleteSelf)},
+			},
+			shutdownAfterJobFinishes: true,
+			ttlSecondsAfterFinished:  60,
+		},
+		{
+			name:                     "shutdownAfterJobFinishes deletes RayJob",
+			shutdownAfterJobFinishes: true,
+			ttlSecondsAfterFinished:  60,
+			deleteRayJobCR:           "true",
+		},
+		{
+			name:                     "shutdownAfterJobFinishes preserves RayJob by default",
+			shutdownAfterJobFinishes: true,
+			ttlSecondsAfterFinished:  60,
+			keepRayJob:               true,
+		},
+	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			newScheme := runtime.NewScheme()
-			_ = rayv1.AddToScheme(newScheme)
-			_ = corev1.AddToScheme(newScheme)
-
+			t.Setenv(utils.DELETE_RAYJOB_CR_AFTER_JOB_FINISHES, tc.deleteRayJobCR)
 			rayJob := &rayv1.RayJob{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-rayjob",
 					Namespace: "default",
 				},
 				Spec: rayv1.RayJobSpec{
-					Entrypoint:     "echo hello",
-					SubmissionMode: rayv1.HTTPMode,
-					BackoffLimit:   tc.backoffLimit,
-					RayClusterSpec: &rayv1.RayClusterSpec{
-						HeadGroupSpec: rayv1.HeadGroupSpec{
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{
-											Name:  "ray-head",
-											Image: "rayproject/ray:latest",
-										},
-									},
-								},
-							},
-						},
-					},
+					Entrypoint:               "echo hello",
+					SubmissionMode:           rayv1.HTTPMode,
+					ClusterSelector:          map[string]string{utils.RayJobClusterSelectorKey: rayCluster.Name},
+					DeletionStrategy:         tc.deletionStrategy,
+					ShutdownAfterJobFinishes: tc.shutdownAfterJobFinishes,
+					TTLSecondsAfterFinished:  tc.ttlSecondsAfterFinished,
 				},
 				Status: rayv1.RayJobStatus{
-					JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
-					JobStatus:           rayv1.JobStatusRunning,
-					JobId:               "test-job-id",
-					RayClusterName:      "test-raycluster",
-					StartTime:           &metav1.Time{Time: time.Now()},
+					JobStatus:           rayv1.JobStatusSucceeded,
+					JobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
+					RayClusterName:      rayCluster.Name,
+					EndTime:             &endTime,
 				},
 			}
 
 			fakeClient := clientFake.NewClientBuilder().
 				WithScheme(newScheme).
-				WithRuntimeObjects(rayJob).
+				WithObjects(rayJob, rayCluster).
 				WithStatusSubresource(rayJob).
 				Build()
-			recorder := events.NewFakeRecorder(100)
 			reconciler := &RayJobReconciler{
 				Client:   fakeClient,
-				Recorder: recorder,
 				Scheme:   newScheme,
-				dashboardClientFunc: func(_ *rayv1.RayCluster, _ string) (dashboardclient.RayDashboardClientInterface, error) {
-					return nil, errors.New("dashboard client should not be used when the RayCluster is missing")
+				Recorder: events.NewFakeRecorder(10),
+			}
+			request := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(rayJob)}
+
+			_, err := reconciler.Reconcile(ctx, request)
+			require.NoError(t, err)
+			gotJob := &rayv1.RayJob{}
+			err = fakeClient.Get(ctx, request.NamespacedName, gotJob)
+			if tc.keepRayJob {
+				require.NoError(t, err)
+				assert.True(t, gotJob.DeletionTimestamp.IsZero())
+			} else {
+				assert.True(t, apierrors.IsNotFound(err))
+			}
+
+			gotCluster := &rayv1.RayCluster{}
+			require.NoError(t, fakeClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), gotCluster))
+			assert.Equal(t, rayCluster.Spec, gotCluster.Spec)
+			assert.Equal(t, rayCluster.UID, gotCluster.UID)
+			assert.True(t, gotCluster.DeletionTimestamp.IsZero())
+			assert.Empty(t, gotCluster.OwnerReferences)
+		})
+	}
+}
+
+func TestSuspendWorkerGroupsClusterSelector(t *testing.T) {
+	ctx := context.Background()
+	newScheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(newScheme))
+
+	for _, shared := range []bool{false, true} {
+		t.Run(fmt.Sprintf("shared=%t", shared), func(t *testing.T) {
+			cluster := &rayv1.RayCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster", Namespace: "default"},
+				Spec: rayv1.RayClusterSpec{
+					WorkerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "workers", Replicas: ptr.To[int32](2)}},
 				},
 			}
-
-			ctx := context.Background()
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: rayJob.Name, Namespace: rayJob.Namespace},
-			})
-			require.NoError(t, err)
-
-			rayClusters := &rayv1.RayClusterList{}
-			require.NoError(t, fakeClient.List(ctx, rayClusters, client.InNamespace(rayJob.Namespace)))
-			assert.Empty(t, rayClusters.Items, "RayCluster should not be re-created while the RayJob is Running")
-
-			updated := &rayv1.RayJob{}
-			require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: rayJob.Name, Namespace: rayJob.Namespace}, updated))
-			assert.Equal(t, tc.expectedJobDeploymentStatus, updated.Status.JobDeploymentStatus)
-			assert.Equal(t, rayv1.RayClusterNotFound, updated.Status.Reason)
-			assert.Equal(t, int32(1), *updated.Status.Failed)
-
-			var foundEvent bool
-			for len(recorder.Events) > 0 {
-				if event := <-recorder.Events; strings.Contains(event, string(utils.RayClusterNotFound)) && strings.Contains(event, corev1.EventTypeWarning) {
-					foundEvent = true
-				}
+			job := &rayv1.RayJob{
+				ObjectMeta: metav1.ObjectMeta{Namespace: cluster.Namespace},
+				Status:     rayv1.RayJobStatus{RayClusterName: cluster.Name},
 			}
-			assert.True(t, foundEvent, "Expected a Warning %s event", utils.RayClusterNotFound)
+			if shared {
+				job.Spec.ClusterSelector = map[string]string{utils.RayJobClusterSelectorKey: cluster.Name}
+			}
+			fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithObjects(cluster).Build()
+			reconciler := &RayJobReconciler{Client: fakeClient, Recorder: events.NewFakeRecorder(10)}
+
+			require.NoError(t, reconciler.suspendWorkerGroups(ctx, job))
+			gotCluster := &rayv1.RayCluster{}
+			require.NoError(t, fakeClient.Get(ctx, client.ObjectKeyFromObject(cluster), gotCluster))
+			if shared {
+				assert.Equal(t, cluster.Spec, gotCluster.Spec)
+			} else {
+				assert.True(t, ptr.Deref(gotCluster.Spec.WorkerGroupSpecs[0].Suspend, false))
+			}
 		})
 	}
 }
