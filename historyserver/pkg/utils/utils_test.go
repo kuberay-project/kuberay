@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,6 +128,9 @@ func TestGetDateTimeFromSessionID(t *testing.T) {
 }
 
 func TestGetNodeRayIDWithFQIP_EnvVars(t *testing.T) {
+	// Isolate from any real /tmp/ray/raylet_node_id on the host: these cases
+	// exercise the dashboard fallback, so the local file must be absent.
+	t.Setenv("RAY_TMP_ROOT", t.TempDir())
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v0/nodes" {
 			w.WriteHeader(http.StatusOK)
@@ -178,6 +182,7 @@ func TestGetNodeRayIDWithFQIP_EnvVars(t *testing.T) {
 // surface it immediately instead of spending the full 60s retry budget and then
 // reporting a misleading timeout.
 func TestGetNodeRayIDWithFQIP_FailsFastOnAuthConfigError(t *testing.T) {
+	t.Setenv("RAY_TMP_ROOT", t.TempDir())
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"data":{"result":{"result":[{"node_id":"node-id-abc","node_ip":"10.0.0.1","state":"ALIVE"}]}}}`))
@@ -199,6 +204,59 @@ func TestGetNodeRayIDWithFQIP_FailsFastOnAuthConfigError(t *testing.T) {
 	require.ErrorIs(t, err, errRayAuthConfig)
 	assert.NotContains(t, err.Error(), "timeout", "misconfiguration must not be reported as a discovery timeout")
 	assert.Less(t, elapsed, 5*time.Second, "must not enter the retry loop")
+}
+
+func TestFetchCurrentNodeID_PrefersLocalFile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("RAY_TMP_ROOT", tmp)
+	// Leave the fallback unusable: if the local file were ignored, the call
+	// would fail with ErrPodIPNotSet instead of returning the published ID.
+	t.Setenv("POD_IP", "")
+	t.Setenv("FQ_RAY_IP", "")
+
+	id := strings.Repeat("AB", 28)
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "raylet_node_id"), []byte(id+"\n"), 0o644))
+
+	nodeID, err := FetchCurrentNodeID()
+	require.NoError(t, err)
+	assert.Equal(t, strings.ToLower(id), nodeID, "must return the published ID, normalized to lowercase")
+}
+
+func TestFetchCurrentNodeID_RejectsMalformedLocalFile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("RAY_TMP_ROOT", tmp)
+	t.Setenv("POD_IP", "")
+
+	for _, content := range []string{"", "not-hex", strings.Repeat("ab", 27), strings.Repeat("ab", 29)} {
+		require.NoError(t, os.WriteFile(filepath.Join(tmp, "raylet_node_id"), []byte(content), 0o644))
+		_, err := FetchCurrentNodeID()
+		// Falling through to the dashboard path proves the file was rejected.
+		require.ErrorIs(t, err, ErrPodIPNotSet, "content %q must not be accepted as a node ID", content)
+	}
+}
+
+func TestFetchCurrentNodeID_FallbackFiltersServerSide(t *testing.T) {
+	t.Setenv("RAY_TMP_ROOT", t.TempDir())
+
+	var gotQuery url.Values
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":{"result":{"result":[{"node_id":"node-id-abc","node_ip":"10.0.0.1","state":"ALIVE"}]}}}`))
+	}))
+	defer ts.Close()
+
+	t.Setenv("POD_IP", "10.0.0.1")
+	t.Setenv("FQ_RAY_IP", ts.URL)
+
+	nodeID, err := FetchCurrentNodeID()
+	require.NoError(t, err)
+	assert.Equal(t, "node-id-abc", nodeID)
+
+	assert.Equal(t, []string{"node_ip", "state"}, gotQuery["filter_keys"])
+	assert.Equal(t, []string{"=", "="}, gotQuery["filter_predicates"])
+	assert.Equal(t, []string{"10.0.0.1", "ALIVE"}, gotQuery["filter_values"])
+	assert.Equal(t, "10", gotQuery.Get("limit"), "must not request the full node table")
 }
 
 func TestGetSessionDir_Symlinks(t *testing.T) {
