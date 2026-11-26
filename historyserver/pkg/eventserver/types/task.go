@@ -67,22 +67,21 @@ type TaskStatus string
 // The following statuses follow a rough chronological order of transition.
 // For typical order of states, please refer to:
 // https://github.com/ray-project/ray/blob/d0b1d151d8ea964a711e451d0ae736f8bf95b629/src/ray/protobuf/common.proto#L884-L899.
-// TODO(jiangjiawei1103): Each entity (actor, task, job, node) should have its own const def with entity name prepended to avoid conflicts.
 const (
-	NIL                                        TaskStatus = "NIL"
-	PENDING_ARGS_AVAIL                         TaskStatus = "PENDING_ARGS_AVAIL"
-	PENDING_NODE_ASSIGNMENT                    TaskStatus = "PENDING_NODE_ASSIGNMENT"
-	PENDING_OBJ_STORE_MEM_AVAIL                TaskStatus = "PENDING_OBJ_STORE_MEM_AVAIL"
-	PENDING_ARGS_FETCH                         TaskStatus = "PENDING_ARGS_FETCH"
-	SUBMITTED_TO_WORKER                        TaskStatus = "SUBMITTED_TO_WORKER"
-	PENDING_ACTOR_TASK_ARGS_FETCH              TaskStatus = "PENDING_ACTOR_TASK_ARGS_FETCH"
-	PENDING_ACTOR_TASK_ORDERING_OR_CONCURRENCY TaskStatus = "PENDING_ACTOR_TASK_ORDERING_OR_CONCURRENCY"
-	RUNNING                                    TaskStatus = "RUNNING"
-	RUNNING_IN_RAY_GET                         TaskStatus = "RUNNING_IN_RAY_GET"
-	RUNNING_IN_RAY_WAIT                        TaskStatus = "RUNNING_IN_RAY_WAIT"
-	FINISHED                                   TaskStatus = "FINISHED"
-	FAILED                                     TaskStatus = "FAILED"
-	GETTING_AND_PINNING_ARGS                   TaskStatus = "GETTING_AND_PINNING_ARGS"
+	TASK_NIL                                        TaskStatus = "NIL"
+	TASK_PENDING_ARGS_AVAIL                         TaskStatus = "PENDING_ARGS_AVAIL"
+	TASK_PENDING_NODE_ASSIGNMENT                    TaskStatus = "PENDING_NODE_ASSIGNMENT"
+	TASK_PENDING_OBJ_STORE_MEM_AVAIL                TaskStatus = "PENDING_OBJ_STORE_MEM_AVAIL"
+	TASK_PENDING_ARGS_FETCH                         TaskStatus = "PENDING_ARGS_FETCH"
+	TASK_SUBMITTED_TO_WORKER                        TaskStatus = "SUBMITTED_TO_WORKER"
+	TASK_PENDING_ACTOR_TASK_ARGS_FETCH              TaskStatus = "PENDING_ACTOR_TASK_ARGS_FETCH"
+	TASK_PENDING_ACTOR_TASK_ORDERING_OR_CONCURRENCY TaskStatus = "PENDING_ACTOR_TASK_ORDERING_OR_CONCURRENCY"
+	TASK_RUNNING                                    TaskStatus = "RUNNING"
+	TASK_RUNNING_IN_RAY_GET                         TaskStatus = "RUNNING_IN_RAY_GET"
+	TASK_RUNNING_IN_RAY_WAIT                        TaskStatus = "RUNNING_IN_RAY_WAIT"
+	TASK_FINISHED                                   TaskStatus = "FINISHED"
+	TASK_FAILED                                     TaskStatus = "FAILED"
+	TASK_GETTING_AND_PINNING_ARGS                   TaskStatus = "GETTING_AND_PINNING_ARGS"
 )
 
 // TaskStateTransition represents a change in a task's state at a specific timestamp.
@@ -323,7 +322,7 @@ func (t *Task) GetFuncName() string {
 // GetLastState returns the last state of the task.
 func (t *Task) GetLastState() TaskStatus {
 	if len(t.StateTransitions) == 0 {
-		return NIL
+		return TASK_NIL
 	}
 	return t.StateTransitions[len(t.StateTransitions)-1].State
 }

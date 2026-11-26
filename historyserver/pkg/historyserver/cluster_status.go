@@ -287,19 +287,19 @@ func (b *ClusterStatusBuilder) mergeDemands(demandMap map[string]*ResourceDemand
 //	+--------------------------------------------+---------------------+----------------------+-------------------------+
 func isPendingTaskState(state types.TaskStatus) bool {
 	switch state {
-	case types.PENDING_ARGS_AVAIL,
-		types.PENDING_NODE_ASSIGNMENT,
-		types.PENDING_OBJ_STORE_MEM_AVAIL,
-		types.PENDING_ARGS_FETCH:
+	case types.TASK_PENDING_ARGS_AVAIL,
+		types.TASK_PENDING_NODE_ASSIGNMENT,
+		types.TASK_PENDING_OBJ_STORE_MEM_AVAIL,
+		types.TASK_PENDING_ARGS_FETCH:
 		return true
 	default:
 		return false
 	}
 }
 
-func isPendingActorState(state types.StateType) bool {
+func isPendingActorState(state types.ActorState) bool {
 	switch state {
-	case types.PENDING_CREATION, types.DEPENDENCIES_UNREADY:
+	case types.ACTOR_PENDING_CREATION, types.ACTOR_DEPENDENCIES_UNREADY:
 		return true
 	default:
 		return false
