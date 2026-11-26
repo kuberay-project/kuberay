@@ -1435,6 +1435,7 @@ func (r *RayJobReconciler) handleDeletionRules(ctx context.Context, rayJob *rayv
 
 	var overdueRules []rayv1.DeletionRule
 	var nextRequeueTime *time.Time
+	var matchedRule bool
 
 	// Categorize all applicable and incomplete rules into "overdue" or "pending".
 	for _, rule := range rayJob.Spec.DeletionStrategy.DeletionRules {
@@ -1442,6 +1443,7 @@ func (r *RayJobReconciler) handleDeletionRules(ctx context.Context, rayJob *rayv
 		if !isDeletionRuleMatched(rule, rayJob) {
 			continue
 		}
+		matchedRule = true
 
 		deletionTime := rayJob.Status.EndTime.Add(time.Duration(rule.Condition.TTLSeconds) * time.Second)
 		// Track the earliest requeue time to re-check later.
@@ -1480,6 +1482,18 @@ func (r *RayJobReconciler) handleDeletionRules(ctx context.Context, rayJob *rayv
 		requeueAfter := requeueDelayFor(*nextRequeueTime)
 		logger.Info("Requeuing for the next scheduled rule", "requeueAfter", requeueAfter)
 		return ctrl.Result{RequeueAfter: requeueAfter}, nil
+	}
+	if !matchedRule {
+		message := fmt.Sprintf(
+			"No deletion rule matched terminal status: jobStatus=%q, jobDeploymentStatus=%q. No cleanup action will be taken.",
+			rayJob.Status.JobStatus,
+			rayJob.Status.JobDeploymentStatus,
+		)
+		logger.Info("No deletion rule matched terminal RayJob; no cleanup action will be taken.",
+			"jobStatus", rayJob.Status.JobStatus,
+			"jobDeploymentStatus", rayJob.Status.JobDeploymentStatus)
+		r.Recorder.Eventf(rayJob, nil, corev1.EventTypeWarning, string(utils.NoMatchingDeletionRule), string(utils.CleanupAction), message)
+		return ctrl.Result{}, nil
 	}
 
 	logger.Info("All applicable deletion rules have been processed.")

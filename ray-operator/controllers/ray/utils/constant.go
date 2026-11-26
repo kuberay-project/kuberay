@@ -493,6 +493,7 @@ const (
 	FailedToDeleteRayCluster      K8sEventType = "FailedToDeleteRayCluster"
 	FailedToUpdateRayCluster      K8sEventType = "FailedToUpdateRayCluster"
 	RayClusterNotFound            K8sEventType = "RayClusterNotFound"
+	NoMatchingDeletionRule        K8sEventType = "NoMatchingDeletionRule"
 
 	// Batch scheduler event list
 	BatchSchedulerCleanedUp       K8sEventType = "BatchSchedulerCleanedUp"
