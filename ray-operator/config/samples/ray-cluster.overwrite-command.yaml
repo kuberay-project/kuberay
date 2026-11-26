@@ -24,13 +24,6 @@ spec:
             requests:
               cpu: "1"
               memory: "2Gi"
-          ports:
-          - containerPort: 6379
-            name: gcs-server
-          - containerPort: 8265 # Ray dashboard
-            name: dashboard
-          - containerPort: 10001
-            name: client
           # Because the annotation "ray.io/overwrite-container-cmd" is set to "true",
           # KubeRay will overwrite the generated container command with `command` and
           # `args` in the following. Hence, you need to specify the `ulimit` command

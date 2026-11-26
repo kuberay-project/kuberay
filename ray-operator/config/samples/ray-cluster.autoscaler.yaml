@@ -63,13 +63,6 @@ spec:
         # The Ray head container
         - name: ray-head
           image: rayproject/ray:2.52.0
-          ports:
-          - containerPort: 6379
-            name: gcs
-          - containerPort: 8265
-            name: dashboard
-          - containerPort: 10001
-            name: client
           resources:
             limits:
               cpu: "1"
