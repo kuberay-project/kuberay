@@ -366,7 +366,7 @@ func (options *SubmitJobOptions) Run(ctx context.Context, factory cmdutil.Factor
 						CPU:           &options.workerCPU,
 						Memory:        &options.workerMemory,
 						GPU:           &options.workerGPU,
-						Replicas:      options.workerReplicas,
+						Replicas:      &options.workerReplicas,
 						NodeSelectors: options.workerNodeSelectors,
 					},
 				},

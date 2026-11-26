@@ -46,7 +46,7 @@ func TestGenerateRayClusterApplyConfig(t *testing.T) {
 		},
 		WorkerGroups: []WorkerGroup{
 			{
-				Replicas:   int32(3),
+				Replicas:   new(int32(3)),
 				NumOfHosts: new(int32(2)),
 				CPU:        new("2"),
 				Memory:     new("10Gi"),
@@ -179,7 +179,7 @@ func TestGenerateRayJobApplyConfig(t *testing.T) {
 			},
 			WorkerGroups: []WorkerGroup{
 				{
-					Replicas:   int32(3),
+					Replicas:   new(int32(3)),
 					NumOfHosts: new(int32(2)),
 					CPU:        new("2"),
 					Memory:     new("10Gi"),
@@ -310,7 +310,7 @@ func TestConvertRayClusterApplyConfigToYaml(t *testing.T) {
 		},
 		WorkerGroups: []WorkerGroup{
 			{
-				Replicas:   int32(3),
+				Replicas:   new(int32(3)),
 				NumOfHosts: new(int32(2)),
 				CPU:        new("2"),
 				Memory:     new("10Gi"),
@@ -476,7 +476,7 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 		},
 		WorkerGroups: []WorkerGroup{
 			{
-				Replicas:   int32(3),
+				Replicas:   new(int32(3)),
 				NumOfHosts: new(int32(1)),
 				CPU:        new("2"),
 				Memory:     new("10Gi"),
@@ -585,7 +585,8 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 			},
 			{
 				GroupName: new("worker-group-2"),
-				Replicas:  new(int32(0)),
+				// This group does not set replicas, so it falls back to the default rather than 0
+				Replicas: new(int32(1)),
 				Template: &corev1ac.PodTemplateSpecApplyConfiguration{
 					Spec: &corev1ac.PodSpecApplyConfiguration{
 						ServiceAccountName: new("my-service-account"),
@@ -806,26 +807,65 @@ func TestSetGCSFuseOptions(t *testing.T) {
 	assert.Equal(t, expected, result)
 }
 
-func TestNewRayClusterConfigWithDefaults(t *testing.T) {
-	result := newRayClusterConfigWithDefaults()
-	expected := &RayClusterConfig{
-		Image:      new(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
-		RayVersion: ptr.To(util.RayVersion),
-		Head: &Head{
-			CPU:    new("2"),
-			Memory: new("4Gi"),
-		},
-		WorkerGroups: []WorkerGroup{
-			{
-				Name:     new("default-group"),
-				CPU:      new("2"),
-				Memory:   new("4Gi"),
-				Replicas: int32(1),
-			},
-		},
-	}
+func TestApplyDefaults(t *testing.T) {
+	t.Run("should fill in every default for an empty config", func(t *testing.T) {
+		result := &RayClusterConfig{}
+		applyDefaults(result)
 
-	assert.Equal(t, expected, result)
+		expected := &RayClusterConfig{
+			Image:      new(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
+			RayVersion: ptr.To(util.RayVersion),
+			Head: &Head{
+				CPU:    new("2"),
+				Memory: new("4Gi"),
+			},
+			WorkerGroups: []WorkerGroup{
+				{
+					Name:       new("default-group"),
+					CPU:        new("2"),
+					Memory:     new("4Gi"),
+					Replicas:   new(int32(1)),
+					NumOfHosts: new(int32(1)),
+				},
+			},
+		}
+
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("should not overwrite values the user already set", func(t *testing.T) {
+		// Both sides must be built independently: a copy of the struct would share the Head pointer
+		// and the WorkerGroups backing array that applyDefaults writes to in place.
+		build := func() *RayClusterConfig {
+			return &RayClusterConfig{
+				RayVersion: new("2.56.0"),
+				Image:      new("my-registry/my-ray:custom"),
+				Head:       &Head{CPU: new("8"), Memory: new("16Gi")},
+				WorkerGroups: []WorkerGroup{
+					{
+						Name:       new("gpu-workers"),
+						CPU:        new("4"),
+						Memory:     new("32Gi"),
+						Replicas:   new(int32(0)),
+						NumOfHosts: new(int32(4)),
+					},
+				},
+			}
+		}
+
+		result := build()
+		applyDefaults(result)
+
+		assert.Equal(t, build(), result)
+	})
+
+	t.Run("should keep an explicitly empty worker group list", func(t *testing.T) {
+		result := &RayClusterConfig{WorkerGroups: []WorkerGroup{}}
+
+		applyDefaults(result)
+
+		assert.Empty(t, result.WorkerGroups)
+	})
 }
 
 func TestParseConfigFile(t *testing.T) {
@@ -853,14 +893,17 @@ func TestParseConfigFile(t *testing.T) {
 				},
 				WorkerGroups: []WorkerGroup{
 					{
-						Name:     new("default-group"),
-						Replicas: int32(1),
-						CPU:      new("2"),
-						Memory:   new("4Gi"),
+						Name:       new("default-group"),
+						Replicas:   new(int32(1)),
+						NumOfHosts: new(int32(1)),
+						CPU:        new("2"),
+						Memory:     new("4Gi"),
 					},
 				},
 			},
 		},
+		// A worker group that sets only some of its fields must still get the defaults for the
+		// rest. See https://github.com/ray-project/kuberay/issues/5165.
 		"minimal config": {
 			config: `worker-groups:
 - replicas: 1
@@ -875,8 +918,151 @@ func TestParseConfigFile(t *testing.T) {
 				},
 				WorkerGroups: []WorkerGroup{
 					{
-						Replicas: int32(1),
-						GPU:      new("1"),
+						Name:       new("default-group"),
+						Replicas:   new(int32(1)),
+						NumOfHosts: new(int32(1)),
+						CPU:        new("2"),
+						Memory:     new("4Gi"),
+						GPU:        new("1"),
+					},
+				},
+			},
+		},
+		// The sample config shipped in config/samples/create-cluster.sample.yaml
+		"sample config": {
+			config: `worker-groups:
+  - cpu: 3
+`,
+			expected: &RayClusterConfig{
+				RayVersion: ptr.To(util.RayVersion),
+				Image:      new(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
+				Head: &Head{
+					CPU:    new("2"),
+					Memory: new("4Gi"),
+				},
+				WorkerGroups: []WorkerGroup{
+					{
+						Name:       new("default-group"),
+						Replicas:   new(int32(1)),
+						NumOfHosts: new(int32(1)),
+						CPU:        new("3"),
+						Memory:     new("4Gi"),
+					},
+				},
+			},
+		},
+		// An explicitly empty list is a head-only cluster, not "the user said nothing"
+		"explicitly empty worker groups": {
+			config: `head:
+  cpu: 4
+worker-groups: []
+`,
+			expected: &RayClusterConfig{
+				RayVersion: ptr.To(util.RayVersion),
+				Image:      new(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
+				Head: &Head{
+					CPU:    new("4"),
+					Memory: new("4Gi"),
+				},
+				WorkerGroups: []WorkerGroup{},
+			},
+		},
+		// An explicit "replicas: 0" must survive defaulting
+		"explicit zero replicas": {
+			config: `worker-groups:
+- replicas: 0
+`,
+			expected: &RayClusterConfig{
+				RayVersion: ptr.To(util.RayVersion),
+				Image:      new(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
+				Head: &Head{
+					CPU:    new("2"),
+					Memory: new("4Gi"),
+				},
+				WorkerGroups: []WorkerGroup{
+					{
+						Name:       new("default-group"),
+						Replicas:   new(int32(0)),
+						NumOfHosts: new(int32(1)),
+						CPU:        new("2"),
+						Memory:     new("4Gi"),
+					},
+				},
+			},
+		},
+		// Each group gets its own defaults, and unnamed groups after the first are suffixed
+		"multiple partial worker groups": {
+			config: `worker-groups:
+- cpu: 3
+- memory: 8Gi
+`,
+			expected: &RayClusterConfig{
+				RayVersion: ptr.To(util.RayVersion),
+				Image:      new(fmt.Sprintf("rayproject/ray:%s", util.RayVersion)),
+				Head: &Head{
+					CPU:    new("2"),
+					Memory: new("4Gi"),
+				},
+				WorkerGroups: []WorkerGroup{
+					{
+						Name:       new("default-group"),
+						Replicas:   new(int32(1)),
+						NumOfHosts: new(int32(1)),
+						CPU:        new("3"),
+						Memory:     new("4Gi"),
+					},
+					{
+						Name:       new("default-group-1"),
+						Replicas:   new(int32(1)),
+						NumOfHosts: new(int32(1)),
+						CPU:        new("2"),
+						Memory:     new("8Gi"),
+					},
+				},
+			},
+		},
+		// The image follows the Ray version set in the file so that the cluster does not claim one
+		// version while running the images of another
+		"ray version without image": {
+			config: `ray-version: 2.56.0
+`,
+			expected: &RayClusterConfig{
+				RayVersion: new("2.56.0"),
+				Image:      new("rayproject/ray:2.56.0"),
+				Head: &Head{
+					CPU:    new("2"),
+					Memory: new("4Gi"),
+				},
+				WorkerGroups: []WorkerGroup{
+					{
+						Name:       new("default-group"),
+						Replicas:   new(int32(1)),
+						NumOfHosts: new(int32(1)),
+						CPU:        new("2"),
+						Memory:     new("4Gi"),
+					},
+				},
+			},
+		},
+		// An explicit image wins over the one derived from the Ray version
+		"ray version with image": {
+			config: `ray-version: 2.56.0
+image: my-registry/my-ray:custom
+`,
+			expected: &RayClusterConfig{
+				RayVersion: new("2.56.0"),
+				Image:      new("my-registry/my-ray:custom"),
+				Head: &Head{
+					CPU:    new("2"),
+					Memory: new("4Gi"),
+				},
+				WorkerGroups: []WorkerGroup{
+					{
+						Name:       new("default-group"),
+						Replicas:   new(int32(1)),
+						NumOfHosts: new(int32(1)),
+						CPU:        new("2"),
+						Memory:     new("4Gi"),
 					},
 				},
 			},
@@ -950,7 +1136,8 @@ gke:
 				WorkerGroups: []WorkerGroup{
 					{
 						Name:             new("cpu-workers"),
-						Replicas:         int32(1),
+						Replicas:         new(int32(1)),
+						NumOfHosts:       new(int32(1)),
 						CPU:              new("2"),
 						Memory:           new("4Gi"),
 						GPU:              new("0"),
@@ -959,7 +1146,8 @@ gke:
 					},
 					{
 						Name:             new("gpu-workers"),
-						Replicas:         int32(1),
+						Replicas:         new(int32(1)),
+						NumOfHosts:       new(int32(1)),
 						CPU:              new("3"),
 						Memory:           new("6Gi"),
 						GPU:              new("1"),
