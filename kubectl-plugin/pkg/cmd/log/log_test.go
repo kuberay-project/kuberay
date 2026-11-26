@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -482,6 +483,90 @@ func TestDownloadRayLogFiles(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, curr.Body, string(actualContent))
 	}
+}
+
+func TestDownloadRayLogFilesSkipsInvalidMode(t *testing.T) {
+	fakeDir := t.TempDir()
+	testStreams, _, out, _ := genericiooptions.NewTestIOStreams()
+	options := NewClusterLogOptions(cmdutil.NewFactory(genericclioptions.NewConfigFlags(true)), testStreams)
+	options.outputDir = fakeDir
+
+	tarBuffer := new(bytes.Buffer)
+	tarWriter := tar.NewWriter(tarBuffer)
+	require.NoError(t, tarWriter.WriteHeader(&tar.Header{
+		Typeflag: tar.TypeDir,
+		Name:     ".",
+		Mode:     0o755,
+	}))
+	invalidContents := []byte("must not be written")
+	require.NoError(t, tarWriter.WriteHeader(&tar.Header{
+		Typeflag: tar.TypeReg,
+		Name:     "invalid-mode.log",
+		Mode:     -1,
+		Size:     int64(len(invalidContents)),
+	}))
+	_, err := tarWriter.Write(invalidContents)
+	require.NoError(t, err)
+	validContents := []byte("valid log contents\n")
+	require.NoError(t, tarWriter.WriteHeader(&tar.Header{
+		Typeflag: tar.TypeReg,
+		Name:     "valid.log",
+		Mode:     0o644,
+		Size:     int64(len(validContents)),
+	}))
+	_, err = tarWriter.Write(validContents)
+	require.NoError(t, err)
+	require.NoError(t, tarWriter.Close())
+
+	rayHead := v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "test-ray-head"}}
+	executor, err := fakeNewSPDYExecutor("GET", &url.URL{}, tarBuffer)
+	require.NoError(t, err)
+	require.NoError(t, options.downloadRayLogFiles(context.Background(), executor, rayHead))
+
+	assert.Contains(t, out.String(), "Skipping file \"invalid-mode.log\"")
+	_, err = os.Stat(filepath.Join(fakeDir, rayHead.Name, "invalid-mode.log"))
+	assert.True(t, os.IsNotExist(err))
+	contents, err := os.ReadFile(filepath.Join(fakeDir, rayHead.Name, "valid.log"))
+	require.NoError(t, err)
+	assert.Equal(t, validContents, contents)
+}
+
+func TestDownloadRayLogFilesClosesFilesDuringExtraction(t *testing.T) {
+	const fileCount = 2048
+
+	fakeDir := t.TempDir()
+	testStreams, _, _, _ := genericiooptions.NewTestIOStreams()
+	options := NewClusterLogOptions(cmdutil.NewFactory(genericclioptions.NewConfigFlags(true)), testStreams)
+	options.outputDir = fakeDir
+
+	tarBuffer := new(bytes.Buffer)
+	tarWriter := tar.NewWriter(tarBuffer)
+	require.NoError(t, tarWriter.WriteHeader(&tar.Header{
+		Typeflag: tar.TypeDir,
+		Name:     ".",
+		Mode:     0o755,
+	}))
+	for index := range fileCount {
+		contents := fmt.Appendf(nil, "log line %d\n", index)
+		require.NoError(t, tarWriter.WriteHeader(&tar.Header{
+			Typeflag: tar.TypeReg,
+			Name:     fmt.Sprintf("log-%04d.txt", index),
+			Mode:     0o644,
+			Size:     int64(len(contents)),
+		}))
+		_, err := tarWriter.Write(contents)
+		require.NoError(t, err)
+	}
+	require.NoError(t, tarWriter.Close())
+
+	rayHead := v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "test-ray-head"}}
+	executor, err := fakeNewSPDYExecutor("GET", &url.URL{}, tarBuffer)
+	require.NoError(t, err)
+	require.NoError(t, options.downloadRayLogFiles(context.Background(), executor, rayHead))
+
+	files, err := os.ReadDir(filepath.Join(fakeDir, rayHead.Name))
+	require.NoError(t, err)
+	assert.Len(t, files, fileCount)
 }
 
 // createTempKubeConfigFile creates a temporary kubeconfig file with the given current context.
