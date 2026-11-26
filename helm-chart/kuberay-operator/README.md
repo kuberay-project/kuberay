@@ -223,6 +223,7 @@ spec:
 | readinessProbe.initialDelaySeconds | int | `10` |  |
 | readinessProbe.periodSeconds | int | `5` |  |
 | readinessProbe.failureThreshold | int | `5` |  |
+| hostUsers | bool | `nil` | Specifies if controller pod should use hostUsers or not. Only available in Kubernetes ≥ 1.33. See <https://kubernetes.io/docs/concepts/workloads/pods/user-namespaces/> |
 | podSecurityContext | object | `{}` | Set up `securityContext` to improve Pod security. |
 | service.type | string | `"ClusterIP"` | Service type. |
 | service.port | int | `8080` | Service port. |

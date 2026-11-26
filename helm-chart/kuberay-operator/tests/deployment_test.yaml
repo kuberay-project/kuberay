@@ -88,6 +88,43 @@ tests:
           path: spec.template.spec.serviceAccountName
           value: test-service-account
 
+  - it: Should not set hostUsers if `hostUsers` is not set
+    asserts:
+      - notExists:
+          path: spec.template.spec.hostUsers
+
+  - it: Should not set hostUsers if Kubernetes version is less than 1.33
+    capabilities:
+      majorVersion: 1
+      minorVersion: 32
+    set:
+      hostUsers: true
+    asserts:
+      - notExists:
+          path: spec.template.spec.hostUsers
+
+  - it: Should disable hostUsers if `hostUsers` is false
+    capabilities:
+      majorVersion: 1
+      minorVersion: 33
+    set:
+      hostUsers: false
+    asserts:
+      - equal:
+          path: spec.template.spec.hostUsers
+          value: false
+
+  - it: Should enable hostUsers if `hostUsers` is true
+    capabilities:
+      majorVersion: 1
+      minorVersion: 33
+    set:
+      hostUsers: true
+    asserts:
+      - equal:
+          path: spec.template.spec.hostUsers
+          value: true
+
   - it: Should use the specified pod security context if `podSecurityContext` is set
     set:
       podSecurityContext:
