@@ -418,6 +418,68 @@ func setupTest(t *testing.T) {
 	workerSelector = labels.NewSelector().Add(*instanceReq).Add(*groupNameReq)
 }
 
+// TestReconcilePods_HeadPodCacheUpdateBetweenListAndExpectation reproduces a
+// successful head creation becoming visible in the informer cache between the
+// head-pod List and the Get used to satisfy its creation expectation.
+func TestReconcilePods_HeadPodCacheUpdateBetweenListAndExpectation(t *testing.T) {
+	setupTest(t)
+	t.Setenv(utils.ENABLE_DETERMINISTIC_HEAD_POD_NAME, "false")
+	ctx := context.Background()
+	cluster := testRayCluster.DeepCopy()
+	cluster.Spec.EnableInTreeAutoscaling = new(false)
+	cluster.Spec.WorkerGroupSpecs = nil
+
+	testScheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(testScheme))
+	require.NoError(t, corev1.AddToScheme(testScheme))
+	r := &RayClusterReconciler{
+		Scheme:   testScheme,
+		Recorder: &events.FakeRecorder{},
+	}
+
+	// The previous reconcile successfully created this pod and recorded an
+	// expectation, but the informer has not observed the pod yet.
+	firstHead := r.buildHeadPod(ctx, *cluster.DeepCopy())
+	firstHead.Name = firstHead.GenerateName + "first"
+	firstHead.GenerateName = ""
+	firstHead.Status.Phase = corev1.PodPending
+	cacheUpdated := false
+	headCreateAttempts := 0
+	fakeClient := clientFake.NewClientBuilder().WithScheme(testScheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*corev1.Pod); ok && key == client.ObjectKeyFromObject(&firstHead) && !cacheUpdated {
+					// Deliver the informer update just before the expectation's
+					// Get. An earlier List still holds its empty snapshot.
+					require.NoError(t, c.Create(ctx, &firstHead))
+					cacheUpdated = true
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if pod, ok := obj.(*corev1.Pod); ok && pod.Labels[utils.RayNodeTypeLabelKey] == string(rayv1.HeadNode) {
+					headCreateAttempts++
+				}
+				return c.Create(ctx, obj, opts...)
+			},
+		}).Build()
+	r.Client = fakeClient
+	r.rayClusterScaleExpectation = expectations.NewRayClusterScaleExpectation(fakeClient)
+	r.rayClusterScaleExpectation.ExpectScalePod(cluster.Namespace, cluster.Name, expectations.HeadGroup, firstHead.Name, expectations.Create)
+
+	require.NoError(t, r.reconcilePods(ctx, cluster))
+	require.True(t, cacheUpdated, "the previous head pod must become visible during the expectation check")
+
+	headPods := corev1.PodList{}
+	require.NoError(t, fakeClient.List(ctx, &headPods, common.RayClusterHeadPodsAssociationOptions(cluster).ToListOptions()...))
+	assert.Zero(t, headCreateAttempts, "a satisfied creation expectation must not cause a duplicate head creation from an earlier empty list")
+	headNames := make([]string, 0, len(headPods.Items))
+	for _, pod := range headPods.Items {
+		headNames = append(headNames, pod.Name)
+	}
+	assert.Equal(t, []string{firstHead.Name}, headNames, "the RayCluster must retain only the original head pod")
+}
+
 func TestReconcile_RemoveWorkersToDelete_RandomDelete(t *testing.T) {
 	setupTest(t)
 

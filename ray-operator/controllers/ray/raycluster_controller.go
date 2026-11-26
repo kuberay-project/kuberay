@@ -1039,6 +1039,11 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		return nil
 	}
 
+	// Check the head expectation before listing head Pods. IsSatisfied reads the previously created
+	// head Pod from the informer cache; if the List ran first, it could return a stale empty snapshot
+	// while IsSatisfied then observes the Pod and clears the expectation, leading to a duplicate head Pod.
+	// See https://github.com/ray-project/kuberay/issues/5495.
+	headExpectationSatisfied := r.rayClusterScaleExpectation.IsSatisfied(ctx, instance.Namespace, instance.Name, expectations.HeadGroup)
 	// check if all the pods exist
 	headPods := corev1.PodList{}
 	if err := r.List(ctx, &headPods, common.RayClusterHeadPodsAssociationOptions(instance).ToListOptions()...); err != nil {
@@ -1056,7 +1061,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		}
 	}
 	// Reconcile head Pod
-	if !r.rayClusterScaleExpectation.IsSatisfied(ctx, instance.Namespace, instance.Name, expectations.HeadGroup) {
+	if !headExpectationSatisfied {
 		logger.Info("reconcilePods", "Expectation", "NotSatisfiedHeadExpectations, reconcile head later")
 	} else if len(headPods.Items) == 1 {
 		headPod := headPods.Items[0]
