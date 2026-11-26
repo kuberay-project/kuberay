@@ -254,6 +254,31 @@ See [helm-chart.md](./helm-chart.md) for the end-to-end workflow. Below are step
 
 ### Step 8: Validate the Release
 
+The [`release-test`](../../.agents/skills/release-test/SKILL.md) agent skill automates this step. Run
+`/release-test <tag>` in a coding agent, like Claude Code, at the repository root:
+
+1. It writes `release-test/results/<tag>/plan.md`. The plan marks every KubeRay page on docs.ray.io
+   and every sample in `ray-operator/config/samples/` as `run`, `manual` (needs a GPU, a TPU, a cloud
+   cluster or credentials) or `none` (nothing to run). A sample that a page uses in a command runs
+   with that page, and the other samples run on their own. Then it stops. Check the plan, edit it if
+   needed, and confirm.
+2. It runs each `run` page, and each `run` sample that no page runs, with the tag, each on its own
+   kind cluster. It runs a page's commands as written, but with the new KubeRay version. It applies a
+   sample and waits until its RayCluster, RayJob, RayService or RayCronJob works. A page or sample
+   that fails runs one more time on a new cluster. It also lists the old KubeRay versions in the docs
+   and the doc changes the release's commits need.
+3. Read `release-test/results/<tag>/REPORT.md`. Each page and sample gets a result: ✅ no findings,
+   ⚠️ only minor findings, ❌ at least one blocker in both runs, or 🔁 a blocker in the first run
+   only. The report also lists the release blockers, the broken pages, the broken samples, the minor
+   findings, and the pages and samples a human needs to run. A new feature that no page covers is
+   listed with the result of its sample, or as not tested when it has no sample or the sample did not
+   run. `results.csv` in the same folder has one row per page and sample that has something to run,
+   and one per Helm chart, to import into a tracking spreadsheet. The skill does not edit docs or open issues.
+
+It needs kind, kubectl, helm, git, Docker and Python 3, and about 4 CPUs per run. It runs up to
+three pages or samples at once. Don't start two runs for the same tag at the same time. `release-test/` is a local work folder that git ignores. To run some again, use
+`/release-test <tag> <page>... samples/<sample>...`. The manual steps below are still the fallback.
+
 Perform basic validation to ensure the released artifacts work together.
 
 1. Update your local Helm repository:
@@ -327,3 +352,5 @@ Announce the new release in the [kuberay Slack channel](https://ray.slack.com/ar
 ### Step 11: Update ray.io documentation
 
 Update all references to the KubeRay version in the ray.io documentation.
+`release-test/results/<tag>/versions.md` from Step 8 lists every reference to update. `REPORT.md` lists
+the broken pages and the minor findings to fix at the same time.

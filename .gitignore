@@ -80,3 +80,6 @@ schema/
 # Source: https://go.dev/ref/mod#workspaces
 # go.work
 # go.work.sum
+
+# Local work directory of the release-test agent skill: the ray docs checkout and the results.
+/release-test/
