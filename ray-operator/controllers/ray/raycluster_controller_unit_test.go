@@ -2267,10 +2267,7 @@ func Test_UnhealthyWorkerPodAlreadyDeleted(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, utils.ErrFailedDeleteWorkerPod)
 
-	for len(recorder.Events) > 0 {
-		event := <-recorder.Events
-		assert.NotContains(t, event, string(utils.FailedToDeleteWorkerPod))
-	}
+	assert.Empty(t, recorder.Events)
 
 	// A Delete scale expectation is still recorded. It stays unsatisfied while the Pod is still in the cache.
 	assert.False(t, scaleExpectation.IsSatisfied(ctx, namespaceStr, cluster.Name, groupName))
