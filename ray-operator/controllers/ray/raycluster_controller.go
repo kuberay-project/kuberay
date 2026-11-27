@@ -1304,7 +1304,6 @@ func (r *RayClusterReconciler) deleteWorkerPods(ctx context.Context, instance *r
 	return nil
 }
 
-// deletePod deletes a Pod, records a Delete scale expectation for it, and emits an event.
 func (r *RayClusterReconciler) deletePod(ctx context.Context, instance *rayv1.RayCluster, pod *corev1.Pod, nodeType rayv1.RayNodeType, groupName string, reason string) error {
 	logger := ctrl.LoggerFrom(ctx)
 	failedEvent, deletedEvent, errFailedDelete := utils.FailedToDeleteWorkerPod, utils.DeletedWorkerPod, utils.ErrFailedDeleteWorkerPod
