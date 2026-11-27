@@ -1289,7 +1289,7 @@ func checkSelectedClusterSuspendedAndUpdateStatusIfNeeded(ctx context.Context, r
 	logger.Info("The RayCluster selected by clusterSelector is suspended. Transition the status to `Failed`.", "RayCluster", rayCluster.Namespace+"/"+rayCluster.Name, "suspendFields", suspendFields)
 	rayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusFailed
 	rayJob.Status.Reason = rayv1.SelectedRayClusterSuspended
-	rayJob.Status.Message = fmt.Sprintf("The RayCluster %s/%s selected by clusterSelector is suspended (%s), so it cannot run the RayJob.", rayCluster.Namespace, rayCluster.Name, strings.Join(suspendFields, ", "))
+	rayJob.Status.Message = fmt.Sprintf("The RayCluster %s/%s selected by clusterSelector is suspended (%s), so it cannot run the RayJob. Resume the RayCluster and resubmit the RayJob.", rayCluster.Namespace, rayCluster.Name, strings.Join(suspendFields, ", "))
 	return true
 }
 
