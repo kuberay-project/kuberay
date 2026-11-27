@@ -1311,21 +1311,19 @@ func (r *RayClusterReconciler) deletePod(ctx context.Context, instance *rayv1.Ra
 		failedEvent, deletedEvent, errFailedDelete = utils.FailedToDeleteHeadPod, utils.DeletedHeadPod, utils.ErrFailedDeleteHeadPod
 	}
 
-	deleted := true
-	if err := r.Delete(ctx, pod); err != nil {
-		if !errors.IsNotFound(err) {
-			r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(failedEvent), string(utils.DeleteAction),
-				"Failed deleting %s Pod %s/%s; %s, %v", nodeType, pod.Namespace, pod.Name, reason, err)
-			return errstd.Join(errFailedDelete, err)
-		}
-		logger.Info("Pod has already been deleted", "namespace", pod.Namespace, "name", pod.Name, "nodeType", nodeType, "group", groupName)
-		deleted = false
-	}
-	r.rayClusterScaleExpectation.ExpectScalePod(pod.Namespace, instance.Name, groupName, pod.Name, expectations.Delete)
-	if deleted {
+	err := r.Delete(ctx, pod)
+	switch {
+	case err == nil:
 		r.Recorder.Eventf(instance, nil, corev1.EventTypeNormal, string(deletedEvent), string(utils.DeleteAction),
 			"Deleted %s Pod %s/%s; %s", nodeType, pod.Namespace, pod.Name, reason)
+	case errors.IsNotFound(err):
+		logger.Info("Pod has already been deleted", "namespace", pod.Namespace, "name", pod.Name, "nodeType", nodeType, "group", groupName)
+	default:
+		r.Recorder.Eventf(instance, nil, corev1.EventTypeWarning, string(failedEvent), string(utils.DeleteAction),
+			"Failed deleting %s Pod %s/%s; %s, %v", nodeType, pod.Namespace, pod.Name, reason, err)
+		return errstd.Join(errFailedDelete, err)
 	}
+	r.rayClusterScaleExpectation.ExpectScalePod(pod.Namespace, instance.Name, groupName, pod.Name, expectations.Delete)
 	return nil
 }
 
