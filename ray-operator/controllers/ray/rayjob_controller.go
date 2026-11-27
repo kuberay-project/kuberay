@@ -140,6 +140,7 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 
 	// Please do NOT modify `originalRayJobInstance` in the following code.
 	originalRayJobInstance := rayJobInstance.DeepCopy()
+	statusBaseline := originalRayJobInstance
 
 	// Perform all validations and directly fail the RayJob if any of the validation fails
 	errType, err := validateRayJob(ctx, rayJobInstance)
@@ -152,8 +153,7 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 		rayJobInstance.Status.Reason = rayv1.ValidationFailed
 		rayJobInstance.Status.Message = err.Error()
 
-		// This is one of the only 2 places where we update the RayJob status. This will directly
-		// update the JobDeploymentStatus to ValidationFailed if there's validation error.
+		// Directly update JobDeploymentStatus to ValidationFailed if there's a validation error.
 		if err = r.updateRayJobStatus(ctx, originalRayJobInstance, rayJobInstance); err != nil {
 			logger.Info("Failed to update RayJob status", "error", err)
 			return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
@@ -275,6 +275,14 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 		// before transitioning the status from `Initializing` to `Running`.
 		if rayClusterInstance, err = r.getOrCreateRayClusterInstance(ctx, rayJobInstance); err != nil {
 			return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
+		}
+
+		if utils.InconsistentRayClusterStatus(rayJobInstance.Status.RayClusterStatus, rayClusterInstance.Status) {
+			rayJobInstance.Status.RayClusterStatus = *rayClusterInstance.Status.DeepCopy()
+			if err := r.updateRayJobStatus(ctx, statusBaseline, rayJobInstance); err != nil {
+				return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
+			}
+			statusBaseline = rayJobInstance.DeepCopy()
 		}
 
 		err = r.reconcileServices(ctx, rayJobInstance, rayClusterInstance)
@@ -451,9 +459,8 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 	}
 	checkBackoffLimitAndUpdateStatusIfNeeded(ctx, rayJobInstance)
 
-	// This is one of the only 2 places where we update the RayJob status. Please do NOT add any
-	// code between `checkBackoffLimitAndUpdateStatusIfNeeded` and the following code.
-	if err = r.updateRayJobStatus(ctx, originalRayJobInstance, rayJobInstance); err != nil {
+	// Please do NOT add code between `checkBackoffLimitAndUpdateStatusIfNeeded` and the following update.
+	if err = r.updateRayJobStatus(ctx, statusBaseline, rayJobInstance); err != nil {
 		logger.Info("Failed to update RayJob status", "error", err)
 		return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
 	}
@@ -934,9 +941,13 @@ func (r *RayJobReconciler) updateRayJobStatus(ctx context.Context, oldRayJob *ra
 	// updated with a distinct JobStatus or JobDeploymentStatus value.
 	if oldRayJobStatus.JobStatus != newRayJobStatus.JobStatus ||
 		oldRayJobStatus.JobDeploymentStatus != newRayJobStatus.JobDeploymentStatus ||
+		oldRayJobStatus.Reason != newRayJobStatus.Reason ||
+		oldRayJobStatus.Message != newRayJobStatus.Message ||
+		jobInfoTimestampChanged(oldRayJobStatus.RayJobStatusInfo.StartTime, newRayJobStatus.RayJobStatusInfo.StartTime) ||
+		jobInfoTimestampChanged(oldRayJobStatus.RayJobStatusInfo.EndTime, newRayJobStatus.RayJobStatusInfo.EndTime) ||
 		rayClusterStatusChanged ||
 		jobStatusCheckFailureStartTimeChanged {
-		if rayv1.IsJobDeploymentTerminal(newRayJobStatus.JobDeploymentStatus) {
+		if oldRayJobStatus.JobDeploymentStatus != newRayJobStatus.JobDeploymentStatus && rayv1.IsJobDeploymentTerminal(newRayJobStatus.JobDeploymentStatus) {
 			newRayJob.Status.EndTime = &metav1.Time{Time: time.Now()}
 		}
 
@@ -947,6 +958,14 @@ func (r *RayJobReconciler) updateRayJobStatus(ctx context.Context, oldRayJob *ra
 		}
 	}
 	return nil
+}
+
+func jobInfoTimestampChanged(oldTime, newTime *metav1.Time) bool {
+	if oldTime == nil || newTime == nil {
+		return oldTime != newTime
+	}
+	// Dashboard timestamps include milliseconds, but metav1.Time is serialized with second precision.
+	return oldTime.Unix() != newTime.Unix()
 }
 
 func (r *RayJobReconciler) getOrCreateRayClusterInstance(ctx context.Context, rayJobInstance *rayv1.RayJob) (*rayv1.RayCluster, error) {
