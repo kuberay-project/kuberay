@@ -464,7 +464,7 @@ func TestUpdateRayJobStatus(t *testing.T) {
 
 			err = fakeClient.Get(ctx, types.NamespacedName{Namespace: newRayJob.Namespace, Name: newRayJob.Name}, newRayJob)
 			require.NoError(t, err)
-			assert.Equal(t, newRayJob.Status.Message == newMessage, tc.isJobDeploymentStatusChanged)
+			assert.Equal(t, newMessage, newRayJob.Status.Message)
 		})
 	}
 }
