@@ -2301,6 +2301,344 @@ func TestIsHTTPRouteEqual(t *testing.T) {
 	}
 }
 
+func makeGRPCRouteWithParentRef(
+	parentRefName string,
+	namespace string,
+	accepted bool,
+	resolvedRefs bool,
+) *gwv1.GRPCRoute {
+	var acceptedStatus, resolvedRefsStatus metav1.ConditionStatus
+	if accepted {
+		acceptedStatus = metav1.ConditionTrue
+	} else {
+		acceptedStatus = metav1.ConditionFalse
+	}
+	if resolvedRefs {
+		resolvedRefsStatus = metav1.ConditionTrue
+	} else {
+		resolvedRefsStatus = metav1.ConditionFalse
+	}
+
+	return &gwv1.GRPCRoute{
+		Status: gwv1.GRPCRouteStatus{
+			RouteStatus: gwv1.RouteStatus{
+				Parents: []gwv1.RouteParentStatus{
+					{
+						ParentRef: gwv1.ParentReference{
+							Name:      gwv1.ObjectName(parentRefName),
+							Namespace: new(gwv1.Namespace(namespace)),
+						},
+						Conditions: []metav1.Condition{
+							{
+								Type:   string(gwv1.RouteConditionAccepted),
+								Status: acceptedStatus,
+							},
+							{
+								Type:   string(gwv1.RouteConditionResolvedRefs),
+								Status: resolvedRefsStatus,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestIsGRPCRouteReady(t *testing.T) {
+	gateway := &gwv1.Gateway{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-gateway", Namespace: "test-ns"},
+	}
+
+	tests := []struct {
+		grpcRoute *gwv1.GRPCRoute
+		name      string
+		expected  bool
+	}{
+		{
+			name:      "missing GRPCRoute",
+			grpcRoute: nil,
+			expected:  false,
+		},
+		{
+			name:      "ParentRef does not match",
+			grpcRoute: makeGRPCRouteWithParentRef("not-a-match", "other-test-ns", true, true),
+			expected:  false,
+		},
+		{
+			name:      "matching ParentRef with Accepted condition but without ResolvedRefs",
+			grpcRoute: makeGRPCRouteWithParentRef("test-gateway", "test-ns", true, false),
+			expected:  false,
+		},
+		{
+			name:      "matching ParentRef with ResolvedRefs but without Accepted",
+			grpcRoute: makeGRPCRouteWithParentRef("test-gateway", "test-ns", false, true),
+			expected:  false,
+		},
+		{
+			name:      "ready GRPCRoute with all required conditions",
+			grpcRoute: makeGRPCRouteWithParentRef("test-gateway", "test-ns", true, true),
+			expected:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsGRPCRouteReady(gateway, tt.grpcRoute))
+		})
+	}
+}
+
+func TestGetWeightsFromGRPCRoute(t *testing.T) {
+	activeClusterName := "rayservice-active"
+	pendingClusterName := "rayservice-pending"
+
+	makeRayService := func(activeName, pendingName string) *rayv1.RayService {
+		return &rayv1.RayService{
+			Status: rayv1.RayServiceStatuses{
+				ActiveServiceStatus:  rayv1.RayServiceStatus{RayClusterName: activeName},
+				PendingServiceStatus: rayv1.RayServiceStatus{RayClusterName: pendingName},
+			},
+		}
+	}
+
+	makeGRPCRoute := func(activeWeight, pendingWeight *int32) *gwv1.GRPCRoute {
+		backends := []gwv1.GRPCBackendRef{}
+		if activeWeight != nil {
+			backends = append(backends, gwv1.GRPCBackendRef{
+				BackendRef: gwv1.BackendRef{
+					BackendObjectReference: gwv1.BackendObjectReference{Name: gwv1.ObjectName(GenerateServeServiceName(activeClusterName))},
+					Weight:                 activeWeight,
+				},
+			})
+		}
+		if pendingWeight != nil {
+			backends = append(backends, gwv1.GRPCBackendRef{
+				BackendRef: gwv1.BackendRef{
+					BackendObjectReference: gwv1.BackendObjectReference{Name: gwv1.ObjectName(GenerateServeServiceName(pendingClusterName))},
+					Weight:                 pendingWeight,
+				},
+			})
+		}
+		return &gwv1.GRPCRoute{
+			Spec: gwv1.GRPCRouteSpec{
+				Rules: []gwv1.GRPCRouteRule{{BackendRefs: backends}},
+			},
+		}
+	}
+
+	tests := []struct {
+		grpcRoute       *gwv1.GRPCRoute
+		rayService      *rayv1.RayService
+		name            string
+		expectedActive  int32
+		expectedPending int32
+	}{
+		{
+			name:            "No GRPCRoute, return defaults for both weights",
+			grpcRoute:       nil,
+			rayService:      makeRayService(activeClusterName, pendingClusterName),
+			expectedActive:  -1,
+			expectedPending: -1,
+		},
+		{
+			name:            "GRPCRoute with no rules, return defaults",
+			grpcRoute:       &gwv1.GRPCRoute{},
+			rayService:      makeRayService(activeClusterName, pendingClusterName),
+			expectedActive:  -1,
+			expectedPending: -1,
+		},
+		{
+			name:            "Only active backend present",
+			grpcRoute:       makeGRPCRoute(new(int32(100)), nil),
+			rayService:      makeRayService(activeClusterName, pendingClusterName),
+			expectedActive:  100,
+			expectedPending: -1,
+		},
+		{
+			name:            "Both active and pending backends present",
+			grpcRoute:       makeGRPCRoute(new(int32(90)), new(int32(10))),
+			rayService:      makeRayService(activeClusterName, pendingClusterName),
+			expectedActive:  90,
+			expectedPending: 10,
+		},
+		{
+			name:            "Backend name not matching either cluster",
+			grpcRoute:       makeGRPCRoute(new(int32(100)), new(int32(10))),
+			rayService:      makeRayService("some-other-cluster", ""),
+			expectedActive:  -1,
+			expectedPending: -1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			active, pending := GetWeightsFromGRPCRoute(tt.grpcRoute, tt.rayService)
+			assert.Equal(t, tt.expectedActive, active)
+			assert.Equal(t, tt.expectedPending, pending)
+		})
+	}
+}
+
+func TestIsGRPCRouteEqual(t *testing.T) {
+	tests := []struct {
+		existing *gwv1.GRPCRoute
+		desired  *gwv1.GRPCRoute
+		name     string
+		expected bool
+	}{
+		{
+			name: "Exactly equal GRPCRoutes",
+			existing: &gwv1.GRPCRoute{
+				Spec: gwv1.GRPCRouteSpec{
+					Rules: []gwv1.GRPCRouteRule{
+						{
+							BackendRefs: []gwv1.GRPCBackendRef{
+								{BackendRef: gwv1.BackendRef{BackendObjectReference: gwv1.BackendObjectReference{Name: "svc-a", Port: ptr.To(gwv1.PortNumber(9000))}, Weight: new(int32(100))}},
+							},
+						},
+					},
+				},
+			},
+			desired: &gwv1.GRPCRoute{
+				Spec: gwv1.GRPCRouteSpec{
+					Rules: []gwv1.GRPCRouteRule{
+						{
+							BackendRefs: []gwv1.GRPCBackendRef{
+								{BackendRef: gwv1.BackendRef{BackendObjectReference: gwv1.BackendObjectReference{Name: "svc-a", Port: ptr.To(gwv1.PortNumber(9000))}, Weight: new(int32(100))}},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Hostnames nil vs empty slice - equal",
+			existing: &gwv1.GRPCRoute{
+				Spec: gwv1.GRPCRouteSpec{Hostnames: []gwv1.Hostname{}},
+			},
+			desired: &gwv1.GRPCRoute{
+				Spec: gwv1.GRPCRouteSpec{Hostnames: nil},
+			},
+			expected: true,
+		},
+		{
+			name: "Different backend weights",
+			existing: &gwv1.GRPCRoute{
+				Spec: gwv1.GRPCRouteSpec{
+					Rules: []gwv1.GRPCRouteRule{
+						{
+							BackendRefs: []gwv1.GRPCBackendRef{
+								{BackendRef: gwv1.BackendRef{BackendObjectReference: gwv1.BackendObjectReference{Name: "svc-a"}, Weight: new(int32(100))}},
+							},
+						},
+					},
+				},
+			},
+			desired: &gwv1.GRPCRoute{
+				Spec: gwv1.GRPCRouteSpec{
+					Rules: []gwv1.GRPCRouteRule{
+						{
+							BackendRefs: []gwv1.GRPCBackendRef{
+								{BackendRef: gwv1.BackendRef{BackendObjectReference: gwv1.BackendObjectReference{Name: "svc-a"}, Weight: new(int32(75))}},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Different ParentRefs",
+			existing: &gwv1.GRPCRoute{
+				Spec: gwv1.GRPCRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{{Name: "gateway-a"}},
+					},
+				},
+			},
+			desired: &gwv1.GRPCRoute{
+				Spec: gwv1.GRPCRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{{Name: "gateway-b"}},
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsGRPCRouteEqual(tt.existing, tt.desired)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestGetRayServiceRouteTypes(t *testing.T) {
+	tests := []struct {
+		spec     *rayv1.RayServiceSpec
+		name     string
+		expected []rayv1.RouteType
+	}{
+		{
+			name:     "nil spec defaults to http",
+			spec:     nil,
+			expected: []rayv1.RouteType{rayv1.RouteTypeHTTP},
+		},
+		{
+			name:     "no ClusterUpgradeOptions defaults to http",
+			spec:     &rayv1.RayServiceSpec{},
+			expected: []rayv1.RouteType{rayv1.RouteTypeHTTP},
+		},
+		{
+			name: "nil RouteTypes defaults to http (backward compatible)",
+			spec: &rayv1.RayServiceSpec{
+				UpgradeStrategy: &rayv1.RayServiceUpgradeStrategy{
+					ClusterUpgradeOptions: &rayv1.ClusterUpgradeOptions{},
+				},
+			},
+			expected: []rayv1.RouteType{rayv1.RouteTypeHTTP},
+		},
+		{
+			name: "explicit grpc only",
+			spec: &rayv1.RayServiceSpec{
+				UpgradeStrategy: &rayv1.RayServiceUpgradeStrategy{
+					ClusterUpgradeOptions: &rayv1.ClusterUpgradeOptions{
+						RouteTypes: []rayv1.RouteType{rayv1.RouteTypeGRPC},
+					},
+				},
+			},
+			expected: []rayv1.RouteType{rayv1.RouteTypeGRPC},
+		},
+		{
+			name: "explicit http and grpc",
+			spec: &rayv1.RayServiceSpec{
+				UpgradeStrategy: &rayv1.RayServiceUpgradeStrategy{
+					ClusterUpgradeOptions: &rayv1.ClusterUpgradeOptions{
+						RouteTypes: []rayv1.RouteType{rayv1.RouteTypeHTTP, rayv1.RouteTypeGRPC},
+					},
+				},
+			},
+			expected: []rayv1.RouteType{rayv1.RouteTypeHTTP, rayv1.RouteTypeGRPC},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, GetRayServiceRouteTypes(tt.spec))
+		})
+	}
+
+	t.Run("RouteTypesContain", func(t *testing.T) {
+		assert.True(t, RouteTypesContain([]rayv1.RouteType{rayv1.RouteTypeHTTP, rayv1.RouteTypeGRPC}, rayv1.RouteTypeGRPC))
+		assert.False(t, RouteTypesContain([]rayv1.RouteType{rayv1.RouteTypeHTTP}, rayv1.RouteTypeGRPC))
+		assert.False(t, RouteTypesContain(nil, rayv1.RouteTypeHTTP))
+	})
+}
+
 func TestIsGatewayEqual(t *testing.T) {
 	tests := []struct {
 		existing *gwv1.Gateway

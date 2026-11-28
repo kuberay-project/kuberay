@@ -123,6 +123,14 @@ const (
 	GatewayListenerPortName    = "http"
 	DefaultGatewayListenerPort = 80
 
+	// Gateway defaults for gRPC. GRPCRoute attaches to an HTTP/2-capable HTTP listener;
+	// the listener port is client-facing, like the HTTP listener on port 80.
+	GatewayGrpcListenerPortName    = "grpc"
+	DefaultGatewayGrpcListenerPort = 9000
+
+	// ServingGrpcPortName is the port name for Ray Serve's gRPC proxy (RAY_SERVE_GRPC_PORT, default 9000).
+	ServingGrpcPortName = "serve-grpc"
+
 	// The default AppProtocol for Kubernetes service
 	DefaultServiceAppProtocol = "tcp"
 
@@ -506,6 +514,7 @@ const (
 	// RayService event list
 	CreatedGateway                  K8sEventType = "CreatedGateway"
 	CreatedHTTPRoute                K8sEventType = "CreatedHTTPRoute"
+	CreatedGRPCRoute                K8sEventType = "CreatedGRPCRoute"
 	InvalidRayServiceSpec           K8sEventType = "InvalidRayServiceSpec"
 	InvalidRayServiceMetadata       K8sEventType = "InvalidRayServiceMetadata"
 	RayServiceInitializingTimeout   K8sEventType = "RayServiceInitializingTimeout"
@@ -513,6 +522,7 @@ const (
 	UpdatedHeadPodServeLabel        K8sEventType = "UpdatedHeadPodServeLabel"
 	UpdatedGateway                  K8sEventType = "UpdatedGateway"
 	UpdatedHTTPRoute                K8sEventType = "UpdatedHTTPRoute"
+	UpdatedGRPCRoute                K8sEventType = "UpdatedGRPCRoute"
 	UpdatedServeApplications        K8sEventType = "UpdatedServeApplications"
 	UpdatedServeTargetCapacity      K8sEventType = "UpdatedServeTargetCapacity"
 	FailedToUpdateHeadPodServeLabel K8sEventType = "FailedToUpdateHeadPodServeLabel"
@@ -525,9 +535,13 @@ const (
 	FailedToCreateHTTPRoute         K8sEventType = "FailedToCreateHTTPRoute"
 	FailedToUpdateHTTPRoute         K8sEventType = "FailedToUpdateHTTPRoute"
 	FailedToDeleteHTTPRoute         K8sEventType = "FailedToDeleteHTTPRoute"
+	FailedToCreateGRPCRoute         K8sEventType = "FailedToCreateGRPCRoute"
+	FailedToUpdateGRPCRoute         K8sEventType = "FailedToUpdateGRPCRoute"
+	FailedToDeleteGRPCRoute         K8sEventType = "FailedToDeleteGRPCRoute"
 	FailedToDeleteService           K8sEventType = "FailedToDeleteService"
 	DeletedGateway                  K8sEventType = "DeletedGateway"
 	DeletedHTTPRoute                K8sEventType = "DeletedHTTPRoute"
+	DeletedGRPCRoute                K8sEventType = "DeletedGRPCRoute"
 	DeletedService                  K8sEventType = "DeletedService"
 
 	// Generic Pod event list

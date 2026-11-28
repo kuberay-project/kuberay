@@ -917,7 +917,29 @@ func IsHTTPRouteReady(gatewayInstance *gwv1.Gateway, httpRouteInstance *gwv1.HTT
 	if httpRouteInstance == nil {
 		return false
 	}
-	for _, parent := range httpRouteInstance.Status.Parents {
+	return isRouteReadyForGateway(gatewayInstance, httpRouteInstance.Status.Parents)
+}
+
+// IsGRPCRouteReady checks if a GRPCRoute is considered ready for a given Gateway, using
+// the same 'Accepted' and 'ResolvedRefs' parent conditions as IsHTTPRouteReady.
+func IsGRPCRouteReady(gatewayInstance *gwv1.Gateway, grpcRouteInstance *gwv1.GRPCRoute) bool {
+	if grpcRouteInstance == nil {
+		return false
+	}
+	return isRouteReadyForGateway(gatewayInstance, grpcRouteInstance.Status.Parents)
+}
+
+// isRouteReadyForGateway returns true only if the route's parent status entry matching
+// the Gateway has both the 'Accepted' and 'ResolvedRefs' conditions set to 'True'.
+//
+//  1. 'Accepted': Signifies that the Gateway controller has validated the route's
+//     configuration (e.g. syntax, filters, matching rules). An 'Accepted' status of
+//     'False' means the route's specification is invalid.
+//
+//  2. 'ResolvedRefs': Signifies that all references within the route are valid, exist,
+//     and are resolvable by the Gateway.
+func isRouteReadyForGateway(gatewayInstance *gwv1.Gateway, parents []gwv1.RouteParentStatus) bool {
+	for _, parent := range parents {
 		if parent.ParentRef.Name != gwv1.ObjectName(gatewayInstance.Name) {
 			continue
 		}
@@ -949,6 +971,27 @@ func GetRayServiceClusterUpgradeOptions(spec *rayv1.RayServiceSpec) *rayv1.Clust
 	return nil
 }
 
+// GetRayServiceRouteTypes returns the route types configured on a RayService, defaulting
+// to ["http"] when unset. CRD defaulting only applies server-side, so this helper is the
+// ONLY way controller code should read RouteTypes: unit tests and cached objects written
+// before the field existed may carry nil.
+func GetRayServiceRouteTypes(spec *rayv1.RayServiceSpec) []rayv1.RouteType {
+	if options := GetRayServiceClusterUpgradeOptions(spec); options != nil && len(options.RouteTypes) > 0 {
+		return options.RouteTypes
+	}
+	return []rayv1.RouteType{rayv1.RouteTypeHTTP}
+}
+
+// RouteTypesContain returns true if the given route type is in the list.
+func RouteTypesContain(routeTypes []rayv1.RouteType, routeType rayv1.RouteType) bool {
+	for _, rt := range routeTypes {
+		if rt == routeType {
+			return true
+		}
+	}
+	return false
+}
+
 // IsIncrementalUpgradeComplete checks if the conditions for completing an incremental upgrade are met.
 func IsIncrementalUpgradeComplete(rayServiceInstance *rayv1.RayService, pendingCluster *rayv1.RayCluster) bool {
 	return pendingCluster != nil &&
@@ -959,6 +1002,32 @@ func IsIncrementalUpgradeComplete(rayServiceInstance *rayv1.RayService, pendingC
 // GetWeightsFromHTTPRoute parses a given HTTPRoute object and extracts the traffic weights
 // for the active and pending clusters (if present) of a RayService.
 func GetWeightsFromHTTPRoute(httpRoute *gwv1.HTTPRoute, rayServiceInstance *rayv1.RayService) (activeWeight int32, pendingWeight int32) {
+	if httpRoute == nil || len(httpRoute.Spec.Rules) == 0 {
+		return -1, -1
+	}
+	backendRefs := make([]gwv1.BackendRef, 0, len(httpRoute.Spec.Rules[0].BackendRefs))
+	for _, ref := range httpRoute.Spec.Rules[0].BackendRefs {
+		backendRefs = append(backendRefs, ref.BackendRef)
+	}
+	return getWeightsFromBackendRefs(backendRefs, rayServiceInstance)
+}
+
+// GetWeightsFromGRPCRoute parses a given GRPCRoute object and extracts the traffic weights
+// for the active and pending clusters (if present) of a RayService.
+func GetWeightsFromGRPCRoute(grpcRoute *gwv1.GRPCRoute, rayServiceInstance *rayv1.RayService) (activeWeight int32, pendingWeight int32) {
+	if grpcRoute == nil || len(grpcRoute.Spec.Rules) == 0 {
+		return -1, -1
+	}
+	backendRefs := make([]gwv1.BackendRef, 0, len(grpcRoute.Spec.Rules[0].BackendRefs))
+	for _, ref := range grpcRoute.Spec.Rules[0].BackendRefs {
+		backendRefs = append(backendRefs, ref.BackendRef)
+	}
+	return getWeightsFromBackendRefs(backendRefs, rayServiceInstance)
+}
+
+// getWeightsFromBackendRefs extracts the traffic weights for the active and pending
+// clusters (if present) of a RayService from a route's backend references.
+func getWeightsFromBackendRefs(backendRefs []gwv1.BackendRef, rayServiceInstance *rayv1.RayService) (activeWeight int32, pendingWeight int32) {
 	var activeClusterName, pendingClusterName string
 	if rayServiceInstance != nil {
 		activeClusterName = rayServiceInstance.Status.ActiveServiceStatus.RayClusterName
@@ -966,15 +1035,11 @@ func GetWeightsFromHTTPRoute(httpRoute *gwv1.HTTPRoute, rayServiceInstance *rayv
 	}
 
 	// Defaults if weights can't be detected. This is so that we avoid setting TrafficRoutedPercent
-	// before the HTTPRoute actually exists.
+	// before the route actually exists.
 	activeWeight = -1
 	pendingWeight = -1
 
-	if httpRoute == nil || len(httpRoute.Spec.Rules) == 0 || len(httpRoute.Spec.Rules[0].BackendRefs) == 0 {
-		return
-	}
-
-	for _, backendRef := range httpRoute.Spec.Rules[0].BackendRefs {
+	for _, backendRef := range backendRefs {
 		backendName := string(backendRef.Name)
 		weight := ptr.Deref(backendRef.Weight, 0)
 
@@ -1162,6 +1227,81 @@ func HasSubmitter(rayJobInstance *rayv1.RayJob) bool {
 // IsHTTPRouteEqual checks if the existing HTTPRoute matches the desired HTTPRoute.
 // This check only compares the fields explicitly managed by the RayService controller.
 func IsHTTPRouteEqual(existing, desired *gwv1.HTTPRoute) bool {
+	if existing == nil || desired == nil {
+		return existing == desired
+	}
+
+	// Compare Hostnames. Treat nil and empty slice as equivalent to avoid false positives
+	// caused by renormalization from the API server or the Gateway implementation.
+	if len(existing.Spec.Hostnames) != len(desired.Spec.Hostnames) {
+		return false
+	}
+	if len(existing.Spec.Hostnames) > 0 && !reflect.DeepEqual(existing.Spec.Hostnames, desired.Spec.Hostnames) {
+		return false
+	}
+
+	// Compare ParentRefs
+	if len(existing.Spec.ParentRefs) != len(desired.Spec.ParentRefs) {
+		return false
+	}
+	for i := range desired.Spec.ParentRefs {
+		eRef := existing.Spec.ParentRefs[i]
+		dRef := desired.Spec.ParentRefs[i]
+
+		if string(eRef.Name) != string(dRef.Name) ||
+			string(ptr.Deref(eRef.Namespace, "")) != string(ptr.Deref(dRef.Namespace, "")) ||
+			string(ptr.Deref(eRef.SectionName, "")) != string(ptr.Deref(dRef.SectionName, "")) ||
+			ptr.Deref(eRef.Port, 0) != ptr.Deref(dRef.Port, 0) {
+			return false
+		}
+	}
+
+	// Compare Rules
+	if len(existing.Spec.Rules) != len(desired.Spec.Rules) {
+		return false
+	}
+
+	for i := range desired.Spec.Rules {
+		eRule := existing.Spec.Rules[i]
+		dRule := desired.Spec.Rules[i]
+
+		// Compare Matches
+		if !reflect.DeepEqual(eRule.Matches, dRule.Matches) {
+			return false
+		}
+
+		// Compare Filters. Treat nil and empty slice as equivalent to avoid false positives
+		// caused by renormalization from the API server or the Gateway implementation.
+		if len(eRule.Filters) != len(dRule.Filters) {
+			return false
+		}
+		if len(eRule.Filters) > 0 && !reflect.DeepEqual(eRule.Filters, dRule.Filters) {
+			return false
+		}
+
+		if len(eRule.BackendRefs) != len(dRule.BackendRefs) {
+			return false
+		}
+
+		for j := range desired.Spec.Rules[i].BackendRefs {
+			existingRef := existing.Spec.Rules[i].BackendRefs[j]
+			desiredRef := desired.Spec.Rules[i].BackendRefs[j]
+
+			// Only compare the fields the controller updates.
+			if string(existingRef.Name) != string(desiredRef.Name) ||
+				string(ptr.Deref(existingRef.Namespace, "")) != string(ptr.Deref(desiredRef.Namespace, "")) ||
+				ptr.Deref(existingRef.Weight, 1) != ptr.Deref(desiredRef.Weight, 1) ||
+				ptr.Deref(existingRef.Port, 0) != ptr.Deref(desiredRef.Port, 0) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// IsGRPCRouteEqual checks if the existing GRPCRoute matches the desired GRPCRoute.
+// This check only compares the fields explicitly managed by the RayService controller.
+func IsGRPCRouteEqual(existing, desired *gwv1.GRPCRoute) bool {
 	if existing == nil || desired == nil {
 		return existing == desired
 	}

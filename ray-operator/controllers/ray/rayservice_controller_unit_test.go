@@ -2105,6 +2105,538 @@ func TestReconcileHTTPRoute(t *testing.T) {
 	}
 }
 
+// makeGrpcCluster returns a RayCluster whose head container declares a port named
+// "serve-grpc", required by common.GetGrpcPort.
+func makeGrpcCluster(name, namespace string, grpcPort int32) *rayv1.RayCluster {
+	return &rayv1.RayCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: rayv1.RayClusterSpec{
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name: "ray-head",
+								Ports: []corev1.ContainerPort{
+									{Name: utils.ServingGrpcPortName, ContainerPort: grpcPort},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestCreateGRPCRoute(t *testing.T) {
+	ctx := context.TODO()
+	namespace := "test-ns"
+	stepSize := int32(10)
+	interval := int32(30)
+	grpcPort := int32(9090)
+
+	activeCluster := makeGrpcCluster("rayservice-active", namespace, grpcPort)
+	pendingCluster := makeGrpcCluster("rayservice-pending", namespace, grpcPort)
+	gateway := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice-gateway", Namespace: namespace}}
+	activeServeService := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: utils.GenerateServeServiceName(activeCluster.Name), Namespace: namespace}}
+	pendingServeService := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: utils.GenerateServeServiceName(pendingCluster.Name), Namespace: namespace}}
+
+	baseRayService := &rayv1.RayService{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice", Namespace: namespace},
+		Spec: rayv1.RayServiceSpec{
+			UpgradeStrategy: &rayv1.RayServiceUpgradeStrategy{
+				Type: ptr.To(rayv1.RayServiceNewClusterWithIncrementalUpgrade),
+				ClusterUpgradeOptions: &rayv1.ClusterUpgradeOptions{
+					StepSizePercent:  &stepSize,
+					IntervalSeconds:  &interval,
+					GatewayClassName: "istio",
+					RouteTypes:       []rayv1.RouteType{rayv1.RouteTypeHTTP, rayv1.RouteTypeGRPC},
+				},
+			},
+		},
+		Status: rayv1.RayServiceStatuses{
+			ActiveServiceStatus: rayv1.RayServiceStatus{
+				RayClusterName:       activeCluster.Name,
+				TrafficRoutedPercent: new(int32(100)),
+				TargetCapacity:       new(int32(100)),
+			},
+			PendingServiceStatus: rayv1.RayServiceStatus{
+				RayClusterName:       pendingCluster.Name,
+				TrafficRoutedPercent: new(int32(0)),
+				TargetCapacity:       new(int32(30)),
+			},
+		},
+	}
+
+	t.Run("creates GRPCRoute with weighted backends on the serve-grpc port", func(t *testing.T) {
+		rayService := baseRayService.DeepCopy()
+		rayService.Status.PendingServiceStatus.LastTrafficMigratedTime = &metav1.Time{Time: time.Now().Add(-time.Duration(interval+1) * time.Second)}
+		rayService.Status.PendingServiceStatus.TargetCapacity = new(int32(60))
+
+		newScheme := runtime.NewScheme()
+		_ = rayv1.AddToScheme(newScheme)
+		_ = corev1.AddToScheme(newScheme)
+		_ = gwv1.Install(newScheme)
+		fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).
+			WithRuntimeObjects(activeCluster, pendingCluster, gateway, activeServeService, pendingServeService, rayService).Build()
+		reconciler := &RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: events.NewFakeRecorder(10)}
+
+		route, err := reconciler.createGRPCRoute(ctx, rayService, true)
+		require.NoError(t, err)
+		require.NotNil(t, route)
+
+		assert.Equal(t, "test-rayservice-grpcroute", route.Name)
+		assert.Equal(t, namespace, route.Namespace)
+
+		require.Len(t, route.Spec.ParentRefs, 1)
+		assert.Equal(t, gwv1.ObjectName(gateway.Name), route.Spec.ParentRefs[0].Name)
+		assert.Nil(t, route.Spec.ParentRefs[0].SectionName)
+		assert.Nil(t, route.Spec.ParentRefs[0].Port)
+		assert.Empty(t, route.Spec.Hostnames)
+
+		require.Len(t, route.Spec.Rules, 1)
+		rule := route.Spec.Rules[0]
+		// GRPCRoute rules match all services and methods when Matches is empty.
+		assert.Empty(t, rule.Matches)
+
+		require.Len(t, rule.BackendRefs, 2)
+		assert.Equal(t, gwv1.ObjectName(activeServeService.Name), rule.BackendRefs[0].BackendRef.Name)
+		assert.Equal(t, gwv1.PortNumber(grpcPort), *rule.BackendRefs[0].BackendRef.Port)
+		assert.Equal(t, int32(90), *rule.BackendRefs[0].Weight)
+		assert.Equal(t, gwv1.ObjectName(pendingServeService.Name), rule.BackendRefs[1].BackendRef.Name)
+		assert.Equal(t, int32(10), *rule.BackendRefs[1].Weight)
+	})
+
+	t.Run("errors when the head container declares no serve-grpc port", func(t *testing.T) {
+		rayService := baseRayService.DeepCopy()
+		bareActive := &rayv1.RayCluster{ObjectMeta: metav1.ObjectMeta{Name: activeCluster.Name, Namespace: namespace}}
+
+		newScheme := runtime.NewScheme()
+		_ = rayv1.AddToScheme(newScheme)
+		_ = corev1.AddToScheme(newScheme)
+		_ = gwv1.Install(newScheme)
+		fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).
+			WithRuntimeObjects(bareActive, gateway, activeServeService, rayService).Build()
+		reconciler := &RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: events.NewFakeRecorder(10)}
+
+		route, err := reconciler.createGRPCRoute(ctx, rayService, true)
+		require.Error(t, err)
+		assert.Nil(t, route)
+		assert.Contains(t, err.Error(), utils.ServingGrpcPortName)
+	})
+
+	t.Run("no on-going upgrade: single active backend", func(t *testing.T) {
+		rayService := baseRayService.DeepCopy()
+		rayService.Status.PendingServiceStatus = rayv1.RayServiceStatus{}
+
+		newScheme := runtime.NewScheme()
+		_ = rayv1.AddToScheme(newScheme)
+		_ = corev1.AddToScheme(newScheme)
+		_ = gwv1.Install(newScheme)
+		fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).
+			WithRuntimeObjects(activeCluster, gateway, activeServeService, rayService).Build()
+		reconciler := &RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: events.NewFakeRecorder(10)}
+
+		route, err := reconciler.createGRPCRoute(ctx, rayService, false)
+		require.NoError(t, err)
+		require.NotNil(t, route)
+		require.Len(t, route.Spec.Rules, 1)
+		require.Len(t, route.Spec.Rules[0].BackendRefs, 1)
+		assert.Equal(t, int32(100), *route.Spec.Rules[0].BackendRefs[0].Weight)
+	})
+}
+
+// When GatewayRef references a shared Gateway in another namespace, the GRPCRoute's
+// ParentRef must target that Gateway with the same SectionName/Port pinning as the
+// HTTPRoute, while the GRPCRoute and its backendRefs stay in the RayService's namespace.
+func TestCreateGRPCRouteWithGatewayRef(t *testing.T) {
+	ctx := context.TODO()
+	rsNamespace := "test-ns"
+	gwNamespace := "gateways"
+	stepSize := int32(10)
+	interval := int32(30)
+	grpcPort := int32(9000)
+
+	activeCluster := makeGrpcCluster("active-ray-cluster", rsNamespace, grpcPort)
+	activeServeService := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: utils.GenerateServeServiceName(activeCluster.Name), Namespace: rsNamespace}}
+	sharedGateway := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "shared-gateway", Namespace: gwNamespace}}
+
+	rayService := &rayv1.RayService{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice", Namespace: rsNamespace},
+		Spec: rayv1.RayServiceSpec{
+			UpgradeStrategy: &rayv1.RayServiceUpgradeStrategy{
+				Type: ptr.To(rayv1.RayServiceNewClusterWithIncrementalUpgrade),
+				ClusterUpgradeOptions: &rayv1.ClusterUpgradeOptions{
+					StepSizePercent: &stepSize,
+					IntervalSeconds: &interval,
+					RouteTypes:      []rayv1.RouteType{rayv1.RouteTypeHTTP, rayv1.RouteTypeGRPC},
+					GatewayRef: &rayv1.GatewayReference{
+						Name:        "shared-gateway",
+						Namespace:   gwNamespace,
+						SectionName: "grpc-listener",
+						Port:        new(int32(8443)),
+					},
+				},
+			},
+		},
+		Status: rayv1.RayServiceStatuses{
+			ActiveServiceStatus: rayv1.RayServiceStatus{
+				RayClusterName:       activeCluster.Name,
+				TrafficRoutedPercent: new(int32(100)),
+				TargetCapacity:       new(int32(100)),
+			},
+		},
+	}
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+	_ = gwv1.Install(newScheme)
+	fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).
+		WithRuntimeObjects(activeCluster, sharedGateway, activeServeService, rayService).Build()
+	reconciler := &RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: events.NewFakeRecorder(10)}
+
+	route, err := reconciler.createGRPCRoute(ctx, rayService, false)
+	require.NoError(t, err)
+	require.NotNil(t, route)
+
+	assert.Equal(t, rsNamespace, route.Namespace, "GRPCRoute must live in the RayService's namespace")
+	require.Len(t, route.Spec.ParentRefs, 1)
+	parent := route.Spec.ParentRefs[0]
+	assert.Equal(t, gwv1.ObjectName("shared-gateway"), parent.Name)
+	assert.Equal(t, new(gwv1.Namespace(gwNamespace)), parent.Namespace)
+	require.NotNil(t, parent.SectionName)
+	assert.Equal(t, gwv1.SectionName("grpc-listener"), *parent.SectionName)
+	require.NotNil(t, parent.Port)
+	assert.Equal(t, gwv1.PortNumber(8443), *parent.Port)
+
+	require.Len(t, route.Spec.Rules, 1)
+	require.Len(t, route.Spec.Rules[0].BackendRefs, 1)
+	backend := route.Spec.Rules[0].BackendRefs[0]
+	assert.Equal(t, new(gwv1.Namespace(rsNamespace)), backend.BackendRef.Namespace, "backendRefs must stay in the RayService's namespace")
+	assert.Equal(t, gwv1.PortNumber(grpcPort), *backend.BackendRef.Port)
+}
+
+func TestReconcileGRPCRoute(t *testing.T) {
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+	_ = gwv1.Install(newScheme)
+
+	ctx := context.TODO()
+	namespace := "test-ns"
+	stepSize := int32(10)
+	interval := int32(30)
+	grpcPort := int32(9000)
+	gatewayName := "test-rayservice-gateway"
+	routeName := "test-rayservice-grpcroute"
+
+	activeCluster := makeGrpcCluster("active-ray-cluster", namespace, grpcPort)
+	pendingCluster := makeGrpcCluster("pending-ray-cluster", namespace, grpcPort)
+	activeServeService := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: utils.GenerateServeServiceName(activeCluster.Name), Namespace: namespace}}
+	pendingServeService := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: utils.GenerateServeServiceName(pendingCluster.Name), Namespace: namespace}}
+	gateway := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: gatewayName, Namespace: namespace}}
+
+	baseRayService := &rayv1.RayService{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice", Namespace: namespace},
+		Spec: rayv1.RayServiceSpec{
+			UpgradeStrategy: &rayv1.RayServiceUpgradeStrategy{
+				Type: ptr.To(rayv1.RayServiceNewClusterWithIncrementalUpgrade),
+				ClusterUpgradeOptions: &rayv1.ClusterUpgradeOptions{
+					StepSizePercent:  &stepSize,
+					IntervalSeconds:  &interval,
+					GatewayClassName: "istio",
+					RouteTypes:       []rayv1.RouteType{rayv1.RouteTypeHTTP, rayv1.RouteTypeGRPC},
+				},
+			},
+		},
+		Status: rayv1.RayServiceStatuses{
+			ActiveServiceStatus: rayv1.RayServiceStatus{
+				RayClusterName:       activeCluster.Name,
+				TrafficRoutedPercent: new(int32(100)),
+				TargetCapacity:       new(int32(100)),
+			},
+			PendingServiceStatus: rayv1.RayServiceStatus{
+				RayClusterName:       pendingCluster.Name,
+				TrafficRoutedPercent: new(int32(0)),
+				TargetCapacity:       new(int32(100)),
+			},
+		},
+	}
+
+	tests := []struct {
+		modifier              func(rs *rayv1.RayService)
+		existingRoute         *gwv1.GRPCRoute
+		name                  string
+		expectedActiveWeight  int32
+		expectedPendingWeight int32
+		pendingClusterExists  bool
+		isPendingClusterReady bool
+	}{
+		{
+			name:                  "Create GRPCRoute with no pending cluster.",
+			isPendingClusterReady: false,
+			pendingClusterExists:  false,
+			expectedActiveWeight:  100,
+			expectedPendingWeight: 0,
+		},
+		{
+			name:                  "Create GRPCRoute when pending cluster exists, but is not ready.",
+			isPendingClusterReady: false,
+			pendingClusterExists:  true,
+			expectedActiveWeight:  100,
+			expectedPendingWeight: 0,
+		},
+		{
+			name:                  "Create new GRPCRoute with existing weights.",
+			isPendingClusterReady: true,
+			pendingClusterExists:  true,
+			expectedActiveWeight:  90,
+			expectedPendingWeight: 10,
+		},
+		{
+			name:                  "Existing GRPCRoute, time since LastTrafficMigratedTime >= IntervalSeconds so updates GRPCRoute.",
+			isPendingClusterReady: true,
+			pendingClusterExists:  true,
+			modifier: func(rs *rayv1.RayService) {
+				rs.Status.PendingServiceStatus.LastTrafficMigratedTime = &metav1.Time{Time: time.Now().Add(-time.Duration(interval+1) * time.Second)}
+			},
+			existingRoute: &gwv1.GRPCRoute{
+				ObjectMeta: metav1.ObjectMeta{Name: routeName, Namespace: namespace},
+				Spec:       gwv1.GRPCRouteSpec{},
+			},
+			expectedActiveWeight:  90,
+			expectedPendingWeight: 10,
+		},
+		{
+			name:                  "Existing GRPCRoute, time since LastTrafficMigratedTime < IntervalSeconds so no update.",
+			isPendingClusterReady: true,
+			pendingClusterExists:  true,
+			modifier: func(rs *rayv1.RayService) {
+				rs.Status.PendingServiceStatus.LastTrafficMigratedTime = &metav1.Time{Time: time.Now()}
+			},
+			expectedActiveWeight:  100,
+			expectedPendingWeight: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rayService := baseRayService.DeepCopy()
+			if tt.modifier != nil {
+				tt.modifier(rayService)
+			}
+
+			if !tt.pendingClusterExists {
+				rayService.Status.PendingServiceStatus.RayClusterName = ""
+			}
+
+			runtimeObjects := []runtime.Object{rayService, activeCluster, pendingCluster, gateway, activeServeService, pendingServeService}
+			if tt.existingRoute != nil {
+				runtimeObjects = append(runtimeObjects, tt.existingRoute)
+			}
+
+			fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects(runtimeObjects...).Build()
+			reconciler := RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: events.NewFakeRecorder(10)}
+
+			reconciledRoute, err := reconciler.reconcileGRPCRoute(ctx, rayService, tt.isPendingClusterReady)
+			require.NoError(t, err)
+
+			require.Len(t, reconciledRoute.Spec.Rules, 1)
+			rule := reconciledRoute.Spec.Rules[0]
+			if tt.pendingClusterExists {
+				require.Len(t, rule.BackendRefs, 2)
+				assert.Equal(t, tt.expectedActiveWeight, *rule.BackendRefs[0].Weight)
+				assert.Equal(t, tt.expectedPendingWeight, *rule.BackendRefs[1].Weight)
+			} else {
+				require.Len(t, rule.BackendRefs, 1)
+				assert.Equal(t, tt.expectedActiveWeight, *rule.BackendRefs[0].Weight)
+			}
+			parent := reconciledRoute.Spec.ParentRefs[0]
+			assert.Equal(t, gwv1.ObjectName(gatewayName), parent.Name)
+			assert.Equal(t, new(gwv1.Namespace(namespace)), parent.Namespace)
+		})
+	}
+}
+
+// When a route kind is removed from routeTypes mid-upgrade, the controller deletes the
+// corresponding route and reconciles the remaining kind.
+func TestReconcileRouteTypeDeletion(t *testing.T) {
+	ctx := context.TODO()
+	namespace := "test-ns"
+	grpcPort := int32(9000)
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+	_ = gwv1.Install(newScheme)
+
+	activeCluster := makeGrpcCluster("active-ray-cluster", namespace, grpcPort)
+	activeServeService := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: utils.GenerateServeServiceName(activeCluster.Name), Namespace: namespace}}
+	gateway := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice-gateway", Namespace: namespace}}
+
+	makeRS := func(routeTypes []rayv1.RouteType) *rayv1.RayService {
+		return &rayv1.RayService{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice", Namespace: namespace},
+			Spec: rayv1.RayServiceSpec{
+				UpgradeStrategy: &rayv1.RayServiceUpgradeStrategy{
+					Type: ptr.To(rayv1.RayServiceNewClusterWithIncrementalUpgrade),
+					ClusterUpgradeOptions: &rayv1.ClusterUpgradeOptions{
+						StepSizePercent:  new(int32(10)),
+						IntervalSeconds:  new(int32(30)),
+						GatewayClassName: "istio",
+						RouteTypes:       routeTypes,
+					},
+				},
+			},
+			Status: rayv1.RayServiceStatuses{
+				ActiveServiceStatus: rayv1.RayServiceStatus{
+					RayClusterName:       activeCluster.Name,
+					TrafficRoutedPercent: new(int32(100)),
+					TargetCapacity:       new(int32(100)),
+				},
+			},
+		}
+	}
+
+	t.Run("HTTPRoute is deleted when http is removed from routeTypes, GRPCRoute is created", func(t *testing.T) {
+		rayService := makeRS([]rayv1.RouteType{rayv1.RouteTypeGRPC})
+		existingHTTPRoute := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice-httproute", Namespace: namespace}}
+		fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).
+			WithRuntimeObjects(activeCluster, gateway, activeServeService, rayService, existingHTTPRoute).Build()
+		reconciler := &RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: events.NewFakeRecorder(10)}
+
+		require.NoError(t, reconciler.deleteHTTPRouteIfExists(ctx, rayService))
+		err := fakeClient.Get(ctx, types.NamespacedName{Name: existingHTTPRoute.Name, Namespace: namespace}, &gwv1.HTTPRoute{})
+		assert.True(t, errors.IsNotFound(err), "HTTPRoute should be deleted when http is not in routeTypes")
+
+		route, err := reconciler.reconcileGRPCRoute(ctx, rayService, false)
+		require.NoError(t, err)
+		require.NotNil(t, route)
+		assert.Equal(t, "test-rayservice-grpcroute", route.Name)
+	})
+
+	t.Run("GRPCRoute is deleted when grpc is removed from routeTypes", func(t *testing.T) {
+		rayService := makeRS([]rayv1.RouteType{rayv1.RouteTypeHTTP})
+		existingGRPCRoute := &gwv1.GRPCRoute{ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice-grpcroute", Namespace: namespace}}
+		fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).
+			WithRuntimeObjects(activeCluster, gateway, activeServeService, rayService, existingGRPCRoute).Build()
+		reconciler := &RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: events.NewFakeRecorder(10)}
+
+		require.NoError(t, reconciler.deleteGRPCRouteIfExists(ctx, rayService))
+		err := fakeClient.Get(ctx, types.NamespacedName{Name: existingGRPCRoute.Name, Namespace: namespace}, &gwv1.GRPCRoute{})
+		assert.True(t, errors.IsNotFound(err), "GRPCRoute should be deleted when grpc is not in routeTypes")
+	})
+
+	t.Run("deleting a non-existent route is a no-op", func(t *testing.T) {
+		rayService := makeRS([]rayv1.RouteType{rayv1.RouteTypeHTTP})
+		fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).
+			WithRuntimeObjects(activeCluster, gateway, activeServeService, rayService).Build()
+		reconciler := &RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: events.NewFakeRecorder(10)}
+
+		require.NoError(t, reconciler.deleteGRPCRouteIfExists(ctx, rayService))
+		require.NoError(t, reconciler.deleteHTTPRouteIfExists(ctx, rayService))
+	})
+}
+
+// The owned Gateway gains a client-facing gRPC listener (HTTP protocol, port 9000) only
+// when the grpc route type is enabled.
+func TestCreateGatewayRouteTypes(t *testing.T) {
+	makeRS := func(routeTypes []rayv1.RouteType) *rayv1.RayService {
+		rs := makeIncrementalUpgradeRayService(true, "gateway-class", new(int32(50)), new(int32(10)), new(int32(80)), &metav1.Time{Time: time.Now()})
+		rs.Spec.UpgradeStrategy.ClusterUpgradeOptions.RouteTypes = routeTypes
+		return rs
+	}
+	reconciler := &RayServiceReconciler{}
+
+	t.Run("nil routeTypes keeps a single HTTP listener (backward compatible)", func(t *testing.T) {
+		gw, err := reconciler.createGateway(makeRS(nil))
+		require.NoError(t, err)
+		require.Len(t, gw.Spec.Listeners, 1)
+		assert.Equal(t, gwv1.SectionName(utils.GatewayListenerPortName), gw.Spec.Listeners[0].Name)
+		assert.Equal(t, gwv1.HTTPProtocolType, gw.Spec.Listeners[0].Protocol)
+	})
+
+	t.Run("http only keeps a single HTTP listener", func(t *testing.T) {
+		gw, err := reconciler.createGateway(makeRS([]rayv1.RouteType{rayv1.RouteTypeHTTP}))
+		require.NoError(t, err)
+		require.Len(t, gw.Spec.Listeners, 1)
+	})
+
+	t.Run("grpc adds an HTTP-protocol gRPC listener on port 9000", func(t *testing.T) {
+		gw, err := reconciler.createGateway(makeRS([]rayv1.RouteType{rayv1.RouteTypeHTTP, rayv1.RouteTypeGRPC}))
+		require.NoError(t, err)
+		require.Len(t, gw.Spec.Listeners, 2)
+		assert.Equal(t, gwv1.SectionName(utils.GatewayListenerPortName), gw.Spec.Listeners[0].Name)
+		assert.Equal(t, gwv1.PortNumber(utils.DefaultGatewayListenerPort), gw.Spec.Listeners[0].Port)
+
+		grpcListener := gw.Spec.Listeners[1]
+		assert.Equal(t, gwv1.SectionName(utils.GatewayGrpcListenerPortName), grpcListener.Name)
+		// GRPCRoute attaches to an HTTP/2-capable HTTP listener (no GRPC listener protocol).
+		assert.Equal(t, gwv1.HTTPProtocolType, grpcListener.Protocol)
+		assert.Equal(t, gwv1.PortNumber(utils.DefaultGatewayGrpcListenerPort), grpcListener.Port)
+	})
+
+	t.Run("grpc only also gets the HTTP listener plus the gRPC listener", func(t *testing.T) {
+		gw, err := reconciler.createGateway(makeRS([]rayv1.RouteType{rayv1.RouteTypeGRPC}))
+		require.NoError(t, err)
+		require.Len(t, gw.Spec.Listeners, 2)
+	})
+}
+
+// On suspend, the controller deletes the GRPCRoute (and HTTPRoute) even when the
+// current routeTypes omits them, so routes from an earlier routeTypes value never leak.
+func TestDeleteRayServiceOwnedResourcesDeletesGRPCRoute(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayServiceIncrementalUpgrade, true)
+
+	ctx := context.TODO()
+	rsNamespace := "test-ns"
+	gwNamespace := "gateways"
+
+	newScheme := runtime.NewScheme()
+	_ = rayv1.AddToScheme(newScheme)
+	_ = corev1.AddToScheme(newScheme)
+	_ = gwv1.Install(newScheme)
+
+	sharedGateway := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "shared-gateway", Namespace: gwNamespace}}
+	rayService := &rayv1.RayService{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice", Namespace: rsNamespace, UID: "rs-uid"},
+		Spec: rayv1.RayServiceSpec{
+			UpgradeStrategy: &rayv1.RayServiceUpgradeStrategy{
+				Type: ptr.To(rayv1.RayServiceNewClusterWithIncrementalUpgrade),
+				ClusterUpgradeOptions: &rayv1.ClusterUpgradeOptions{
+					StepSizePercent: new(int32(10)),
+					IntervalSeconds: new(int32(30)),
+					RouteTypes:      []rayv1.RouteType{rayv1.RouteTypeHTTP},
+					GatewayRef: &rayv1.GatewayReference{
+						Name:      sharedGateway.Name,
+						Namespace: sharedGateway.Namespace,
+					},
+				},
+			},
+		},
+	}
+	// A GRPCRoute left behind from an earlier routeTypes value.
+	grpcRoute := &gwv1.GRPCRoute{ObjectMeta: metav1.ObjectMeta{
+		Name:      rayService.Name + "-grpcroute",
+		Namespace: rsNamespace,
+	}}
+
+	fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).
+		WithRuntimeObjects(sharedGateway, grpcRoute, rayService).Build()
+	reconciler := &RayServiceReconciler{Client: fakeClient, Scheme: newScheme, Recorder: events.NewFakeRecorder(10)}
+
+	_, err := reconciler.deleteRayServiceOwnedResources(ctx, rayService)
+	require.NoError(t, err)
+
+	err = fakeClient.Get(ctx, types.NamespacedName{Name: grpcRoute.Name, Namespace: rsNamespace}, &gwv1.GRPCRoute{})
+	assert.True(t, errors.IsNotFound(err), "GRPCRoute should be deleted on suspend even when routeTypes omits grpc, got err=%v", err)
+
+	err = fakeClient.Get(ctx, types.NamespacedName{Name: sharedGateway.Name, Namespace: gwNamespace}, &gwv1.Gateway{})
+	require.NoError(t, err, "shared Gateway must NOT be deleted on suspend when GatewayRef is set")
+}
+
 func TestReconcileGateway(t *testing.T) {
 	newScheme := runtime.NewScheme()
 	_ = rayv1.AddToScheme(newScheme)

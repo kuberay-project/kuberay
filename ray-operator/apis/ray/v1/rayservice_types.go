@@ -31,6 +31,18 @@ const (
 	RayServiceUpgradeNone RayServiceUpgradeType = "None"
 )
 
+// RouteType identifies a Gateway API route kind the operator reconciles for a
+// RayService incremental upgrade.
+// +kubebuilder:validation:Enum=http;grpc
+type RouteType string
+
+const (
+	// RouteTypeHTTP reconciles a Gateway API HTTPRoute.
+	RouteTypeHTTP RouteType = "http"
+	// RouteTypeGRPC reconciles a Gateway API GRPCRoute.
+	RouteTypeGRPC RouteType = "grpc"
+)
+
 // These statuses should match Ray Serve's application statuses
 // See `enum ApplicationStatus` in https://sourcegraph.com/github.com/ray-project/ray/-/blob/src/ray/protobuf/serve.proto for more details.
 var ApplicationStatusEnum = struct {
@@ -76,17 +88,27 @@ type ClusterUpgradeOptions struct {
 	// Exactly one of GatewayClassName or GatewayRef must be set.
 	// +optional
 	GatewayClassName string `json:"gatewayClassName,omitempty"`
-	// GatewayRef attaches the HTTPRoute to an existing Gateway instead of creating one per RayService.
-	// The referenced Gateway must allow HTTPRoutes from the RayService's namespace.
+	// GatewayRef attaches the RayService's route(s) (per RouteTypes) to an existing Gateway
+	// instead of creating one per RayService. The referenced Gateway must allow routes from
+	// the RayService's namespace.
 	// Exactly one of GatewayClassName or GatewayRef must be set.
 	// +optional
 	GatewayRef *GatewayReference `json:"gatewayRef,omitempty"`
+	// RouteTypes selects which Gateway API route kinds the controller reconciles for the
+	// Gateway: "http" reconciles an HTTPRoute, "grpc" reconciles a GRPCRoute. A route kind
+	// that exists but is not listed is deleted. Defaults to ["http"] for backward compatibility.
+	// +optional
+	// +kubebuilder:default:={"http"}
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=2
+	// +listType=set
+	RouteTypes []RouteType `json:"routeTypes,omitempty"`
 }
 
 // GatewayReference identifies the existing Gateway and listener the RayService's
-// HTTPRoute attaches to. It becomes the HTTPRoute's parentRef. KubeRay never creates,
-// updates, or deletes the referenced Gateway; it must already exist and must allow
-// HTTPRoutes from the RayService's namespace.
+// route(s) (per ClusterUpgradeOptions.RouteTypes) attach to. It becomes the route's
+// parentRef. KubeRay never creates, updates, or deletes the referenced Gateway; it
+// must already exist and must allow routes from the RayService's namespace.
 type GatewayReference struct {
 	// Name of the existing Gateway. Must be a valid Gateway resource name
 	// (an RFC 1123 subdomain).
@@ -101,7 +123,7 @@ type GatewayReference struct {
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	Namespace string `json:"namespace,omitempty"`
 	// SectionName is the name of a listener on the referenced Gateway to attach the
-	// HTTPRoute to. When omitted, the HTTPRoute attaches to every listener on the
+	// route to. When omitted, the route attaches to every listener on the
 	// Gateway that accepts it. Useful for a shared Gateway with multiple listeners.
 	// Must be a valid Gateway API SectionName (an RFC 1123 subdomain).
 	// +optional
@@ -110,7 +132,7 @@ type GatewayReference struct {
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	SectionName string `json:"sectionName,omitempty"`
 	// Port is the network port of the referenced Gateway's listener to attach the
-	// HTTPRoute to. When both SectionName and Port are set, the selected listener
+	// route to. When both SectionName and Port are set, the selected listener
 	// must match both. When omitted, listener selection is not constrained by port.
 	// +optional
 	// +kubebuilder:validation:Minimum=1

@@ -170,7 +170,8 @@ _Appears in:_
 | `stepSizePercent` _integer_ | The percentage of traffic to switch to the upgraded RayCluster at a set interval after scaling by MaxSurgePercent.<br />StepSizePercent must be less than or equal to MaxSurgePercent. |  |  |
 | `intervalSeconds` _integer_ | The interval in seconds between transferring StepSize traffic from the old to new RayCluster. |  |  |
 | `gatewayClassName` _string_ | The name of the Gateway Class installed by the Kubernetes Cluster admin.<br />Exactly one of GatewayClassName or GatewayRef must be set. |  |  |
-| `gatewayRef` _[GatewayReference](#gatewayreference)_ | GatewayRef attaches the HTTPRoute to an existing Gateway instead of creating one per RayService.<br />The referenced Gateway must allow HTTPRoutes from the RayService's namespace.<br />Exactly one of GatewayClassName or GatewayRef must be set. |  |  |
+| `gatewayRef` _[GatewayReference](#gatewayreference)_ | GatewayRef attaches the RayService's route(s) (per RouteTypes) to an existing Gateway<br />instead of creating one per RayService. The referenced Gateway must allow routes from<br />the RayService's namespace.<br />Exactly one of GatewayClassName or GatewayRef must be set. |  |  |
+| `routeTypes` _[RouteType](#routetype) array_ | RouteTypes selects which Gateway API route kinds the controller reconciles for the<br />Gateway: "http" reconciles an HTTPRoute, "grpc" reconciles a GRPCRoute. A route kind<br />that exists but is not listed is deleted. Defaults to ["http"] for backward compatibility. | [http] | Enum: [http grpc] <br />MaxItems: 2 <br />MinItems: 1 <br /> |
 
 
 #### CollectorOptions
@@ -328,9 +329,9 @@ _Appears in:_
 
 
 GatewayReference identifies the existing Gateway and listener the RayService's
-HTTPRoute attaches to. It becomes the HTTPRoute's parentRef. KubeRay never creates,
-updates, or deletes the referenced Gateway; it must already exist and must allow
-HTTPRoutes from the RayService's namespace.
+route(s) (per ClusterUpgradeOptions.RouteTypes) attach to. It becomes the route's
+parentRef. KubeRay never creates, updates, or deletes the referenced Gateway; it
+must already exist and must allow routes from the RayService's namespace.
 
 
 
@@ -341,8 +342,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `name` _string_ | Name of the existing Gateway. Must be a valid Gateway resource name<br />(an RFC 1123 subdomain). |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
 | `namespace` _string_ | Namespace of the existing Gateway. Defaults to the RayService's namespace when omitted.<br />Must be a valid namespace name (an RFC 1123 label). |  | MaxLength: 63 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$` <br /> |
-| `sectionName` _string_ | SectionName is the name of a listener on the referenced Gateway to attach the<br />HTTPRoute to. When omitted, the HTTPRoute attaches to every listener on the<br />Gateway that accepts it. Useful for a shared Gateway with multiple listeners.<br />Must be a valid Gateway API SectionName (an RFC 1123 subdomain). |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
-| `port` _integer_ | Port is the network port of the referenced Gateway's listener to attach the<br />HTTPRoute to. When both SectionName and Port are set, the selected listener<br />must match both. When omitted, listener selection is not constrained by port. |  | Maximum: 65535 <br />Minimum: 1 <br /> |
+| `sectionName` _string_ | SectionName is the name of a listener on the referenced Gateway to attach the<br />route to. When omitted, the route attaches to every listener on the<br />Gateway that accepts it. Useful for a shared Gateway with multiple listeners.<br />Must be a valid Gateway API SectionName (an RFC 1123 subdomain). |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
+| `port` _integer_ | Port is the network port of the referenced Gateway's listener to attach the<br />route to. When both SectionName and Port are set, the selected listener<br />must match both. When omitted, listener selection is not constrained by port. |  | Maximum: 65535 <br />Minimum: 1 <br /> |
 
 
 #### GcsEmbeddedStorage
@@ -1180,6 +1181,25 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `valueFrom` _[EnvVarSource](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#envvarsource-v1-core)_ |  |  |  |
 | `value` _string_ |  |  |  |
+
+
+#### RouteType
+
+_Underlying type:_ _string_
+
+RouteType identifies a Gateway API route kind the operator reconciles for a
+RayService incremental upgrade.
+
+_Validation:_
+- Enum: [http grpc]
+
+_Appears in:_
+- [ClusterUpgradeOptions](#clusterupgradeoptions)
+
+| Field | Description |
+| --- | --- |
+| `http` | RouteTypeHTTP reconciles a Gateway API HTTPRoute.<br /> |
+| `grpc` | RouteTypeGRPC reconciles a Gateway API GRPCRoute.<br /> |
 
 
 #### ScaleGate

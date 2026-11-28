@@ -361,6 +361,7 @@ rules:
   - gateway.networking.k8s.io
   resources:
   - gateways
+  - grpcroutes
   - httproutes
   verbs:
   - create

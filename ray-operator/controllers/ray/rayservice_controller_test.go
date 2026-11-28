@@ -656,5 +656,53 @@ var _ = Context("RayService env tests", func() {
 			Expect(k8sClient.Create(ctx, rayService)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, rayService)).To(Succeed())
 		})
+
+		It("accepts valid routeTypes values", func() {
+			for i, routeTypes := range [][]rayv1.RouteType{
+				{rayv1.RouteTypeHTTP},
+				{rayv1.RouteTypeGRPC},
+				{rayv1.RouteTypeHTTP, rayv1.RouteTypeGRPC},
+				{rayv1.RouteTypeGRPC, rayv1.RouteTypeHTTP},
+			} {
+				opts := baseOpts()
+				opts.GatewayClassName = "istio"
+				opts.RouteTypes = routeTypes
+				rayService := withIncrementalUpgradeOptions(rayServiceTemplate(fmt.Sprintf("cel-routetypes-%d", i), namespace, serveAppName), opts)
+				Expect(k8sClient.Create(ctx, rayService)).To(Succeed())
+				Expect(k8sClient.Delete(ctx, rayService)).To(Succeed())
+			}
+		})
+
+		It("rejects an invalid routeTypes value", func() {
+			opts := baseOpts()
+			opts.GatewayClassName = "istio"
+			opts.RouteTypes = []rayv1.RouteType{"tcp"}
+			rayService := withIncrementalUpgradeOptions(rayServiceTemplate("cel-routetypes-invalid", namespace, serveAppName), opts)
+			err := k8sClient.Create(ctx, rayService)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("Unsupported value"))
+		})
+
+		It("rejects duplicate routeTypes entries", func() {
+			opts := baseOpts()
+			opts.GatewayClassName = "istio"
+			opts.RouteTypes = []rayv1.RouteType{rayv1.RouteTypeHTTP, rayv1.RouteTypeHTTP}
+			rayService := withIncrementalUpgradeOptions(rayServiceTemplate("cel-routetypes-dup", namespace, serveAppName), opts)
+			err := k8sClient.Create(ctx, rayService)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("Duplicate value"))
+		})
+
+		It("defaults routeTypes to [http] when omitted", func() {
+			opts := baseOpts()
+			opts.GatewayClassName = "istio"
+			rayService := withIncrementalUpgradeOptions(rayServiceTemplate("cel-routetypes-default", namespace, serveAppName), opts)
+			Expect(k8sClient.Create(ctx, rayService)).To(Succeed())
+
+			fetched := &rayv1.RayService{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), fetched)).To(Succeed())
+			Expect(fetched.Spec.UpgradeStrategy.ClusterUpgradeOptions.RouteTypes).To(Equal([]rayv1.RouteType{rayv1.RouteTypeHTTP}))
+			Expect(k8sClient.Delete(ctx, rayService)).To(Succeed())
+		})
 	})
 })

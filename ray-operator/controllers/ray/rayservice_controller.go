@@ -97,6 +97,7 @@ func NewRayServiceReconciler(ctx context.Context, mgr manager.Manager, provider 
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="gateway.networking.k8s.io",resources=gateways,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="gateway.networking.k8s.io",resources=httproutes,verbs=get;list;watch;create;update;delete
+// +kubebuilder:rbac:groups="gateway.networking.k8s.io",resources=grpcroutes,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="rbac.authorization.k8s.io",resources=roles,verbs=get;list;watch;create;delete;update
 // +kubebuilder:rbac:groups="rbac.authorization.k8s.io",resources=rolebindings,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
@@ -257,6 +258,7 @@ func (r *RayServiceReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 
 	// Check if NewClusterWithIncrementalUpgrade is enabled, if so reconcile Gateway objects.
 	var httpRouteInstance *gwv1.HTTPRoute
+	var grpcRouteInstance *gwv1.GRPCRoute
 	if utils.IsIncrementalUpgradeEnabled(&rayServiceInstance.Spec) {
 		// Ensure per-cluster Serve service exists for the active and pending RayClusters.
 		if err = r.reconcilePerClusterServeService(ctx, rayServiceInstance, activeRayClusterInstance); err != nil {
@@ -272,8 +274,23 @@ func (r *RayServiceReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 		if err != nil {
 			return ctrl.Result{RequeueAfter: ServiceDefaultRequeueDuration}, client.IgnoreNotFound(err)
 		}
-		// Create or update the HTTPRoute for the Gateway, passing in the pending cluster readiness status.
-		httpRouteInstance, err = r.reconcileHTTPRoute(ctx, rayServiceInstance, isPendingClusterReady)
+		// Create or update the route kind(s) declared in routeTypes (HTTPRoute and/or GRPCRoute),
+		// passing in the pending cluster readiness status, and delete any route kind the user
+		// removed from routeTypes.
+		routeTypes := utils.GetRayServiceRouteTypes(&rayServiceInstance.Spec)
+		if utils.RouteTypesContain(routeTypes, rayv1.RouteTypeHTTP) {
+			httpRouteInstance, err = r.reconcileHTTPRoute(ctx, rayServiceInstance, isPendingClusterReady)
+		} else {
+			err = r.deleteHTTPRouteIfExists(ctx, rayServiceInstance)
+		}
+		if err != nil {
+			return ctrl.Result{RequeueAfter: ServiceDefaultRequeueDuration}, client.IgnoreNotFound(err)
+		}
+		if utils.RouteTypesContain(routeTypes, rayv1.RouteTypeGRPC) {
+			grpcRouteInstance, err = r.reconcileGRPCRoute(ctx, rayServiceInstance, isPendingClusterReady)
+		} else {
+			err = r.deleteGRPCRouteIfExists(ctx, rayServiceInstance)
+		}
 		if err != nil {
 			return ctrl.Result{RequeueAfter: ServiceDefaultRequeueDuration}, client.IgnoreNotFound(err)
 		}
@@ -316,6 +333,7 @@ func (r *RayServiceReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 		activeClusterServeApplications,
 		pendingClusterServeApplications,
 		httpRouteInstance,
+		grpcRouteInstance,
 	); err != nil {
 		return ctrl.Result{RequeueAfter: ServiceDefaultRequeueDuration}, err
 	}
@@ -552,6 +570,25 @@ func (r *RayServiceReconciler) deleteRayServiceOwnedResources(ctx context.Contex
 		} else if !errors.IsNotFound(err) {
 			return false, err
 		}
+
+		// Delete the GRPCRoute as well, regardless of the current routeTypes, so a route
+		// created under an earlier routeTypes value never leaks on suspend.
+		grpcRoute := &gwv1.GRPCRoute{}
+		if err := r.Get(ctx, common.RayServiceGRPCRouteNamespacedName(rayServiceInstance), grpcRoute); err == nil {
+			allDeleted = false
+			if grpcRoute.DeletionTimestamp.IsZero() {
+				logger.Info("Deleting GRPCRoute for suspend", "name", grpcRoute.Name)
+				if err := r.Delete(ctx, grpcRoute, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
+					r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeWarning, string(utils.FailedToDeleteGRPCRoute), string(utils.DeleteAction),
+						"Failed to delete the GRPCRoute %s/%s during suspend: %v", grpcRoute.Namespace, grpcRoute.Name, err)
+					return false, err
+				}
+				r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeNormal, string(utils.DeletedGRPCRoute), string(utils.DeleteAction),
+					"Deleted the GRPCRoute %s/%s during suspend", grpcRoute.Namespace, grpcRoute.Name)
+			}
+		} else if !errors.IsNotFound(err) {
+			return false, err
+		}
 	}
 
 	return allDeleted, nil
@@ -650,6 +687,7 @@ func (r *RayServiceReconciler) calculateStatus(
 	activeCluster, pendingCluster *rayv1.RayCluster,
 	activeClusterServeApplications, pendingClusterServeApplications map[string]rayv1.AppStatus,
 	httpRoute *gwv1.HTTPRoute,
+	grpcRoute *gwv1.GRPCRoute,
 ) error {
 	logger := ctrl.LoggerFrom(ctx)
 
@@ -677,8 +715,17 @@ func (r *RayServiceReconciler) calculateStatus(
 			oldActivePercent := ptr.Deref(rayServiceInstance.Status.ActiveServiceStatus.TrafficRoutedPercent, -1)
 			oldPendingPercent := ptr.Deref(rayServiceInstance.Status.PendingServiceStatus.TrafficRoutedPercent, -1)
 
-			// Update TrafficRoutedPercent to each RayService based on current weights from HTTPRoute.
-			activeWeight, pendingWeight := utils.GetWeightsFromHTTPRoute(httpRoute, rayServiceInstance)
+			// Update TrafficRoutedPercent to each RayService based on current weights from the
+			// route(s). Weights are identical across route kinds by construction (a single
+			// calculateTrafficRoutedPercent state machine), so read from whichever kind is
+			// configured, preferring the HTTPRoute (status quo).
+			routeTypes := utils.GetRayServiceRouteTypes(&rayServiceInstance.Spec)
+			var activeWeight, pendingWeight int32
+			if utils.RouteTypesContain(routeTypes, rayv1.RouteTypeHTTP) {
+				activeWeight, pendingWeight = utils.GetWeightsFromHTTPRoute(httpRoute, rayServiceInstance)
+			} else {
+				activeWeight, pendingWeight = utils.GetWeightsFromGRPCRoute(grpcRoute, rayServiceInstance)
+			}
 			now := metav1.Time{Time: time.Now()}
 			if activeWeight >= 0 {
 				rayServiceInstance.Status.ActiveServiceStatus.TrafficRoutedPercent = new(activeWeight)
@@ -906,6 +953,25 @@ func (r *RayServiceReconciler) createGateway(rayServiceInstance *rayv1.RayServic
 	}
 
 	gatewayName := rayServiceInstance.Name + "-gateway"
+
+	listeners := []gwv1.Listener{
+		{
+			Name:     gwv1.SectionName(utils.GatewayListenerPortName),
+			Protocol: gwv1.HTTPProtocolType,
+			Port:     utils.DefaultGatewayListenerPort,
+		},
+	}
+	// GRPCRoute attaches to an HTTP/2-capable HTTP listener (the Gateway API has no GRPC
+	// protocol for listeners). The listener port is client-facing, like the HTTP listener
+	// on port 80; it is unrelated to the serve-grpc backend port.
+	if utils.RouteTypesContain(utils.GetRayServiceRouteTypes(&rayServiceInstance.Spec), rayv1.RouteTypeGRPC) {
+		listeners = append(listeners, gwv1.Listener{
+			Name:     gwv1.SectionName(utils.GatewayGrpcListenerPortName),
+			Protocol: gwv1.HTTPProtocolType,
+			Port:     utils.DefaultGatewayGrpcListenerPort,
+		})
+	}
+
 	// Define the desired Gateway object
 	rayServiceGateway := &gwv1.Gateway{
 		ObjectMeta: metav1.ObjectMeta{
@@ -914,13 +980,7 @@ func (r *RayServiceReconciler) createGateway(rayServiceInstance *rayv1.RayServic
 		},
 		Spec: gwv1.GatewaySpec{
 			GatewayClassName: gwv1.ObjectName(options.GatewayClassName),
-			Listeners: []gwv1.Listener{
-				{
-					Name:     gwv1.SectionName(utils.GatewayListenerPortName),
-					Protocol: gwv1.HTTPProtocolType,
-					Port:     utils.DefaultGatewayListenerPort,
-				},
-			},
+			Listeners:        listeners,
 		},
 	}
 
@@ -1059,23 +1119,20 @@ func (r *RayServiceReconciler) calculateTrafficRoutedPercent(ctx context.Context
 	return activeClusterWeight, pendingClusterWeight, nil
 }
 
-// createHTTPRoute creates a desired HTTPRoute object for RayService incremental upgrade.
+// buildWeightedBackendRefs computes the traffic weights for the active and pending
+// RayClusters and returns one weighted backend reference per cluster, resolving the
+// backend port via resolvePort. Serve services are in the RayService's namespace,
+// which may differ from the Gateway's namespace when using a shared Gateway.
 //
-// The function performs the following operations:
-// 1. Retrieves Gateway instance to attach the HTTPRoute
-// 2. Gets active and pending RayCluster instances and their Serve services
-// 3. Calls `calculateTrafficRoutedPercent` to calculate the new traffic weights
-// 4. Configures HTTPRoute with appropriate backend references and weights
-//
-// Returns the configured HTTPRoute object or error if any step fails.
-func (r *RayServiceReconciler) createHTTPRoute(ctx context.Context, rayServiceInstance *rayv1.RayService, isPendingClusterReady bool) (*gwv1.HTTPRoute, error) {
+// Returns nil refs (with nil error) when the active RayCluster does not exist yet, so
+// route creation can be skipped.
+func (r *RayServiceReconciler) buildWeightedBackendRefs(
+	ctx context.Context,
+	rayServiceInstance *rayv1.RayService,
+	isPendingClusterReady bool,
+	resolvePort func(*rayv1.RayCluster) (gwv1.PortNumber, error),
+) ([]gwv1.BackendRef, error) {
 	logger := ctrl.LoggerFrom(ctx)
-
-	// Retrieve Gateway instance to attach this HTTPRoute to.
-	gatewayInstance := &gwv1.Gateway{}
-	if err := r.Get(ctx, common.RayServiceGatewayNamespacedName(rayServiceInstance), gatewayInstance); err != nil {
-		return nil, err
-	}
 
 	// Retrieve the active RayCluster
 	activeRayCluster, err := r.getRayClusterByNamespacedName(ctx, common.RayServiceActiveRayClusterNamespacedName(rayServiceInstance))
@@ -1084,7 +1141,7 @@ func (r *RayServiceReconciler) createHTTPRoute(ctx context.Context, rayServiceIn
 		return nil, err
 	}
 	if activeRayCluster == nil {
-		logger.Info("Active RayCluster not found, skipping HTTPRoute creation.")
+		logger.Info("Active RayCluster not found, skipping route creation.")
 		return nil, nil
 	}
 
@@ -1101,48 +1158,52 @@ func (r *RayServiceReconciler) createHTTPRoute(ctx context.Context, rayServiceIn
 		return nil, err
 	}
 
+	activeServePort, err := resolvePort(activeRayCluster)
+	if err != nil {
+		return nil, err
+	}
 	activeClusterServeSvcName := utils.GenerateServeServiceName(activeRayCluster.Name)
-	activeServePort := common.GetServePort(activeRayCluster)
 
-	// Serve services are in the RayService's namespace, which may differ from the
-	// Gateway's namespace when using a shared Gateway.
-	backendRefs := []gwv1.HTTPBackendRef{
+	backendRefs := []gwv1.BackendRef{
 		{
-			BackendRef: gwv1.BackendRef{
-				BackendObjectReference: gwv1.BackendObjectReference{
-					Name:      gwv1.ObjectName(activeClusterServeSvcName),
-					Namespace: new(gwv1.Namespace(rayServiceInstance.Namespace)),
-					Port:      new(activeServePort),
-				},
-				Weight: new(activeClusterWeight),
+			BackendObjectReference: gwv1.BackendObjectReference{
+				Name:      gwv1.ObjectName(activeClusterServeSvcName),
+				Namespace: new(gwv1.Namespace(rayServiceInstance.Namespace)),
+				Port:      new(activeServePort),
 			},
+			Weight: new(activeClusterWeight),
 		},
 	}
 
 	if pendingRayCluster != nil {
-		logger.Info("Pending RayCluster exists. Including it in HTTPRoute.", "RayCluster", pendingRayCluster.Name)
+		logger.Info("Pending RayCluster exists. Including it in the route.", "RayCluster", pendingRayCluster.Name)
+		pendingServePort, err := resolvePort(pendingRayCluster)
+		if err != nil {
+			return nil, err
+		}
 		pendingClusterServeSvcName := utils.GenerateServeServiceName(pendingRayCluster.Name)
-		pendingServePort := common.GetServePort(pendingRayCluster)
 
-		backendRefs = append(backendRefs, gwv1.HTTPBackendRef{
-			BackendRef: gwv1.BackendRef{
-				BackendObjectReference: gwv1.BackendObjectReference{
-					Name:      gwv1.ObjectName(pendingClusterServeSvcName),
-					Namespace: new(gwv1.Namespace(rayServiceInstance.Namespace)),
-					Port:      new(pendingServePort),
-				},
-				Weight: new(pendingClusterWeight),
+		backendRefs = append(backendRefs, gwv1.BackendRef{
+			BackendObjectReference: gwv1.BackendObjectReference{
+				Name:      gwv1.ObjectName(pendingClusterServeSvcName),
+				Namespace: new(gwv1.Namespace(rayServiceInstance.Namespace)),
+				Port:      new(pendingServePort),
 			},
+			Weight: new(pendingClusterWeight),
 		})
 	}
 
-	httpRouteName := rayServiceInstance.Name + "-httproute"
+	return backendRefs, nil
+}
+
+// buildRouteParentRef builds the route's parentRef from the Gateway the route attaches
+// to. GatewayRef pins the parentRef to a specific listener on the referenced Gateway.
+func buildRouteParentRef(gatewayInstance *gwv1.Gateway, rayServiceInstance *rayv1.RayService) gwv1.ParentReference {
 	parentRef := gwv1.ParentReference{
 		Name:      gwv1.ObjectName(gatewayInstance.Name),
 		Namespace: new(gwv1.Namespace(gatewayInstance.Namespace)),
 	}
 
-	// GatewayRef pins the parentRef to a specific listener on the referenced Gateway.
 	if opts := utils.GetRayServiceClusterUpgradeOptions(&rayServiceInstance.Spec); opts != nil && opts.GatewayRef != nil {
 		if opts.GatewayRef.SectionName != "" {
 			parentRef.SectionName = new(gwv1.SectionName(opts.GatewayRef.SectionName))
@@ -1151,6 +1212,44 @@ func (r *RayServiceReconciler) createHTTPRoute(ctx context.Context, rayServiceIn
 			parentRef.Port = new(*opts.GatewayRef.Port)
 		}
 	}
+
+	return parentRef
+}
+
+// createHTTPRoute creates a desired HTTPRoute object for RayService incremental upgrade.
+//
+// The function performs the following operations:
+// 1. Retrieves Gateway instance to attach the HTTPRoute
+// 2. Gets active and pending RayCluster instances and their Serve services
+// 3. Calls `calculateTrafficRoutedPercent` to calculate the new traffic weights
+// 4. Configures HTTPRoute with appropriate backend references and weights
+//
+// Returns the configured HTTPRoute object or error if any step fails.
+func (r *RayServiceReconciler) createHTTPRoute(ctx context.Context, rayServiceInstance *rayv1.RayService, isPendingClusterReady bool) (*gwv1.HTTPRoute, error) {
+	// Retrieve Gateway instance to attach this HTTPRoute to.
+	gatewayInstance := &gwv1.Gateway{}
+	if err := r.Get(ctx, common.RayServiceGatewayNamespacedName(rayServiceInstance), gatewayInstance); err != nil {
+		return nil, err
+	}
+
+	backendRefs, err := r.buildWeightedBackendRefs(ctx, rayServiceInstance, isPendingClusterReady,
+		func(cluster *rayv1.RayCluster) (gwv1.PortNumber, error) {
+			return common.GetServePort(cluster), nil
+		})
+	if err != nil {
+		return nil, err
+	}
+	if backendRefs == nil {
+		return nil, nil
+	}
+
+	httpBackendRefs := make([]gwv1.HTTPBackendRef, 0, len(backendRefs))
+	for _, ref := range backendRefs {
+		httpBackendRefs = append(httpBackendRefs, gwv1.HTTPBackendRef{BackendRef: ref})
+	}
+
+	httpRouteName := rayServiceInstance.Name + "-httproute"
+	parentRef := buildRouteParentRef(gatewayInstance, rayServiceInstance)
 
 	desiredHTTPRoute := &gwv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{Name: httpRouteName, Namespace: rayServiceInstance.Namespace},
@@ -1168,13 +1267,140 @@ func (r *RayServiceReconciler) createHTTPRoute(ctx context.Context, rayServiceIn
 							},
 						},
 					},
-					BackendRefs: backendRefs,
+					BackendRefs: httpBackendRefs,
 				},
 			},
 		},
 	}
 
 	return desiredHTTPRoute, nil
+}
+
+// createGRPCRoute creates a desired GRPCRoute object for RayService incremental upgrade.
+// It mirrors createHTTPRoute, except the backend port comes from the head container's
+// "serve-grpc" port and the rule carries no Matches (match all gRPC services and methods).
+func (r *RayServiceReconciler) createGRPCRoute(ctx context.Context, rayServiceInstance *rayv1.RayService, isPendingClusterReady bool) (*gwv1.GRPCRoute, error) {
+	// Retrieve Gateway instance to attach this GRPCRoute to.
+	gatewayInstance := &gwv1.Gateway{}
+	if err := r.Get(ctx, common.RayServiceGatewayNamespacedName(rayServiceInstance), gatewayInstance); err != nil {
+		return nil, err
+	}
+
+	backendRefs, err := r.buildWeightedBackendRefs(ctx, rayServiceInstance, isPendingClusterReady, common.GetGrpcPort)
+	if err != nil {
+		return nil, err
+	}
+	if backendRefs == nil {
+		return nil, nil
+	}
+
+	grpcBackendRefs := make([]gwv1.GRPCBackendRef, 0, len(backendRefs))
+	for _, ref := range backendRefs {
+		grpcBackendRefs = append(grpcBackendRefs, gwv1.GRPCBackendRef{BackendRef: ref})
+	}
+
+	grpcRouteName := rayServiceInstance.Name + "-grpcroute"
+	parentRef := buildRouteParentRef(gatewayInstance, rayServiceInstance)
+
+	desiredGRPCRoute := &gwv1.GRPCRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: grpcRouteName, Namespace: rayServiceInstance.Namespace},
+		Spec: gwv1.GRPCRouteSpec{
+			CommonRouteSpec: gwv1.CommonRouteSpec{
+				ParentRefs: []gwv1.ParentReference{parentRef},
+			},
+			Rules: []gwv1.GRPCRouteRule{
+				{
+					BackendRefs: grpcBackendRefs,
+				},
+			},
+		},
+	}
+
+	return desiredGRPCRoute, nil
+}
+
+// reconcileGRPCRoute reconciles a GRPCRoute resource for a RayService to route traffic during a NewClusterWithIncrementalUpgrade.
+func (r *RayServiceReconciler) reconcileGRPCRoute(ctx context.Context, rayServiceInstance *rayv1.RayService, isPendingClusterReady bool) (*gwv1.GRPCRoute, error) {
+	logger := ctrl.LoggerFrom(ctx)
+	var err error
+
+	desiredGRPCRoute, err := r.createGRPCRoute(ctx, rayServiceInstance, isPendingClusterReady)
+	if err != nil {
+		logger.Error(err, "Failed to build GRPCRoute for RayService upgrade")
+		return nil, err
+	}
+	if desiredGRPCRoute == nil {
+		logger.Info("Skipping GRPCRoute reconciliation: desired GRPCRoute is nil")
+		return nil, nil
+	}
+
+	// Check for existing GRPCRoute for RayService
+	existingGRPCRoute := &gwv1.GRPCRoute{}
+	if err := r.Get(ctx, common.RayServiceGRPCRouteNamespacedName(rayServiceInstance), existingGRPCRoute); err != nil {
+		if errors.IsNotFound(err) {
+			// Set the ownership in order to do the garbage collection by k8s.
+			if err := ctrl.SetControllerReference(rayServiceInstance, desiredGRPCRoute, r.Scheme); err != nil {
+				return nil, err
+			}
+			if err = r.Create(ctx, desiredGRPCRoute); err != nil {
+				r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeWarning, string(utils.FailedToCreateGRPCRoute), string(utils.CreateAction), "Failed to create the GRPCRoute for RayService %s/%s: %v", desiredGRPCRoute.Namespace, desiredGRPCRoute.Name, err)
+				return nil, err
+			}
+			r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeNormal, string(utils.CreatedGRPCRoute), string(utils.CreateAction), "Created GRPCRoute for RayService %s/%s", desiredGRPCRoute.Namespace, desiredGRPCRoute.Name)
+			return desiredGRPCRoute, nil
+		}
+		return nil, err
+	}
+
+	// If GRPCRoute already exists, check if update is needed
+	if !utils.IsGRPCRouteEqual(existingGRPCRoute, desiredGRPCRoute) {
+		logger.Info("Updating existing GRPCRoute", "name", desiredGRPCRoute.Name)
+		existingGRPCRoute.Spec = desiredGRPCRoute.Spec
+		if err := r.Update(ctx, existingGRPCRoute); err != nil {
+			r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeWarning, string(utils.FailedToUpdateGRPCRoute), string(utils.UpdateAction), "Failed to update the GRPCRoute %s/%s: %v", existingGRPCRoute.Namespace, existingGRPCRoute.Name, err)
+			return nil, err
+		}
+		r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeNormal, string(utils.UpdatedGRPCRoute), string(utils.UpdateAction), "Updated the GRPCRoute %s/%s", existingGRPCRoute.Namespace, existingGRPCRoute.Name)
+	}
+
+	return existingGRPCRoute, nil
+}
+
+// deleteRouteIfExists deletes the route with the given namespaced name if it exists.
+// A missing route is not an error.
+func (r *RayServiceReconciler) deleteRouteIfExists(ctx context.Context, rayServiceInstance *rayv1.RayService, route client.Object, namespacedName types.NamespacedName, deletedEvent, failedEvent utils.K8sEventType) error {
+	logger := ctrl.LoggerFrom(ctx)
+	if err := r.Get(ctx, namespacedName, route); err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	kind := route.GetObjectKind().GroupVersionKind().Kind
+	if !route.GetDeletionTimestamp().IsZero() {
+		return nil
+	}
+	logger.Info("Deleting route not in routeTypes", "kind", kind, "name", route.GetName())
+	if err := r.Delete(ctx, route, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
+		r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeWarning, string(failedEvent), string(utils.DeleteAction),
+			"Failed to delete the %s %s/%s: %v", kind, route.GetNamespace(), route.GetName(), err)
+		return err
+	}
+	r.Recorder.Eventf(rayServiceInstance, nil, corev1.EventTypeNormal, string(deletedEvent), string(utils.DeleteAction),
+		"Deleted the %s %s/%s", kind, route.GetNamespace(), route.GetName())
+	return nil
+}
+
+// deleteHTTPRouteIfExists deletes the RayService's HTTPRoute when the "http" route type
+// was removed from ClusterUpgradeOptions.RouteTypes.
+func (r *RayServiceReconciler) deleteHTTPRouteIfExists(ctx context.Context, rayServiceInstance *rayv1.RayService) error {
+	return r.deleteRouteIfExists(ctx, rayServiceInstance, &gwv1.HTTPRoute{}, common.RayServiceHTTPRouteNamespacedName(rayServiceInstance), utils.DeletedHTTPRoute, utils.FailedToDeleteHTTPRoute)
+}
+
+// deleteGRPCRouteIfExists deletes the RayService's GRPCRoute when the "grpc" route type
+// was removed from ClusterUpgradeOptions.RouteTypes.
+func (r *RayServiceReconciler) deleteGRPCRouteIfExists(ctx context.Context, rayServiceInstance *rayv1.RayService) error {
+	return r.deleteRouteIfExists(ctx, rayServiceInstance, &gwv1.GRPCRoute{}, common.RayServiceGRPCRouteNamespacedName(rayServiceInstance), utils.DeletedGRPCRoute, utils.FailedToDeleteGRPCRoute)
 }
 
 // reconcileHTTPRoute reconciles a HTTPRoute resource for a RayService to route traffic during a NewClusterWithIncrementalUpgrade.
@@ -1678,7 +1904,7 @@ func (r *RayServiceReconciler) checkIfNeedTargetCapacityUpdate(ctx context.Conte
 		return false, "Both active and pending RayCluster instances are required for NewClusterWithIncrementalUpgrade."
 	}
 
-	// Validate Gateway and HTTPRoute objects are ready
+	// Validate Gateway and route objects are ready
 	gatewayInstance := &gwv1.Gateway{}
 	if err := r.Get(ctx, common.RayServiceGatewayNamespacedName(rayServiceInstance), gatewayInstance); err != nil {
 		return false, fmt.Sprintf("Failed to retrieve Gateway for RayService: %v", err)
@@ -1687,12 +1913,24 @@ func (r *RayServiceReconciler) checkIfNeedTargetCapacityUpdate(ctx context.Conte
 		return false, "Gateway for RayService NewClusterWithIncrementalUpgrade is not ready."
 	}
 
-	httpRouteInstance := &gwv1.HTTPRoute{}
-	if err := r.Get(ctx, common.RayServiceHTTPRouteNamespacedName(rayServiceInstance), httpRouteInstance); err != nil {
-		return false, fmt.Sprintf("Failed to retrieve HTTPRoute for RayService: %v", err)
+	routeTypes := utils.GetRayServiceRouteTypes(&rayServiceInstance.Spec)
+	if utils.RouteTypesContain(routeTypes, rayv1.RouteTypeHTTP) {
+		httpRouteInstance := &gwv1.HTTPRoute{}
+		if err := r.Get(ctx, common.RayServiceHTTPRouteNamespacedName(rayServiceInstance), httpRouteInstance); err != nil {
+			return false, fmt.Sprintf("Failed to retrieve HTTPRoute for RayService: %v", err)
+		}
+		if !utils.IsHTTPRouteReady(gatewayInstance, httpRouteInstance) {
+			return false, "HTTPRoute for RayService NewClusterWithIncrementalUpgrade is not ready."
+		}
 	}
-	if !utils.IsHTTPRouteReady(gatewayInstance, httpRouteInstance) {
-		return false, "HTTPRoute for RayService NewClusterWithIncrementalUpgrade is not ready."
+	if utils.RouteTypesContain(routeTypes, rayv1.RouteTypeGRPC) {
+		grpcRouteInstance := &gwv1.GRPCRoute{}
+		if err := r.Get(ctx, common.RayServiceGRPCRouteNamespacedName(rayServiceInstance), grpcRouteInstance); err != nil {
+			return false, fmt.Sprintf("Failed to retrieve GRPCRoute for RayService: %v", err)
+		}
+		if !utils.IsGRPCRouteReady(gatewayInstance, grpcRouteInstance) {
+			return false, "GRPCRoute for RayService NewClusterWithIncrementalUpgrade is not ready."
+		}
 	}
 
 	// Retrieve the current observed NewClusterWithIncrementalUpgrade Status fields for each RayService.

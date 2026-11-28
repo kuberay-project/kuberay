@@ -12,6 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -926,4 +927,45 @@ func validateLabelsForUserSpecifiedService(svc *corev1.Service, userLabels map[s
 			t.Errorf("Final labels should contain key=%s", k)
 		}
 	}
+}
+
+func TestGetGrpcPort(t *testing.T) {
+	makeCluster := func(ports []corev1.ContainerPort) *rayv1.RayCluster {
+		return &rayv1.RayCluster{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "test-ns"},
+			Spec: rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "ray-head", Ports: ports}},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("returns the declared serve-grpc port, including custom values", func(t *testing.T) {
+		cluster := makeCluster([]corev1.ContainerPort{
+			{Name: "serve", ContainerPort: 8000},
+			{Name: utils.ServingGrpcPortName, ContainerPort: 9090},
+		})
+		port, err := GetGrpcPort(cluster)
+		require.NoError(t, err)
+		assert.Equal(t, gwv1.PortNumber(9090), port)
+	})
+
+	t.Run("errors when serve-grpc is not declared", func(t *testing.T) {
+		cluster := makeCluster([]corev1.ContainerPort{{Name: "serve", ContainerPort: 8000}})
+		_, err := GetGrpcPort(cluster)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), utils.ServingGrpcPortName)
+	})
+
+	t.Run("errors when the cluster has no head container", func(t *testing.T) {
+		_, err := GetGrpcPort(&rayv1.RayCluster{ObjectMeta: metav1.ObjectMeta{Name: "empty"}})
+		require.Error(t, err)
+		_, err = GetGrpcPort(nil)
+		require.Error(t, err)
+	})
 }
