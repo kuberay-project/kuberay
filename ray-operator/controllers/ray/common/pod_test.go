@@ -1756,6 +1756,54 @@ func TestDefaultWorkerPodTemplateWithConfigurablePorts(t *testing.T) {
 	require.NoError(t, containerPortExists(podTemplateSpec.Spec.Containers[0].Ports, customMetricsPort))
 }
 
+func TestDefaultWorkerPodTemplateUsesCustomAddressForGCSReadiness(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv(EnableInitContainerInjectionEnvKey, "true")
+
+	const (
+		fqdnRayIP     = "raycluster-kuberay-head-svc.default.svc.cluster.local"
+		headPort      = "6379"
+		customAddress = "primary-head-svc.ray.svc.cluster.local:6379"
+	)
+	testCases := []struct {
+		name            string
+		rayStartParams  map[string]string
+		expectedAddress string
+	}{
+		{
+			name:            "Custom worker address",
+			rayStartParams:  map[string]string{"address": customAddress},
+			expectedAddress: customAddress,
+		},
+		{
+			name:            "Default worker address",
+			rayStartParams:  map[string]string{},
+			expectedAddress: fmt.Sprintf("%s:%s", fqdnRayIP, headPort),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			cluster := instance.DeepCopy()
+			worker := cluster.Spec.WorkerGroupSpecs[0].DeepCopy()
+			worker.RayStartParams = testCase.rayStartParams
+			podTemplate := DefaultWorkerPodTemplate(ctx, *cluster, *worker, "test-worker", fqdnRayIP, headPort, "", 0, 0)
+
+			var gcsReadyContainer *corev1.Container
+			for i := range podTemplate.Spec.InitContainers {
+				if podTemplate.Spec.InitContainers[i].Name == "wait-gcs-ready" {
+					gcsReadyContainer = &podTemplate.Spec.InitContainers[i]
+					break
+				}
+			}
+			require.NotNil(t, gcsReadyContainer, "worker pod should have wait-gcs-ready init container")
+			require.Len(t, gcsReadyContainer.Args, 1)
+			assert.Equal(t, 2, strings.Count(gcsReadyContainer.Args[0], "ray health-check --address "))
+			assert.Equal(t, 2, strings.Count(gcsReadyContainer.Args[0], "ray health-check --address "+testCase.expectedAddress))
+		})
+	}
+}
+
 func TestDefaultWorkerPodTemplate_Autoscaling(t *testing.T) {
 	clusterNoAutoscaling := instance.DeepCopy()
 	clusterAutoscalingV1 := instance.DeepCopy()

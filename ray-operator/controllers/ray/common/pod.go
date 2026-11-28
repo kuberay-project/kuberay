@@ -645,6 +645,10 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 	enableInitContainerInjection := getEnableInitContainerInjection()
 
 	if enableInitContainerInjection {
+		gcsAddress := fmt.Sprintf("%s:%s", fqdnRayIP, headPort)
+		if address, ok := workerSpec.RayStartParams["address"]; ok {
+			gcsAddress = address
+		}
 		// Do not modify `deepCopyRayContainer` anywhere.
 		deepCopyRayContainer := podTemplate.Spec.Containers[utils.RayContainerIndex].DeepCopy()
 		initContainer := corev1.Container{
@@ -657,13 +661,13 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 					SECONDS=0
 					while true; do
 						if (( SECONDS <= 120 )); then
-							if ray health-check --address %s:%s > /dev/null 2>&1; then
+							if ray health-check --address %s > /dev/null 2>&1; then
 								echo "GCS is ready."
 								break
 							fi
 							echo "$SECONDS seconds elapsed: Waiting for GCS to be ready."
 						else
-							if ray health-check --address %s:%s; then
+							if ray health-check --address %s; then
 								echo "GCS is ready. Any error messages above can be safely ignored."
 								break
 							fi
@@ -671,7 +675,7 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 						fi
 						sleep 5
 					done
-				`, fqdnRayIP, headPort, fqdnRayIP, headPort),
+				`, gcsAddress, gcsAddress),
 			},
 			SecurityContext: podTemplate.Spec.Containers[utils.RayContainerIndex].SecurityContext.DeepCopy(),
 			// This init container requires certain environment variables to establish a secure connection with the Ray head using TLS authentication.
