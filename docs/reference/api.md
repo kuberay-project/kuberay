@@ -588,6 +588,7 @@ _Appears in:_
 | `JobDeploymentStatusTransitionGracePeriodExceeded` |  |
 | `JobStatusCheckTimeoutExceeded` |  |
 | `ValidationFailed` |  |
+| `RayClusterNotFound` |  |
 
 
 #### JobStatus

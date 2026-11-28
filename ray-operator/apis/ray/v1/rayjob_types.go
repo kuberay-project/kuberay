@@ -75,6 +75,7 @@ const (
 	JobDeploymentStatusTransitionGracePeriodExceeded JobFailedReason = "JobDeploymentStatusTransitionGracePeriodExceeded"
 	JobStatusCheckTimeoutExceeded                    JobFailedReason = "JobStatusCheckTimeoutExceeded"
 	ValidationFailed                                 JobFailedReason = "ValidationFailed"
+	RayClusterNotFound                               JobFailedReason = "RayClusterNotFound"
 )
 
 type JobSubmissionMode string

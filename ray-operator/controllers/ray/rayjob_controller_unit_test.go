@@ -32,6 +32,7 @@ import (
 	schedulerinterface "github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler/interface"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/metrics/mocks"
 	utils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils/dashboardclient"
 	"github.com/ray-project/kuberay/ray-operator/pkg/client/clientset/versioned/scheme"
 	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
@@ -1192,6 +1193,105 @@ func TestReconcileHTTPModeJobNotFound(t *testing.T) {
 			assert.Equal(t, tc.expectedSubmitCalls, submitCalls)
 			assert.Equal(t, tc.expectedJobDeploymentStatus, rayJob.Status.JobDeploymentStatus)
 			assert.Equal(t, tc.expectedReason, rayJob.Status.Reason)
+		})
+	}
+}
+
+func TestRunningRayJobFailsWhenRayClusterIsDeleted(t *testing.T) {
+	tests := []struct {
+		backoffLimit                *int32
+		name                        string
+		expectedJobDeploymentStatus rayv1.JobDeploymentStatus
+	}{
+		{
+			name:                        "no backoffLimit - RayJob fails",
+			backoffLimit:                nil,
+			expectedJobDeploymentStatus: rayv1.JobDeploymentStatusFailed,
+		},
+		{
+			name:                        "backoffLimit allows retry - RayJob retries",
+			backoffLimit:                ptr.To[int32](1),
+			expectedJobDeploymentStatus: rayv1.JobDeploymentStatusRetrying,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			newScheme := runtime.NewScheme()
+			_ = rayv1.AddToScheme(newScheme)
+			_ = corev1.AddToScheme(newScheme)
+
+			rayJob := &rayv1.RayJob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-rayjob",
+					Namespace: "default",
+				},
+				Spec: rayv1.RayJobSpec{
+					Entrypoint:     "echo hello",
+					SubmissionMode: rayv1.HTTPMode,
+					BackoffLimit:   tc.backoffLimit,
+					RayClusterSpec: &rayv1.RayClusterSpec{
+						HeadGroupSpec: rayv1.HeadGroupSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{
+											Name:  "ray-head",
+											Image: "rayproject/ray:latest",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				Status: rayv1.RayJobStatus{
+					JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
+					JobStatus:           rayv1.JobStatusRunning,
+					JobId:               "test-job-id",
+					RayClusterName:      "test-raycluster",
+					StartTime:           &metav1.Time{Time: time.Now()},
+				},
+			}
+
+			fakeClient := clientFake.NewClientBuilder().
+				WithScheme(newScheme).
+				WithRuntimeObjects(rayJob).
+				WithStatusSubresource(rayJob).
+				Build()
+			recorder := events.NewFakeRecorder(100)
+			reconciler := &RayJobReconciler{
+				Client:   fakeClient,
+				Recorder: recorder,
+				Scheme:   newScheme,
+				dashboardClientFunc: func(_ *rayv1.RayCluster, _ string) (dashboardclient.RayDashboardClientInterface, error) {
+					return nil, errors.New("dashboard client should not be used when the RayCluster is missing")
+				},
+			}
+
+			ctx := context.Background()
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: rayJob.Name, Namespace: rayJob.Namespace},
+			})
+			require.NoError(t, err)
+
+			rayClusters := &rayv1.RayClusterList{}
+			require.NoError(t, fakeClient.List(ctx, rayClusters, client.InNamespace(rayJob.Namespace)))
+			assert.Empty(t, rayClusters.Items, "RayCluster should not be re-created while the RayJob is Running")
+
+			updated := &rayv1.RayJob{}
+			require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: rayJob.Name, Namespace: rayJob.Namespace}, updated))
+			assert.Equal(t, tc.expectedJobDeploymentStatus, updated.Status.JobDeploymentStatus)
+			assert.Equal(t, rayv1.RayClusterNotFound, updated.Status.Reason)
+			assert.Equal(t, int32(1), *updated.Status.Failed)
+
+			var foundEvent bool
+			for len(recorder.Events) > 0 {
+				if event := <-recorder.Events; strings.Contains(event, string(utils.RayClusterNotFound)) && strings.Contains(event, corev1.EventTypeWarning) {
+					foundEvent = true
+				}
+			}
+			assert.True(t, foundEvent, "Expected a Warning %s event", utils.RayClusterNotFound)
 		})
 	}
 }
