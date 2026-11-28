@@ -984,12 +984,7 @@ func GetRayServiceRouteTypes(spec *rayv1.RayServiceSpec) []rayv1.RouteType {
 
 // RouteTypesContain returns true if the given route type is in the list.
 func RouteTypesContain(routeTypes []rayv1.RouteType, routeType rayv1.RouteType) bool {
-	for _, rt := range routeTypes {
-		if rt == routeType {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(routeTypes, routeType)
 }
 
 // IsIncrementalUpgradeComplete checks if the conditions for completing an incremental upgrade are met.

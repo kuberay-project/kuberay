@@ -376,7 +376,7 @@ func GetGrpcPort(cluster *rayv1.RayCluster) (gwv1.PortNumber, error) {
 	headContainer := &cluster.Spec.HeadGroupSpec.Template.Spec.Containers[utils.RayContainerIndex]
 	for _, port := range headContainer.Ports {
 		if port.Name == utils.ServingGrpcPortName {
-			return gwv1.PortNumber(port.ContainerPort), nil
+			return port.ContainerPort, nil
 		}
 	}
 

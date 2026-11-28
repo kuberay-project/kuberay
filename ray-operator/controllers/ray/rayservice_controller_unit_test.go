@@ -2202,7 +2202,7 @@ func TestCreateGRPCRoute(t *testing.T) {
 
 		require.Len(t, rule.BackendRefs, 2)
 		assert.Equal(t, gwv1.ObjectName(activeServeService.Name), rule.BackendRefs[0].BackendRef.Name)
-		assert.Equal(t, gwv1.PortNumber(grpcPort), *rule.BackendRefs[0].BackendRef.Port)
+		assert.Equal(t, grpcPort, *rule.BackendRefs[0].BackendRef.Port)
 		assert.Equal(t, int32(90), *rule.BackendRefs[0].Weight)
 		assert.Equal(t, gwv1.ObjectName(pendingServeService.Name), rule.BackendRefs[1].BackendRef.Name)
 		assert.Equal(t, int32(10), *rule.BackendRefs[1].Weight)
@@ -2315,7 +2315,7 @@ func TestCreateGRPCRouteWithGatewayRef(t *testing.T) {
 	require.Len(t, route.Spec.Rules[0].BackendRefs, 1)
 	backend := route.Spec.Rules[0].BackendRefs[0]
 	assert.Equal(t, new(gwv1.Namespace(rsNamespace)), backend.BackendRef.Namespace, "backendRefs must stay in the RayService's namespace")
-	assert.Equal(t, gwv1.PortNumber(grpcPort), *backend.BackendRef.Port)
+	assert.Equal(t, grpcPort, *backend.BackendRef.Port)
 }
 
 func TestReconcileGRPCRoute(t *testing.T) {
