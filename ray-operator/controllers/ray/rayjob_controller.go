@@ -270,17 +270,13 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			break
 		}
 
-		rayClusterNamespacedName := common.RayJobRayClusterNamespacedName(rayJobInstance)
-		rayClusterInstance := &rayv1.RayCluster{}
-		if err = r.Get(ctx, rayClusterNamespacedName, rayClusterInstance); err != nil {
-			if !errors.IsNotFound(err) {
-				return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
+		var rayClusterInstance *rayv1.RayCluster
+		if rayClusterInstance, err = r.getRayClusterInstance(ctx, rayJobInstance); err != nil {
+			if errors.IsNotFound(err) && len(rayJobInstance.Spec.ClusterSelector) == 0 {
+				r.failRayJobOnMissingRayCluster(ctx, rayJobInstance)
+				break
 			}
-			if len(rayJobInstance.Spec.ClusterSelector) != 0 {
-				return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, r.selectedRayClusterNotFound(rayJobInstance, rayClusterNamespacedName, err)
-			}
-			r.failRayJobOnMissingRayCluster(ctx, rayJobInstance, rayClusterNamespacedName)
-			break
+			return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
 		}
 
 		err = r.reconcileServices(ctx, rayJobInstance, rayClusterInstance)
@@ -291,7 +287,7 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 		var finishedAt *time.Time
 		if rayJobInstance.Spec.SubmissionMode == rayv1.K8sJobMode || rayJobInstance.Spec.SubmissionMode == rayv1.SidecarMode {
 			var shouldUpdate bool
-			shouldUpdate, finishedAt, err = r.checkSubmitterAndUpdateStatusIfNeeded(ctx, rayJobInstance)
+			shouldUpdate, finishedAt, err = r.checkSubmitterAndUpdateStatusIfNeeded(ctx, rayJobInstance, rayClusterInstance)
 			if err != nil {
 				return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
 			}
@@ -955,60 +951,64 @@ func (r *RayJobReconciler) updateRayJobStatus(ctx context.Context, oldRayJob *ra
 	return nil
 }
 
-func (r *RayJobReconciler) getOrCreateRayClusterInstance(ctx context.Context, rayJobInstance *rayv1.RayJob) (*rayv1.RayCluster, error) {
+func (r *RayJobReconciler) getRayClusterInstance(ctx context.Context, rayJobInstance *rayv1.RayJob) (*rayv1.RayCluster, error) {
 	logger := ctrl.LoggerFrom(ctx)
 	rayClusterNamespacedName := common.RayJobRayClusterNamespacedName(rayJobInstance)
 	logger.Info("try to find existing RayCluster instance", "name", rayClusterNamespacedName.Name)
 
 	rayClusterInstance := &rayv1.RayCluster{}
 	if err := r.Get(ctx, rayClusterNamespacedName, rayClusterInstance); err != nil {
-		if errors.IsNotFound(err) {
-			logger.Info("RayCluster not found", "RayCluster", rayClusterNamespacedName)
-			if len(rayJobInstance.Spec.ClusterSelector) != 0 {
-				return nil, r.selectedRayClusterNotFound(rayJobInstance, rayClusterNamespacedName, err)
-			}
-
-			logger.Info("RayCluster not found, creating RayCluster!", "RayCluster", rayClusterNamespacedName)
-			rayClusterInstance, err = r.constructRayClusterForRayJob(rayJobInstance, rayClusterNamespacedName.Name)
-			if err != nil {
-				return nil, err
-			}
-
-			if r.options.BatchSchedulerManager != nil && rayJobInstance.Spec.SubmissionMode == rayv1.K8sJobMode {
-				if scheduler, err := r.options.BatchSchedulerManager.GetScheduler(); err == nil {
-					// Group name is only used for individual pods to specify their task group ("headgroup", "worker-group-1", etc.).
-					// RayCluster contains multiple groups, so we pass an empty string.
-					scheduler.AddMetadataToChildResource(ctx, rayJobInstance, rayClusterInstance, "")
-				} else {
-					return nil, err
-				}
-			}
-			if err := r.Create(ctx, rayClusterInstance); err != nil {
-				r.Recorder.Eventf(rayJobInstance, nil, corev1.EventTypeWarning, string(utils.FailedToCreateRayCluster), string(utils.CreateAction), "Failed to create RayCluster %s/%s: %v", rayClusterInstance.Namespace, rayClusterInstance.Name, err)
-				return nil, err
-			}
-			r.Recorder.Eventf(rayJobInstance, nil, corev1.EventTypeNormal, string(utils.CreatedRayCluster), string(utils.CreateAction), "Created RayCluster %s/%s", rayClusterInstance.Namespace, rayClusterInstance.Name)
-		} else {
-			return nil, err
+		if errors.IsNotFound(err) && len(rayJobInstance.Spec.ClusterSelector) != 0 {
+			r.Recorder.Eventf(rayJobInstance, nil, corev1.EventTypeWarning, string(utils.RayClusterNotFound), string(utils.ValidateAction), "RayCluster %s/%s set in the clusterSelector is not found. It must be created manually", rayClusterNamespacedName.Namespace, rayClusterNamespacedName.Name)
+			return nil, fmt.Errorf("clusterSelector mode is enabled, but RayCluster %s/%s is not found: %w", rayClusterNamespacedName.Namespace, rayClusterNamespacedName.Name, err)
 		}
+		return nil, err
 	}
 	logger.Info("Found the associated RayCluster for RayJob", "RayCluster", rayClusterNamespacedName)
-
-	// Verify that RayJob is not in cluster selector mode first to avoid nil pointer dereference error during spec comparison.
-	// This is checked by ensuring len(rayJobInstance.Spec.ClusterSelector) equals 0.
-	if len(rayJobInstance.Spec.ClusterSelector) == 0 && !utils.CompareJsonStruct(rayClusterInstance.Spec, *rayJobInstance.Spec.RayClusterSpec) {
-		logger.Info("Disregard changes in RayClusterSpec of RayJob")
-	}
-
 	return rayClusterInstance, nil
 }
 
-func (r *RayJobReconciler) selectedRayClusterNotFound(rayJobInstance *rayv1.RayJob, rayClusterNamespacedName types.NamespacedName, err error) error {
-	r.Recorder.Eventf(rayJobInstance, nil, corev1.EventTypeWarning, string(utils.RayClusterNotFound), string(utils.ValidateAction), "RayCluster %s/%s set in the clusterSelector is not found. It must be created manually", rayClusterNamespacedName.Namespace, rayClusterNamespacedName.Name)
-	return fmt.Errorf("clusterSelector mode is enabled, but RayCluster %s/%s is not found: %w", rayClusterNamespacedName.Namespace, rayClusterNamespacedName.Name, err)
+func (r *RayJobReconciler) getOrCreateRayClusterInstance(ctx context.Context, rayJobInstance *rayv1.RayJob) (*rayv1.RayCluster, error) {
+	logger := ctrl.LoggerFrom(ctx)
+	rayClusterInstance, err := r.getRayClusterInstance(ctx, rayJobInstance)
+	if err == nil {
+		// Verify that RayJob is not in cluster selector mode first to avoid nil pointer dereference error during spec comparison.
+		// This is checked by ensuring len(rayJobInstance.Spec.ClusterSelector) equals 0.
+		if len(rayJobInstance.Spec.ClusterSelector) == 0 && !utils.CompareJsonStruct(rayClusterInstance.Spec, *rayJobInstance.Spec.RayClusterSpec) {
+			logger.Info("Disregard changes in RayClusterSpec of RayJob")
+		}
+		return rayClusterInstance, nil
+	}
+	if !errors.IsNotFound(err) || len(rayJobInstance.Spec.ClusterSelector) != 0 {
+		return nil, err
+	}
+
+	rayClusterNamespacedName := common.RayJobRayClusterNamespacedName(rayJobInstance)
+	logger.Info("RayCluster not found, creating RayCluster!", "RayCluster", rayClusterNamespacedName)
+	rayClusterInstance, err = r.constructRayClusterForRayJob(rayJobInstance, rayClusterNamespacedName.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	if r.options.BatchSchedulerManager != nil && rayJobInstance.Spec.SubmissionMode == rayv1.K8sJobMode {
+		scheduler, err := r.options.BatchSchedulerManager.GetScheduler()
+		if err != nil {
+			return nil, err
+		}
+		// Group name is only used for individual pods to specify their task group ("headgroup", "worker-group-1", etc.).
+		// RayCluster contains multiple groups, so we pass an empty string.
+		scheduler.AddMetadataToChildResource(ctx, rayJobInstance, rayClusterInstance, "")
+	}
+	if err := r.Create(ctx, rayClusterInstance); err != nil {
+		r.Recorder.Eventf(rayJobInstance, nil, corev1.EventTypeWarning, string(utils.FailedToCreateRayCluster), string(utils.CreateAction), "Failed to create RayCluster %s/%s: %v", rayClusterInstance.Namespace, rayClusterInstance.Name, err)
+		return nil, err
+	}
+	r.Recorder.Eventf(rayJobInstance, nil, corev1.EventTypeNormal, string(utils.CreatedRayCluster), string(utils.CreateAction), "Created RayCluster %s/%s", rayClusterInstance.Namespace, rayClusterInstance.Name)
+	return rayClusterInstance, nil
 }
 
-func (r *RayJobReconciler) failRayJobOnMissingRayCluster(ctx context.Context, rayJobInstance *rayv1.RayJob, rayClusterNamespacedName types.NamespacedName) {
+func (r *RayJobReconciler) failRayJobOnMissingRayCluster(ctx context.Context, rayJobInstance *rayv1.RayJob) {
+	rayClusterNamespacedName := common.RayJobRayClusterNamespacedName(rayJobInstance)
 	message := fmt.Sprintf("RayCluster %s/%s was not found while the RayJob was Running", rayClusterNamespacedName.Namespace, rayClusterNamespacedName.Name)
 	ctrl.LoggerFrom(ctx).Info(message)
 	r.Recorder.Eventf(rayJobInstance, nil, corev1.EventTypeWarning, string(utils.RayClusterNotFound), string(utils.ValidateAction), "%s", message)
@@ -1082,7 +1082,7 @@ func updateStatusToSuspendingIfNeeded(ctx context.Context, rayJob *rayv1.RayJob)
 	return true
 }
 
-func (r *RayJobReconciler) checkSubmitterAndUpdateStatusIfNeeded(ctx context.Context, rayJob *rayv1.RayJob) (shouldUpdate bool, finishedAt *time.Time, err error) {
+func (r *RayJobReconciler) checkSubmitterAndUpdateStatusIfNeeded(ctx context.Context, rayJob *rayv1.RayJob, rayClusterInstance *rayv1.RayCluster) (shouldUpdate bool, finishedAt *time.Time, err error) {
 	logger := ctrl.LoggerFrom(ctx)
 	shouldUpdate = false
 	finishedAt = nil
@@ -1091,15 +1091,7 @@ func (r *RayJobReconciler) checkSubmitterAndUpdateStatusIfNeeded(ctx context.Con
 
 	switch rayJob.Spec.SubmissionMode {
 	case rayv1.SidecarMode:
-		var rayClusterInstance *rayv1.RayCluster
 		var headPod *corev1.Pod
-
-		rayClusterInstance, err = r.getOrCreateRayClusterInstance(ctx, rayJob)
-		if err != nil {
-			logger.Error(err, "Failed to get RayCluster instance for checking sidecar container status")
-			return
-		}
-
 		headPod, err = common.GetRayClusterHeadPod(ctx, r.Client, rayClusterInstance)
 		if err != nil {
 			logger.Error(err, "Failed to get Ray head pod for checking sidecar container status")
