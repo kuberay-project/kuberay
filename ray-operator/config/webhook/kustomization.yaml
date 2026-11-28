@@ -4,9 +4,6 @@ resources:
 
 namePrefix: kuberay-
 
-configurations:
-- kustomizeconfig.yaml
-
 replacements:
 - source:
     kind: Service
