@@ -213,7 +213,7 @@ func RayServiceOwnedGatewayNamespacedName(rayService *rayv1.RayService) types.Na
 }
 
 // RayServiceGatewayNamespacedName returns the Gateway to which this RayService's
-// HTTPRoute should attach, either the KubeRay-owned Gateway or the Gateway
+// routes should attach, either the KubeRay-owned Gateway or the Gateway
 // referenced by GatewayRef.
 func RayServiceGatewayNamespacedName(rayService *rayv1.RayService) types.NamespacedName {
 	if opts := utils.GetRayServiceClusterUpgradeOptions(&rayService.Spec); opts != nil && opts.GatewayRef != nil {
@@ -232,6 +232,13 @@ func RayServiceGatewayNamespacedName(rayService *rayv1.RayService) types.Namespa
 func RayServiceHTTPRouteNamespacedName(rayService *rayv1.RayService) types.NamespacedName {
 	return types.NamespacedName{
 		Name:      fmt.Sprintf("%s-httproute", rayService.Name),
+		Namespace: rayService.Namespace,
+	}
+}
+
+func RayServiceGRPCRouteNamespacedName(rayService *rayv1.RayService) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-grpcroute", rayService.Name),
 		Namespace: rayService.Namespace,
 	}
 }

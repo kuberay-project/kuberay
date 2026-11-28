@@ -398,3 +398,14 @@ func TestRayClusterNetworkResourcesOptions(t *testing.T) {
 
 	assert.Equal(t, expected, result)
 }
+
+func TestRayServiceGRPCRouteNamespacedName(t *testing.T) {
+	rayService := &rayv1.RayService{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice", Namespace: "test-ns"},
+	}
+
+	got := RayServiceGRPCRouteNamespacedName(rayService)
+
+	assert.Equal(t, "test-rayservice-grpcroute", got.Name)
+	assert.Equal(t, "test-ns", got.Namespace)
+}

@@ -9829,6 +9829,18 @@ spec:
                         default: 100
                         format: int32
                         type: integer
+                      routeTypes:
+                        default:
+                        - http
+                        items:
+                          enum:
+                          - http
+                          - grpc
+                          type: string
+                        maxItems: 2
+                        minItems: 1
+                        type: array
+                        x-kubernetes-list-type: set
                       stepSizePercent:
                         format: int32
                         type: integer

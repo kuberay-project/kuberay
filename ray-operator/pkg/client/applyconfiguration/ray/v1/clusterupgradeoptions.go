@@ -2,6 +2,10 @@
 
 package v1
 
+import (
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+)
+
 // ClusterUpgradeOptionsApplyConfiguration represents a declarative configuration of the ClusterUpgradeOptions type for use
 // with apply.
 //
@@ -18,10 +22,15 @@ type ClusterUpgradeOptionsApplyConfiguration struct {
 	// The name of the Gateway Class installed by the Kubernetes Cluster admin.
 	// Exactly one of GatewayClassName or GatewayRef must be set.
 	GatewayClassName *string `json:"gatewayClassName,omitempty"`
-	// GatewayRef attaches the HTTPRoute to an existing Gateway instead of creating one per RayService.
-	// The referenced Gateway must allow HTTPRoutes from the RayService's namespace.
+	// GatewayRef attaches the RayService's route(s) (per RouteTypes) to an existing Gateway
+	// instead of creating one per RayService. The referenced Gateway must allow routes from
+	// the RayService's namespace.
 	// Exactly one of GatewayClassName or GatewayRef must be set.
 	GatewayRef *GatewayReferenceApplyConfiguration `json:"gatewayRef,omitempty"`
+	// RouteTypes selects which Gateway API route kinds the controller reconciles for the
+	// Gateway: "http" reconciles an HTTPRoute, "grpc" reconciles a GRPCRoute. A route kind
+	// that exists but is not listed is deleted. Defaults to ["http"] for backward compatibility.
+	RouteTypes []rayv1.RouteType `json:"routeTypes,omitempty"`
 }
 
 // ClusterUpgradeOptionsApplyConfiguration constructs a declarative configuration of the ClusterUpgradeOptions type for use with
@@ -67,5 +76,15 @@ func (b *ClusterUpgradeOptionsApplyConfiguration) WithGatewayClassName(value str
 // If called multiple times, the GatewayRef field is set to the value of the last call.
 func (b *ClusterUpgradeOptionsApplyConfiguration) WithGatewayRef(value *GatewayReferenceApplyConfiguration) *ClusterUpgradeOptionsApplyConfiguration {
 	b.GatewayRef = value
+	return b
+}
+
+// WithRouteTypes adds the given value to the RouteTypes field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the RouteTypes field.
+func (b *ClusterUpgradeOptionsApplyConfiguration) WithRouteTypes(values ...rayv1.RouteType) *ClusterUpgradeOptionsApplyConfiguration {
+	for i := range values {
+		b.RouteTypes = append(b.RouteTypes, values[i])
+	}
 	return b
 }

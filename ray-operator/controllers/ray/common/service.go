@@ -215,10 +215,27 @@ func BuildServeService(ctx context.Context, rayService rayv1.RayService, rayClus
 	// Include ports named "serve" or with the prefix "serve-" (e.g., "serve-grpc") to support
 	// multiple serving protocols such as HTTP and gRPC.
 	portsInt := getServicePorts(rayCluster)
+
+	// Carry AppProtocol (e.g. "kubernetes.io/h2c" for gRPC) from a user-provided ServeService
+	// onto the auto-detected serving ports by name. The custom ServeService branch below is
+	// skipped during an incremental upgrade because each per-cluster Service needs a unique
+	// name, so without this the per-cluster serve Service would lose AppProtocol.
+	userAppProtocol := make(map[string]*string)
+	if isRayService && rayService.Spec.ServeService != nil {
+		for _, p := range rayService.Spec.ServeService.Spec.Ports {
+			if p.AppProtocol != nil {
+				userAppProtocol[p.Name] = p.AppProtocol
+			}
+		}
+	}
+
 	ports := make([]corev1.ServicePort, 0)
 	for name, port := range portsInt {
 		if isServingPort(name) {
 			svcPort := corev1.ServicePort{Name: name, Port: port}
+			if appProtocol, ok := userAppProtocol[name]; ok {
+				svcPort.AppProtocol = appProtocol
+			}
 			ports = append(ports, svcPort)
 		}
 	}
@@ -345,6 +362,25 @@ func GetServePort(cluster *rayv1.RayCluster) gwv1.PortNumber {
 	)
 
 	return port
+}
+
+// GetGrpcPort finds the container port named "serve-grpc" in the RayCluster's head
+// group spec. Unlike GetServePort, it returns an error when the port is undeclared:
+// gRPC routing is opt-in via ClusterUpgradeOptions.RouteTypes, so there is no safe
+// default to fall back to. Custom port numbers flow through unchanged.
+func GetGrpcPort(cluster *rayv1.RayCluster) (gwv1.PortNumber, error) {
+	if cluster == nil || len(cluster.Spec.HeadGroupSpec.Template.Spec.Containers) == 0 {
+		return 0, fmt.Errorf("RayCluster has no head container; declare a port named %q to enable gRPC routing", utils.ServingGrpcPortName)
+	}
+
+	headContainer := &cluster.Spec.HeadGroupSpec.Template.Spec.Containers[utils.RayContainerIndex]
+	for _, port := range headContainer.Ports {
+		if port.Name == utils.ServingGrpcPortName {
+			return port.ContainerPort, nil
+		}
+	}
+
+	return 0, fmt.Errorf("no port named %q declared in the head container of RayCluster %s; declare one to enable gRPC routing", utils.ServingGrpcPortName, cluster.Name)
 }
 
 func setServiceTypeForUserProvidedService(ctx context.Context, service *corev1.Service, defaultType corev1.ServiceType) {
